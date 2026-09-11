@@ -243,16 +243,16 @@ class AntigravityHarness:
 
         # Check if user prompt requests Codebase Architecture Analysis or Repo Explanation
         has_analysis_intent = bool(
-            re.search(r"\b(analy[sz]e|analy[sz]is|audit)\s+(this\s+|the\s+)?(repo|repository|codebase|project|workspace|app|service|topology)\b", lower_prompt)
-            or re.search(r"\b(what\s+is\s+(in\s+)?(this|the)\s+(repo|repository|codebase|project|workspace|app|service))\b", lower_prompt)
-            or re.search(r"\b(what\s+is\s+this\s+(on|about|repo|repository|codebase|project|app|service|tool|framework))\b", lower_prompt)
-            or re.search(r"\b(explain\s+(the|this|my)?\s*(repo|repository|codebase|project|app|service|application|system|architecture|workspace))\b", lower_prompt)
-            or re.search(r"\b(tell\s+me\s+about\s+(the|this|my)?\s*(repo|repository|codebase|project|app|service))\b", lower_prompt)
-            or re.search(r"\b(what\s+does\s+this\s+(repo|project|codebase|app|service|package|tool)\s*(do|have|contain)?)\b", lower_prompt)
+            re.search(r"\b(analy[sz]e|analy[sz]is|audit)\s+(this\s+|the\s+)?([A-Za-z0-9_.-]+\s+)?(repo|repository|codebase|project|workspace|app|service|topology|monorepo|architecture)\b", lower_prompt)
+            or re.search(r"\b(what\s+is\s+(in\s+)?(this|the)\s+([A-Za-z0-9_.-]+\s+)?(repo|repository|codebase|project|workspace|app|service|monorepo))\b", lower_prompt)
+            or re.search(r"\b(what\s+is\s+this\s+(on|about|repo|repository|codebase|project|app|service|tool|framework|monorepo))\b", lower_prompt)
+            or re.search(r"\b(explain\s+(the|this|my)?\s*(repo|repository|codebase|project|app|service|application|system|architecture|workspace|monorepo))\b", lower_prompt)
+            or re.search(r"\b(tell\s+me\s+about\s+(the|this|my)?\s*(repo|repository|codebase|project|app|service|monorepo))\b", lower_prompt)
+            or re.search(r"\b(what\s+does\s+this\s+(repo|project|codebase|app|service|package|tool|monorepo)\s*(do|have|contain)?)\b", lower_prompt)
             or any(q in lower_prompt for q in (
                 "what is this on", "what is in the repo", "what is this repo", "explain the repo", "explain repo", "explain this repo", 
                 "explain project", "explain codebase", "tell me what this is", "what does this repo do", 
-                "summarize repo", "summarize codebase", "repo overview", "project overview"
+                "summarize repo", "summarize codebase", "repo overview", "project overview", "monorepo architecture", "codebase architecture"
             ))
         )
 

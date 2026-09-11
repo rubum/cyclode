@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Copy, Check, Info, AlertTriangle, AlertCircle, Sparkles, Flame } from 'lucide-react';
-import { highlightCode, resolveLanguage } from '../../utils/syntaxHighlighter';
+import katex from 'katex';
+import { highlightCode, resolveLanguage, escapeHtml } from '../../utils/syntaxHighlighter';
 
 interface MarkdownRendererProps {
   content: string;
@@ -10,6 +11,19 @@ interface MarkdownRendererProps {
 
 function getHighlightedHtml(code: string, lang: string): string {
   return highlightCode(code, lang);
+}
+
+function renderKatex(latex: string, displayMode: boolean = false): string {
+  try {
+    return katex.renderToString(latex, {
+      displayMode,
+      throwOnError: false,
+      output: 'htmlAndMathml',
+      strict: false,
+    });
+  } catch (e) {
+    return `<span class="katex-error font-mono text-onedark-yellow text-[12px]">${escapeHtml(latex)}</span>`;
+  }
 }
 
 interface NestedListItem {
@@ -91,8 +105,8 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
     );
   };
 
-  // Split by code blocks first
-  const parts = content.split(/(```[\s\S]*?```)/g);
+  // Split by code blocks and display math blocks ($$...$$ or \[...\])
+  const parts = content.split(/(```[\s\S]*?```|\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\])/g);
 
   return (
     <div className={`space-y-3 text-[14px] leading-[1.7] text-[#D1D5DB] font-sans ${className}`}>
@@ -147,6 +161,21 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                 </pre>
               </div>
             </div>
+          );
+        }
+
+        // Display Math Block ($$...$$ or \[...\])
+        if (
+          (part.startsWith('$$') && part.endsWith('$$') && part.length >= 4) ||
+          (part.startsWith('\\[') && part.endsWith('\\]') && part.length >= 4)
+        ) {
+          const math = part.startsWith('$$') ? part.slice(2, -2).trim() : part.slice(2, -2).trim();
+          return (
+            <div
+              key={index}
+              className="my-3 py-3 px-4 rounded-xl bg-onedark-darker/90 border border-onedark-borderSubtle overflow-x-auto text-center text-[#F4F4F5] shadow-xs selection:bg-onedark-accent/30"
+              dangerouslySetInnerHTML={{ __html: renderKatex(math, true) }}
+            />
           );
         }
 
@@ -530,36 +559,47 @@ function normalizeSpecialSymbols(text: string): string {
     // Escaped asterisks: \* -> *
     .replace(/\\\*/g, '*')
     // Escaped underscores: \_ -> _
-    .replace(/\\_/g, '_')
-    // LaTeX arrows & math
-    .replace(/\$\\to\$/g, '→')
-    .replace(/\\to\b/g, '→')
-    .replace(/\$\\leftarrow\$/g, '←')
-    .replace(/\\leftarrow\b/g, '←')
-    .replace(/\$\\Rightarrow\$/g, '⇒')
-    .replace(/\\Rightarrow\b/g, '⇒')
-    .replace(/\$\\iff\$/g, '⇔')
-    .replace(/\\iff\b/g, '⇔')
-    .replace(/\$\\approx\$/g, '≈')
-    .replace(/\\approx\b/g, '≈')
-    .replace(/\$\\neq\$/g, '≠')
-    .replace(/\\neq\b/g, '≠')
-    .replace(/\$\\le\$/g, '≤')
-    .replace(/\\le\b/g, '≤')
-    .replace(/\$\\ge\$/g, '≥')
-    .replace(/\\ge\b/g, '≥')
-    .replace(/\$\\times\$/g, '×')
-    .replace(/\\times\b/g, '×');
+    .replace(/\\_/g, '_');
 }
 
 function renderInline(rawText: string): React.ReactNode {
-  const text = normalizeSpecialSymbols(rawText);
-
-  // Match inline code (`...`), bold (**...** or __...__), strikethrough (~~...~~), italic (*...* or _..._), and links ([...](...))
-  const tokens = text.split(/(`+[^`]+`+|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\*[^*]+\*|(?<!\w)_[^_]+_(?!\w)|\[[^\]]+\]\([^)]+\))/g);
+  // Match display math ($$...$$ or \[...\]), inline math ($...$ or \(...\)), inline code (`...`), bold, strikethrough, italic, and links
+  const tokens = rawText.split(
+    /(\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|\$(?!\s)(?:\\\$|[^\$\n])+?(?<!\s)\$|`+[^`]+`+|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\*[^*]+\*|(?<!\w)_[^_]+_(?!\w)|\[[^\]]+\]\([^)]+\))/g
+  );
 
   return tokens.map((token, i) => {
     if (!token) return null;
+
+    // Display Math ($$...$$ or \[...\])
+    if (
+      (token.startsWith('$$') && token.endsWith('$$') && token.length >= 4) ||
+      (token.startsWith('\\[') && token.endsWith('\\]') && token.length >= 4)
+    ) {
+      const math = token.startsWith('$$') ? token.slice(2, -2).trim() : token.slice(2, -2).trim();
+      return (
+        <span
+          key={i}
+          className="my-2.5 block overflow-x-auto text-center py-2 px-3 rounded-lg bg-onedark-darker/70 border border-onedark-borderSubtle/50 text-[#F4F4F5] selection:bg-onedark-accent/30"
+          dangerouslySetInnerHTML={{ __html: renderKatex(math, true) }}
+        />
+      );
+    }
+
+    // Inline Math ($...$ or \(...\))
+    if (
+      (token.startsWith('$') && token.endsWith('$') && token.length >= 2 && !token.startsWith('$$')) ||
+      (token.startsWith('\\(') && token.endsWith('\\)') && token.length >= 4)
+    ) {
+      const math = token.startsWith('$') ? token.slice(1, -1).trim() : token.slice(2, -2).trim();
+      return (
+        <span
+          key={i}
+          className="inline-math px-0.5 text-[#F4F4F5] align-baseline"
+          dangerouslySetInnerHTML={{ __html: renderKatex(math, false) }}
+        />
+      );
+    }
 
     // Inline code (`...` or ``...``)
     const codeMatch = token.match(/^(`+)([\s\S]+?)\1$/);
@@ -581,7 +621,7 @@ function renderInline(rawText: string): React.ReactNode {
     ) {
       return (
         <strong key={i} className="font-semibold text-[#F4F4F5]">
-          {token.slice(2, -2)}
+          {renderInline(token.slice(2, -2))}
         </strong>
       );
     }
@@ -590,7 +630,7 @@ function renderInline(rawText: string): React.ReactNode {
     if (token.startsWith('~~') && token.endsWith('~~') && token.length > 4) {
       return (
         <del key={i} className="line-through text-onedark-muted">
-          {token.slice(2, -2)}
+          {renderInline(token.slice(2, -2))}
         </del>
       );
     }
@@ -602,7 +642,7 @@ function renderInline(rawText: string): React.ReactNode {
     ) {
       return (
         <em key={i} className="italic text-onedark-fgBright">
-          {token.slice(1, -1)}
+          {renderInline(token.slice(1, -1))}
         </em>
       );
     }
@@ -623,6 +663,7 @@ function renderInline(rawText: string): React.ReactNode {
       );
     }
 
-    return token;
+    // Plain text
+    return <React.Fragment key={i}>{normalizeSpecialSymbols(token)}</React.Fragment>;
   });
 }
