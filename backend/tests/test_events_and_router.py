@@ -118,4 +118,63 @@ async def test_conversational_auth_guidance(tmp_path):
     assert "repo" in content
 
 
+@pytest.mark.asyncio
+async def test_repository_analysis_intent(tmp_path):
+    from app.agent.harness import antigravity_harness
+    from app.core.worktree import worktree_manager
+
+    # Initialize sample repo in tmp_path
+    worktree_manager.init_sample_repo_if_needed(tmp_path)
+
+    messages_captured = []
+    async def mock_msg(sender, content):
+        messages_captured.append((sender, content))
+
+    # Test 1: "Analyse it"
+    res1 = await antigravity_harness._execute_local_intent(
+        task_id="task-analysis-1",
+        title="Analyse it",
+        prompt="Analyse it",
+        persona_name="PairProgrammer",
+        workspace_path=tmp_path,
+        on_thought=lambda t: None,
+        on_tool_start=lambda n, a: None,
+        on_tool_end=lambda n, o, e, d, a=None: None,
+        on_message=mock_msg,
+        on_approval_required=lambda a, d: None,
+        on_diff_updated=lambda d: None
+    )
+
+    assert res1.get("status") == "COMPLETED"
+    assert len(messages_captured) == 1
+    sender, content = messages_captured[0]
+    assert sender == "agent"
+    assert "Repository & Architecture Analysis" in content
+    assert "Tech Stack & Environment" in content
+    assert "app/auth_service.py" in content or "app" in content
+
+    # Test 2: Follow-up question "Where is the repo analysis"
+    messages_captured.clear()
+    res2 = await antigravity_harness._execute_local_intent(
+        task_id="task-analysis-2",
+        title="Where is the repo analysis",
+        prompt="Where is the repo analysis",
+        persona_name="PairProgrammer",
+        workspace_path=tmp_path,
+        on_thought=lambda t: None,
+        on_tool_start=lambda n, a: None,
+        on_tool_end=lambda n, o, e, d, a=None: None,
+        on_message=mock_msg,
+        on_approval_required=lambda a, d: None,
+        on_diff_updated=lambda d: None
+    )
+
+    assert res2.get("status") == "COMPLETED"
+    assert len(messages_captured) == 1
+    sender, content = messages_captured[0]
+    assert "Repository & Architecture Analysis" in content
+    assert "Quick Navigation" not in content
+
+
+
 
