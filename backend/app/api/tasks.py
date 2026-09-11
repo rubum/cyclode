@@ -202,8 +202,8 @@ async def get_task_sandbox_info(task_id: str, db: AsyncSession = Depends(get_db)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    ws_path = Path(task.workspace_path)
-    exists = ws_path.exists() and ws_path.is_dir()
+    ws_path = Path(task.workspace_path) if task.workspace_path else None
+    exists = bool(ws_path and ws_path.exists() and ws_path.is_dir())
 
     def build_tree(current_path: Path, max_depth: int = 4, current_depth: int = 0) -> List[Dict[str, Any]]:
         if not current_path.exists() or current_depth >= max_depth:
@@ -213,7 +213,7 @@ async def get_task_sandbox_info(task_id: str, db: AsyncSession = Depends(get_db)
             for p in sorted(current_path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
                 if p.name in (".git", "__pycache__", ".pytest_cache", "node_modules"):
                     continue
-                rel = str(p.relative_to(ws_path))
+                rel = str(p.relative_to(ws_path)) if ws_path else p.name
                 if p.is_dir():
                     children = build_tree(p, max_depth, current_depth + 1)
                     items.append({
@@ -235,7 +235,7 @@ async def get_task_sandbox_info(task_id: str, db: AsyncSession = Depends(get_db)
             pass
         return items
 
-    file_tree = build_tree(ws_path) if exists else []
+    file_tree = build_tree(ws_path) if (exists and ws_path) else []
 
     def count_and_size(tree: List[Dict[str, Any]]) -> Tuple[int, int]:
         f_count = 0
@@ -254,8 +254,8 @@ async def get_task_sandbox_info(task_id: str, db: AsyncSession = Depends(get_db)
 
     return {
         "task_id": task.id,
-        "sandbox_status": task.sandbox_status,
-        "workspace_path": str(ws_path),
+        "sandbox_status": task.sandbox_status or ("PROVISIONING" if task.status == "INITIALIZING" else "ACTIVE"),
+        "workspace_path": str(ws_path) if ws_path else "",
         "exists_on_disk": exists,
         "git_branch": task.git_branch,
         "repo_url": task.repo_url,
@@ -283,6 +283,9 @@ async def get_sandbox_file_content(task_id: str, path: str, db: AsyncSession = D
     task = result.scalars().first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+
+    if not task.workspace_path:
+        raise HTTPException(status_code=404, detail="Sandbox workspace does not exist on disk")
 
     ws_path = Path(task.workspace_path).resolve()
     if not ws_path.exists() or not ws_path.is_dir():

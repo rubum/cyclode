@@ -43,19 +43,38 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const pollTimerRef = React.useRef<any>(null);
 
-  const fetchSandboxData = async () => {
-    setLoading(true);
+  const fetchSandboxData = async (silent = false) => {
+    if (!silent) setLoading(true);
     setError(null);
     try {
       const res = await fetch(`${API_BASE}/api/tasks/${task.id}/sandbox`);
       if (!res.ok) {
+        if (res.status === 404 && (task.status === 'INITIALIZING' || task.sandbox_status === 'PROVISIONING')) {
+          setData((prev) => prev || {
+            task_id: task.id,
+            sandbox_status: 'PROVISIONING',
+            workspace_path: task.workspace_path || '',
+            exists_on_disk: false,
+            file_tree: [],
+            file_count: 0,
+            total_size_bytes: 0,
+            runtime: {
+              mode: 'ephemeral_sandbox',
+              isolation: 'filesystem_confinement',
+              lifecycle: 'active_execution',
+              timeout_seconds: 60
+            }
+          });
+          return;
+        }
         throw new Error(`Failed to fetch sandbox details (${res.status})`);
       }
       const json: SandboxInfo = await res.json();
       setData(json);
 
-      if (!selectedFile && json.file_tree.length > 0) {
+      if (!selectedFile && json.file_tree && json.file_tree.length > 0) {
         const findFirstFile = (nodes: FileNode[]): string | null => {
           for (const n of nodes) {
             if (!n.is_dir) return n.path;
@@ -70,15 +89,30 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
         if (first) setSelectedFile(first);
       }
     } catch (err: any) {
-      setError(err.message || 'Error loading sandbox inspector');
+      if (task.status !== 'INITIALIZING' && task.sandbox_status !== 'PROVISIONING') {
+        setError(err.message || 'Error loading sandbox inspector');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchSandboxData();
-  }, [task.id]);
+
+    const isProvisioning = task.status === 'INITIALIZING' || task.sandbox_status === 'PROVISIONING' || (data && data.sandbox_status === 'PROVISIONING');
+    if (isProvisioning) {
+      pollTimerRef.current = setInterval(() => {
+        fetchSandboxData(true);
+      }, 1800);
+    }
+
+    return () => {
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+      }
+    };
+  }, [task.id, task.status, task.sandbox_status]);
 
   const formatBytes = (bytes: number) => {
     if (bytes === 0) return '0 B';

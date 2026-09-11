@@ -1,5 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { RefreshCw, AlertCircle, Box, HardDrive } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  RefreshCw, 
+  AlertCircle, 
+  Box, 
+  Layers,
+  FolderLock,
+  Sparkles
+} from 'lucide-react';
 import { Task } from '../../types';
 import { FileTreeExplorer, FileNode } from '../Files/FileTreeExplorer';
 import { CodeViewer } from '../Files/CodeViewer';
@@ -13,6 +20,10 @@ interface SandboxInfo {
   sandbox_status: string;
   workspace_path: string;
   exists_on_disk: boolean;
+  git_branch?: string;
+  repo_url?: string;
+  target_branch?: string;
+  commit_sha?: string;
   file_tree: FileNode[];
   file_count: number;
   total_size_bytes: number;
@@ -25,20 +36,32 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const pollTimerRef = useRef<any>(null);
 
-  const fetchFilesystem = async () => {
-    setLoading(true);
+  const fetchFilesystem = async (silent = false) => {
+    if (!silent) setLoading(true);
     setError(null);
     try {
       const res = await fetch(`${API_BASE}/api/tasks/${task.id}/sandbox`);
       if (!res.ok) {
+        if (res.status === 404 && (task.status === 'INITIALIZING' || task.sandbox_status === 'PROVISIONING')) {
+          setData((prev) => prev || {
+            task_id: task.id,
+            sandbox_status: 'PROVISIONING',
+            workspace_path: task.workspace_path || '',
+            exists_on_disk: false,
+            file_tree: [],
+            file_count: 0,
+            total_size_bytes: 0
+          });
+          return;
+        }
         throw new Error(`Failed to load sandbox filesystem (${res.status})`);
       }
       const json: SandboxInfo = await res.json();
       setData(json);
 
-      // If no file selected yet, auto-select first file in tree if exists
-      if (!selectedFile && json.file_tree.length > 0) {
+      if (!selectedFile && json.file_tree && json.file_tree.length > 0) {
         const findFirstFile = (nodes: FileNode[]): string | null => {
           for (const n of nodes) {
             if (!n.is_dir) return n.path;
@@ -53,17 +76,32 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
         if (first) setSelectedFile(first);
       }
     } catch (err: any) {
-      setError(err.message || 'Error fetching sandbox explorer');
+      if (task.status !== 'INITIALIZING' && task.sandbox_status !== 'PROVISIONING') {
+        setError(err.message || 'Error fetching sandbox explorer');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchFilesystem();
-  }, [task.id, task.status]);
 
-  if (loading && !data) {
+    const isProvisioning = task.status === 'INITIALIZING' || task.sandbox_status === 'PROVISIONING' || (data && data.sandbox_status === 'PROVISIONING');
+    if (isProvisioning) {
+      pollTimerRef.current = setInterval(() => {
+        fetchFilesystem(true);
+      }, 1800);
+    }
+
+    return () => {
+      if (pollTimerRef.current) {
+        clearInterval(pollTimerRef.current);
+      }
+    };
+  }, [task.id, task.status, task.sandbox_status]);
+
+  if (loading && !data && task.status !== 'INITIALIZING' && task.sandbox_status !== 'PROVISIONING') {
     return (
       <div className="h-full flex flex-col items-center justify-center p-6 text-onedark-muted font-mono space-y-2">
         <RefreshCw className="w-5 h-5 animate-spin text-onedark-accent" />
@@ -72,7 +110,53 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
     );
   }
 
-  if (error) {
+  const isCurrentlyProvisioning = 
+    task.sandbox_status === 'PROVISIONING' || 
+    task.status === 'INITIALIZING' || 
+    (data && data.sandbox_status === 'PROVISIONING' && (!data.file_tree || data.file_tree.length === 0));
+
+  if (isCurrentlyProvisioning) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center p-6 text-center text-onedark-muted font-mono select-none space-y-3">
+        <div className="relative">
+          <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 animate-pulse">
+            <Layers className="w-6 h-6 animate-bounce" />
+          </div>
+          <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-onedark-bg border-2 border-onedark-bg flex items-center justify-center">
+            <RefreshCw className="w-3 h-3 text-amber-400 animate-spin" />
+          </div>
+        </div>
+        <div>
+          <div className="text-xs font-semibold text-onedark-fg">Provisioning Sandbox Workspace</div>
+          <div className="text-[11px] text-onedark-muted mt-1 max-w-xs leading-relaxed">
+            Allocating isolated filesystem, preparing repository worktree, and synchronizing workspace structure...
+          </div>
+        </div>
+        <div className="flex items-center space-x-1.5 text-[10px] text-amber-400/80 bg-amber-500/10 px-2.5 py-1 rounded-full border border-amber-500/20">
+          <Sparkles className="w-3 h-3" />
+          <span>Files will appear automatically once ready</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (task.sandbox_status === 'AUTH_REQUIRED' || data?.sandbox_status === 'AUTH_REQUIRED') {
+    return (
+      <div className="h-full flex flex-col items-center justify-center p-6 text-center text-onedark-muted font-mono select-none space-y-3">
+        <div className="w-12 h-12 rounded-2xl bg-onedark-yellow/10 border border-onedark-yellow/30 flex items-center justify-center text-onedark-yellow">
+          <FolderLock className="w-6 h-6" />
+        </div>
+        <div>
+          <div className="text-xs font-semibold text-onedark-fg">Authentication Required</div>
+          <div className="text-[11px] text-onedark-muted mt-1 max-w-xs leading-relaxed">
+            This repository requires authentication. Please configure a Personal Access Token in the Repositories Vault to access files.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error && !data) {
     return (
       <div className="p-4 rounded-xl bg-onedark-red/10 border border-onedark-red/30 text-onedark-red text-xs font-mono m-4 flex items-start space-x-2">
         <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
@@ -80,8 +164,8 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
           <div className="font-semibold">Filesystem Unavailable</div>
           <div className="text-[11px] opacity-90 mt-0.5">{error}</div>
           <button
-            onClick={fetchFilesystem}
-            className="mt-2 px-2.5 py-1 rounded bg-onedark-surface hover:bg-onedark-border text-onedark-fg text-[11px] transition-colors"
+            onClick={() => fetchFilesystem(false)}
+            className="mt-2 px-2.5 py-1 rounded bg-onedark-surface hover:bg-onedark-border text-onedark-fg text-[11px] transition-colors cursor-pointer"
           >
             Retry
           </button>
@@ -91,14 +175,19 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
   }
 
   if (!data || data.file_tree.length === 0) {
+    const isDestroyed = task.sandbox_status === 'DESTROYED' || data?.sandbox_status === 'DESTROYED';
     return (
-      <div className="h-full flex flex-col items-center justify-center p-6 text-center text-onedark-muted font-mono select-none">
-        <Box className="w-8 h-8 text-onedark-border mb-2 stroke-[1.2]" />
-        <div className="text-xs font-semibold text-onedark-fg">Workspace Empty</div>
-        <div className="text-[11px] text-onedark-muted mt-1 max-w-xs">
-          {data?.exists_on_disk
+      <div className="h-full flex flex-col items-center justify-center p-6 text-center text-onedark-muted font-mono select-none space-y-2">
+        <Box className="w-8 h-8 text-onedark-border mb-1 stroke-[1.2]" />
+        <div className="text-xs font-semibold text-onedark-fg">
+          {isDestroyed ? 'Sandbox Cleaned Up' : 'Workspace Empty'}
+        </div>
+        <div className="text-[11px] text-onedark-muted max-w-xs leading-relaxed">
+          {isDestroyed
+            ? 'The ephemeral sandbox workspace was safely cleaned up upon task completion.'
+            : data?.exists_on_disk
             ? 'The sandbox workspace directory is currently empty.'
-            : 'Sandbox environment was cleaned up upon completion.'}
+            : 'Sandbox workspace has not been initialized or is no longer present on disk.'}
         </div>
       </div>
     );
