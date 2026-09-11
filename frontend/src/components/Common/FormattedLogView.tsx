@@ -13,6 +13,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { TaskLog } from '../../types';
+import { highlightCode } from '../../utils/syntaxHighlighter';
 
 interface FormattedLogViewProps {
   log: TaskLog;
@@ -249,9 +250,12 @@ export const FormattedLogView: React.FC<FormattedLogViewProps> = ({
                   </span>
                 </div>
               )}
-              <pre className="text-onedark-fg leading-relaxed whitespace-pre font-mono text-[11.5px] pt-1">
-                {meta.formattedOutput}
-              </pre>
+              <pre
+                className="leading-relaxed whitespace-pre font-mono text-[11.5px] pt-1"
+                dangerouslySetInnerHTML={{
+                  __html: highlightCode(meta.formattedOutput, undefined, meta.filePath)
+                }}
+              />
             </div>
           ) : meta.isCommandOutput ? (
             /* Terminal stdout & stderr */

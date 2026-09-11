@@ -307,7 +307,9 @@ class AntigravityHarness:
                         if target_token and "github.com" in target_repo and "@" not in target_repo:
                             clone_url = target_repo.replace("https://", f"https://x-access-token:{target_token}@")
                         await call_tool_start("git_clone", {"repo_url": target_repo})
-                        proc = subprocess.run(["git", "clone", "--depth", "1", "--single-branch", clone_url, str(workspace_path)], capture_output=True, text=True)
+                        git_env = dict(os.environ)
+                        git_env["GIT_TERMINAL_PROMPT"] = "0"
+                        proc = await asyncio.to_thread(subprocess.run, ["git", "clone", "--depth", "1", "--single-branch", "--no-tags", clone_url, str(workspace_path)], capture_output=True, text=True, timeout=300, env=git_env)
                         await call_tool_end("git_clone", proc.stdout or proc.stderr or "OK", proc.returncode, 400)
 
                     # If the prompt also requested analysis, immediately synthesize codebase analysis!
@@ -726,7 +728,9 @@ class AntigravityHarness:
                 workspace_path.mkdir(parents=True, exist_ok=True)
 
                 await call_tool_start("git_clone", {"repo_url": target_repo})
-                proc = subprocess.run(["git", "clone", "--depth", "1", "--single-branch", clone_url, str(workspace_path)], capture_output=True, text=True)
+                git_env = dict(os.environ)
+                git_env["GIT_TERMINAL_PROMPT"] = "0"
+                proc = await asyncio.to_thread(subprocess.run, ["git", "clone", "--depth", "1", "--single-branch", "--no-tags", clone_url, str(workspace_path)], capture_output=True, text=True, timeout=300, env=git_env)
                 await call_tool_end("git_clone", proc.stdout or proc.stderr or "OK", proc.returncode, 500)
 
         await emit_thought("Scanning workspace topology, sniffing shebangs, and profiling LOC distributions...")

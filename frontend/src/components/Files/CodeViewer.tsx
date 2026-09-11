@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { FileCode, Copy, Check, RefreshCw, AlertCircle, FileText, Code2 } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { FileCode, Copy, Check, RefreshCw, AlertCircle, Code2, WrapText } from 'lucide-react';
+import { highlightCode, resolveLanguage } from '../../utils/syntaxHighlighter';
 
 interface CodeViewerProps {
   taskId: string;
@@ -18,11 +19,12 @@ interface FileContentResponse {
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
-export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath, onClose }) => {
+export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath }) => {
   const [data, setData] = useState<FileContentResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [wrapLines, setWrapLines] = useState(false);
 
   useEffect(() => {
     if (!taskId || !filePath) {
@@ -78,13 +80,28 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath, onClos
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   };
 
+  const resolvedLang = useMemo(() => {
+    if (!data) return 'text';
+    return resolveLanguage(data.language, data.name);
+  }, [data]);
+
+  const highlightedHtml = useMemo(() => {
+    if (!data?.content) return '';
+    return highlightCode(data.content, data.language, data.name);
+  }, [data]);
+
+  const lineCount = useMemo(() => {
+    if (!data?.content) return 0;
+    return data.content.split('\n').length;
+  }, [data]);
+
   if (!filePath) {
     return (
       <div className="h-full flex flex-col items-center justify-center p-6 text-center text-onedark-muted font-mono select-none">
         <Code2 className="w-10 h-10 text-onedark-border mb-3 stroke-[1.2]" />
         <div className="text-xs font-semibold text-onedark-fg">No file selected</div>
         <div className="text-[11px] text-onedark-muted mt-1 max-w-xs">
-          Select a file from the explorer tree on the left to inspect its contents.
+          Select a file from the explorer tree on the left to inspect its syntax-highlighted contents.
         </div>
       </div>
     );
@@ -113,8 +130,6 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath, onClos
 
   if (!data) return null;
 
-  const lines = data.content.split('\n');
-
   return (
     <div className="h-full flex flex-col bg-onedark-bg font-mono text-xs overflow-hidden">
       {/* File Header Bar */}
@@ -130,12 +145,23 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath, onClos
         </div>
 
         <div className="flex items-center space-x-2 flex-shrink-0">
-          <span className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-borderSubtle text-[10px] text-onedark-muted uppercase">
-            {data.language}
+          <span className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-borderSubtle text-[10px] text-onedark-muted uppercase font-semibold">
+            {resolvedLang}
           </span>
           <span className="text-[10.5px] text-onedark-muted">
-            {data.lines} lines · {formatBytes(data.size)}
+            {lineCount} lines · {formatBytes(data.size)}
           </span>
+          <button
+            onClick={() => setWrapLines(!wrapLines)}
+            className={`p-1 rounded transition-colors ${
+              wrapLines
+                ? 'bg-onedark-surface text-onedark-accent'
+                : 'hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright'
+            }`}
+            title={wrapLines ? 'Disable line wrap' : 'Enable line wrap'}
+          >
+            <WrapText className="w-3.5 h-3.5" />
+          </button>
           <button
             onClick={handleCopy}
             className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright transition-colors"
@@ -150,22 +176,28 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath, onClos
         </div>
       </div>
 
-      {/* Code Content with Line Numbers */}
-      <div className="flex-1 overflow-auto p-2 font-mono text-[11.5px] leading-relaxed select-text">
-        <table className="w-full border-collapse">
-          <tbody>
-            {lines.map((line, idx) => (
-              <tr key={idx} className="hover:bg-onedark-surface/30 group">
-                <td className="w-10 pr-3 text-right text-[10.5px] text-onedark-muted/60 select-none align-top py-0.5 group-hover:text-onedark-muted">
-                  {idx + 1}
-                </td>
-                <td className="text-onedark-fg whitespace-pre font-mono align-top py-0.5 break-all">
-                  {line || ' '}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Syntax Highlighted Code with Line Numbers */}
+      <div className="flex-1 overflow-auto p-2 font-mono text-[11.5px] leading-relaxed select-text flex min-w-0">
+        {/* Line Numbers Gutter */}
+        <div className="select-none pr-3 pl-1 text-right text-onedark-muted/40 border-r border-onedark-borderSubtle/60 flex flex-col font-mono text-[11px] leading-relaxed flex-shrink-0 sticky left-0 bg-onedark-bg z-10">
+          {Array.from({ length: lineCount }, (_, i) => (
+            <span key={i} className="hover:text-onedark-muted cursor-default min-w-[2rem]">
+              {i + 1}
+            </span>
+          ))}
+        </div>
+
+        {/* Code Block with One Dark Syntax Highlight */}
+        <pre
+          className={`flex-1 pl-3.5 m-0 overflow-visible font-mono text-[11.5px] leading-relaxed bg-transparent select-text ${
+            wrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'
+          }`}
+        >
+          <code
+            className={`language-${resolvedLang} font-mono`}
+            dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+          />
+        </pre>
       </div>
     </div>
   );

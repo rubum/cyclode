@@ -1,19 +1,6 @@
 import React, { useState } from 'react';
 import { Copy, Check, Info, AlertTriangle, AlertCircle, Sparkles, Flame } from 'lucide-react';
-import Prism from 'prismjs';
-import 'prismjs/components/prism-javascript';
-import 'prismjs/components/prism-typescript';
-import 'prismjs/components/prism-jsx';
-import 'prismjs/components/prism-tsx';
-import 'prismjs/components/prism-python';
-import 'prismjs/components/prism-bash';
-import 'prismjs/components/prism-json';
-import 'prismjs/components/prism-yaml';
-import 'prismjs/components/prism-sql';
-import 'prismjs/components/prism-diff';
-import 'prismjs/components/prism-markdown';
-import 'prismjs/components/prism-css';
-import 'prismjs/components/prism-markup';
+import { highlightCode, resolveLanguage } from '../../utils/syntaxHighlighter';
 
 interface MarkdownRendererProps {
   content: string;
@@ -22,66 +9,7 @@ interface MarkdownRendererProps {
 }
 
 function getHighlightedHtml(code: string, lang: string): string {
-  const normLang = (lang || '').toLowerCase().trim();
-  let grammar: Prism.Grammar | undefined;
-  let prismLang = 'text';
-
-  if (normLang === 'ts' || normLang === 'typescript') {
-    grammar = Prism.languages.typescript;
-    prismLang = 'typescript';
-  } else if (normLang === 'js' || normLang === 'javascript') {
-    grammar = Prism.languages.javascript;
-    prismLang = 'javascript';
-  } else if (normLang === 'tsx') {
-    grammar = Prism.languages.tsx;
-    prismLang = 'tsx';
-  } else if (normLang === 'jsx') {
-    grammar = Prism.languages.jsx;
-    prismLang = 'jsx';
-  } else if (normLang === 'py' || normLang === 'python') {
-    grammar = Prism.languages.python;
-    prismLang = 'python';
-  } else if (normLang === 'sh' || normLang === 'bash' || normLang === 'shell' || normLang === 'zsh') {
-    grammar = Prism.languages.bash;
-    prismLang = 'bash';
-  } else if (normLang === 'json') {
-    grammar = Prism.languages.json;
-    prismLang = 'json';
-  } else if (normLang === 'yaml' || normLang === 'yml') {
-    grammar = Prism.languages.yaml;
-    prismLang = 'yaml';
-  } else if (normLang === 'sql') {
-    grammar = Prism.languages.sql;
-    prismLang = 'sql';
-  } else if (normLang === 'diff') {
-    grammar = Prism.languages.diff;
-    prismLang = 'diff';
-  } else if (normLang === 'md' || normLang === 'markdown') {
-    grammar = Prism.languages.markdown;
-    prismLang = 'markdown';
-  } else if (normLang === 'css') {
-    grammar = Prism.languages.css;
-    prismLang = 'css';
-  } else if (normLang === 'html' || normLang === 'xml' || normLang === 'svg' || normLang === 'markup') {
-    grammar = Prism.languages.markup;
-    prismLang = 'markup';
-  } else if (Prism.languages[normLang]) {
-    grammar = Prism.languages[normLang];
-    prismLang = normLang;
-  }
-
-  if (grammar) {
-    try {
-      return Prism.highlight(code, grammar, prismLang);
-    } catch {
-      // fallback to escaped html
-    }
-  }
-
-  return code
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+  return highlightCode(code, lang);
 }
 
 export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className = '', isStreaming = false }) => {

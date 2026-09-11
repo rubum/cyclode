@@ -1,3 +1,4 @@
+import asyncio
 import os
 import shutil
 import subprocess
@@ -81,12 +82,14 @@ class EphemeralSandboxProvider(SandboxProvider):
                 if active_token and "github.com" in repo_url and not ("@" in repo_url):
                     clone_url = repo_url.replace("https://", f"https://x-access-token:{active_token}@")
 
-                cmd = ["git", "clone", "--depth", "1", "--single-branch"]
+                cmd = ["git", "clone", "--depth", "1", "--single-branch", "--no-tags"]
                 if branch:
                     cmd.extend(["--branch", branch])
                 cmd.extend([clone_url, str(workspace_path)])
 
-                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                git_env = dict(os.environ)
+                git_env["GIT_TERMINAL_PROMPT"] = "0"
+                proc = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True, timeout=300, env=git_env)
                 if proc.returncode == 0:
                     logger.info(f"Successfully cloned {repo_url} into sandbox {task_id}")
                     if commit_sha:
@@ -104,7 +107,7 @@ class EphemeralSandboxProvider(SandboxProvider):
                         "terminal prompts disabled",
                         "invalid credentials",
                         "please make sure you have the correct access rights"
-                    ]) or proc.returncode == 128
+                    ])
                     
                     if is_auth_error:
                         raise CloneAuthRequiredException(repo_url=repo_url, stderr=err_msg)

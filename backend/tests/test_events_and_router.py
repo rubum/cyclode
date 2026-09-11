@@ -529,7 +529,36 @@ async def test_create_task_with_github_url_in_prompt_extracts_repo():
             assert task.repo_url == "https://github.com/confident-ai/deepeval"
             assert task.repo_name == "confident-ai/deepeval"
 
+@pytest.mark.asyncio
+async def test_ephemeral_provider_clone_flags_and_timeout(monkeypatch):
+    from app.core.sandboxes.ephemeral_provider import EphemeralSandboxProvider
+    import subprocess
 
+    captured_cmds = []
+    captured_timeouts = []
+    captured_envs = []
 
+    def mock_run(cmd, capture_output=True, text=True, timeout=None, env=None, cwd=None):
+        captured_cmds.append(cmd)
+        captured_timeouts.append(timeout)
+        captured_envs.append(env)
+        class MockCompletedProcess:
+            returncode = 0
+            stdout = "Cloning..."
+            stderr = ""
+        return MockCompletedProcess()
 
+    monkeypatch.setattr(subprocess, "run", mock_run)
 
+    provider = EphemeralSandboxProvider()
+    sandbox = await provider.create_sandbox(
+        task_id="test-clone-timeout",
+        repo_url="https://github.com/confident-ai/deepeval"
+    )
+    assert sandbox is not None
+    assert len(captured_cmds) >= 1
+    clone_cmd = captured_cmds[0]
+    assert "--no-tags" in clone_cmd
+    assert "--depth" in clone_cmd
+    assert captured_timeouts[0] == 300
+    assert captured_envs[0].get("GIT_TERMINAL_PROMPT") == "0"
