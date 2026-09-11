@@ -14,7 +14,11 @@ import {
   Play, 
   Sparkles,
   Edit2,
-  X
+  X,
+  Radio,
+  Zap,
+  Copy,
+  Check
 } from 'lucide-react';
 import { RepositoryConfig } from '../../types';
 
@@ -22,9 +26,10 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
 
 interface RepositoriesViewProps {
   onSelectRepoForChat?: (repoFullName: string) => void;
+  onNavigateToInbox?: () => void;
 }
 
-export const RepositoriesView: React.FC<RepositoriesViewProps> = ({ onSelectRepoForChat }) => {
+export const RepositoriesView: React.FC<RepositoriesViewProps> = ({ onSelectRepoForChat, onNavigateToInbox }) => {
   const [repositories, setRepositories] = useState<RepositoryConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -37,6 +42,9 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({ onSelectRepo
   const [testCommand, setTestCommand] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
+  const [webhookActionId, setWebhookActionId] = useState<string | null>(null);
+  const [actionFeedback, setActionFeedback] = useState<{ id: string; success: boolean; message: string } | null>(null);
+  const [copiedUrl, setCopiedUrl] = useState(false);
   const [feedback, setFeedback] = useState<{ success?: boolean; message?: string } | null>(null);
 
   const [discovering, setDiscovering] = useState(false);
@@ -196,6 +204,81 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({ onSelectRepo
     }
   };
 
+  const handleInstallWebhook = async (repoId: string) => {
+    setWebhookActionId(repoId);
+    setActionFeedback(null);
+    try {
+      const webhookUrl = `${window.location.protocol}//${window.location.hostname}:8000/api/webhooks/github`;
+      const res = await fetch(`${API_BASE}/api/repositories/${repoId}/install-webhook`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ webhook_url: webhookUrl }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setActionFeedback({
+          id: repoId,
+          success: true,
+          message: data.message || 'Webhook listener registered on GitHub successfully!',
+        });
+        await fetchRepositories();
+      } else {
+        setActionFeedback({
+          id: repoId,
+          success: false,
+          message: data.message || data.detail || 'Failed to install webhook listener.',
+        });
+      }
+    } catch (err: any) {
+      setActionFeedback({
+        id: repoId,
+        success: false,
+        message: err.message || 'Communication error with GitHub API.',
+      });
+    } finally {
+      setWebhookActionId(null);
+    }
+  };
+
+  const handleSimulateEvent = async (repoId: string) => {
+    setWebhookActionId(repoId);
+    setActionFeedback(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/repositories/${repoId}/simulate-event`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) {
+        setActionFeedback({
+          id: repoId,
+          success: true,
+          message: `Triggered pull_request.opened on ${data.result?.session_key || 'repo'}! Agent task #${data.result?.task_id?.slice(0, 8)} started.`,
+        });
+      } else {
+        setActionFeedback({
+          id: repoId,
+          success: false,
+          message: data.detail || 'Failed to dispatch simulated event.',
+        });
+      }
+    } catch (err: any) {
+      setActionFeedback({
+        id: repoId,
+        success: false,
+        message: err.message || 'Failed to trigger simulated event.',
+      });
+    } finally {
+      setWebhookActionId(null);
+    }
+  };
+
+  const handleCopyWebhookUrl = () => {
+    const url = `${window.location.protocol}//${window.location.hostname}:8000/api/webhooks/github`;
+    navigator.clipboard.writeText(url);
+    setCopiedUrl(true);
+    setTimeout(() => setCopiedUrl(false), 2000);
+  };
+
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-onedark-bg font-sans text-onedark-fg">
       {/* Header */}
@@ -263,6 +346,57 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({ onSelectRepo
         </div>
       </div>
 
+      {/* Webhook Listener Endpoints Reference */}
+      <div className="p-4 rounded-xl bg-onedark-darker border border-onedark-borderSubtle space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div className="flex items-center space-x-2">
+            <Radio className="w-4 h-4 text-onedark-accent" />
+            <h3 className="text-xs font-bold text-onedark-fgBright">Active Webhook Ingestion Endpoint</h3>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-onedark-green/10 text-onedark-green border border-onedark-green/20">
+              HMAC SHA-256
+            </span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={handleCopyWebhookUrl}
+              className="inline-flex items-center space-x-1.5 px-2.5 py-1 bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright rounded-lg text-xs font-mono border border-onedark-border transition-colors"
+            >
+              {copiedUrl ? (
+                <>
+                  <Check className="w-3 h-3 text-onedark-green" />
+                  <span className="text-onedark-green">Copied URL</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3 h-3" />
+                  <span>Copy Webhook URL</span>
+                </>
+              )}
+            </button>
+            {onNavigateToInbox && (
+              <button
+                onClick={onNavigateToInbox}
+                className="inline-flex items-center space-x-1 px-2.5 py-1 bg-onedark-surface hover:bg-onedark-border text-onedark-muted hover:text-onedark-fgBright rounded-lg text-xs font-sans border border-onedark-borderSubtle transition-colors"
+              >
+                <span>View Inbox</span>
+                <ExternalLink className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs font-mono">
+          <div className="p-2.5 rounded-lg bg-onedark-bg border border-onedark-borderSubtle text-onedark-fg select-all">
+            <span className="text-onedark-muted text-[10px] block font-sans">GitHub Webhook URL:</span>
+            {window.location.protocol}//{window.location.hostname}:8000/api/webhooks/github
+          </div>
+          <div className="p-2.5 rounded-lg bg-onedark-bg border border-onedark-borderSubtle text-onedark-fg">
+            <span className="text-onedark-muted text-[10px] block font-sans">Trigger Events:</span>
+            <span className="text-onedark-accent font-semibold">pull_request</span>, <span className="text-onedark-accent font-semibold">issues</span>, <span className="text-onedark-accent font-semibold">issue_comment</span>, <span className="text-onedark-accent font-semibold">push</span>
+          </div>
+        </div>
+      </div>
+
       {/* Repositories List */}
       <div className="space-y-3">
         <h2 className="text-xs font-semibold text-onedark-muted uppercase tracking-wider">
@@ -308,6 +442,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({ onSelectRepo
               const isTesting = testingId === repo.id;
               const isConnected = repo.status === 'CONNECTED';
               const branches = repo.manifest_cache?.branches || [];
+              const hasListener = Boolean(repo.manifest_cache?.webhook_listener?.installed);
 
               return (
                 <div
@@ -380,6 +515,55 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({ onSelectRepo
                         {branches.length > 4 && <span className="text-[10px]">+{branches.length - 4} more</span>}
                       </div>
                     )}
+
+                    {/* Webhook Listener Controls */}
+                    <div className="pt-2 border-t border-onedark-borderSubtle/60 space-y-2">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-onedark-muted flex items-center space-x-1.5 font-medium">
+                          <Radio className="w-3.5 h-3.5 text-onedark-accent" />
+                          <span>Repo Webhook Listener:</span>
+                        </span>
+                        {hasListener ? (
+                          <span className="inline-flex items-center space-x-1 text-onedark-green font-mono text-[10px] bg-onedark-green/10 px-1.5 py-0.5 rounded border border-onedark-green/20">
+                            <CheckCircle2 className="w-2.5 h-2.5" />
+                            <span>Active (Hook #{repo.manifest_cache?.webhook_listener?.hook_id || 'OK'})</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center space-x-1 text-onedark-yellow font-mono text-[10px] bg-onedark-yellow/10 px-1.5 py-0.5 rounded border border-onedark-yellow/20">
+                            <AlertCircle className="w-2.5 h-2.5" />
+                            <span>Not Registered</span>
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center space-x-2">
+                        <button
+                          onClick={() => handleInstallWebhook(repo.id)}
+                          disabled={webhookActionId === repo.id || !repo.has_token}
+                          className="flex-1 py-1 px-2 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fg hover:text-onedark-fgBright text-[11px] font-medium border border-onedark-border flex items-center justify-center space-x-1 transition-colors disabled:opacity-40"
+                          title={repo.has_token ? "Auto-install webhook on GitHub via PAT" : "Requires GitHub PAT token in Vault"}
+                        >
+                          <Radio className={`w-3 h-3 text-onedark-accent ${webhookActionId === repo.id ? 'animate-pulse' : ''}`} />
+                          <span>{webhookActionId === repo.id ? 'Registering...' : 'Install Webhook on GitHub'}</span>
+                        </button>
+
+                        <button
+                          onClick={() => handleSimulateEvent(repo.id)}
+                          disabled={webhookActionId === repo.id}
+                          className="py-1 px-2.5 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-muted hover:text-onedark-accent text-[11px] font-mono border border-onedark-border flex items-center space-x-1 transition-colors disabled:opacity-40"
+                          title="Simulate a pull_request.opened event on this repo"
+                        >
+                          <Zap className="w-3 h-3 text-onedark-yellow" />
+                          <span>Simulate Event</span>
+                        </button>
+                      </div>
+
+                      {actionFeedback && actionFeedback.id === repo.id && (
+                        <div className={`p-2 rounded text-[11px] font-mono ${actionFeedback.success ? 'bg-onedark-green/10 text-onedark-green border border-onedark-green/20' : 'bg-onedark-red/10 text-onedark-red border border-onedark-red/20'}`}>
+                          {actionFeedback.message}
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* Actions Footer */}

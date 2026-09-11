@@ -312,6 +312,68 @@ class IntegrationManager:
             logger.warning(f"Error persisting repo config: {e}")
             return {"ok": False, "error": str(e)}
 
+    async def install_repo_webhook(
+        self,
+        full_name: str,
+        webhook_url: str,
+        secret: Optional[str] = None,
+        custom_token: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Installs a GitHub webhook listener on the specified repository.
+        """
+        clean_name = full_name.replace("https://github.com/", "").replace(".git", "").strip("/")
+        if "/" not in clean_name:
+            return {"success": False, "message": f"Invalid repository full name: {full_name}"}
+
+        owner, repo = clean_name.split("/", 1)
+        token = custom_token or await self.get_github_token_for_repo(full_name) or github_client.token
+        sec = secret or settings.GITHUB_WEBHOOK_SECRET
+
+        return await github_client.create_or_update_webhook(
+            owner=owner,
+            repo=repo,
+            webhook_url=webhook_url,
+            secret=sec,
+            custom_token=token
+        )
+
+    async def get_repo_webhook_status(
+        self,
+        full_name: str,
+        webhook_url: Optional[str] = None,
+        custom_token: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Checks active webhook registration status on GitHub.
+        """
+        clean_name = full_name.replace("https://github.com/", "").replace(".git", "").strip("/")
+        if "/" not in clean_name:
+            return {"configured": False, "webhooks": []}
+
+        owner, repo = clean_name.split("/", 1)
+        token = custom_token or await self.get_github_token_for_repo(full_name) or github_client.token
+
+        res = await github_client.list_webhooks(owner, repo, custom_token=token)
+        hooks = res.get("webhooks", [])
+
+        is_registered = False
+        matched_hook = None
+        if webhook_url and isinstance(hooks, list):
+            for h in hooks:
+                if isinstance(h, dict) and h.get("config", {}).get("url") == webhook_url:
+                    is_registered = True
+                    matched_hook = h
+                    break
+
+        return {
+            "configured": res.get("configured", bool(token)),
+            "is_registered": is_registered,
+            "matched_hook": matched_hook,
+            "total_webhooks": len(hooks) if isinstance(hooks, list) else 0,
+            "webhooks": hooks if isinstance(hooks, list) else []
+        }
+
 
 integration_manager = IntegrationManager()
 

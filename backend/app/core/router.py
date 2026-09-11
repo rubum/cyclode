@@ -79,6 +79,27 @@ class EventRouter:
             )
             is_awakened = False
 
+        # 7. Broadcast real-time event to connected frontend dashboards
+        try:
+            from app.api.websocket import ws_manager
+            from app.db.models import get_utc_now
+            await ws_manager.broadcast("EVENT_RECEIVED", {
+                "id": event_id,
+                "source": source,
+                "event_type": event_type,
+                "signature_valid": signature_valid,
+                "status": "PROCESSED",
+                "task_id": task_id,
+                "session_key": session_key,
+                "is_awakened": is_awakened,
+                "title": title,
+                "persona": persona,
+                "payload": payload,
+                "created_at": event.created_at.isoformat() if hasattr(event, "created_at") and event.created_at else get_utc_now().isoformat()
+            })
+        except Exception as e:
+            logger.debug(f"Note: WebSocket broadcast skipped or client absent: {e}")
+
         return {
             "ok": True,
             "event_id": event_id,

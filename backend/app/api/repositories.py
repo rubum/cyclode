@@ -215,3 +215,132 @@ async def discover_repositories(db: AsyncSession = Depends(get_db)):
     repos = res.scalars().all()
     return {"ok": True, "count": len(repos), "repositories": [serialize_repo(r) for r in repos]}
 
+
+class InstallWebhookRequest(BaseModel):
+    webhook_url: Optional[str] = None
+    secret: Optional[str] = None
+    events: Optional[List[str]] = None
+
+
+@router.post("/{repo_id}/install-webhook")
+async def install_repository_webhook(
+    repo_id: str,
+    req: Optional[InstallWebhookRequest] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Installs an automatic GitHub webhook listener on the target repository using the stored PAT.
+    """
+    stmt = select(RepositoryConfigModel).where(RepositoryConfigModel.id == repo_id)
+    res = await db.execute(stmt)
+    repo = res.scalars().first()
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
+    raw_token = decrypt_secret(repo.encrypted_token) if repo.encrypted_token else None
+    if not raw_token:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Repository '{repo.full_name}' does not have a saved GitHub Personal Access Token in the Vault. Please add a token with 'repo' scope first."
+        )
+
+    webhook_url = (req.webhook_url if req and req.webhook_url else None) or "http://localhost:8000/api/webhooks/github"
+    secret = req.secret if req and req.secret else None
+    events = req.events if req and req.events else ["pull_request", "issues", "issue_comment", "push"]
+
+    result = await integration_manager.install_repo_webhook(
+        full_name=repo.full_name,
+        webhook_url=webhook_url,
+        secret=secret,
+        custom_token=raw_token
+    )
+
+    # Update manifest cache to reflect webhook listener registration
+    if result.get("success"):
+        m_cache = dict(repo.manifest_cache or {})
+        m_cache["webhook_listener"] = {
+            "installed": True,
+            "hook_id": result.get("hook_id"),
+            "webhook_url": webhook_url,
+            "events": events,
+            "updated_at": get_utc_now().isoformat()
+        }
+        repo.manifest_cache = m_cache
+        await db.commit()
+
+    return result
+
+
+@router.get("/{repo_id}/webhook-status")
+async def get_repository_webhook_status(
+    repo_id: str,
+    webhook_url: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Retrieves the current webhook registration status on GitHub for this repository.
+    """
+    stmt = select(RepositoryConfigModel).where(RepositoryConfigModel.id == repo_id)
+    res = await db.execute(stmt)
+    repo = res.scalars().first()
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
+    raw_token = decrypt_secret(repo.encrypted_token) if repo.encrypted_token else None
+    target_url = webhook_url or "http://localhost:8000/api/webhooks/github"
+
+    result = await integration_manager.get_repo_webhook_status(
+        full_name=repo.full_name,
+        webhook_url=target_url,
+        custom_token=raw_token
+    )
+    result["repo_full_name"] = repo.full_name
+    result["has_token"] = bool(raw_token)
+    result["saved_listener_info"] = (repo.manifest_cache or {}).get("webhook_listener")
+    return result
+
+
+@router.post("/{repo_id}/simulate-event")
+async def simulate_repository_event(
+    repo_id: str,
+    event_type: str = "pull_request.opened",
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Simulates a repository event (e.g. pull_request.opened, push) for testing the live agent pipeline.
+    """
+    stmt = select(RepositoryConfigModel).where(RepositoryConfigModel.id == repo_id)
+    res = await db.execute(stmt)
+    repo = res.scalars().first()
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
+    from app.core.router import event_router
+
+    simulated_payload = {
+        "action": "opened" if "opened" in event_type else "synchronize",
+        "repository": {
+            "name": repo.name,
+            "full_name": repo.full_name,
+            "clone_url": repo.clone_url,
+            "default_branch": repo.default_branch
+        },
+        "pull_request": {
+            "number": 99,
+            "title": f"Automated test & audit on {repo.name}",
+            "body": f"Simulated repository webhook event on `{repo.full_name}`.",
+            "head": {"ref": repo.default_branch, "sha": "e9b28a1"},
+            "base": {"ref": repo.default_branch}
+        },
+        "sender": {"login": "adappty-bot"}
+    }
+
+    result = await event_router.route_and_dispatch(
+        source="github",
+        event_type=event_type,
+        payload=simulated_payload,
+        signature_valid=True
+    )
+    return {"ok": True, "result": result}
+
+

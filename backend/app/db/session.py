@@ -13,9 +13,14 @@ elif settings.DATABASE_URL.startswith("sqlite+aiosqlite:///"):
     db_path = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "")
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
+connect_args = {}
+if "sqlite" in settings.DATABASE_URL:
+    connect_args = {"timeout": 60, "check_same_thread": False}
+
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
+    connect_args=connect_args,
     future=True
 )
 
@@ -37,6 +42,13 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 def _migrate_db(connection):
+    # Enable WAL mode and busy timeout on SQLite to prevent locking
+    try:
+        connection.exec_driver_sql("PRAGMA journal_mode=WAL;")
+        connection.exec_driver_sql("PRAGMA busy_timeout=60000;")
+    except Exception:
+        pass
+
     Base.metadata.create_all(connection)
     
     # Check tasks table columns

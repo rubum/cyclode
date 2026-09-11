@@ -67,11 +67,12 @@ class GitHubClient:
                 "simulated": False
             }
 
-    async def post_issue_comment(self, owner: str, repo: str, issue_number: int, comment: str) -> Dict[str, Any]:
+    async def post_issue_comment(self, owner: str, repo: str, issue_number: int, comment: str, custom_token: Optional[str] = None) -> Dict[str, Any]:
         """
         Posts a progress or resolution comment on an issue or PR.
         """
-        if not self.is_configured():
+        token = custom_token or self.token
+        if not token:
             return {
                 "id": 202,
                 "body": comment,
@@ -79,17 +80,134 @@ class GitHubClient:
                 "simulated": True
             }
 
+        headers = {
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "Adappty-Agentic-Harness",
+            "Authorization": f"token {token}"
+        }
         async with httpx.AsyncClient() as client:
             url = f"{self.api_base}/repos/{owner}/{repo}/issues/{issue_number}/comments"
             resp = await client.post(
                 url,
-                headers=self._get_headers(),
+                headers=headers,
                 json={"body": comment},
                 timeout=15.0
             )
             if resp.status_code in (200, 201):
                 return resp.json()
             return {"error": resp.text, "status_code": resp.status_code}
+
+    async def list_webhooks(self, owner: str, repo: str, custom_token: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Lists all active webhooks on a repository.
+        """
+        token = custom_token or self.token
+        if not token:
+            return {"webhooks": [], "configured": False}
+
+        headers = {
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "Adappty-Agentic-Harness",
+            "Authorization": f"token {token}"
+        }
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(f"{self.api_base}/repos/{owner}/{repo}/hooks", headers=headers)
+            if resp.status_code == 200:
+                return {"webhooks": resp.json(), "configured": True}
+            return {"webhooks": [], "error": resp.text, "status_code": resp.status_code, "configured": False}
+
+    async def create_or_update_webhook(
+        self,
+        owner: str,
+        repo: str,
+        webhook_url: str,
+        secret: Optional[str] = None,
+        events: Optional[list] = None,
+        custom_token: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Installs or verifies a repository webhook for Adappty listener.
+        """
+        token = custom_token or self.token
+        if not token:
+            return {"success": False, "message": "GitHub Personal Access Token is required to configure repository webhooks."}
+
+        if events is None:
+            events = ["pull_request", "issues", "issue_comment", "push"]
+
+        headers = {
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "Adappty-Agentic-Harness",
+            "Authorization": f"token {token}"
+        }
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            # 1. Check if hook already exists
+            list_resp = await client.get(f"{self.api_base}/repos/{owner}/{repo}/hooks", headers=headers)
+            if list_resp.status_code == 200:
+                hooks = list_resp.json()
+                for hook in hooks:
+                    config = hook.get("config", {})
+                    if config.get("url") == webhook_url:
+                        return {
+                            "success": True,
+                            "hook_id": hook.get("id"),
+                            "status": "active" if hook.get("active") else "inactive",
+                            "message": f"Webhook already registered on {owner}/{repo} (Hook ID #{hook.get('id')}).",
+                            "events": hook.get("events", events),
+                            "webhook_url": webhook_url
+                        }
+
+            # 2. Create new webhook
+            body = {
+                "name": "web",
+                "active": True,
+                "events": events,
+                "config": {
+                    "url": webhook_url,
+                    "content_type": "json",
+                    "insecure_ssl": "0"
+                }
+            }
+            if secret:
+                body["config"]["secret"] = secret
+
+            resp = await client.post(f"{self.api_base}/repos/{owner}/{repo}/hooks", headers=headers, json=body)
+            if resp.status_code in (200, 201):
+                data = resp.json()
+                return {
+                    "success": True,
+                    "hook_id": data.get("id"),
+                    "status": "active",
+                    "message": f"Successfully registered webhook listener on {owner}/{repo} (Hook ID #{data.get('id')}).",
+                    "events": events,
+                    "webhook_url": webhook_url
+                }
+            return {
+                "success": False,
+                "error": resp.text,
+                "status_code": resp.status_code,
+                "message": f"Failed to register webhook on GitHub (Status {resp.status_code}): {resp.text[:200]}"
+            }
+
+    async def delete_webhook(self, owner: str, repo: str, hook_id: int, custom_token: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Deletes a repository webhook.
+        """
+        token = custom_token or self.token
+        if not token:
+            return {"success": False, "message": "GitHub token is required."}
+
+        headers = {
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "Adappty-Agentic-Harness",
+            "Authorization": f"token {token}"
+        }
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.delete(f"{self.api_base}/repos/{owner}/{repo}/hooks/{hook_id}", headers=headers)
+            if resp.status_code in (200, 204):
+                return {"success": True, "message": f"Deleted webhook #{hook_id} from {owner}/{repo}."}
+            return {"success": False, "error": resp.text, "status_code": resp.status_code}
 
 
 github_client = GitHubClient()

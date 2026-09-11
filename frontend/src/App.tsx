@@ -331,6 +331,11 @@ const MainApp: React.FC = () => {
       }
     });
 
+    const unsubEventReceived = subscribe('EVENT_RECEIVED', (data: any) => {
+      fetchEvents();
+      fetchTasks();
+    });
+
     return () => {
       unsubTaskCreated();
       unsubStatus();
@@ -342,8 +347,9 @@ const MainApp: React.FC = () => {
       unsubDiff();
       unsubApproval();
       unsubChat();
+      unsubEventReceived();
     };
-  }, [subscribe, activeTaskId, fetchTasks, fetchTaskDetails]);
+  }, [subscribe, activeTaskId, fetchTasks, fetchTaskDetails, fetchEvents]);
 
   const handleSelectTask = (taskId: string) => {
     setActiveTaskId(taskId);
@@ -812,7 +818,7 @@ const MainApp: React.FC = () => {
           />
         );
       case 'events':
-        return <EventInbox events={events} onRefresh={fetchEvents} />;
+        return <EventInbox events={events} onRefresh={fetchEvents} onSelectTask={handleSelectTask} />;
       case 'simulator':
         return (
           <WebhookSimulator
@@ -845,6 +851,7 @@ const MainApp: React.FC = () => {
       case 'repositories':
         return (
           <RepositoriesView
+            onNavigateToInbox={() => setActiveView('events')}
             onSelectRepoForChat={(repoFullName) => {
               setActiveView('chat');
               handleNewChatWithPrompt(`Connect and analyze repository https://github.com/${repoFullName}`);

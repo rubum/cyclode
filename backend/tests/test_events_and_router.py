@@ -754,4 +754,106 @@ async def test_what_is_in_this_repo_url_synthesizes_analysis(tmp_path, monkeypat
     assert "Integration & Repository Configuration Updated" not in messages[0][1]
 
 
+@pytest.mark.asyncio
+async def test_realtime_event_broadcast_and_webhook_listener_registration(monkeypatch):
+    from app.core.router import event_router
+    from app.api.websocket import ws_manager
+    from app.integrations.github_client import github_client
+    from app.integrations.manager import integration_manager
+
+    # 1. Test EventRouter broadcasts EVENT_RECEIVED over WebSocket
+    broadcasts = []
+    async def mock_broadcast(event_type, data):
+        broadcasts.append((event_type, data))
+
+    monkeypatch.setattr(ws_manager, "broadcast", mock_broadcast)
+
+    payload = {
+        "repository": {"full_name": "listener-org/listener-service", "clone_url": "https://github.com/listener-org/listener-service"},
+        "pull_request": {"number": 15, "head": {"ref": "fix-stripe-checkout", "sha": "a1b2c3d"}},
+        "sender": {"login": "octocat"}
+    }
+
+    res = await event_router.route_and_dispatch(
+        source="github",
+        event_type="pull_request.opened",
+        payload=payload,
+        signature_valid=True
+    )
+
+    assert res["ok"] is True
+    assert res["session_key"] == "github:listener-org/listener-service:pr:15"
+    assert res["persona"] == "CodeReviewer"
+
+    # Verify WebSocket broadcast occurred
+    event_broadcasts = [b for b in broadcasts if b[0] == "EVENT_RECEIVED"]
+    assert len(event_broadcasts) >= 1
+    ev_type, ev_data = event_broadcasts[0]
+    assert ev_type == "EVENT_RECEIVED"
+    assert ev_data["source"] == "github"
+    assert ev_data["event_type"] == "pull_request.opened"
+    assert ev_data["signature_valid"] is True
+    assert ev_data["task_id"] == res["task_id"]
+
+    # 2. Test GitHub Webhook Listener Creation via IntegrationManager
+    async def mock_create_hook(owner, repo, webhook_url, secret=None, events=None, custom_token=None):
+        return {
+            "success": True,
+            "hook_id": 998877,
+            "status": "active",
+            "message": f"Successfully registered webhook listener on {owner}/{repo}.",
+            "events": events or ["pull_request", "issues"],
+            "webhook_url": webhook_url
+        }
+
+    monkeypatch.setattr(github_client, "create_or_update_webhook", mock_create_hook)
+
+    hook_res = await integration_manager.install_repo_webhook(
+        full_name="listener-org/listener-service",
+        webhook_url="http://localhost:8000/api/webhooks/github",
+        custom_token="ghp_mocktoken12345678"
+    )
+
+    assert hook_res["success"] is True
+    assert hook_res["hook_id"] == 998877
+    assert hook_res["status"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_repository_simulate_event_endpoint(monkeypatch):
+    import uuid
+    from app.db.session import async_session_factory
+    from app.db.models import RepositoryConfigModel, get_utc_now
+    from app.core.security import encrypt_secret
+    from app.api.repositories import simulate_repository_event
+
+    u_id = uuid.uuid4().hex[:6]
+    repo_name = f"sim-checkout-{u_id}"
+    full_name = f"sim-org/{repo_name}"
+
+    async with async_session_factory() as session:
+        repo = RepositoryConfigModel(
+            name=repo_name,
+            full_name=full_name,
+            clone_url=f"https://github.com/{full_name}",
+            default_branch="main",
+            encrypted_token=encrypt_secret("ghp_testtoken9999"),
+            auth_provider="github",
+            status="CONNECTED",
+            created_at=get_utc_now(),
+            updated_at=get_utc_now()
+        )
+        session.add(repo)
+        await session.commit()
+        await session.refresh(repo)
+        repo_id = repo.id
+
+    async with async_session_factory() as session:
+        res = await simulate_repository_event(repo_id=repo_id, event_type="pull_request.opened", db=session)
+        assert res["ok"] is True
+        assert res["result"]["session_key"] == f"github:{full_name}:pr:99"
+        assert res["result"]["persona"] == "CodeReviewer"
+
+
+
 
