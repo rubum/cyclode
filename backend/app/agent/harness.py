@@ -27,6 +27,85 @@ class AntigravityHarness:
     def __init__(self, model_name: Optional[str] = None):
         self.model_name = model_name or settings.ANTIGRAVITY_MODEL
 
+    async def _emit_streamed_thought(
+        self,
+        thought_text: str,
+        on_thought: Callable[[str], Any],
+        on_stream_start: Optional[Callable[[str, str], Any]] = None,
+        on_stream_chunk: Optional[Callable[[str, str, str, str], Any]] = None,
+        on_stream_end: Optional[Callable[[str, str, str], Any]] = None,
+        stream_id: Optional[str] = None
+    ):
+        s_id = stream_id or f"thought-{int(asyncio.get_event_loop().time() * 1000)}"
+        if on_stream_start and on_stream_chunk and on_stream_end:
+            try:
+                if asyncio.iscoroutinefunction(on_stream_start):
+                    await on_stream_start("thought", s_id)
+                else:
+                    on_stream_start("thought", s_id)
+
+                words = re.findall(r'\S+|\s+', thought_text)
+                accumulated = ""
+                for word in words:
+                    accumulated += word
+                    if asyncio.iscoroutinefunction(on_stream_chunk):
+                        await on_stream_chunk("thought", s_id, word, accumulated)
+                    else:
+                        on_stream_chunk("thought", s_id, word, accumulated)
+                    await asyncio.sleep(0.012)
+
+                if asyncio.iscoroutinefunction(on_stream_end):
+                    await on_stream_end("thought", s_id, thought_text)
+                else:
+                    on_stream_end("thought", s_id, thought_text)
+            except Exception as e:
+                logger.debug(f"Streaming thought notice: {e}")
+
+        if asyncio.iscoroutinefunction(on_thought):
+            await on_thought(thought_text)
+        else:
+            on_thought(thought_text)
+
+    async def _emit_streamed_message(
+        self,
+        sender: str,
+        content: str,
+        on_message: Callable[[str, str], Any],
+        on_stream_start: Optional[Callable[[str, str], Any]] = None,
+        on_stream_chunk: Optional[Callable[[str, str, str, str], Any]] = None,
+        on_stream_end: Optional[Callable[[str, str, str], Any]] = None,
+        stream_id: Optional[str] = None
+    ):
+        s_id = stream_id or f"msg-{int(asyncio.get_event_loop().time() * 1000)}"
+        if sender == "agent" and on_stream_start and on_stream_chunk and on_stream_end:
+            try:
+                if asyncio.iscoroutinefunction(on_stream_start):
+                    await on_stream_start("message", s_id)
+                else:
+                    on_stream_start("message", s_id)
+
+                words = re.findall(r'\S+|\s+', content)
+                accumulated = ""
+                for word in words:
+                    accumulated += word
+                    if asyncio.iscoroutinefunction(on_stream_chunk):
+                        await on_stream_chunk("message", s_id, word, accumulated)
+                    else:
+                        on_stream_chunk("message", s_id, word, accumulated)
+                    await asyncio.sleep(0.008)
+
+                if asyncio.iscoroutinefunction(on_stream_end):
+                    await on_stream_end("message", s_id, content)
+                else:
+                    on_stream_end("message", s_id, content)
+            except Exception as e:
+                logger.debug(f"Streaming message notice: {e}")
+
+        if asyncio.iscoroutinefunction(on_message):
+            await on_message(sender, content)
+        else:
+            on_message(sender, content)
+
     async def execute_task(
         self,
         task_id: str,
@@ -40,7 +119,10 @@ class AntigravityHarness:
         on_message: Callable[[str, str], Any],
         on_approval_required: Callable[[str, Dict[str, Any]], Any],
         on_diff_updated: Callable[[List[Dict[str, Any]]], Any],
-        history: Optional[List[Dict[str, Any]]] = None
+        history: Optional[List[Dict[str, Any]]] = None,
+        on_stream_start: Optional[Callable[[str, str], Any]] = None,
+        on_stream_chunk: Optional[Callable[[str, str, str, str], Any]] = None,
+        on_stream_end: Optional[Callable[[str, str, str], Any]] = None
     ) -> Dict[str, Any]:
         """
         Executes an agent task dynamically based on real intent.
@@ -67,7 +149,10 @@ class AntigravityHarness:
                 on_message=on_message,
                 on_approval_required=on_approval_required,
                 on_diff_updated=on_diff_updated,
-                history=history
+                history=history,
+                on_stream_start=on_stream_start,
+                on_stream_chunk=on_stream_chunk,
+                on_stream_end=on_stream_end
             )
 
         # ----------------------------------------------------------------------
@@ -84,7 +169,10 @@ class AntigravityHarness:
             on_tool_end=on_tool_end,
             on_message=on_message,
             on_approval_required=on_approval_required,
-            on_diff_updated=on_diff_updated
+            on_diff_updated=on_diff_updated,
+            on_stream_start=on_stream_start,
+            on_stream_chunk=on_stream_chunk,
+            on_stream_end=on_stream_end
         )
 
     async def _execute_local_intent(
@@ -99,9 +187,22 @@ class AntigravityHarness:
         on_tool_end: Callable[[str, str, int, int], Any],
         on_message: Callable[[str, str], Any],
         on_approval_required: Callable[[str, Dict[str, Any]], Any],
-        on_diff_updated: Callable[[List[Dict[str, Any]]], Any]
+        on_diff_updated: Callable[[List[Dict[str, Any]]], Any],
+        on_stream_start: Optional[Callable[[str, str], Any]] = None,
+        on_stream_chunk: Optional[Callable[[str, str, str, str], Any]] = None,
+        on_stream_end: Optional[Callable[[str, str, str], Any]] = None
     ) -> Dict[str, Any]:
         lower_prompt = prompt.lower().strip()
+
+        async def emit_thought(text: str):
+            await self._emit_streamed_thought(
+                text, on_thought, on_stream_start, on_stream_chunk, on_stream_end
+            )
+
+        async def emit_message(sender: str, text: str):
+            await self._emit_streamed_message(
+                sender, text, on_message, on_stream_start, on_stream_chunk, on_stream_end
+            )
 
         # Intent 0: Conversational Repo Connection & Credential Provisioning
         gh_match = re.search(r"(ghp_[A-Za-z0-9_]{8,}|github_pat_[A-Za-z0-9_]{10,})", prompt)
@@ -160,7 +261,7 @@ class AntigravityHarness:
                 "- Ready to execute autonomous tasks (`PR reviews`, `bug fixing`, `test runs`)\n\n"
                 "What would you like me to do next on this repository?"
             )
-            await on_message("agent", reply_md)
+            await emit_message("agent", reply_md)
             return {"status": "COMPLETED", "summary": "Configured integrations and verified repository connectivity."}
 
         # Intent: Token Generation Help & Authentication Guidance
@@ -184,7 +285,7 @@ class AntigravityHarness:
                 "   - Copy the `ghp_...` string and paste it right here in this chat!\n\n"
                 "> 🔒 *Your token is automatically masked in the UI and securely saved into your local integration credentials. Once provided, I'll immediately clone your repository and proceed.*"
             )
-            await on_message("agent", token_help_md)
+            await emit_message("agent", token_help_md)
             return {"status": "AWAITING_INPUT", "summary": "Provided step-by-step GitHub token generation instructions."}
 
         # Intent A: Casual Greeting or Small Talk (e.g. "hi", "hello", "hey")
@@ -199,7 +300,7 @@ class AntigravityHarness:
                 "- **Simulate Live Events**: Trigger alerts in the **Webhook Simulator**.\n\n"
                 "What would you like to work on?"
             )
-            await on_message("agent", greeting_reply)
+            await emit_message("agent", greeting_reply)
             return {"status": "COMPLETED", "summary": "Greeted user and ready for instructions."}
 
         # Intent B: Who are you / Identity
@@ -212,12 +313,12 @@ class AntigravityHarness:
                 f"- **Diffs & Git Branches**: Creating clean Git worktrees and generating pull requests under your approval policies.\n"
                 f"- **Event Triage**: Ingesting real-time alerts from GitHub, Slack, and AppSignal."
             )
-            await on_message("agent", identity_reply)
+            await emit_message("agent", identity_reply)
             return {"status": "COMPLETED", "summary": "Provided identity and capabilities."}
 
         # Intent C: Workspace listing / exploration
         if any(w in lower_prompt for w in ("list files", "ls", "show files", "list workspace", "workspace files", "dir")):
-            await on_thought("Listing workspace directory structure...")
+            await emit_thought("Listing workspace directory structure...")
             await on_tool_start("list_dir", {"directory": "."})
             list_res = WorkspaceTools.list_dir(workspace_path)
             items = list_res.get("items", [])
@@ -234,12 +335,12 @@ class AntigravityHarness:
                 f"{file_list_md}\n\n"
                 f"Let me know if you would like me to inspect or edit any of these files."
             )
-            await on_message("agent", msg)
+            await emit_message("agent", msg)
             return {"status": "COMPLETED", "summary": f"Listed {len(items)} workspace files."}
 
         # Intent D: Run tests / verification
         if any(w in lower_prompt for w in ("run test", "run tests", "pytest", "unittest", "verify test", "check tests")):
-            await on_thought("Executing test suite in isolated workspace...")
+            await emit_thought("Executing test suite in isolated workspace...")
             await on_tool_start("run_command", {"command": "python3 -m unittest discover tests"})
             test_res = WorkspaceTools.run_command(workspace_path, "python3 -m unittest discover tests")
             test_out = test_res.get("stdout") or test_res.get("stderr") or "Ran 1 test\n\nOK"
@@ -253,23 +354,23 @@ class AntigravityHarness:
                 f"Exit Code: `{exit_code}`\n\n"
                 f"```text\n{test_out}\n```"
             )
-            await on_message("agent", msg)
+            await emit_message("agent", msg)
             return {"status": "COMPLETED", "summary": f"Tests executed with exit code {exit_code}."}
 
         # Intent E: PR Code Review (Autonomous CodeReviewer)
         if persona_name == "CodeReviewer" or "review pr" in lower_prompt or "code review" in lower_prompt or "pull_request.opened" in lower_prompt:
-            await on_thought("Analyzing repository structure and commits in ephemeral sandbox...")
+            await emit_thought("Analyzing repository structure and commits in ephemeral sandbox...")
             await on_tool_start("list_dir", {"directory": "."})
             list_res = WorkspaceTools.list_dir(workspace_path)
             items_str = ", ".join(i["name"] for i in list_res.get("items", [])) or "app, tests"
             await on_tool_end("list_dir", f"Inspected files: {items_str}", 0, 200)
 
-            await on_thought("Reading source files to check for edge cases, null safety, and test coverage...")
+            await emit_thought("Reading source files to check for edge cases, null safety, and test coverage...")
             await on_tool_start("read_file", {"path": "app/auth_service.py"})
             auth_content = WorkspaceTools.read_file(workspace_path, "app/auth_service.py").get("content", "")
             await on_tool_end("read_file", f"Read {len(auth_content)} bytes", 0, 200)
 
-            await on_thought("Running automated test suite in disposable sandbox...")
+            await emit_thought("Running automated test suite in disposable sandbox...")
             await on_tool_start("run_command", {"command": "python3 -m unittest discover tests"})
             test_res = WorkspaceTools.run_command(workspace_path, "python3 -m unittest discover tests")
             test_out = test_res.get("stdout") or "Ran 1 test in 0.002s\n\nOK"
@@ -289,17 +390,17 @@ class AntigravityHarness:
                 f"### ✅ Verdict\n"
                 f"**Approved.** All automated sanity checks passed without regressions. Standing by for incremental commit pushes (`pull_request.synchronize`)."
             )
-            await on_message("agent", review_md)
+            await emit_message("agent", review_md)
             return {"status": "COMPLETED", "summary": "Autonomous PR code review completed successfully."}
 
         # Intent F: Incremental Commit Push / Awakening Verification
         if "synchronize" in lower_prompt or "incremental" in lower_prompt or "new commit" in lower_prompt or "re-evaluating" in lower_prompt:
-            await on_thought("Session awakened on new commit. Booting fresh ephemeral sandbox and checking git history...")
+            await emit_thought("Session awakened on new commit. Booting fresh ephemeral sandbox and checking git history...")
             await on_tool_start("run_command", {"command": "git log -n 1 --oneline"})
             git_out = WorkspaceTools.run_command(workspace_path, "git log -n 1 --oneline").get("stdout") or "c7a8b9f Update auth service"
             await on_tool_end("run_command", git_out, 0, 250)
 
-            await on_thought("Re-running full test suite against updated commit...")
+            await emit_thought("Re-running full test suite against updated commit...")
             await on_tool_start("run_command", {"command": "python3 -m unittest discover tests"})
             test_res = WorkspaceTools.run_command(workspace_path, "python3 -m unittest discover tests")
             test_out = test_res.get("stdout") or "Ran 1 test in 0.002s\n\nOK"
@@ -314,7 +415,7 @@ class AntigravityHarness:
                 f"```\n\n"
                 f"Session returning to **IDLE** state. Ready for future commits or `@adappty` mentions."
             )
-            await on_message("agent", awakened_report)
+            await emit_message("agent", awakened_report)
             return {"status": "COMPLETED", "summary": "Incremental commit verification passed."}
 
         # Intent G: General Architecture Questions
@@ -327,12 +428,12 @@ class AntigravityHarness:
                 "3. **Standing Sessions & Awakening**: Open PRs remain indexed via `session_key`; new commits or `@adappty` comments awaken the agent seamlessly.\n"
                 "4. **Action Approval Policies**: Sensitive actions (opening PRs, remote git push) pause for human review before execution."
             )
-            await on_message("agent", info_reply)
+            await emit_message("agent", info_reply)
             return {"status": "COMPLETED", "summary": "Provided informational explanation."}
 
         # Intent H: Coding / Fixing / APM Incident Triage Action
-        await on_thought(f"Classified request as coding/investigation task: '{title}'.")
-        await asyncio.sleep(0.4)
+        await emit_thought(f"Classified request as coding/investigation task: '{title}'.")
+        await asyncio.sleep(0.1)
 
         # Step 1: Real file listing
         tool_name = "list_dir"
@@ -343,15 +444,15 @@ class AntigravityHarness:
 
         # If prompt specifically asks to fix null pointer / auth error or similar
         if "null" in lower_prompt or "auth" in lower_prompt or "bug" in lower_prompt or "fix" in lower_prompt or "sentry" in lower_prompt or "appsignal" in lower_prompt:
-            await on_thought("Searching codebase for relevant functions...")
+            await emit_thought("Searching codebase for relevant functions...")
             await on_tool_start("grep_search", {"query": "def get_user_display_name"})
-            await asyncio.sleep(0.4)
+            await asyncio.sleep(0.1)
             await on_tool_end("grep_search", "app/auth_service.py:2: def get_user_display_name(self, user_dict):", 0, 400)
 
             # Apply real fix
             auth_file = workspace_path / "app" / "auth_service.py"
             if auth_file.exists():
-                await on_thought("Applying defensive fallback patch to app/auth_service.py...")
+                await emit_thought("Applying defensive fallback patch to app/auth_service.py...")
                 await on_tool_start("edit_file", {"path": "app/auth_service.py"})
                 WorkspaceTools.edit_file(
                     workspace_path,
@@ -374,7 +475,7 @@ class AntigravityHarness:
                     await on_diff_updated(diffs)
 
             # Run tests
-            await on_thought("Verifying fix with unit test runner...")
+            await emit_thought("Verifying fix with unit test runner...")
             await on_tool_start("run_command", {"command": "python3 -m unittest discover tests"})
             test_res = WorkspaceTools.run_command(workspace_path, "python3 -m unittest discover tests")
             test_out = test_res.get("stdout") or "Ran 1 test in 0.002s\n\nOK"
@@ -392,7 +493,7 @@ class AntigravityHarness:
                 return {"status": "AWAITING_APPROVAL", "summary": "Fix applied and verified. Awaiting PR approval."}
 
         # Default action reply
-        await on_message("agent", f"Task '{title}' processed in workspace. All checks completed.")
+        await emit_message("agent", f"Task '{title}' processed in workspace. All checks completed.")
         return {"status": "COMPLETED", "summary": f"Completed task: {title}"}
 
     async def _execute_with_gemini_api(
@@ -408,7 +509,10 @@ class AntigravityHarness:
         on_message: Callable[[str, str], Any],
         on_approval_required: Callable[[str, Dict[str, Any]], Any],
         on_diff_updated: Callable[[List[Dict[str, Any]]], Any],
-        history: Optional[List[Dict[str, Any]]] = None
+        history: Optional[List[Dict[str, Any]]] = None,
+        on_stream_start: Optional[Callable[[str, str], Any]] = None,
+        on_stream_chunk: Optional[Callable[[str, str, str, str], Any]] = None,
+        on_stream_end: Optional[Callable[[str, str, str], Any]] = None
     ) -> Dict[str, Any]:
         """
         Full agentic loop with live Gemini API & Antigravity workspace tools.
@@ -554,9 +658,13 @@ class AntigravityHarness:
                         if text_parts:
                             combined_text = "\n".join(text_parts).strip()
                             if function_calls:
-                                await on_thought(combined_text)
+                                await self._emit_streamed_thought(
+                                    combined_text, on_thought, on_stream_start, on_stream_chunk, on_stream_end
+                                )
                             else:
-                                await on_message("agent", combined_text)
+                                await self._emit_streamed_message(
+                                    "agent", combined_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
+                                )
 
                         # If no tool calls, task is finished
                         if not function_calls:
@@ -657,7 +765,8 @@ class AntigravityHarness:
         logger.info("Live Gemini API unavailable; falling back to local intent execution engine.")
         return await self._execute_local_intent(
             task_id, prompt, prompt, persona_name, workspace_path,
-            on_thought, on_tool_start, on_tool_end, on_message, on_approval_required, on_diff_updated
+            on_thought, on_tool_start, on_tool_end, on_message, on_approval_required, on_diff_updated,
+            on_stream_start=on_stream_start, on_stream_chunk=on_stream_chunk, on_stream_end=on_stream_end
         )
 
 

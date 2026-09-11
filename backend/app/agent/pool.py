@@ -378,6 +378,36 @@ class AgentTaskPool:
                     "diffs": diffs
                 })
 
+            # Define WebSocket streaming callbacks
+            async def on_stream_start(stream_type: str, stream_id: str):
+                await ws_manager.broadcast("STREAM_START", {
+                    "task_id": task_id,
+                    "stream_id": stream_id,
+                    "stream_type": stream_type,
+                    "sender": "agent",
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                })
+
+            async def on_stream_chunk(stream_type: str, stream_id: str, delta: str, accumulated: str):
+                await ws_manager.broadcast("STREAM_CHUNK", {
+                    "task_id": task_id,
+                    "stream_id": stream_id,
+                    "stream_type": stream_type,
+                    "delta": delta,
+                    "accumulated": accumulated
+                })
+
+            async def on_stream_end(stream_type: str, stream_id: str, final_content: str):
+                tokens = estimate_tokens(final_content)
+                await ws_manager.broadcast("STREAM_END", {
+                    "task_id": task_id,
+                    "stream_id": stream_id,
+                    "stream_type": stream_type,
+                    "final_content": final_content,
+                    "tokens": tokens,
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                })
+
             # Execute via Antigravity Harness
             result = await antigravity_harness.execute_task(
                 task_id=task_id,
@@ -391,7 +421,10 @@ class AgentTaskPool:
                 on_message=on_message,
                 on_approval_required=on_approval_required,
                 on_diff_updated=on_diff_updated,
-                history=history
+                history=history,
+                on_stream_start=on_stream_start,
+                on_stream_chunk=on_stream_chunk,
+                on_stream_end=on_stream_end
             )
 
             # Determine final status

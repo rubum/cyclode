@@ -57,8 +57,9 @@ interface ConversationTurn {
     content: string;
     tokens?: number;
     created_at?: string;
+    isOptimistic?: boolean;
   };
-  thoughts: { id: string; thought: string; created_at: string; tokens?: number }[];
+  thoughts: { id: string; thought: string; created_at: string; tokens?: number; isStreaming?: boolean }[];
   logs: TaskLog[];
   agentMessages: TaskMessage[];
   isLatest: boolean;
@@ -157,6 +158,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               content: m.content,
               tokens: m.tokens || estimateTokens(m.content),
               created_at: m.created_at,
+              isOptimistic: m.isOptimistic,
             },
             thoughts: [],
             logs: [],
@@ -177,15 +179,26 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
             });
           }
           const currentTurn = result[result.length - 1];
-          // Deduplicate consecutive thoughts with identical text
-          const lastThought = currentTurn.thoughts[currentTurn.thoughts.length - 1];
-          if (!lastThought || lastThought.thought.trim() !== m.thought.trim()) {
-            currentTurn.thoughts.push({
+          const existingThoughtIdx = currentTurn.thoughts.findIndex((t) => t.id === m.id);
+          if (existingThoughtIdx >= 0) {
+            currentTurn.thoughts[existingThoughtIdx] = {
               id: m.id,
               thought: m.thought,
               created_at: m.created_at,
               tokens: m.tokens,
-            });
+              isStreaming: m.isStreaming,
+            };
+          } else {
+            const lastThought = currentTurn.thoughts[currentTurn.thoughts.length - 1];
+            if (!lastThought || lastThought.thought.trim() !== m.thought.trim() || m.isStreaming) {
+              currentTurn.thoughts.push({
+                id: m.id,
+                thought: m.thought,
+                created_at: m.created_at,
+                tokens: m.tokens,
+                isStreaming: m.isStreaming,
+              });
+            }
           }
         }
       } else {
@@ -199,7 +212,13 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
             isLatest: false,
           });
         }
-        result[result.length - 1].agentMessages.push(m);
+        const currentTurn = result[result.length - 1];
+        const existingMsgIdx = currentTurn.agentMessages.findIndex((msg) => msg.id === m.id);
+        if (existingMsgIdx >= 0) {
+          currentTurn.agentMessages[existingMsgIdx] = m;
+        } else {
+          currentTurn.agentMessages.push(m);
+        }
       }
     });
 
@@ -642,7 +661,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
             const isActOpen = openActivities[turn.id] ?? false;
             const hasThoughts = turn.thoughts.length > 0;
             const hasLogs = turn.logs.length > 0;
-            const isTurnRunning = isRunning && turn.isLatest && turn.agentMessages.length === 0;
+            const isTurnRunning = isRunning && turn.isLatest && (turn.agentMessages.length === 0 || (turn.agentMessages.length === 1 && !turn.agentMessages[0].content));
 
             return (
               <div key={turn.id || tIdx} className="space-y-4">
@@ -690,9 +709,16 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                     ) : (
                       <div className="relative max-w-2xl flex flex-col items-end space-y-1">
                         <div className="flex items-center space-x-2 mb-0.5 pr-1 text-[11px] font-mono text-onedark-muted">
-                          <span className="px-2 py-0.5 rounded-full bg-onedark-surface border border-onedark-borderSubtle text-onedark-muted">
-                            ~{turn.userMessage.tokens || estimateTokens(turn.userMessage.content)} tokens in
-                          </span>
+                          {turn.userMessage.isOptimistic ? (
+                            <span className="px-2 py-0.5 rounded-full bg-onedark-accent/10 text-onedark-accent border border-onedark-accent/30 flex items-center space-x-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-onedark-accent animate-pulse" />
+                              <span>Sending...</span>
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full bg-onedark-surface border border-onedark-borderSubtle text-onedark-muted">
+                              ~{turn.userMessage.tokens || estimateTokens(turn.userMessage.content)} tokens in
+                            </span>
+                          )}
                         </div>
                         <div className="px-4 py-3 rounded-2xl bg-onedark-surface border border-onedark-border text-onedark-fgBright font-sans text-sm leading-relaxed shadow-sm">
                           <div className="whitespace-pre-wrap">{maskSecretsInText(turn.userMessage.content)}</div>
@@ -775,7 +801,12 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                       <div className="p-3.5 border-t border-onedark-borderSubtle space-y-2 text-xs text-onedark-fg font-mono leading-relaxed bg-onedark-darker/90 max-h-80 overflow-y-auto">
                         {turn.thoughts.map((m, idx) => (
                           <div key={m.id || idx} className="pl-3 border-l-2 border-onedark-accent/40 py-0.5">
-                            <div className="whitespace-pre-wrap">{m.thought}</div>
+                            <div className="whitespace-pre-wrap">
+                              {m.thought}
+                              {m.isStreaming && (
+                                <span className="inline-block w-1.5 h-3.5 ml-1 bg-onedark-accent animate-pulse align-middle" />
+                              )}
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -867,7 +898,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
                       {m.sender === 'system' ? (
                         <div className="my-2 px-4 py-2.5 rounded-xl bg-onedark-surface/40 border border-onedark-border text-xs text-onedark-fg font-mono leading-relaxed max-w-2xl text-center">
-                          <MarkdownRenderer content={maskSecretsInText(m.content)} />
+                          <MarkdownRenderer content={maskSecretsInText(m.content)} isStreaming={m.isStreaming} />
                         </div>
                       ) : (
                         <div className="max-w-3xl w-full flex flex-col items-start space-y-1.5">
@@ -878,7 +909,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                             </span>
                           </div>
                           <div className="px-5 py-4 rounded-2xl bg-onedark-darker/90 border border-onedark-border text-onedark-fg text-sm leading-relaxed shadow-sm w-full">
-                            <MarkdownRenderer content={maskSecretsInText(m.content)} />
+                            <MarkdownRenderer content={maskSecretsInText(m.content)} isStreaming={m.isStreaming} />
                           </div>
                           {/* Hover Action Bar */}
                           <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center space-x-1 pl-1">

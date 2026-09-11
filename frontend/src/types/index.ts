@@ -17,6 +17,33 @@ export interface TaskMessage {
   thought?: string;
   tokens?: number;
   created_at: string;
+  isOptimistic?: boolean;
+  isStreaming?: boolean;
+}
+
+export interface StreamStartEvent {
+  task_id: string;
+  stream_id: string;
+  stream_type: 'thought' | 'message';
+  sender: 'agent' | 'system';
+  timestamp: string;
+}
+
+export interface StreamChunkEvent {
+  task_id: string;
+  stream_id: string;
+  stream_type: 'thought' | 'message';
+  delta: string;
+  accumulated: string;
+}
+
+export interface StreamEndEvent {
+  task_id: string;
+  stream_id: string;
+  stream_type: 'thought' | 'message';
+  final_content: string;
+  tokens?: number;
+  timestamp: string;
 }
 
 export interface TaskLog {

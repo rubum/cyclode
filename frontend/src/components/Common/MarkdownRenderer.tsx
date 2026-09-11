@@ -4,9 +4,10 @@ import { Copy, Check, Info, AlertTriangle, AlertCircle, Sparkles, Flame } from '
 interface MarkdownRendererProps {
   content: string;
   className?: string;
+  isStreaming?: boolean;
 }
 
-export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className = '' }) => {
+export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className = '', isStreaming = false }) => {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
   const handleCopy = (text: string, index: number) => {
@@ -236,6 +237,9 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
           </div>
         );
       })}
+      {isStreaming && (
+        <span className="inline-block w-2 h-4 ml-1 bg-onedark-accent animate-pulse align-middle rounded-xs" title="Streaming..." />
+      )}
     </div>
   );
 };
