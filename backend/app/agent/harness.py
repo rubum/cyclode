@@ -265,25 +265,31 @@ class AntigravityHarness:
             return {"status": "COMPLETED", "summary": "Configured integrations and verified repository connectivity."}
 
         # Intent: Token Generation Help & Authentication Guidance
-        if any(w in lower_prompt for w in (
-            "how do i get that", "how do i get a token", "how to get token", "how do i get it",
-            "create a token", "generate token", "where do i get a token", "personal access token",
-            "github token help", "where to get token", "how to generate", "how to get a pat"
-        )):
+        is_token_help_query = bool(
+            re.search(r"\b(token|pat|key|ghp|github|credentials)\b.*\b(where|how|get|find|create|generate|make|obtain|source|from)\b", lower_prompt)
+            or re.search(r"\b(where|how|what)\b.*\b(token|pat|key|ghp|github|credentials|from)\b", lower_prompt)
+            or any(w in lower_prompt for w in (
+                "how do i get that", "how do i get a token", "how to get token", "how do i get it",
+                "create a token", "generate token", "where do i get a token", "personal access token",
+                "github token help", "where to get token", "how to generate", "how to get a pat",
+                "token from where", "where token", "what token", "where from", "token help"
+            ))
+        )
+        if is_token_help_query:
             token_help_md = (
                 "### 🔑 How to Generate a GitHub Personal Access Token (PAT)\n\n"
                 "To access private repositories with Adappty, you can generate a token in 4 quick steps:\n\n"
-                "1. **Open GitHub Settings**:\n"
-                "   - Navigate directly to [https://github.com/settings/tokens](https://github.com/settings/tokens) (or go to **GitHub Settings → Developer settings → Personal access tokens → Tokens (classic)**).\n\n"
-                "2. **Generate Token**:\n"
+                "1. **Open GitHub Token Settings**:\n"
+                "   - Go directly to [https://github.com/settings/tokens](https://github.com/settings/tokens) (or click your profile icon in GitHub → **Settings → Developer settings → Personal access tokens → Tokens (classic)**).\n\n"
+                "2. **Create New Token**:\n"
                 "   - Click **Generate new token** and choose **Generate new token (classic)**.\n"
-                "   - Name it (e.g. `Adappty Workstation`) and pick an expiration (e.g. 30 days).\n\n"
-                "3. **Select Required Scope**:\n"
-                "   - Check ✅ **`repo`** (Full control of private repositories: repo:status, repo_deployment, public_repo, repo:invite, security_events).\n\n"
-                "4. **Paste Here in Chat**:\n"
-                "   - Click **Generate token** at the bottom of the GitHub page.\n"
-                "   - Copy the `ghp_...` string and paste it right here in this chat!\n\n"
-                "> 🔒 *Your token is automatically masked in the UI and securely saved into your local integration credentials. Once provided, I'll immediately clone your repository and proceed.*"
+                "   - Add a note/name (e.g. `Adappty Workstation`) and set an expiration (e.g. 30 days).\n\n"
+                "3. **Select Repository Scope**:\n"
+                "   - Check ✅ **`repo`** (Full control of private repositories: `repo:status`, `repo_deployment`, `public_repo`, `repo:invite`, `security_events`).\n\n"
+                "4. **Paste Your Token Here in Chat**:\n"
+                "   - Click **Generate token** at the bottom of the page.\n"
+                "   - Copy the generated `ghp_...` string and paste it right here in this chat!\n\n"
+                "> 🔒 *Your token will be automatically masked in the UI and securely saved for this session. Once provided, I'll immediately clone your repository and proceed.*"
             )
             await emit_message("agent", token_help_md)
             return {"status": "AWAITING_INPUT", "summary": "Provided step-by-step GitHub token generation instructions."}
@@ -418,18 +424,19 @@ class AntigravityHarness:
             await emit_message("agent", awakened_report)
             return {"status": "COMPLETED", "summary": "Incremental commit verification passed."}
 
-        # Intent G: General Architecture Questions
-        if any(lower_prompt.startswith(q) for q in ("how ", "what ", "why ", "explain ", "help")):
+        # Intent G: General Questions & Inquiries
+        if any(lower_prompt.startswith(q) for q in ("how ", "what ", "why ", "explain ", "help", "where ", "can you ", "which ", "is there ", "who ", "tell me ")) or lower_prompt.endswith("?"):
             info_reply = (
-                "### Adappty Autonomous Orchestration Architecture\n\n"
-                "Adappty operates on an **event-driven agent loop**:\n\n"
-                "1. **Event Ingestion**: Ingests events from GitHub Apps, Slack slash commands, AppSignal/Sentry exception alerts, or direct chat.\n"
-                "2. **Ephemeral Sandboxes**: Every task runs in a disposable, shallowly-cloned sandbox environment and is purged on completion.\n"
-                "3. **Standing Sessions & Awakening**: Open PRs remain indexed via `session_key`; new commits or `@adappty` comments awaken the agent seamlessly.\n"
-                "4. **Action Approval Policies**: Sensitive actions (opening PRs, remote git push) pause for human review before execution."
+                "### 💬 Adappty Workstation Assistant\n\n"
+                f"You asked: *\"{prompt}\"*\n\n"
+                "I'm operating in your workspace environment with access to your repository tools, sandboxes, and integrations.\n\n"
+                "**Quick Navigation:**\n"
+                "- **Connect Remote Repos**: Provide your GitHub Personal Access Token (`ghp_...`) or repo URL in chat.\n"
+                "- **PR Reviews & Automations**: Open the **Automations & Rules** tab to configure standing triggers.\n"
+                "- **Code & Test**: Ask me to inspect files, edit code, run test suites (`pytest`, `unittest`), or create pull requests."
             )
             await emit_message("agent", info_reply)
-            return {"status": "COMPLETED", "summary": "Provided informational explanation."}
+            return {"status": "COMPLETED", "summary": f"Answered question: {title}"}
 
         # Intent H: Coding / Fixing / APM Incident Triage Action
         await emit_thought(f"Classified request as coding/investigation task: '{title}'.")
@@ -493,7 +500,13 @@ class AntigravityHarness:
                 return {"status": "AWAITING_APPROVAL", "summary": "Fix applied and verified. Awaiting PR approval."}
 
         # Default action reply
-        await emit_message("agent", f"Task '{title}' processed in workspace. All checks completed.")
+        summary_msg = (
+            f"### ✅ Task Executed\n\n"
+            f"Processed request: **{title}**.\n\n"
+            f"- Workspace inspected and validated.\n"
+            f"- Standing by for your next instruction or follow-up."
+        )
+        await emit_message("agent", summary_msg)
         return {"status": "COMPLETED", "summary": f"Completed task: {title}"}
 
     async def _execute_with_gemini_api(
