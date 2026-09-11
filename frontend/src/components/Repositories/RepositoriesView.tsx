@@ -34,7 +34,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({ onSelectRepo
   const [repoFullName, setRepoFullName] = useState('');
   const [repoToken, setRepoToken] = useState('');
   const [defaultBranch, setDefaultBranch] = useState('main');
-  const [testCommand, setTestCommand] = useState('pytest');
+  const [testCommand, setTestCommand] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ success?: boolean; message?: string } | null>(null);
@@ -83,7 +83,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({ onSelectRepo
     setRepoFullName('');
     setRepoToken('');
     setDefaultBranch('main');
-    setTestCommand('pytest');
+    setTestCommand('');
     setFeedback(null);
     setIsAddModalOpen(true);
   };
@@ -93,7 +93,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({ onSelectRepo
     setRepoFullName(repo.full_name);
     setRepoToken('');
     setDefaultBranch(repo.default_branch || 'main');
-    setTestCommand(repo.test_command || 'pytest');
+    setTestCommand(repo.test_command || '');
     setFeedback(null);
     setIsAddModalOpen(true);
   };
@@ -109,7 +109,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({ onSelectRepo
       if (editingRepo) {
         const payload: Record<string, any> = {
           default_branch: defaultBranch.trim() || 'main',
-          test_command: testCommand.trim() || 'pytest',
+          test_command: testCommand.trim() || undefined,
         };
         if (repoToken.trim()) {
           payload.token = repoToken.trim();
@@ -134,7 +134,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({ onSelectRepo
           full_name: repoFullName.trim(),
           token: repoToken.trim() || undefined,
           default_branch: defaultBranch.trim() || 'main',
-          test_command: testCommand.trim() || 'pytest',
+          test_command: testCommand.trim() || undefined,
         };
 
         const res = await fetch(`${API_BASE}/api/repositories`, {
@@ -357,7 +357,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({ onSelectRepo
 
                       <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded bg-onedark-surface text-onedark-fg text-[11px] border border-onedark-border font-mono">
                         <Terminal className="w-3 h-3 text-onedark-accent" />
-                        <span>{repo.test_command || 'pytest'}</span>
+                        <span>{repo.test_command || 'Auto-detect'}</span>
                       </span>
 
                       {repo.has_token && (
@@ -495,7 +495,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({ onSelectRepo
                     type="text"
                     value={testCommand}
                     onChange={(e) => setTestCommand(e.target.value)}
-                    placeholder="pytest"
+                    placeholder="e.g. mix test, pytest, npm test, cargo test"
                     className="w-full bg-onedark-bg border border-onedark-border rounded-lg px-3 py-1.5 text-xs text-onedark-fg font-mono focus:outline-none focus:border-onedark-accent"
                   />
                 </div>

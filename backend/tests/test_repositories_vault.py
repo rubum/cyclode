@@ -81,3 +81,42 @@ async def test_repository_vault_crud():
         # 6. Delete repo
         del_res = await client.delete(f"/api/repositories/{repo_id}")
         assert del_res.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_repository_architecture_persistence_and_retrieval():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Save repo config via manager (as done during repository analysis)
+        save_res = await integration_manager.save_repo_config(
+            repo_url="https://github.com/acme-org/payment-elixir",
+            token="ghp_elixirSecretToken123",
+            branches=["main", "staging"],
+            tech_stack=["Elixir", "Phoenix", "Oban", "Fly.io"],
+            test_command="mix test",
+            manifest_cache={"manifests": ["mix.exs", "fly.toml"], "subprojects": []},
+            default_branch="main"
+        )
+        assert save_res.get("ok") is True
+
+        # 2. Retrieve via API
+        list_res = await client.get("/api/repositories")
+        assert list_res.status_code == 200
+        repos = list_res.json()
+        target = next((r for r in repos if r["full_name"] == "acme-org/payment-elixir"), None)
+        assert target is not None
+        assert target["test_command"] == "mix test"
+        assert "Elixir" in target["tech_stack"]
+        assert "Phoenix" in target["tech_stack"]
+        assert target["has_token"] is True
+        repo_id = target["id"]
+
+        # 3. Update test command explicitly
+        put_res = await client.put(f"/api/repositories/{repo_id}", json={"test_command": "mix test --trace"})
+        assert put_res.status_code == 200
+        assert put_res.json()["repository"]["test_command"] == "mix test --trace"
+
+        # 4. Clean up
+        del_res = await client.delete(f"/api/repositories/{repo_id}")
+        assert del_res.status_code == 200
+

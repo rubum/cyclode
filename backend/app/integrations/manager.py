@@ -227,11 +227,15 @@ class IntegrationManager:
         self,
         repo_url: str,
         token: Optional[str] = None,
-        branches: Optional[List[str]] = None
+        branches: Optional[List[str]] = None,
+        tech_stack: Optional[List[str]] = None,
+        test_command: Optional[str] = None,
+        manifest_cache: Optional[Dict[str, Any]] = None,
+        default_branch: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Persists a repository configuration and encrypted token into the database
-        so it remains available across future sessions.
+        Persists a repository configuration, encrypted token, and architecture profile
+        into the database so it remains fully accessible across future sessions.
         """
         try:
             from app.db.session import async_session_factory
@@ -240,12 +244,23 @@ class IntegrationManager:
             from sqlalchemy import select
 
             clean_url = repo_url.strip().rstrip(".")
-            full_name = clean_url.split("github.com/")[-1].replace(".git", "").strip("/")
+            if "github.com/" in clean_url:
+                full_name = clean_url.split("github.com/")[-1].replace(".git", "").strip("/")
+            elif "/" in clean_url and not clean_url.startswith("http"):
+                full_name = clean_url.replace(".git", "").strip("/")
+                clean_url = f"https://github.com/{full_name}"
+            else:
+                full_name = clean_url
+                clean_url = f"https://github.com/{full_name}" if "/" in full_name else clean_url
+
             name = full_name.split("/")[-1] if "/" in full_name else full_name
             enc_token = encrypt_secret(token) if token else None
 
             async with async_session_factory() as session:
-                stmt = select(RepositoryConfigModel).where(RepositoryConfigModel.full_name == full_name)
+                stmt = select(RepositoryConfigModel).where(
+                    (RepositoryConfigModel.full_name == full_name) |
+                    (RepositoryConfigModel.clone_url == clean_url)
+                )
                 res = await session.execute(stmt)
                 existing = res.scalars().first()
 
@@ -254,19 +269,40 @@ class IntegrationManager:
                     if enc_token:
                         existing.encrypted_token = enc_token
                     existing.status = "CONNECTED"
+                    if default_branch:
+                        existing.default_branch = default_branch
+                    elif branches and ("main" in branches or "master" in branches):
+                        existing.default_branch = "main" if "main" in branches else "master"
+                    if test_command:
+                        existing.test_command = test_command
+                    if tech_stack is not None:
+                        existing.tech_stack = tech_stack
+                    
+                    m_cache = dict(existing.manifest_cache or {})
                     if branches:
-                        existing.manifest_cache = {**(existing.manifest_cache or {}), "branches": branches[:10]}
+                        m_cache["branches"] = branches[:10]
+                    if manifest_cache:
+                        m_cache.update(manifest_cache)
+                    existing.manifest_cache = m_cache
                     existing.last_synced_at = get_utc_now()
                 else:
+                    m_cache = {"branches": branches[:10]} if branches else {}
+                    if manifest_cache:
+                        m_cache.update(manifest_cache)
+
                     new_repo = RepositoryConfigModel(
                         name=name,
                         full_name=full_name,
                         clone_url=clean_url,
-                        default_branch="main" if not branches or "main" in branches else branches[0],
+                        default_branch=default_branch or ("main" if not branches or "main" in branches else branches[0]),
                         encrypted_token=enc_token,
                         auth_provider="github",
                         status="CONNECTED",
-                        manifest_cache={"branches": branches[:10]} if branches else {}
+                        tech_stack=tech_stack or [],
+                        test_command=test_command,
+                        manifest_cache=m_cache,
+                        created_at=get_utc_now(),
+                        updated_at=get_utc_now(),
                     )
                     session.add(new_repo)
 

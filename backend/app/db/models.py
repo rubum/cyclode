@@ -154,8 +154,8 @@ class RepositoryConfigModel(Base):
     auth_provider: Mapped[str] = mapped_column(String(50), default="github")
     
     # Cached Codebase & Architecture Profile
-    tech_stack: Mapped[List[str]] = mapped_column(JSON, default=list)            # ["Python", "FastAPI", "React"]
-    test_command: Mapped[str] = mapped_column(String(200), default="pytest")
+    tech_stack: Mapped[List[str]] = mapped_column(JSON, default=list)            # ["Elixir", "Phoenix", "Oban"] or ["Python", "FastAPI"]
+    test_command: Mapped[Optional[str]] = mapped_column(String(200), nullable=True, default="")
     manifest_cache: Mapped[Dict[str, Any]] = mapped_column(JSON, default=dict)
     
     # Status & Timestamps

@@ -101,14 +101,20 @@ async def ensure_default_repositories():
                         default_branch=t.target_branch or "main",
                         encrypted_token=enc_token,
                         auth_provider="github",
-                        test_command="pytest",
-                        tech_stack=["Python", "TypeScript", "React", "FastAPI"] if "waylo" in full_name.lower() else [],
+                        test_command="",
+                        tech_stack=[],
                         status="CONNECTED",
                         created_at=get_utc_now(),
                         updated_at=get_utc_now(),
                     )
                     session.add(new_repo)
                     existing_repos[full_name] = new_repo
+
+            # Clean up any legacy default fake values on existing repos
+            for full_name, repo in existing_repos.items():
+                if repo.test_command == "pytest" and repo.tech_stack and "Python" in repo.tech_stack and "waylo" in full_name.lower():
+                    repo.tech_stack = []
+                    repo.test_command = ""
 
             await session.commit()
         except Exception as e:

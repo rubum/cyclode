@@ -23,7 +23,7 @@ class RepositoryCreateRequest(BaseModel):
     default_branch: str = "main"
     token: Optional[str] = None
     auth_provider: str = "github"
-    test_command: str = "pytest"
+    test_command: Optional[str] = None
     tech_stack: List[str] = []
 
 
@@ -55,7 +55,7 @@ def serialize_repo(repo: RepositoryConfigModel) -> Dict[str, Any]:
         "has_token": bool(raw_token),
         "masked_token": mask_token_preview(raw_token),
         "tech_stack": repo.tech_stack or [],
-        "test_command": repo.test_command,
+        "test_command": repo.test_command if repo.test_command and repo.test_command.strip() else None,
         "manifest_cache": repo.manifest_cache or {},
         "status": repo.status,
         "last_synced_at": repo.last_synced_at.isoformat() if repo.last_synced_at else None,
@@ -102,7 +102,8 @@ async def create_or_update_repository(req: RepositoryCreateRequest, db: AsyncSes
             existing.encrypted_token = enc_token
         existing.status = status
         existing.auth_provider = req.auth_provider
-        existing.test_command = req.test_command or existing.test_command
+        if req.test_command is not None:
+            existing.test_command = req.test_command.strip() if req.test_command.strip() else None
         if req.tech_stack:
             existing.tech_stack = req.tech_stack
         existing.last_synced_at = get_utc_now()
@@ -117,7 +118,7 @@ async def create_or_update_repository(req: RepositoryCreateRequest, db: AsyncSes
             default_branch=default_branch,
             encrypted_token=enc_token,
             auth_provider=req.auth_provider,
-            test_command=req.test_command,
+            test_command=req.test_command.strip() if req.test_command and req.test_command.strip() else None,
             tech_stack=req.tech_stack,
             status=status,
             manifest_cache={"branches": branches[:10]} if branches else {}
@@ -150,8 +151,8 @@ async def update_repository(repo_id: str, req: RepositoryUpdateRequest, db: Asyn
         repo.name = req.name
     if req.default_branch:
         repo.default_branch = req.default_branch
-    if req.test_command:
-        repo.test_command = req.test_command
+    if req.test_command is not None:
+        repo.test_command = req.test_command.strip() if req.test_command.strip() else None
     if req.tech_stack is not None:
         repo.tech_stack = req.tech_stack
     if req.token:
