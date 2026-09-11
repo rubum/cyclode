@@ -1431,7 +1431,7 @@ class AntigravityHarness:
             f"4. If all tests pass and changes are ready, summarize the solution clearly."
         )
 
-        model_candidates = [self.model_name, "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-flash-preview", "gemini-flash-latest"]
+        model_candidates = [self.model_name, "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest", "gemini-3.1-flash-lite"]
         unique_models = list(dict.fromkeys(m for m in model_candidates if m))
 
         contents: List[Dict[str, Any]] = []

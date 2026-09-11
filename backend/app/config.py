@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     # Antigravity & Gemini configuration
     GEMINI_API_KEY: Optional[str] = None
     GOOGLE_API_KEY: Optional[str] = None
-    ANTIGRAVITY_MODEL: str = "gemini-2.5-flash"
+    ANTIGRAVITY_MODEL: str = "gemini-3.7-flash"
     ANTIGRAVITY_ENABLE_THINKING: bool = True
     ANTIGRAVITY_MAX_PARALLEL_WORKERS: int = 5
     ANTIGRAVITY_EXECUTION_TIMEOUT_SECONDS: int = 600
