@@ -646,3 +646,49 @@ async def test_what_is_this_on_and_explain_repo_intent(tmp_path):
     assert "pyproject.toml" in content3
     assert "deepeval" in content3
 
+
+@pytest.mark.asyncio
+async def test_in_chat_gemini_key_provisioning_and_live_mode(tmp_path, monkeypatch):
+    from app.agent.harness import AntigravityHarness
+    from app.integrations.manager import integration_manager
+
+    harness = AntigravityHarness()
+    messages = []
+    thoughts = []
+
+    async def mock_msg(sender, content):
+        messages.append((sender, content))
+
+    async def mock_thought(text):
+        thoughts.append(text)
+
+    # Mock _execute_with_gemini_api so it doesn't make real network calls
+    async def mock_gemini_exec(**kwargs):
+        messages.append(("agent", "Hello! I am Gemini. I have analyzed your workspace."))
+        return {"status": "COMPLETED", "summary": "Gemini answered prompt"}
+
+    monkeypatch.setattr(harness, "_execute_with_gemini_api", mock_gemini_exec)
+
+    # Prompt containing a Gemini API key
+    sample_key = "AIzaSyB_1234567890abcdefghijklmnopqrstuvwxyz"
+    res = await harness.execute_task(
+        task_id="test-key-task",
+        title=f"Use this API key: {sample_key} and analyze the project",
+        description=f"Use this API key: {sample_key} and analyze the project",
+        persona_name="PairProgrammer",
+        workspace_path=tmp_path,
+        on_thought=mock_thought,
+        on_tool_start=lambda n, a: None,
+        on_tool_end=lambda n, o, e, d, a=None: None,
+        on_message=mock_msg,
+        on_approval_required=lambda a, d: None,
+        on_diff_updated=lambda d: None
+    )
+
+    assert res["status"] == "COMPLETED"
+    assert len(messages) >= 1
+    assert "Gemini" in messages[-1][1]
+    # Check that integration manager received the key
+    assert integration_manager._custom_credentials.get("gemini", {}).get("api_key") == sample_key
+
+

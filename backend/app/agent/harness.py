@@ -128,8 +128,17 @@ class AntigravityHarness:
         """
         Executes an agent task dynamically based on real intent.
         """
-        api_key = settings.get_api_key()
         prompt_text = description or title
+
+        # Check if user provided a Gemini API key directly in prompt
+        gemini_match = re.search(r"(AIzaSy[A-Za-z0-9_-]{20,})", prompt_text)
+        if gemini_match:
+            key = gemini_match.group(1)
+            await integration_manager.update_credentials("gemini", {"api_key": key})
+            api_key = key
+        else:
+            gemini_creds = integration_manager._custom_credentials.get("gemini", {})
+            api_key = gemini_creds.get("api_key") or settings.get_api_key()
 
         # Ensure sample workspace exists
         worktree_manager.init_sample_repo_if_needed(workspace_path)
@@ -650,7 +659,8 @@ class AntigravityHarness:
                     f"- **Explain Architecture**: Ask `Explain the repo` or `Analyze architecture` for a full structural audit.\n"
                     f"- **Inspect & Edit Code**: Ask me to read, review, or modify any file (e.g. `README.md`, `pyproject.toml`).\n"
                     f"- **Run Tests**: Ask me to execute the test suite (e.g. `pytest`, `vitest`).\n"
-                    f"- **Autonomous PRs**: Trigger automated bug fixes or configure event automations."
+                    f"- **Autonomous PRs**: Trigger automated bug fixes or configure event automations.\n\n"
+                    f"> 💡 *To unlock full autonomous AI agent loops, paste your Gemini API key (`AIzaSy...`) directly in this chat or configure it in Settings.*"
                 )
                 await emit_message("agent", info_reply)
                 return {"status": "COMPLETED", "summary": f"Answered question for {display_ws}: {title}"}
@@ -662,7 +672,8 @@ class AntigravityHarness:
                 "**Quick Navigation:**\n"
                 "- **Connect Remote Repos**: Provide your GitHub Personal Access Token (`ghp_...`) or repo URL in chat.\n"
                 "- **PR Reviews & Automations**: Open the **Automations & Rules** tab to configure standing triggers.\n"
-                "- **Code & Test**: Ask me to inspect files, edit code, run test suites (`pytest`, `unittest`), or create pull requests."
+                "- **Code & Test**: Ask me to inspect files, edit code, run test suites (`pytest`, `unittest`), or create pull requests.\n\n"
+                "> 💡 *To unlock full autonomous AI agent loops, paste your Gemini API key (`AIzaSy...`) directly in this chat or configure it in Settings.*"
             )
             await emit_message("agent", info_reply)
             return {"status": "COMPLETED", "summary": f"Answered question: {title}"}
