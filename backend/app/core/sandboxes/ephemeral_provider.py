@@ -37,24 +37,34 @@ class EphemeralSandboxProvider(SandboxProvider):
     ) -> SandboxContext:
         workspace_path = self.base_dir / f"sandbox-{task_id}"
         
-        # 1. Reuse existing warm sandbox for multi-turn sessions
+        # 1. Reuse existing warm sandbox for multi-turn sessions ONLY IF repo matches
         if task_id in self._active_sandboxes and not self._active_sandboxes[task_id].is_destroyed and workspace_path.exists():
-            logger.info(f"Reusing active sandbox session for task {task_id} at {workspace_path}")
-            return self._active_sandboxes[task_id]
+            existing_ctx = self._active_sandboxes[task_id]
+            if not repo_url or existing_ctx.repo_url == repo_url:
+                logger.info(f"Reusing active sandbox session for task {task_id} at {workspace_path}")
+                return existing_ctx
 
         if workspace_path.exists() and (workspace_path / ".git").exists():
-            context = SandboxContext(
-                task_id=task_id,
-                workspace_path=workspace_path,
-                repo_name=repo_name,
-                repo_url=repo_url,
-                branch=branch or "main",
-                commit_sha=commit_sha,
-                is_destroyed=False
-            )
-            self._active_sandboxes[task_id] = context
-            logger.info(f"Reattached existing sandbox directory for task {task_id} at {workspace_path}")
-            return context
+            curr_origin = ""
+            orig_check = subprocess.run(["git", "config", "--get", "remote.origin.url"], cwd=workspace_path, capture_output=True, text=True)
+            if orig_check.returncode == 0:
+                curr_origin = orig_check.stdout.strip()
+            
+            clean_req = (repo_url or "").rstrip("/.git")
+            clean_curr = curr_origin.rstrip("/.git")
+            if not repo_url or (clean_req and clean_req in clean_curr):
+                context = SandboxContext(
+                    task_id=task_id,
+                    workspace_path=workspace_path,
+                    repo_name=repo_name,
+                    repo_url=repo_url,
+                    branch=branch or "main",
+                    commit_sha=commit_sha,
+                    is_destroyed=False
+                )
+                self._active_sandboxes[task_id] = context
+                logger.info(f"Reattached existing sandbox directory for task {task_id} at {workspace_path}")
+                return context
 
         # Clean any preexisting directory
         if workspace_path.exists():
@@ -71,7 +81,7 @@ class EphemeralSandboxProvider(SandboxProvider):
                 if active_token and "github.com" in repo_url and not ("@" in repo_url):
                     clone_url = repo_url.replace("https://", f"https://x-access-token:{active_token}@")
 
-                cmd = ["git", "clone", "--depth", "50"]
+                cmd = ["git", "clone", "--depth", "1", "--single-branch"]
                 if branch:
                     cmd.extend(["--branch", branch])
                 cmd.extend([clone_url, str(workspace_path)])

@@ -504,5 +504,32 @@ async def test_sandbox_persists_for_session_and_cleans_up_on_deletion(tmp_path):
         assert not ws_dir.exists()
 
 
+@pytest.mark.asyncio
+async def test_create_task_with_github_url_in_prompt_extracts_repo():
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
+    from app.db.session import async_session_factory
+    from app.db.models import TaskModel
+    from sqlalchemy import select
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.post("/api/tasks", json={
+            "title": "Analyse this https://github.com/confident-ai/deepeval",
+            "persona": "PairProgrammer"
+        })
+        assert res.status_code == 200
+        task_id = res.json()["task_id"]
+
+        async with async_session_factory() as session:
+            stmt = select(TaskModel).where(TaskModel.id == task_id)
+            res_db = await session.execute(stmt)
+            task = res_db.scalars().first()
+            assert task is not None
+            assert task.repo_url == "https://github.com/confident-ai/deepeval"
+            assert task.repo_name == "confident-ai/deepeval"
+
+
+
 
 

@@ -56,11 +56,26 @@ async def list_tasks(
 
 @router.post("")
 async def create_task(req: CreateTaskRequest):
+    import re
+    repo_url = None
+    repo_name = None
+    combined_text = f"{req.title} {req.description}"
+    repo_match = re.search(r"(https?://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?)", combined_text, re.IGNORECASE)
+    if repo_match:
+        raw_url = repo_match.group(1).rstrip("/")
+        if raw_url.endswith(".git"):
+            raw_url = raw_url[:-4]
+        repo_url = raw_url
+        if "github.com/" in repo_url:
+            repo_name = repo_url.split("github.com/")[-1]
+
     task_id = await agent_pool.spawn_task(
         title=req.title,
         description=req.description,
         persona=req.persona,
-        model_name=req.model_name
+        model_name=req.model_name,
+        repo_name=repo_name,
+        repo_url=repo_url
     )
     return {"ok": True, "task_id": task_id}
 

@@ -290,17 +290,28 @@ class AntigravityHarness:
                         branches
                     )
 
-                    # If the prompt also requested analysis, immediately clone and synthesize codebase analysis!
+                    # Ensure target_repo is actually cloned in workspace_path
+                    curr_orig = ""
+                    if (workspace_path / ".git").exists():
+                        orig_p = subprocess.run(["git", "config", "--get", "remote.origin.url"], cwd=workspace_path, capture_output=True, text=True)
+                        curr_orig = orig_p.stdout.strip()
+
+                    clean_target = target_repo.rstrip("/.git")
+                    clean_curr = curr_orig.rstrip("/.git")
+                    if not curr_orig or clean_target not in clean_curr:
+                        if workspace_path.exists():
+                            shutil.rmtree(workspace_path, ignore_errors=True)
+                        workspace_path.mkdir(parents=True, exist_ok=True)
+                        clone_url = target_repo
+                        if target_token and "github.com" in target_repo and "@" not in target_repo:
+                            clone_url = target_repo.replace("https://", f"https://x-access-token:{target_token}@")
+                        await call_tool_start("git_clone", {"repo_url": target_repo})
+                        proc = subprocess.run(["git", "clone", "--depth", "1", "--single-branch", clone_url, str(workspace_path)], capture_output=True, text=True)
+                        await call_tool_end("git_clone", proc.stdout or proc.stderr or "OK", proc.returncode, 400)
+
+                    # If the prompt also requested analysis, immediately synthesize codebase analysis!
                     if has_analysis_intent:
                         await emit_thought(f"Repository `{target_repo}` is connected. Preparing architecture analysis...")
-                        if not (workspace_path / ".git").exists():
-                            clone_url = target_repo
-                            if target_token and "github.com" in target_repo and "@" not in target_repo:
-                                clone_url = target_repo.replace("https://", f"https://x-access-token:{target_token}@")
-                            await call_tool_start("git_clone", {"repo_url": target_repo})
-                            proc = subprocess.run(["git", "clone", "--depth", "50", clone_url, str(workspace_path)], capture_output=True, text=True)
-                            await call_tool_end("git_clone", proc.stdout or proc.stderr or "OK", proc.returncode, 400)
-
                         return await self._synthesize_repository_analysis(
                             task_id=task_id,
                             title=title,
@@ -682,6 +693,40 @@ class AntigravityHarness:
                         res = on_tool_end(name, output, exit_code, duration_ms)
                     if asyncio.iscoroutine(res):
                         await res
+
+        # Ensure target repo URL from prompt/title is cloned if specified
+        repo_match = re.search(r"(https?://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?)", f"{title} {prompt}", re.IGNORECASE)
+        repo_named = re.search(r"(?:connect|clone|repo|repository|analyse|analyze)\s+(?:to\s+|this\s+)?([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)", f"{title} {prompt}", re.IGNORECASE)
+        target_repo = None
+        if repo_match:
+            target_repo = repo_match.group(1).rstrip(".")
+        elif repo_named and "/" in repo_named.group(1) and not repo_named.group(1).startswith("http"):
+            target_repo = f"https://github.com/{repo_named.group(1)}"
+
+        if target_repo:
+            curr_origin = ""
+            if (workspace_path / ".git").exists():
+                orig_res = subprocess.run(["git", "config", "--get", "remote.origin.url"], cwd=workspace_path, capture_output=True, text=True)
+                curr_origin = orig_res.stdout.strip()
+
+            clean_target = target_repo.rstrip("/.git")
+            clean_curr = curr_origin.rstrip("/.git")
+            if not curr_origin or clean_target not in clean_curr:
+                from app.integrations.manager import integration_manager
+                from app.integrations.github_client import github_client
+                token = await integration_manager.get_github_token_for_repo(target_repo) or github_client.token
+                clone_url = target_repo
+                if token and "github.com" in target_repo and "@" not in target_repo:
+                    clone_url = target_repo.replace("https://", f"https://x-access-token:{token}@")
+
+                await emit_thought(f"Cloning repository `{target_repo}` into sandbox workspace...")
+                if workspace_path.exists():
+                    shutil.rmtree(workspace_path, ignore_errors=True)
+                workspace_path.mkdir(parents=True, exist_ok=True)
+
+                await call_tool_start("git_clone", {"repo_url": target_repo})
+                proc = subprocess.run(["git", "clone", "--depth", "1", "--single-branch", clone_url, str(workspace_path)], capture_output=True, text=True)
+                await call_tool_end("git_clone", proc.stdout or proc.stderr or "OK", proc.returncode, 500)
 
         await emit_thought("Scanning workspace topology, sniffing shebangs, and profiling LOC distributions...")
 
@@ -1076,9 +1121,18 @@ class AntigravityHarness:
             sub_rows = [f"- `{sp['name']}`: **{sp['type']}** (`{sp['manifest']}`)" for sp in subprojects[:6]]
             monorepo_section = f"\n### 🏢 Monorepo & Sub-Project Topology\n" + "\n".join(sub_rows) + "\n"
 
+        display_workspace_name = workspace_path.name
+        if (workspace_path / ".git").exists():
+            orig_check = WorkspaceTools.run_command(workspace_path, "git config --get remote.origin.url")
+            orig_val = orig_check.get("stdout", "").strip()
+            if "github.com/" in orig_val:
+                display_workspace_name = orig_val.split("github.com/")[-1].replace(".git", "")
+        if display_workspace_name.startswith("sandbox-") and target_repo:
+            display_workspace_name = target_repo.split("github.com/")[-1].replace(".git", "")
+
         report_md = (
             f"## 📊 Repository & Architecture Analysis\n\n"
-            f"> **Workspace:** `{workspace_path.name}` • **Active Branch:** `{git_branch}` • **Status:** Inspected & Validated ✅\n\n"
+            f"> **Workspace:** `{display_workspace_name}` • **Active Branch:** `{git_branch}` • **Status:** Inspected & Validated ✅\n\n"
             f"### 🛠️ Tech Stack & Environment\n"
             f"- **Core Runtime:** `{tech_str}`\n"
             f"- **Frameworks & Libraries:** `{fw_str}`\n"
