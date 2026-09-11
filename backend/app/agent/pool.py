@@ -401,18 +401,25 @@ class AgentTaskPool:
                 res_t = await session.execute(stmt_t)
                 t = res_t.scalars().first()
                 session_key = t.session_key if t else None
+                current_sb_status = t.sandbox_status if t else "NONE"
 
-                # For standing sessions (PRs, issues), transition to IDLE when completed
-                if raw_status == "COMPLETED" and session_key:
+                # If task is awaiting input (e.g. auth required), keep AWAITING_INPUT during conversational turns
+                if current_sb_status in ["AUTH_REQUIRED", "CLONE_FAILED"] and not repo_url:
+                    final_status = "AWAITING_INPUT"
+                    final_sb_status = current_sb_status
+                elif raw_status == "COMPLETED" and session_key:
                     final_status = "IDLE"
+                    final_sb_status = "ACTIVE" if repo_url else current_sb_status
                 else:
                     final_status = raw_status
+                    final_sb_status = "ACTIVE" if repo_url else current_sb_status
 
                 await session.execute(
                     update(TaskModel)
                     .where(TaskModel.id == task_id)
                     .values(
                         status=final_status,
+                        sandbox_status=final_sb_status,
                         result_summary=result.get("summary", ""),
                         completed_at=get_utc_now() if final_status in ["COMPLETED", "IDLE"] else None
                     )
@@ -422,6 +429,7 @@ class AgentTaskPool:
             await ws_manager.broadcast("TASK_STATUS_CHANGE", {
                 "task_id": task_id,
                 "status": final_status,
+                "sandbox_status": final_sb_status,
                 "result_summary": result.get("summary", "")
             })
 
@@ -432,8 +440,8 @@ class AgentTaskPool:
                 f"I attempted to clone `{e.repo_url}`, but it is a **private repository** or requires GitHub authorization (`fatal: could not read Username`).\n\n"
                 f"#### How you can assist:\n"
                 f"- **Paste your Token here in Chat**: Reply directly with your GitHub Personal Access Token (`ghp_...` or `github_pat_...`). It will be automatically masked in the UI and used to authenticate.\n"
-                f"- **Configure Integrations**: Open the **Integrations** modal in the top header and configure your GitHub token globally.\n\n"
-                f"Once provided, I'll immediately clone `{e.repo_url}` and proceed with your task!"
+                f"- **Configure Integrations**: Open the **Integrations** tab in the sidebar and configure your GitHub token globally.\n\n"
+                f"Feel free to ask me any questions, or paste your token and I'll immediately clone `{e.repo_url}` and proceed with your task!"
             )
             m_tokens = estimate_tokens(guidance_msg)
             async with async_session_factory() as session:
@@ -529,21 +537,27 @@ class AgentTaskPool:
                 "error": str(e)
             })
         finally:
-            # Tear down ephemeral sandbox completely
+            # Tear down ephemeral sandbox completely only if not awaiting user input or approval
             if sandbox_ctx:
-                await sandbox_manager.destroy(sandbox_ctx)
                 async with async_session_factory() as session:
-                    await session.execute(
-                        update(TaskModel)
-                        .where(TaskModel.id == task_id)
-                        .values(sandbox_status="DESTROYED")
-                    )
-                    await session.commit()
+                    stmt_t = select(TaskModel).where(TaskModel.id == task_id)
+                    res_t = await session.execute(stmt_t)
+                    t = res_t.scalars().first()
+                    curr_status = t.status if t else None
+                if curr_status not in ["AWAITING_INPUT", "AWAITING_APPROVAL"]:
+                    await sandbox_manager.destroy(sandbox_ctx)
+                    async with async_session_factory() as session:
+                        await session.execute(
+                            update(TaskModel)
+                            .where(TaskModel.id == task_id)
+                            .values(sandbox_status="DESTROYED")
+                        )
+                        await session.commit()
 
-                await ws_manager.broadcast("TASK_STATUS_CHANGE", {
-                    "task_id": task_id,
-                    "sandbox_status": "DESTROYED"
-                })
+                    await ws_manager.broadcast("TASK_STATUS_CHANGE", {
+                        "task_id": task_id,
+                        "sandbox_status": "DESTROYED"
+                    })
 
             self.active_tasks.pop(task_id, None)
 
@@ -763,6 +777,12 @@ class AgentTaskPool:
                 )
                 await session.commit()
 
+        # Determine whether to attempt repository clone or operate in conversational mode
+        repo_url_to_pass = active_repo_url
+        if task.sandbox_status in ["AUTH_REQUIRED", "CLONE_FAILED"] and not gh_match and not repo_match:
+            # User is asking questions or chatting before a token or new URL is provided
+            repo_url_to_pass = None
+
         # Build execution prompt
         worker_prompt = message_text
         if gh_match and task.description and task.description != message_text:
@@ -776,7 +796,7 @@ class AgentTaskPool:
                 description=worker_prompt,
                 persona=persona,
                 repo_name=active_repo_name,
-                repo_url=active_repo_url,
+                repo_url=repo_url_to_pass,
                 target_branch=task.target_branch,
                 commit_sha=task.commit_sha,
                 history=history

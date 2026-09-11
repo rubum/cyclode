@@ -87,3 +87,35 @@ def test_clone_exceptions():
     assert "Failed to clone repository" in str(fail_exc)
 
 
+@pytest.mark.asyncio
+async def test_conversational_auth_guidance(tmp_path):
+    from app.agent.harness import antigravity_harness
+    messages_captured = []
+
+    async def mock_msg(sender, content):
+        messages_captured.append((sender, content))
+
+    res = await antigravity_harness._execute_local_intent(
+        task_id="task-test",
+        title="how do I get that?",
+        prompt='"Paste your Token here in Chat" - how do I get that?',
+        persona_name="PairProgrammer",
+        workspace_path=tmp_path,
+        on_thought=lambda t: None,
+        on_tool_start=lambda n, a: None,
+        on_tool_end=lambda n, o, e, d, a=None: None,
+        on_message=mock_msg,
+        on_approval_required=lambda a, d: None,
+        on_diff_updated=lambda d: None
+    )
+
+    assert res.get("status") == "AWAITING_INPUT"
+    assert len(messages_captured) > 0
+    sender, content = messages_captured[0]
+    assert sender == "agent"
+    assert "Personal Access Token" in content
+    assert "github.com/settings/tokens" in content
+    assert "repo" in content
+
+
+

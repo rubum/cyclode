@@ -163,6 +163,30 @@ class AntigravityHarness:
             await on_message("agent", reply_md)
             return {"status": "COMPLETED", "summary": "Configured integrations and verified repository connectivity."}
 
+        # Intent: Token Generation Help & Authentication Guidance
+        if any(w in lower_prompt for w in (
+            "how do i get that", "how do i get a token", "how to get token", "how do i get it",
+            "create a token", "generate token", "where do i get a token", "personal access token",
+            "github token help", "where to get token", "how to generate", "how to get a pat"
+        )):
+            token_help_md = (
+                "### 🔑 How to Generate a GitHub Personal Access Token (PAT)\n\n"
+                "To access private repositories with Adappty, you can generate a token in 4 quick steps:\n\n"
+                "1. **Open GitHub Settings**:\n"
+                "   - Navigate directly to [https://github.com/settings/tokens](https://github.com/settings/tokens) (or go to **GitHub Settings → Developer settings → Personal access tokens → Tokens (classic)**).\n\n"
+                "2. **Generate Token**:\n"
+                "   - Click **Generate new token** and choose **Generate new token (classic)**.\n"
+                "   - Name it (e.g. `Adappty Workstation`) and pick an expiration (e.g. 30 days).\n\n"
+                "3. **Select Required Scope**:\n"
+                "   - Check ✅ **`repo`** (Full control of private repositories: repo:status, repo_deployment, public_repo, repo:invite, security_events).\n\n"
+                "4. **Paste Here in Chat**:\n"
+                "   - Click **Generate token** at the bottom of the GitHub page.\n"
+                "   - Copy the `ghp_...` string and paste it right here in this chat!\n\n"
+                "> 🔒 *Your token is automatically masked in the UI and securely saved into your local integration credentials. Once provided, I'll immediately clone your repository and proceed.*"
+            )
+            await on_message("agent", token_help_md)
+            return {"status": "AWAITING_INPUT", "summary": "Provided step-by-step GitHub token generation instructions."}
+
         # Intent A: Casual Greeting or Small Talk (e.g. "hi", "hello", "hey")
         if lower_prompt in ("hi", "hello", "hey", "greetings", "hi there", "sup"):
             greeting_reply = (
