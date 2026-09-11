@@ -38,6 +38,42 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const pollTimerRef = useRef<any>(null);
 
+  const fileExistsInTree = (nodes: FileNode[], targetPath: string): boolean => {
+    for (const n of nodes) {
+      if (!n.is_dir && (n.path === targetPath || n.name === targetPath)) return true;
+      if (n.children && fileExistsInTree(n.children, targetPath)) return true;
+    }
+    return false;
+  };
+
+  const findPreferredOrFirstFile = (nodes: FileNode[]): string | null => {
+    const findByName = (items: FileNode[], names: string[]): string | null => {
+      for (const item of items) {
+        if (!item.is_dir && names.includes(item.name.toLowerCase())) return item.path;
+        if (item.children) {
+          const found = findByName(item.children, names);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    const readme = findByName(nodes, ['readme.md', 'readme', 'pyproject.toml', 'package.json', 'mix.exs', 'cargo.toml', 'go.mod']);
+    if (readme) return readme;
+
+    const findFirst = (items: FileNode[]): string | null => {
+      for (const item of items) {
+        if (!item.is_dir) return item.path;
+        if (item.children) {
+          const found = findFirst(item.children);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    return findFirst(nodes);
+  };
+
   const fetchFilesystem = async (silent = false) => {
     if (!silent) setLoading(true);
     setError(null);
@@ -61,19 +97,13 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
       const json: SandboxInfo = await res.json();
       setData(json);
 
-      if (!selectedFile && json.file_tree && json.file_tree.length > 0) {
-        const findFirstFile = (nodes: FileNode[]): string | null => {
-          for (const n of nodes) {
-            if (!n.is_dir) return n.path;
-            if (n.children) {
-              const childFile = findFirstFile(n.children);
-              if (childFile) return childFile;
-            }
+      if (json.file_tree && json.file_tree.length > 0) {
+        setSelectedFile((prev) => {
+          if (prev && fileExistsInTree(json.file_tree, prev)) {
+            return prev;
           }
-          return null;
-        };
-        const first = findFirstFile(json.file_tree);
-        if (first) setSelectedFile(first);
+          return findPreferredOrFirstFile(json.file_tree);
+        });
       }
     } catch (err: any) {
       if (task.status !== 'INITIALIZING' && task.sandbox_status !== 'PROVISIONING') {
@@ -85,6 +115,8 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
   };
 
   useEffect(() => {
+    setSelectedFile(null);
+    setData(null);
     fetchFilesystem();
 
     const isProvisioning = task.status === 'INITIALIZING' || task.sandbox_status === 'PROVISIONING' || (data && data.sandbox_status === 'PROVISIONING');
@@ -99,7 +131,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
         clearInterval(pollTimerRef.current);
       }
     };
-  }, [task.id, task.status, task.sandbox_status]);
+  }, [task.id]);
 
   if (loading && !data && task.status !== 'INITIALIZING' && task.sandbox_status !== 'PROVISIONING') {
     return (
@@ -210,6 +242,10 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
         <CodeViewer
           taskId={task.id}
           filePath={selectedFile}
+          onFileNotFound={() => {
+            const fallback = findPreferredOrFirstFile(data.file_tree);
+            if (fallback) setSelectedFile(fallback);
+          }}
         />
       </div>
     </div>

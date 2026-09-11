@@ -5,6 +5,7 @@ import { highlightCode, resolveLanguage } from '../../utils/syntaxHighlighter';
 interface CodeViewerProps {
   taskId: string;
   filePath: string | null;
+  onFileNotFound?: () => void;
   onClose?: () => void;
 }
 
@@ -19,7 +20,7 @@ interface FileContentResponse {
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
-export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath }) => {
+export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath, onFileNotFound }) => {
   const [data, setData] = useState<FileContentResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -120,9 +121,17 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath }) => {
     return (
       <div className="p-4 rounded-xl bg-onedark-red/10 border border-onedark-red/30 text-onedark-red text-xs font-mono m-4 flex items-start space-x-2">
         <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-        <div>
+        <div className="flex-1">
           <div className="font-semibold">Unable to Read File</div>
           <div className="text-[11px] opacity-90 mt-0.5">{error}</div>
+          {onFileNotFound && (
+            <button
+              onClick={onFileNotFound}
+              className="mt-2.5 px-3 py-1 rounded bg-onedark-surface hover:bg-onedark-border text-onedark-fg text-[11px] transition-colors cursor-pointer border border-onedark-borderSubtle"
+            >
+              Open Available File
+            </button>
+          )}
         </div>
       </div>
     );
