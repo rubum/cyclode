@@ -1022,7 +1022,16 @@ class AgentTaskPool:
         Retries / regenerates execution for a task or from a specific user message.
         """
         async with async_session_factory() as session:
-            if from_message_id and from_message_id != "initial":
+            stmt_task = select(TaskModel).where(TaskModel.id == task_id)
+            res_task = await session.execute(stmt_task)
+            task = res_task.scalars().first()
+            if not task:
+                return {"ok": False, "error": "Task not found"}
+
+            if from_message_id == "initial":
+                return await self.edit_and_resubmit_message(task_id, "initial", task.description or task.title)
+
+            if from_message_id:
                 stmt_msg = select(TaskMessageModel).where(
                     TaskMessageModel.id == from_message_id,
                     TaskMessageModel.task_id == task_id
@@ -1043,11 +1052,6 @@ class AgentTaskPool:
             if last_user_msg:
                 return await self.edit_and_resubmit_message(task_id, last_user_msg.id, last_user_msg.content)
             else:
-                stmt_task = select(TaskModel).where(TaskModel.id == task_id)
-                res_task = await session.execute(stmt_task)
-                task = res_task.scalars().first()
-                if not task:
-                    return {"ok": False, "error": "Task not found"}
                 return await self.edit_and_resubmit_message(task_id, "initial", task.description or task.title)
 
 

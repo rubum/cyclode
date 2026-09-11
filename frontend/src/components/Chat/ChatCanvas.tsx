@@ -972,7 +972,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                             </button>
                             {onRetryTask && !isRunning && (
                               <button
-                                onClick={() => onRetryTask()}
+                                onClick={() => onRetryTask(turn.userMessage?.id)}
                                 className="p-1 rounded-md hover:bg-onedark-surface border border-transparent hover:border-onedark-border text-onedark-muted hover:text-onedark-fgBright transition-colors"
                                 title="Regenerate response"
                               >

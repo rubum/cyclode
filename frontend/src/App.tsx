@@ -553,12 +553,16 @@ const MainApp: React.FC = () => {
       return {
         ...prev,
         status: 'RUNNING',
+        result_summary: null,
+        logs: [],
+        diffs: [],
+        approvals: [],
         description: messageId === 'initial' ? content : prev.description,
         messages: newMessages,
       };
     });
     setTasks((prev) =>
-      prev.map((t) => (t.id === activeTaskId ? { ...t, status: 'RUNNING' } : t))
+      prev.map((t) => (t.id === activeTaskId ? { ...t, status: 'RUNNING', result_summary: undefined } : t))
     );
 
     try {
@@ -583,10 +587,47 @@ const MainApp: React.FC = () => {
 
   const handleRetryTask = async (fromMessageId?: string) => {
     if (!activeTaskId) return;
-    setActiveTaskDetails((prev) => (prev ? { ...prev, status: 'RUNNING' } : prev));
+
+    setActiveTaskDetails((prev) => {
+      if (!prev) return prev;
+      let newMessages: TaskMessage[] = [];
+      if (!fromMessageId || fromMessageId === 'initial') {
+        if (!fromMessageId && prev.messages && prev.messages.length > 0) {
+          // If fromMessageId wasn't passed, retry from the last user message
+          const userMsgs = prev.messages.filter((m) => m.sender === 'user');
+          if (userMsgs.length > 0) {
+            const lastUserMsgId = userMsgs[userMsgs.length - 1].id;
+            const targetIdx = prev.messages.findIndex((m) => m.id === lastUserMsgId);
+            newMessages = targetIdx >= 0 ? prev.messages.slice(0, targetIdx + 1) : [];
+          } else {
+            newMessages = [];
+          }
+        } else {
+          // Retrying initial prompt: immediately clear all subsequent messages
+          newMessages = [];
+        }
+      } else {
+        const targetIdx = (prev.messages || []).findIndex((m) => m.id === fromMessageId);
+        if (targetIdx >= 0) {
+          newMessages = prev.messages!.slice(0, targetIdx + 1);
+        } else {
+          newMessages = [];
+        }
+      }
+      return {
+        ...prev,
+        status: 'RUNNING',
+        result_summary: null,
+        logs: [],
+        diffs: [],
+        approvals: [],
+        messages: newMessages,
+      };
+    });
     setTasks((prev) =>
-      prev.map((t) => (t.id === activeTaskId ? { ...t, status: 'RUNNING' } : t))
+      prev.map((t) => (t.id === activeTaskId ? { ...t, status: 'RUNNING', result_summary: undefined } : t))
     );
+
     try {
       const res = await fetch(`${API_BASE}/api/tasks/${activeTaskId}/retry`, {
         method: 'POST',
