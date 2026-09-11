@@ -186,8 +186,8 @@ async def test_unauthenticated_private_repo_connect_and_analyze(tmp_path):
 
     res = await antigravity_harness._execute_local_intent(
         task_id="task-private-repo",
-        title="Connect and analyze repository https://github.com/gowaylo/waylo",
-        prompt="Connect and analyze repository https://github.com/gowaylo/waylo",
+        title="Connect and analyze repository https://github.com/gowaylo-private/waylo-internal-api",
+        prompt="Connect and analyze repository https://github.com/gowaylo-private/waylo-internal-api",
         persona_name="PairProgrammer",
         workspace_path=tmp_path,
         on_thought=lambda t: None,
@@ -207,3 +207,128 @@ async def test_unauthenticated_private_repo_connect_and_analyze(tmp_path):
     assert "Personal Access Token" in content
     assert "Integration & Repository Configuration Updated" not in content
     assert "Ready to execute autonomous tasks" not in content
+
+
+@pytest.mark.asyncio
+async def test_elixir_polyglot_repository_analysis(tmp_path):
+    from app.agent.harness import antigravity_harness
+
+    # Create mock Elixir / Phoenix / Oban / Fly.io workspace
+    lib_dir = tmp_path / "lib" / "waylo"
+    lib_dir.mkdir(parents=True, exist_ok=True)
+    (lib_dir / "worker.ex").write_text("defmodule Waylo.Worker do\n  use Oban.Worker\nend")
+    (lib_dir / "application.ex").write_text("defmodule Waylo.Application do\n  use Application\nend")
+
+    test_dir = tmp_path / "test"
+    test_dir.mkdir(parents=True, exist_ok=True)
+    (test_dir / "waylo_test.exs").write_text("defmodule WayloTest do\n  use ExUnit.Case\nend")
+    (test_dir / "worker_test.exs").write_text("defmodule WorkerTest do\n  use ExUnit.Case\nend")
+
+    (tmp_path / "mix.exs").write_text(
+        'defmodule Waylo.MixProject do\n'
+        '  use Mix.Project\n'
+        '  def project do\n'
+        '    [app: :waylo, deps: [{:phoenix, "~> 1.7"}, {:oban, "~> 2.15"}, {:ecto_sql, "~> 3.10"}]]\n'
+        '  end\n'
+        'end'
+    )
+    (tmp_path / ".iex.exs").write_text("import IEx.Helpers\n")
+    (tmp_path / "fly-redis-demo.toml").write_text('app = "waylo-redis"\n')
+    (tmp_path / "start-session.sh").write_text('#!/bin/bash\nmix phx.server\n')
+
+    infra_dir = tmp_path / "terraform"
+    infra_dir.mkdir(parents=True, exist_ok=True)
+    (infra_dir / "main.tf").write_text('resource "aws_s3_bucket" "b" {}\n')
+
+    messages_captured = []
+    async def mock_msg(sender, content):
+        messages_captured.append((sender, content))
+
+    res = await antigravity_harness._execute_local_intent(
+        task_id="task-elixir-analysis",
+        title="Analyse it",
+        prompt="Analyse it",
+        persona_name="PairProgrammer",
+        workspace_path=tmp_path,
+        on_thought=lambda t: None,
+        on_tool_start=lambda n, a: None,
+        on_tool_end=lambda n, o, e, d, a=None: None,
+        on_message=mock_msg,
+        on_approval_required=lambda a, d: None,
+        on_diff_updated=lambda d: None
+    )
+
+    assert res.get("status") == "COMPLETED"
+    assert len(messages_captured) == 1
+    sender, content = messages_captured[0]
+    assert sender == "agent"
+
+    # Core runtime & frameworks
+    assert "Elixir" in content
+    assert "Phoenix" in content
+    assert "Oban" in content
+    assert "Ecto" in content
+
+    # Build & Infrastructure
+    assert "Fly.io" in content
+    assert "Terraform" in content
+    assert "Mix / Hex" in content
+
+    # Test runner & file count
+    assert "mix test" in content
+    assert "2 test files in `test/`" in content
+    assert "pytest" not in content
+    assert "unittest" not in content
+
+    # Zero fake python paths
+    assert "app/auth_service.py" not in content
+    assert "Python / Modular Service" not in content
+    assert "fly-redis-demo.toml" in content or "mix.exs" in content or "lib/" in content
+
+
+@pytest.mark.asyncio
+async def test_typescript_repository_analysis(tmp_path):
+    from app.agent.harness import antigravity_harness
+
+    src_dir = tmp_path / "src"
+    src_dir.mkdir(parents=True, exist_ok=True)
+    (src_dir / "App.tsx").write_text("export function App() { return <div>Hello</div>; }")
+    (src_dir / "main.ts").write_text("console.log('boot');")
+
+    test_dir = tmp_path / "src" / "__tests__"
+    test_dir.mkdir(parents=True, exist_ok=True)
+    (test_dir / "App.test.tsx").write_text("test('renders', () => {});")
+
+    (tmp_path / "package.json").write_text(
+        '{"name": "my-react-app", "dependencies": {"react": "^18.2.0", "tailwindcss": "^3.0"}, "devDependencies": {"vite": "^5.0", "vitest": "^1.0"}}'
+    )
+
+    messages_captured = []
+    async def mock_msg(sender, content):
+        messages_captured.append((sender, content))
+
+    res = await antigravity_harness._execute_local_intent(
+        task_id="task-ts-analysis",
+        title="Analyze codebase",
+        prompt="Analyze codebase",
+        persona_name="PairProgrammer",
+        workspace_path=tmp_path,
+        on_thought=lambda t: None,
+        on_tool_start=lambda n, a: None,
+        on_tool_end=lambda n, o, e, d, a=None: None,
+        on_message=mock_msg,
+        on_approval_required=lambda a, d: None,
+        on_diff_updated=lambda d: None
+    )
+
+    assert res.get("status") == "COMPLETED"
+    assert len(messages_captured) == 1
+    sender, content = messages_captured[0]
+
+    assert "TypeScript" in content
+    assert "React" in content
+    assert "Vite" in content
+    assert "TailwindCSS" in content
+    assert "vitest" in content
+    assert "pytest" not in content
+

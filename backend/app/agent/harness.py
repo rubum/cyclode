@@ -297,9 +297,9 @@ class AntigravityHarness:
                             clone_url = target_repo
                             if target_token and "github.com" in target_repo and "@" not in target_repo:
                                 clone_url = target_repo.replace("https://", f"https://x-access-token:{target_token}@")
-                            await on_tool_start("git_clone", {"repo_url": target_repo})
+                            await call_tool_start("git_clone", {"repo_url": target_repo})
                             proc = subprocess.run(["git", "clone", "--depth", "50", clone_url, str(workspace_path)], capture_output=True, text=True)
-                            await on_tool_end("git_clone", proc.stdout or proc.stderr or "OK", proc.returncode, 400)
+                            await call_tool_end("git_clone", proc.stdout or proc.stderr or "OK", proc.returncode, 400)
 
                         return await self._synthesize_repository_analysis(
                             task_id=task_id,
@@ -402,11 +402,11 @@ class AntigravityHarness:
         # Intent C: Workspace listing / exploration
         if any(w in lower_prompt for w in ("list files", "ls", "show files", "list workspace", "workspace files", "dir")):
             await emit_thought("Listing workspace directory structure...")
-            await on_tool_start("list_dir", {"directory": "."})
+            await call_tool_start("list_dir", {"directory": "."})
             list_res = WorkspaceTools.list_dir(workspace_path)
             items = list_res.get("items", [])
             items_str = ", ".join(i["name"] for i in items) if items else "No files found"
-            await on_tool_end("list_dir", f"Found {len(items)} items: {items_str}", 0, 200)
+            await call_tool_end("list_dir", f"Found {len(items)} items: {items_str}", 0, 200)
 
             file_list_md = "\n".join([
                 f"- `{i.get('name')}` ({i.get('type', 'dir' if i.get('is_dir') else 'file')}, {i.get('size', 0) or 0} bytes)"
@@ -424,11 +424,11 @@ class AntigravityHarness:
         # Intent D: Run tests / verification
         if any(w in lower_prompt for w in ("run test", "run tests", "pytest", "unittest", "verify test", "check tests")):
             await emit_thought("Executing test suite in isolated workspace...")
-            await on_tool_start("run_command", {"command": "python3 -m unittest discover tests"})
+            await call_tool_start("run_command", {"command": "python3 -m unittest discover tests"})
             test_res = WorkspaceTools.run_command(workspace_path, "python3 -m unittest discover tests")
             test_out = test_res.get("stdout") or test_res.get("stderr") or "Ran 1 test\n\nOK"
             exit_code = test_res.get("exit_code", 0)
-            await on_tool_end("run_command", test_out, exit_code, 400)
+            await call_tool_end("run_command", test_out, exit_code, 400)
 
             status_icon = "✅" if exit_code == 0 else "❌"
             msg = (
@@ -443,21 +443,21 @@ class AntigravityHarness:
         # Intent E: PR Code Review (Autonomous CodeReviewer)
         if persona_name == "CodeReviewer" or "review pr" in lower_prompt or "code review" in lower_prompt or "pull_request.opened" in lower_prompt:
             await emit_thought("Analyzing repository structure and commits in ephemeral sandbox...")
-            await on_tool_start("list_dir", {"directory": "."})
+            await call_tool_start("list_dir", {"directory": "."})
             list_res = WorkspaceTools.list_dir(workspace_path)
             items_str = ", ".join(i["name"] for i in list_res.get("items", [])) or "app, tests"
-            await on_tool_end("list_dir", f"Inspected files: {items_str}", 0, 200)
+            await call_tool_end("list_dir", f"Inspected files: {items_str}", 0, 200)
 
             await emit_thought("Reading source files to check for edge cases, null safety, and test coverage...")
-            await on_tool_start("read_file", {"path": "app/auth_service.py"})
+            await call_tool_start("read_file", {"path": "app/auth_service.py"})
             auth_content = WorkspaceTools.read_file(workspace_path, "app/auth_service.py").get("content", "")
-            await on_tool_end("read_file", f"Read {len(auth_content)} bytes", 0, 200)
+            await call_tool_end("read_file", f"Read {len(auth_content)} bytes", 0, 200)
 
             await emit_thought("Running automated test suite in disposable sandbox...")
-            await on_tool_start("run_command", {"command": "python3 -m unittest discover tests"})
+            await call_tool_start("run_command", {"command": "python3 -m unittest discover tests"})
             test_res = WorkspaceTools.run_command(workspace_path, "python3 -m unittest discover tests")
             test_out = test_res.get("stdout") or "Ran 1 test in 0.002s\n\nOK"
-            await on_tool_end("run_command", test_out, 0, 450)
+            await call_tool_end("run_command", test_out, 0, 450)
 
             review_md = (
                 f"## 📋 Autonomous PR Code Review\n\n"
@@ -479,15 +479,15 @@ class AntigravityHarness:
         # Intent F: Incremental Commit Push / Awakening Verification
         if "synchronize" in lower_prompt or "incremental" in lower_prompt or "new commit" in lower_prompt or "re-evaluating" in lower_prompt:
             await emit_thought("Session awakened on new commit. Booting fresh ephemeral sandbox and checking git history...")
-            await on_tool_start("run_command", {"command": "git log -n 1 --oneline"})
+            await call_tool_start("run_command", {"command": "git log -n 1 --oneline"})
             git_out = WorkspaceTools.run_command(workspace_path, "git log -n 1 --oneline").get("stdout") or "c7a8b9f Update auth service"
-            await on_tool_end("run_command", git_out, 0, 250)
+            await call_tool_end("run_command", git_out, 0, 250)
 
             await emit_thought("Re-running full test suite against updated commit...")
-            await on_tool_start("run_command", {"command": "python3 -m unittest discover tests"})
+            await call_tool_start("run_command", {"command": "python3 -m unittest discover tests"})
             test_res = WorkspaceTools.run_command(workspace_path, "python3 -m unittest discover tests")
             test_out = test_res.get("stdout") or "Ran 1 test in 0.002s\n\nOK"
-            await on_tool_end("run_command", test_out, 0, 400)
+            await call_tool_end("run_command", test_out, 0, 400)
 
             awakened_report = (
                 f"### ⚡ Incremental Verification: Passed ✅\n\n"
@@ -544,23 +544,23 @@ class AntigravityHarness:
 
         # Step 1: Real file listing
         tool_name = "list_dir"
-        await on_tool_start(tool_name, {"directory": "."})
+        await call_tool_start(tool_name, {"directory": "."})
         list_res = WorkspaceTools.list_dir(workspace_path)
         items_str = ", ".join(i["name"] for i in list_res.get("items", [])) or "empty workspace"
-        await on_tool_end(tool_name, f"Workspace files: {items_str}", 0, 300)
+        await call_tool_end(tool_name, f"Workspace files: {items_str}", 0, 300)
 
         # If prompt specifically asks to fix null pointer / auth error or similar
         if "null" in lower_prompt or "auth" in lower_prompt or "bug" in lower_prompt or "fix" in lower_prompt or "sentry" in lower_prompt or "appsignal" in lower_prompt:
             await emit_thought("Searching codebase for relevant functions...")
-            await on_tool_start("grep_search", {"query": "def get_user_display_name"})
+            await call_tool_start("grep_search", {"query": "def get_user_display_name"})
             await asyncio.sleep(0.1)
-            await on_tool_end("grep_search", "app/auth_service.py:2: def get_user_display_name(self, user_dict):", 0, 400)
+            await call_tool_end("grep_search", "app/auth_service.py:2: def get_user_display_name(self, user_dict):", 0, 400)
 
             # Apply real fix
             auth_file = workspace_path / "app" / "auth_service.py"
             if auth_file.exists():
                 await emit_thought("Applying defensive fallback patch to app/auth_service.py...")
-                await on_tool_start("edit_file", {"path": "app/auth_service.py"})
+                await call_tool_start("edit_file", {"path": "app/auth_service.py"})
                 WorkspaceTools.edit_file(
                     workspace_path,
                     "app/auth_service.py",
@@ -575,7 +575,7 @@ class AntigravityHarness:
                         '        return profile.get("name", "Anonymous")\n'
                     )
                 )
-                await on_tool_end("edit_file", "Updated app/auth_service.py with defensive fallback.", 0, 300)
+                await call_tool_end("edit_file", "Updated app/auth_service.py with defensive fallback.", 0, 300)
 
                 diffs = worktree_manager.get_git_diff(workspace_path)
                 if diffs:
@@ -583,10 +583,10 @@ class AntigravityHarness:
 
             # Run tests
             await emit_thought("Verifying fix with unit test runner...")
-            await on_tool_start("run_command", {"command": "python3 -m unittest discover tests"})
+            await call_tool_start("run_command", {"command": "python3 -m unittest discover tests"})
             test_res = WorkspaceTools.run_command(workspace_path, "python3 -m unittest discover tests")
             test_out = test_res.get("stdout") or "Ran 1 test in 0.002s\n\nOK"
-            await on_tool_end("run_command", test_out, 0, 500)
+            await call_tool_end("run_command", test_out, 0, 500)
 
             # Check approval policy for PR
             can_exec, _ = policy_engine.check_action("create_pull_request")
@@ -630,92 +630,267 @@ class AntigravityHarness:
                     if asyncio.iscoroutine(res):
                         await res
 
-        async def call_tool_end(name: str, output: str, exit_code: int, duration_ms: int):
+        async def call_tool_end(name: str, output: str, exit_code: int, duration_ms: int, tool_input: Optional[Dict[str, Any]] = None):
             if on_tool_end:
+                import inspect
+                sig = inspect.signature(on_tool_end)
+                param_count = len(sig.parameters)
                 if asyncio.iscoroutinefunction(on_tool_end):
-                    await on_tool_end(name, output, exit_code, duration_ms)
+                    if param_count >= 5:
+                        await on_tool_end(name, output, exit_code, duration_ms, tool_input)
+                    else:
+                        await on_tool_end(name, output, exit_code, duration_ms)
                 else:
-                    res = on_tool_end(name, output, exit_code, duration_ms)
+                    if param_count >= 5:
+                        res = on_tool_end(name, output, exit_code, duration_ms, tool_input)
+                    else:
+                        res = on_tool_end(name, output, exit_code, duration_ms)
                     if asyncio.iscoroutine(res):
                         await res
 
-        await emit_thought("Scanning workspace root and discovering repository layout...")
+        await emit_thought("Scanning workspace topology and profiling source file distributions...")
 
-        # Step 1: List root directory
+        # ----------------------------------------------------------------------
+        # Step 1: Discover Root and Traverse Files up to Depth 4
+        # ----------------------------------------------------------------------
         await call_tool_start("list_dir", {"directory": "."})
         root_res = WorkspaceTools.list_dir(workspace_path)
         root_items = root_res.get("items", [])
         root_names = [i["name"] for i in root_items]
         await call_tool_end("list_dir", f"Found {len(root_items)} root items: {', '.join(root_names)}", 0, 180)
 
-        # Step 2: Detect manifests and languages
-        tech_stack = []
-        frameworks = []
-        tools = []
-        manifest_details = []
-        test_framework = "unittest / pytest"
-        test_files = []
+        ignored_dirs = {
+            ".git", "node_modules", "_build", "deps", ".elixir_ls", "vendor",
+            "__pycache__", ".pytest_cache", ".venv", "venv", "target", "dist",
+            "build", ".terraform", "coverage", ".next", ".nuxt"
+        }
 
-        # Check subdirectories
+        all_files: List[str] = []
+        extension_counts: Dict[str, int] = {}
+
+        try:
+            for root, dirs, files in os.walk(str(workspace_path)):
+                # Prune ignored directories in-place
+                dirs[:] = [d for d in dirs if d not in ignored_dirs and not d.startswith(".")]
+                rel_root = os.path.relpath(root, str(workspace_path))
+                depth = 0 if rel_root == "." else rel_root.count(os.sep) + 1
+                if depth > 4:
+                    dirs[:] = []
+                    continue
+
+                for f in files:
+                    if f.startswith(".git"):
+                        continue
+                    rel_f = f if rel_root == "." else os.path.join(rel_root, f)
+                    all_files.append(rel_f)
+                    ext = os.path.splitext(f)[-1].lower()
+                    if ext:
+                        extension_counts[ext] = extension_counts.get(ext, 0) + 1
+        except Exception as e:
+            logger.debug(f"File walk note: {e}")
+
+        # ----------------------------------------------------------------------
+        # Step 2: Language Profiling based on Real Extension Frequencies
+        # ----------------------------------------------------------------------
+        ext_to_lang = {
+            ".ex": "Elixir", ".exs": "Elixir",
+            ".ts": "TypeScript", ".tsx": "TypeScript",
+            ".js": "JavaScript", ".jsx": "JavaScript", ".mjs": "JavaScript",
+            ".py": "Python",
+            ".rs": "Rust",
+            ".go": "Go",
+            ".rb": "Ruby",
+            ".tf": "Terraform (HCL)", ".hcl": "Terraform (HCL)",
+            ".sh": "Shell", ".bash": "Shell",
+            ".java": "Java", ".kt": "Kotlin",
+            ".php": "PHP",
+            ".cs": "C# / .NET",
+            ".c": "C", ".cpp": "C++", ".h": "C/C++ Header"
+        }
+
+        lang_counts: Dict[str, int] = {}
+        for ext, count in extension_counts.items():
+            lang = ext_to_lang.get(ext)
+            if lang:
+                lang_counts[lang] = lang_counts.get(lang, 0) + count
+
+        sorted_langs = sorted(lang_counts.items(), key=lambda x: x[1], reverse=True)
+        total_src_files = sum(lang_counts.values()) or 1
+
+        tech_stack: List[str] = []
+        if sorted_langs:
+            for lang, count in sorted_langs[:3]:
+                pct = round((count / total_src_files) * 100)
+                tech_stack.append(f"{lang} ({pct}%)" if len(sorted_langs) > 1 else lang)
+
+        frameworks: List[str] = []
+        tools: List[str] = []
+        manifest_details: List[str] = []
+        test_framework: Optional[str] = None
+        test_files_count = 0
+        test_dir_name = ""
+
+        # ----------------------------------------------------------------------
+        # Step 3: Deep Polyglot Manifest & Config Inspection
+        # ----------------------------------------------------------------------
         subdirs = [i["name"] for i in root_items if i.get("is_dir")]
-        for s in ["app", "src", "backend", "frontend", "tests", "pkg", "cmd", "packages", "services"]:
-            if s in subdirs:
-                await call_tool_start("list_dir", {"directory": s})
-                sub_res = WorkspaceTools.list_dir(workspace_path, s)
-                sub_items = [item["name"] for item in sub_res.get("items", [])]
-                await call_tool_end("list_dir", f"{s}/: {', '.join(sub_items[:10])}", 0, 150)
-                if s == "tests":
-                    test_files.extend(sub_items)
 
-        # Check Python
-        if any(f in root_names for f in ("requirements.txt", "pyproject.toml", "setup.py", "Pipfile")) or "app" in subdirs:
-            tech_stack.append("Python")
-            for req_file in ("requirements.txt", "pyproject.toml", "setup.py"):
-                if req_file in root_names:
-                    await call_tool_start("read_file", {"path": req_file})
-                    content = WorkspaceTools.read_file(workspace_path, req_file).get("content", "")
-                    await call_tool_end("read_file", f"Read {len(content)} bytes from {req_file}", 0, 150)
-                    manifest_details.append(f"**`{req_file}`**")
-
-                    if "fastapi" in content.lower():
-                        frameworks.append("FastAPI")
-                    if "django" in content.lower():
-                        frameworks.append("Django")
-                    if "flask" in content.lower():
-                        frameworks.append("Flask")
-                    if "pytest" in content.lower():
-                        test_framework = "pytest"
-                    if "sqlalchemy" in content.lower():
-                        frameworks.append("SQLAlchemy")
-                    if "pydantic" in content.lower():
-                        frameworks.append("Pydantic")
-
-        # Check Node / TS / JS
-        if any(f in root_names for f in ("package.json", "tsconfig.json", "vite.config.ts", "next.config.js")) or "frontend" in subdirs:
-            tech_stack.append("TypeScript / JavaScript")
-            if "package.json" in root_names:
-                await call_tool_start("read_file", {"path": "package.json"})
-                pkg_content = WorkspaceTools.read_file(workspace_path, "package.json").get("content", "")
-                await call_tool_end("read_file", f"Read {len(pkg_content)} bytes from package.json", 0, 150)
-                manifest_details.append(f"**`package.json`**")
-                if "react" in pkg_content.lower():
-                    frameworks.append("React")
-                if "vite" in pkg_content.lower():
-                    tools.append("Vite")
-                if "next" in pkg_content.lower():
-                    frameworks.append("Next.js")
-                if "tailwindcss" in pkg_content.lower():
+        # 1. Elixir / Erlang
+        is_elixir = any(f.endswith(".ex") or f.endswith(".exs") for f in all_files) or "mix.exs" in root_names or ".iex.exs" in root_names
+        if is_elixir:
+            if "Elixir / BEAM (Erlang VM)" not in [t.split(" (")[0] for t in tech_stack]:
+                tech_stack.insert(0, "Elixir / BEAM (Erlang VM)")
+            mix_file = "mix.exs" if "mix.exs" in root_names else next((f for f in all_files if f.endswith("mix.exs")), None)
+            if mix_file:
+                await call_tool_start("read_file", {"path": mix_file})
+                content = WorkspaceTools.read_file(workspace_path, mix_file).get("content", "")
+                await call_tool_end("read_file", f"Read {len(content)} bytes from {mix_file}", 0, 150)
+                manifest_details.append(f"**`{mix_file}`**")
+                c_lower = content.lower()
+                if ":phoenix" in c_lower or "phoenix" in c_lower:
+                    frameworks.append("Phoenix")
+                if ":oban" in c_lower or "oban" in c_lower:
+                    frameworks.append("Oban (Job Queue)")
+                if ":ecto" in c_lower or "ecto" in c_lower:
+                    frameworks.append("Ecto (Data Layer)")
+                if ":absinthe" in c_lower:
+                    frameworks.append("Absinthe (GraphQL)")
+                if ":phoenix_live_view" in c_lower or ":live_view" in c_lower:
+                    frameworks.append("Phoenix LiveView")
+                if ":broadway" in c_lower:
+                    frameworks.append("Broadway")
+                if ":finch" in c_lower:
+                    frameworks.append("Finch")
+                if ":plug" in c_lower:
+                    frameworks.append("Plug")
+                if ":tailwind" in c_lower:
                     tools.append("TailwindCSS")
-                if "jest" in pkg_content.lower():
-                    test_framework = "Jest"
-                if "vitest" in pkg_content.lower():
-                    test_framework = "Vitest"
+            tools.append("Mix / Hex")
+            test_framework = "mix test"
 
-        # Check Docker / Containers
+        # 2. TypeScript / JavaScript / Node
+        pkg_file = "package.json" if "package.json" in root_names else next((f for f in all_files if f.endswith("package.json")), None)
+        if pkg_file:
+            await call_tool_start("read_file", {"path": pkg_file})
+            pkg_content = WorkspaceTools.read_file(workspace_path, pkg_file).get("content", "")
+            await call_tool_end("read_file", f"Read {len(pkg_content)} bytes from {pkg_file}", 0, 150)
+            manifest_details.append(f"**`{pkg_file}`**")
+            p_lower = pkg_content.lower()
+            if "react" in p_lower:
+                frameworks.append("React")
+            if "vue" in p_lower:
+                frameworks.append("Vue.js")
+            if "next" in p_lower:
+                frameworks.append("Next.js")
+            if "vite" in p_lower:
+                tools.append("Vite")
+            if "express" in p_lower:
+                frameworks.append("Express")
+            if "nestjs" in p_lower or "@nestjs" in p_lower:
+                frameworks.append("NestJS")
+            if "tailwindcss" in p_lower:
+                tools.append("TailwindCSS")
+            if "vitest" in p_lower:
+                test_framework = test_framework or "vitest"
+            elif "jest" in p_lower:
+                test_framework = test_framework or "jest"
+            elif not test_framework:
+                test_framework = "npm test"
+
+        # 3. Python
+        py_manifest = next((f for f in ("pyproject.toml", "requirements.txt", "setup.py", "Pipfile") if f in root_names), None)
+        if py_manifest or (any(f.endswith(".py") for f in all_files) and not is_elixir):
+            if "Python" not in [t.split(" (")[0] for t in tech_stack]:
+                tech_stack.append("Python")
+            if py_manifest:
+                await call_tool_start("read_file", {"path": py_manifest})
+                content = WorkspaceTools.read_file(workspace_path, py_manifest).get("content", "")
+                await call_tool_end("read_file", f"Read {len(content)} bytes from {py_manifest}", 0, 150)
+                manifest_details.append(f"**`{py_manifest}`**")
+                py_lower = content.lower()
+                if "fastapi" in py_lower:
+                    frameworks.append("FastAPI")
+                if "django" in py_lower:
+                    frameworks.append("Django")
+                if "flask" in py_lower:
+                    frameworks.append("Flask")
+                if "sqlalchemy" in py_lower:
+                    frameworks.append("SQLAlchemy")
+                if "pydantic" in py_lower:
+                    frameworks.append("Pydantic")
+                if "celery" in py_lower:
+                    frameworks.append("Celery")
+            test_framework = test_framework or "pytest"
+
+        # 4. Rust
+        cargo_file = "Cargo.toml" if "Cargo.toml" in root_names else next((f for f in all_files if f.endswith("Cargo.toml")), None)
+        if cargo_file:
+            if "Rust" not in [t.split(" (")[0] for t in tech_stack]:
+                tech_stack.append("Rust")
+            manifest_details.append(f"**`{cargo_file}`**")
+            test_framework = test_framework or "cargo test"
+
+        # 5. Go
+        go_mod = "go.mod" if "go.mod" in root_names else next((f for f in all_files if f.endswith("go.mod")), None)
+        if go_mod:
+            if "Go" not in [t.split(" (")[0] for t in tech_stack]:
+                tech_stack.append("Go")
+            manifest_details.append(f"**`{go_mod}`**")
+            test_framework = test_framework or "go test ./..."
+
+        # 6. Ruby
+        gemfile = "Gemfile" if "Gemfile" in root_names else next((f for f in all_files if f.endswith("Gemfile")), None)
+        if gemfile:
+            if "Ruby" not in [t.split(" (")[0] for t in tech_stack]:
+                tech_stack.append("Ruby")
+            manifest_details.append(f"**`{gemfile}`**")
+            test_framework = test_framework or "bundle exec rspec"
+
+        # 7. Cloud, Infrastructure & DevOps
+        fly_configs = [f for f in root_names if f.startswith("fly") and f.endswith(".toml")]
+        if fly_configs:
+            tools.append("Fly.io (PaaS)")
+            for fc in fly_configs:
+                manifest_details.append(f"**`{fc}`**")
+
+        if "terraform" in root_names or any(f.endswith(".tf") for f in all_files):
+            tools.append("Terraform (IaC)")
+
         if any(f in root_names for f in ("Dockerfile", "docker-compose.yml", "docker-compose.yaml")):
             tools.append("Docker / Compose")
 
-        # Check Git metadata
+        if "Makefile" in root_names:
+            tools.append("Make")
+
+        # ----------------------------------------------------------------------
+        # Step 4: Accurate Test Directory & Test File Resolution
+        # ----------------------------------------------------------------------
+        for td in ["test", "tests", "spec", "__tests__"]:
+            matching = [f for f in all_files if f.startswith(f"{td}/") or f.startswith(f"{td}\\")]
+            if matching:
+                test_dir_name = f"{td}/"
+                test_files_count = len([f for f in matching if any(f.endswith(ext) for ext in ("_test.exs", "_test.py", ".test.ts", ".spec.ts", ".test.tsx", ".spec.tsx", "_test.go", "_spec.rb", ".test.js", ".spec.js"))]) or len(matching)
+                break
+
+        if not test_framework:
+            test_framework = "Custom / Project Test Suite"
+
+        # ----------------------------------------------------------------------
+        # Step 5: Real Source File Discovery for Recommendations
+        # ----------------------------------------------------------------------
+        sample_sources = [
+            f for f in all_files
+            if not f.startswith(".") and not f.startswith("test") and not f.startswith("spec") and any(f.endswith(ext) for ext in (".ex", ".ts", ".tsx", ".py", ".rs", ".go", ".rb", ".tf", ".toml", ".sh"))
+        ]
+        preferred_samples = [
+            f for f in sample_sources
+            if any(f.startswith(p) for p in ("lib/", "src/", "app/", "pkg/", "cmd/")) or f in ("start-session.sh", "fly-redis-demo.toml", "mix.exs", "package.json")
+        ]
+        recommended_file_sample = (preferred_samples or sample_sources or all_files or ["workspace files"])[0]
+
+        # ----------------------------------------------------------------------
+        # Step 6: Git Metadata & Commits
+        # ----------------------------------------------------------------------
         git_branch = "main"
         git_log = ""
         if (workspace_path / ".git").exists():
@@ -724,30 +899,42 @@ class AntigravityHarness:
             log_res = WorkspaceTools.run_command(workspace_path, "git log -n 3 --oneline")
             git_log = log_res.get("stdout", "").strip()
 
-        # Step 3: Emit structured report
+        # Step 7: Emit Structured Report
         await emit_thought("Synthesizing architecture breakdown and codebase health report...")
 
-        tech_str = ", ".join(dict.fromkeys(tech_stack)) if tech_stack else "Python / Modular Service"
-        fw_str = ", ".join(dict.fromkeys(frameworks)) if frameworks else "Modular Service Architecture"
+        tech_str = ", ".join(dict.fromkeys(tech_stack)) if tech_stack else "Polyglot / Generic Service"
+        fw_str = ", ".join(dict.fromkeys(frameworks)) if frameworks else "Modular Architecture"
         tools_str = ", ".join(dict.fromkeys(tools)) if tools else "Standard Toolchain"
 
-        # Build table of layout
+        # Build clean layout table
         layout_rows = []
         for item in root_items:
             iname = item["name"]
             itype = "Directory 📁" if item.get("is_dir") else "File 📄"
-            if iname in ("app", "src", "backend"):
+            if iname in ("lib", "src", "app", "backend", "cmd", "pkg"):
                 desc = "Primary application source code & business logic"
-            elif iname in ("frontend", "ui", "web"):
+            elif iname in ("frontend", "ui", "web", "assets"):
                 desc = "User interface components & client assets"
-            elif iname in ("tests", "__tests__", "spec"):
-                desc = "Automated unit & integration test suites"
+            elif iname in ("test", "tests", "__tests__", "spec"):
+                desc = "Automated test suites & test fixtures"
+            elif iname in ("terraform", "infra", "deploy", "k8s", "helm"):
+                desc = "Infrastructure as Code & cloud deployment topology"
+            elif iname in ("config", "priv"):
+                desc = "Runtime configuration & application storage"
             elif iname in ("docs", "documentation"):
-                desc = "Project documentation & architecture guides"
-            elif iname in ("requirements.txt", "pyproject.toml", "package.json", "Cargo.toml", "go.mod"):
-                desc = "Package dependencies and build specifications"
-            elif iname in ("Dockerfile", "docker-compose.yml"):
-                desc = "Containerization & multi-service deployment definitions"
+                desc = "Architecture guides & specifications"
+            elif iname == "mix.exs":
+                desc = "Elixir application & Hex dependency specification"
+            elif iname == ".iex.exs":
+                desc = "Interactive Elixir (IEx) shell configuration"
+            elif iname.startswith("fly") and iname.endswith(".toml"):
+                desc = "Fly.io application deployment configuration"
+            elif iname in ("requirements.txt", "pyproject.toml", "package.json", "Cargo.toml", "go.mod", "Gemfile"):
+                desc = "Package dependencies & build manifest"
+            elif iname in ("Dockerfile", "docker-compose.yml", "docker-compose.yaml"):
+                desc = "Containerization definitions"
+            elif iname.endswith(".sh"):
+                desc = "Operational shell & session automation script"
             elif iname.startswith("."):
                 desc = "Configuration & environment metadata"
             else:
@@ -755,8 +942,9 @@ class AntigravityHarness:
             layout_rows.append(f"| `{iname}` | {itype} | {desc} |")
 
         layout_table = "\n".join(layout_rows) if layout_rows else "| `.` | Root | General workspace directory |"
-        manifest_summary = ", ".join(manifest_details) if manifest_details else "Discovered active file hierarchy"
+        manifest_summary = ", ".join(dict.fromkeys(manifest_details)) if manifest_details else "Discovered active file hierarchy"
         git_history_section = f"\n- **Recent Commits:**\n```text\n{git_log}\n```" if git_log else ""
+        test_info_str = f"({test_files_count} test files in `{test_dir_name}`)" if test_dir_name else "(Test suite detected)"
 
         report_md = (
             f"## 📊 Repository & Architecture Analysis\n\n"
@@ -771,15 +959,16 @@ class AntigravityHarness:
             f"{layout_table}\n\n"
             f"### 📦 Discovered Manifests & Tooling\n"
             f"- **Manifests:** {manifest_summary}\n"
-            f"- **Test Suite Runner:** `{test_framework}` ({len(test_files)} test files located in `tests/`)\n"
+            f"- **Test Suite Runner:** `{test_framework}` {test_info_str}\n"
             f"{git_history_section}\n"
             f"### 💡 Recommended Next Actions\n"
             f"1. **Run Test Suites**: Ask me to run `{test_framework}` to verify existing regression health.\n"
-            f"2. **Inspect or Edit Code**: Ask me to read, review, or refactor any module (e.g. `app/auth_service.py`).\n"
+            f"2. **Inspect or Edit Code**: Ask me to read, review, or refactor any module (e.g. `{recommended_file_sample}`).\n"
             f"3. **Autonomous PRs & Automations**: Trigger automated bug fixes, review incoming diffs, or configure standing rules in the **Automations** tab."
         )
         await emit_message("agent", report_md)
         return {"status": "COMPLETED", "summary": f"Repository analysis completed for {workspace_path.name}."}
+
 
     async def _execute_with_gemini_api(
         self,
