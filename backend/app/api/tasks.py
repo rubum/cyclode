@@ -221,7 +221,12 @@ async def get_task_sandbox_info(task_id: str, db: AsyncSession = Depends(get_db)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    ws_path = Path(task.workspace_path) if task.workspace_path else None
+    ws_path = Path(task.workspace_path).resolve() if task.workspace_path else None
+    if ws_path and ws_path.name != f"sandbox-{task.id}":
+        specific_sb = settings.WORKSPACE_ROOT / f"sandbox-{task.id}"
+        if specific_sb.exists() and specific_sb.is_dir():
+            ws_path = specific_sb
+
     exists = bool(ws_path and ws_path.exists() and ws_path.is_dir())
 
     def build_tree(current_path: Path, max_depth: int = 4, current_depth: int = 0) -> List[Dict[str, Any]]:
@@ -303,15 +308,28 @@ async def get_sandbox_file_content(task_id: str, path: str, db: AsyncSession = D
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    if not task.workspace_path:
-        raise HTTPException(status_code=404, detail="Sandbox workspace does not exist on disk")
+    ws_path = Path(task.workspace_path).resolve() if task.workspace_path else None
+    if ws_path and ws_path.name != f"sandbox-{task.id}":
+        specific_sb = settings.WORKSPACE_ROOT / f"sandbox-{task.id}"
+        if specific_sb.exists() and specific_sb.is_dir():
+            ws_path = specific_sb
 
-    ws_path = Path(task.workspace_path).resolve()
-    if not ws_path.exists() or not ws_path.is_dir():
+    if not ws_path or not ws_path.exists() or not ws_path.is_dir():
         raise HTTPException(status_code=404, detail="Sandbox workspace does not exist on disk")
 
     # Sanitize and resolve target path
     clean_rel = path.lstrip("/\\")
+
+    # Strip redundant sandbox folder prefix if path was prefixed with sandbox name
+    if clean_rel.startswith(ws_path.name + "/"):
+        clean_rel = clean_rel[len(ws_path.name) + 1:]
+    elif clean_rel.startswith(ws_path.name + "\\"):
+        clean_rel = clean_rel[len(ws_path.name) + 1:]
+    elif clean_rel.startswith("sandbox-"):
+        parts = re.split(r"[/\\]", clean_rel, 1)
+        if len(parts) > 1 and parts[0].startswith("sandbox-"):
+            clean_rel = parts[1]
+
     target_file = (ws_path / clean_rel).resolve()
 
     # Security check: must reside inside workspace

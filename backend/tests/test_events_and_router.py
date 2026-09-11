@@ -692,3 +692,52 @@ async def test_in_chat_gemini_key_provisioning_and_live_mode(tmp_path, monkeypat
     assert integration_manager._custom_credentials.get("gemini", {}).get("api_key") == sample_key
 
 
+@pytest.mark.asyncio
+async def test_what_is_in_this_repo_url_synthesizes_analysis(tmp_path, monkeypatch):
+    from app.agent.harness import AntigravityHarness
+    from app.integrations.manager import integration_manager
+
+    harness = AntigravityHarness()
+    messages = []
+    thoughts = []
+
+    async def mock_msg(sender, content):
+        messages.append((sender, content))
+
+    async def mock_thought(text):
+        thoughts.append(text)
+
+    # Mock test_remote_repo so it reports accessible
+    async def mock_test_remote(repo_url, token=None):
+        return {"accessible": True, "branches": ["main"]}
+
+    monkeypatch.setattr(integration_manager, "test_remote_repo", mock_test_remote)
+
+    # Mock _synthesize_repository_analysis
+    async def mock_synth(**kwargs):
+        messages.append(("agent", "### 📊 Repository Architecture & Technical Audit\nDeepEval LLM Evaluation Framework"))
+        return {"status": "COMPLETED", "summary": "DeepEval analysis complete"}
+
+    monkeypatch.setattr(harness, "_synthesize_repository_analysis", mock_synth)
+
+    res = await harness._execute_local_intent(
+        task_id="test-what-is-in-this",
+        title="What is in this https://github.com/confident-ai/deepeval",
+        prompt="What is in this https://github.com/confident-ai/deepeval",
+        persona_name="PairProgrammer",
+        workspace_path=tmp_path,
+        on_thought=mock_thought,
+        on_tool_start=lambda n, a: None,
+        on_tool_end=lambda n, o, e, d, a=None: None,
+        on_message=mock_msg,
+        on_approval_required=lambda a, d: None,
+        on_diff_updated=lambda d: None
+    )
+
+    assert res["status"] == "COMPLETED"
+    assert len(messages) == 1
+    assert "Repository Architecture & Technical Audit" in messages[0][1]
+    assert "Integration & Repository Configuration Updated" not in messages[0][1]
+
+
+

@@ -244,15 +244,16 @@ class AntigravityHarness:
         # Check if user prompt requests Codebase Architecture Analysis or Repo Explanation
         has_analysis_intent = bool(
             re.search(r"\b(analy[sz]e|analy[sz]is|breakdown|architecture|overview|audit|inspect|structure|summary|topology)\b", lower_prompt)
+            or re.search(r"\b(what\s+is\s+(in\s+)?(this|the))\b", lower_prompt)
             or re.search(r"\b(what\s+is\s+this\s+(on|about|repo|repository|codebase|project|app|service|tool|framework))\b", lower_prompt)
             or re.search(r"\b(explain\s+(the|this|my)?\s*(repo|repository|codebase|project|app|service|application|system|architecture|workspace))\b", lower_prompt)
             or re.search(r"\b(tell\s+me\s+about\s+(the|this|my)?\s*(repo|repository|codebase|project|app|service))\b", lower_prompt)
             or re.search(r"\b(what\s+does\s+this\s+(repo|project|codebase|app|service|package|tool)\s*(do|have|contain)?)\b", lower_prompt)
-            or lower_prompt.strip("?. ") in (
-                "what is this on", "what is this", "explain the repo", "explain repo", "explain this repo", 
+            or any(q in lower_prompt for q in (
+                "what is this on", "what is this", "what is in this", "what is in the repo", "what is this repo", "explain the repo", "explain repo", "explain this repo", 
                 "explain project", "explain codebase", "tell me what this is", "what does this do", 
                 "summarize repo", "summarize codebase", "repo overview", "project overview"
-            )
+            ))
         )
 
         # Intent 0: Conversational Repo Connection & Credential Provisioning
@@ -330,8 +331,9 @@ class AntigravityHarness:
                         proc = await asyncio.to_thread(subprocess.run, ["git", "clone", "--depth", "1", "--single-branch", "--no-tags", clone_url, str(workspace_path)], capture_output=True, text=True, timeout=300, env=git_env)
                         await call_tool_end("git_clone", proc.stdout or proc.stderr or "OK", proc.returncode, 400)
 
-                    # If the prompt also requested analysis, immediately synthesize codebase analysis!
-                    if has_analysis_intent:
+                    # If the prompt also requested analysis (or no explicit credentials were being saved), immediately synthesize codebase analysis!
+                    is_pure_cred_setup = bool(gh_match or slack_match or gemini_match or ("connect" in lower_prompt and "what" not in lower_prompt))
+                    if has_analysis_intent or not is_pure_cred_setup:
                         await emit_thought(f"Repository `{target_repo}` is connected. Preparing architecture analysis...")
                         return await self._synthesize_repository_analysis(
                             task_id=task_id,
@@ -1476,6 +1478,13 @@ class AntigravityHarness:
                                 pass
                             logger.warning(f"Google AI Studio Quota Notice (429): {err_text}")
                             quota_exhausted = True
+                            quota_thought = (
+                                f"⚠️ **Google Gemini API Quota Notice (429)**: {err_text}\n\n"
+                                f"💡 *To use live Gemini models, add prepayment credits at https://ai.studio/projects or paste a new key (`AIzaSy...`) in chat. Falling back to dynamic local workspace analysis...*"
+                            )
+                            await self._emit_streamed_thought(
+                                quota_thought, on_thought, on_stream_start, on_stream_chunk, on_stream_end
+                            )
                             break
                         if resp.status_code != 200:
                             err_msg = resp.text[:200]
