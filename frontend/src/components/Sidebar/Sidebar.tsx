@@ -11,7 +11,8 @@ import {
   Clock,
   Trash2,
   Settings,
-  PanelLeftClose
+  PanelLeftClose,
+  FolderGit2
 } from 'lucide-react';
 import { Task } from '../../types';
 import { useWebSocket } from '../../contexts/WebSocketContext';
@@ -46,6 +47,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const { isConnected } = useWebSocket();
   const navItems = [
     { id: 'chat', label: 'Workstation / Chat', icon: MessageSquare },
+    { id: 'repositories', label: 'Repositories & Vault', icon: FolderGit2 },
     { id: 'automations', label: 'Automations & Rules', icon: Sparkles },
     { id: 'fleet', label: 'Agent Fleet', icon: Layers, badge: tasks.length > 0 ? tasks.length : undefined },
     { id: 'events', label: 'Event Inbox', icon: Inbox },

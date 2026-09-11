@@ -138,3 +138,29 @@ class AutomationRuleModel(Base):
     require_approval: Mapped[bool] = mapped_column(Boolean, default=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
+
+
+class RepositoryConfigModel(Base):
+    __tablename__ = "repository_configs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)                # e.g. "waylo"
+    full_name: Mapped[str] = mapped_column(String(200), unique=True, index=True) # e.g. "gowaylo/waylo"
+    clone_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    default_branch: Mapped[str] = mapped_column(String(100), default="main")
+    
+    # Encrypted Credential Vault
+    encrypted_token: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    auth_provider: Mapped[str] = mapped_column(String(50), default="github")
+    
+    # Cached Codebase & Architecture Profile
+    tech_stack: Mapped[List[str]] = mapped_column(JSON, default=list)            # ["Python", "FastAPI", "React"]
+    test_command: Mapped[str] = mapped_column(String(200), default="pytest")
+    manifest_cache: Mapped[Dict[str, Any]] = mapped_column(JSON, default=dict)
+    
+    # Status & Timestamps
+    status: Mapped[str] = mapped_column(String(50), default="CONNECTED")         # CONNECTED, AUTH_REQUIRED, UNREACHABLE
+    last_synced_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now, onupdate=get_utc_now)
+

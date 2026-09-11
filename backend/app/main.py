@@ -15,6 +15,7 @@ from app.api.events import router as events_router
 from app.api.policies import router as policies_router
 from app.api.integrations import router as integrations_router
 from app.api.automations import router as automations_router, ensure_default_rules
+from app.api.repositories import router as repositories_router
 from app.api.health import router as health_router
 
 
@@ -52,6 +53,7 @@ app.include_router(events_router)
 app.include_router(policies_router)
 app.include_router(integrations_router)
 app.include_router(automations_router)
+app.include_router(repositories_router)
 
 
 # WebSocket Gateway

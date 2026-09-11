@@ -140,6 +140,24 @@ export interface Integration {
   icon: string;
 }
 
+export interface RepositoryConfig {
+  id: string;
+  name: string;
+  full_name: string;
+  clone_url: string;
+  default_branch: string;
+  auth_provider: string;
+  has_token: boolean;
+  masked_token?: string;
+  tech_stack: string[];
+  test_command: string;
+  manifest_cache?: Record<string, any>;
+  status: 'CONNECTED' | 'AUTH_REQUIRED' | 'UNREACHABLE';
+  last_synced_at?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface PolicyMap {
   [action_type: string]: 'auto' | 'require_approval' | 'disabled';
 }
@@ -148,3 +166,4 @@ export interface WebSocketEvent {
   type: string;
   data: any;
 }
+

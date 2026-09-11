@@ -46,9 +46,11 @@ class EphemeralSandboxProvider(SandboxProvider):
         if repo_url and repo_url.startswith("http"):
             try:
                 from app.integrations.github_client import github_client
+                from app.integrations.manager import integration_manager
+                active_token = await integration_manager.get_github_token_for_repo(repo_url) or github_client.token
                 clone_url = repo_url
-                if github_client.token and "github.com" in repo_url and not ("@" in repo_url):
-                    clone_url = repo_url.replace("https://", f"https://x-access-token:{github_client.token}@")
+                if active_token and "github.com" in repo_url and not ("@" in repo_url):
+                    clone_url = repo_url.replace("https://", f"https://x-access-token:{active_token}@")
 
                 cmd = ["git", "clone", "--depth", "50"]
                 if branch:

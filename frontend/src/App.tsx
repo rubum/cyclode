@@ -10,6 +10,7 @@ import { WebhookSimulator } from './components/Simulator/WebhookSimulator';
 import { AutomationsView } from './components/Automations/AutomationsView';
 import { PolicySettings } from './components/Policies/PolicySettings';
 import { IntegrationsView } from './components/Integrations/IntegrationsView';
+import { RepositoriesView } from './components/Repositories/RepositoriesView';
 import { SandboxInspectorModal } from './components/Sandbox/SandboxInspectorModal';
 import { Task, TaskMessage, EventItem, PolicyMap, Integration, AutomationRule } from './types';
 
@@ -349,7 +350,7 @@ const MainApp: React.FC = () => {
     setActiveView('chat');
   };
 
-  const handleNewChatWithPrompt = async (prompt: string, persona: string) => {
+  const handleNewChatWithPrompt = async (prompt: string, persona: string = 'PairProgrammer') => {
     const tempId = `temp-${Date.now()}`;
     const tempTask: Task = {
       id: tempId,
@@ -789,6 +790,15 @@ const MainApp: React.FC = () => {
             integrations={integrations}
             activeSkills={activeSkills}
             onRefreshIntegrations={fetchIntegrations}
+          />
+        );
+      case 'repositories':
+        return (
+          <RepositoriesView
+            onSelectRepoForChat={(repoFullName) => {
+              setActiveView('chat');
+              handleNewChatWithPrompt(`Connect and analyze repository https://github.com/${repoFullName}`);
+            }}
           />
         );
       default:

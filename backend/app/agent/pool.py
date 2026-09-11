@@ -57,6 +57,25 @@ class AgentTaskPool:
                 if not repo_name:
                     repo_name = repo_url.split("github.com/")[-1].replace(".git", "")
 
+        # Auto-resolve repository from database vault if repository name is referenced
+        if not repo_url:
+            try:
+                from app.db.models import RepositoryConfigModel
+                async with async_session_factory() as session:
+                    res = await session.execute(select(RepositoryConfigModel))
+                    saved_repos = res.scalars().all()
+                    combined_lower = f"{title} {description}".lower()
+                    for r in saved_repos:
+                        r_name = (r.name or "").lower()
+                        r_full = (r.full_name or "").lower()
+                        if (r_name and r_name in combined_lower.split()) or (r_full and r_full in combined_lower) or f"repo {r_name}" in combined_lower or f"on {r_name}" in combined_lower:
+                            repo_url = r.clone_url
+                            repo_name = r.full_name
+                            target_branch = target_branch or r.default_branch
+                            break
+            except Exception as e:
+                logger.debug(f"Vault auto-resolution note: {e}")
+
         chosen_model = model_name or settings.ANTIGRAVITY_MODEL
         init_tokens = estimate_tokens(description or title)
         
@@ -810,9 +829,33 @@ class AgentTaskPool:
                 )
                 await session.commit()
 
+        # Auto-resolve from database vault if repository is referenced in user message
+        if not active_repo_url and not repo_match:
+            try:
+                from app.db.models import RepositoryConfigModel
+                async with async_session_factory() as session:
+                    res = await session.execute(select(RepositoryConfigModel))
+                    saved_repos = res.scalars().all()
+                    msg_lower = message_text.lower()
+                    for r in saved_repos:
+                        r_name = (r.name or "").lower()
+                        r_full = (r.full_name or "").lower()
+                        if (r_name and r_name in msg_lower.split()) or (r_full and r_full in msg_lower) or f"repo {r_name}" in msg_lower or f"on {r_name}" in msg_lower:
+                            active_repo_url = r.clone_url
+                            active_repo_name = r.full_name
+                            await session.execute(
+                                update(TaskModel)
+                                .where(TaskModel.id == task_id)
+                                .values(repo_url=active_repo_url, repo_name=active_repo_name, target_branch=r.default_branch)
+                            )
+                            await session.commit()
+                            break
+            except Exception as e:
+                logger.debug(f"Vault auto-resolution note in message: {e}")
+
         # Determine whether to attempt repository clone or operate in conversational mode
         repo_url_to_pass = active_repo_url
-        if task.sandbox_status in ["AUTH_REQUIRED", "CLONE_FAILED"] and not gh_match and not repo_match:
+        if task.sandbox_status in ["AUTH_REQUIRED", "CLONE_FAILED"] and not gh_match and not repo_match and not active_repo_url:
             # User is asking questions or chatting before a token or new URL is provided
             repo_url_to_pass = None
 

@@ -2,7 +2,7 @@ import logging
 import os
 import re
 import subprocess
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
 import httpx
 
 from app.config import settings
@@ -167,5 +167,98 @@ class IntegrationManager:
         except Exception as e:
             return {"accessible": False, "repo_url": repo_url, "message": f"Connection error: {str(e)}"}
 
+    async def get_github_token_for_repo(self, repo_name_or_url: Optional[str] = None) -> Optional[str]:
+        """
+        Retrieves active GitHub token for a specific repository or global token.
+        Searches memory client, then looks up decrypted token from RepositoryConfigModel.
+        """
+        if github_client.token:
+            return github_client.token
+
+        if not repo_name_or_url:
+            return None
+
+        clean_target = repo_name_or_url.lower().strip().replace(".git", "")
+        if "github.com/" in clean_target:
+            clean_target = clean_target.split("github.com/")[-1]
+
+        try:
+            from app.db.session import async_session_factory
+            from app.db.models import RepositoryConfigModel
+            from app.core.security import decrypt_secret
+            from sqlalchemy import select
+
+            async with async_session_factory() as session:
+                stmt = select(RepositoryConfigModel)
+                res = await session.execute(stmt)
+                repos = res.scalars().all()
+                for r in repos:
+                    r_full = (r.full_name or "").lower()
+                    r_name = (r.name or "").lower()
+                    r_clone = (r.clone_url or "").lower()
+                    if clean_target in (r_full, r_name) or clean_target in r_clone or r_name in clean_target:
+                        if r.encrypted_token:
+                            dec = decrypt_secret(r.encrypted_token)
+                            if dec:
+                                return dec
+        except Exception as e:
+            logger.debug(f"Repo token resolution note: {e}")
+
+        return None
+
+    async def save_repo_config(
+        self,
+        repo_url: str,
+        token: Optional[str] = None,
+        branches: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Persists a repository configuration and encrypted token into the database
+        so it remains available across future sessions.
+        """
+        try:
+            from app.db.session import async_session_factory
+            from app.db.models import RepositoryConfigModel, get_utc_now
+            from app.core.security import encrypt_secret
+            from sqlalchemy import select
+
+            clean_url = repo_url.strip().rstrip(".")
+            full_name = clean_url.split("github.com/")[-1].replace(".git", "").strip("/")
+            name = full_name.split("/")[-1] if "/" in full_name else full_name
+            enc_token = encrypt_secret(token) if token else None
+
+            async with async_session_factory() as session:
+                stmt = select(RepositoryConfigModel).where(RepositoryConfigModel.full_name == full_name)
+                res = await session.execute(stmt)
+                existing = res.scalars().first()
+
+                if existing:
+                    existing.clone_url = clean_url
+                    if enc_token:
+                        existing.encrypted_token = enc_token
+                    existing.status = "CONNECTED"
+                    if branches:
+                        existing.manifest_cache = {**(existing.manifest_cache or {}), "branches": branches[:10]}
+                    existing.last_synced_at = get_utc_now()
+                else:
+                    new_repo = RepositoryConfigModel(
+                        name=name,
+                        full_name=full_name,
+                        clone_url=clean_url,
+                        default_branch="main" if not branches or "main" in branches else branches[0],
+                        encrypted_token=enc_token,
+                        auth_provider="github",
+                        status="CONNECTED",
+                        manifest_cache={"branches": branches[:10]} if branches else {}
+                    )
+                    session.add(new_repo)
+
+                await session.commit()
+            return {"ok": True, "full_name": full_name}
+        except Exception as e:
+            logger.warning(f"Error persisting repo config: {e}")
+            return {"ok": False, "error": str(e)}
+
 
 integration_manager = IntegrationManager()
+

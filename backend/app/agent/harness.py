@@ -248,6 +248,12 @@ class AntigravityHarness:
                     branches = repo_res.get("branches", [])
                     branches_str = ", ".join(f"`{b}`" for b in branches[:5]) or "`main`"
                     configured_items.append(f"- **Repository**: `{target_repo}` (Accessible ✅, Branches: {branches_str})")
+                    # Auto-persist repository in vault for future sessions
+                    await integration_manager.save_repo_config(
+                        target_repo,
+                        gh_match.group(1) if gh_match else None,
+                        branches
+                    )
                 else:
                     configured_items.append(f"- **Repository**: `{target_repo}` ({repo_res.get('message', 'Unreachable')})")
 

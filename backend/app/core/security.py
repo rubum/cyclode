@@ -66,3 +66,43 @@ def verify_appsignal_token(token_param: Optional[str], expected_token: Optional[
     if not token_param:
         return False
     return hmac.compare_digest(token_param, expected_token)
+
+
+def get_fernet_cipher(secret_key: Optional[str] = None):
+    """
+    Generates a deterministic Fernet cipher from application secret key.
+    """
+    import base64
+    from cryptography.fernet import Fernet
+    from app.config import settings
+    key_src = secret_key or settings.SECRET_KEY or "adappty-default-master-secret"
+    key_32 = hashlib.sha256(key_src.encode("utf-8")).digest()
+    fernet_key = base64.urlsafe_b64encode(key_32)
+    return Fernet(fernet_key)
+
+
+def encrypt_secret(plain_text: Optional[str], secret_key: Optional[str] = None) -> Optional[str]:
+    """
+    Encrypts sensitive tokens (e.g. GitHub PATs, API keys) at rest.
+    """
+    if not plain_text:
+        return None
+    try:
+        cipher = get_fernet_cipher(secret_key)
+        return cipher.encrypt(plain_text.encode("utf-8")).decode("utf-8")
+    except Exception:
+        return plain_text
+
+
+def decrypt_secret(cipher_text: Optional[str], secret_key: Optional[str] = None) -> Optional[str]:
+    """
+    Decrypts sensitive tokens when needed for git clone or API authentication.
+    """
+    if not cipher_text:
+        return None
+    try:
+        cipher = get_fernet_cipher(secret_key)
+        return cipher.decrypt(cipher_text.encode("utf-8")).decode("utf-8")
+    except Exception:
+        return cipher_text
+
