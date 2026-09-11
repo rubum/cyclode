@@ -272,3 +272,81 @@ async def get_task_sandbox_info(task_id: str, db: AsyncSession = Depends(get_db)
         }
     }
 
+
+@router.get("/{task_id}/files/content")
+async def get_sandbox_file_content(task_id: str, path: str, db: AsyncSession = Depends(get_db)):
+    """
+    Safely retrieves the content and metadata of a file located within the task sandbox workspace.
+    """
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    result = await db.execute(stmt)
+    task = result.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    ws_path = Path(task.workspace_path).resolve()
+    if not ws_path.exists() or not ws_path.is_dir():
+        raise HTTPException(status_code=404, detail="Sandbox workspace does not exist on disk")
+
+    # Sanitize and resolve target path
+    clean_rel = path.lstrip("/\\")
+    target_file = (ws_path / clean_rel).resolve()
+
+    # Security check: must reside inside workspace
+    try:
+        target_file.relative_to(ws_path)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied: Path outside sandbox workspace")
+
+    if not target_file.exists() or not target_file.is_file():
+        raise HTTPException(status_code=404, detail=f"File '{clean_rel}' not found")
+
+    # Determine syntax language
+    ext = target_file.suffix.lower()
+    name = target_file.name.lower()
+    lang_map = {
+        ".py": "python",
+        ".ts": "typescript",
+        ".tsx": "typescript",
+        ".js": "javascript",
+        ".jsx": "javascript",
+        ".mjs": "javascript",
+        ".cjs": "javascript",
+        ".ex": "elixir",
+        ".exs": "elixir",
+        ".sh": "bash",
+        ".bash": "bash",
+        ".zsh": "bash",
+        ".json": "json",
+        ".toml": "toml",
+        ".yaml": "yaml",
+        ".yml": "yaml",
+        ".md": "markdown",
+        ".css": "css",
+        ".scss": "scss",
+        ".html": "html",
+        ".rs": "rust",
+        ".go": "go",
+        ".sql": "sql",
+        ".tf": "terraform",
+        ".env": "properties",
+        ".gitignore": "properties",
+        ".dockerignore": "properties",
+    }
+    language = "dockerfile" if "dockerfile" in name else lang_map.get(ext, "plaintext")
+
+    try:
+        content = target_file.read_text(encoding="utf-8", errors="replace")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read file: {str(e)}")
+
+    return {
+        "path": clean_rel,
+        "name": target_file.name,
+        "content": content,
+        "size": target_file.stat().st_size,
+        "lines": len(content.splitlines()),
+        "language": language
+    }
+
+

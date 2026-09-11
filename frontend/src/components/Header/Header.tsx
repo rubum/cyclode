@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { Task } from '../../types';
+import { ThemeColorPicker } from '../Theme/ThemeColorPicker';
 
 interface HeaderProps {
   activeTask: Task | null;
@@ -203,9 +204,11 @@ export const Header: React.FC<HeaderProps> = ({
           <span>{isConnected ? 'connected' : 'connecting'}</span>
         </div>
 
+        <ThemeColorPicker />
+
         <button
           onClick={onOpenSettings}
-          className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright transition-colors"
+          className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright transition-colors cursor-pointer"
           title="Settings & Policies"
         >
           <Settings className="w-3.5 h-3.5" />

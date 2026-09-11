@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --color-accent: #61AFEF;
+  --color-accent-subtle: rgba(97, 175, 239, 0.15);
+  --color-folder: #E5C07B;
+}
+
 @layer base {
   html {
     font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;

@@ -122,7 +122,7 @@ export const FormattedLogView: React.FC<FormattedLogViewProps> = ({
       case 'edit_file':
         return <Pencil className="w-3.5 h-3.5 text-onedark-green" />;
       case 'list_dir':
-        return <Folder className="w-3.5 h-3.5 text-onedark-purple" />;
+        return <Folder className="w-3.5 h-3.5 text-onedark-folder" />;
       default:
         return <Terminal className="w-3.5 h-3.5 text-onedark-accent" />;
     }
@@ -225,7 +225,7 @@ export const FormattedLogView: React.FC<FormattedLogViewProps> = ({
                   className="flex items-center space-x-2 px-2.5 py-1.5 rounded-md bg-onedark-surface/40 border border-onedark-borderSubtle/50 text-xs font-mono"
                 >
                   {item.is_dir || item.type === 'directory' ? (
-                    <Folder className="w-3.5 h-3.5 text-onedark-purple flex-shrink-0" />
+                    <Folder className="w-3.5 h-3.5 text-onedark-folder flex-shrink-0" />
                   ) : (
                     <FileText className="w-3.5 h-3.5 text-onedark-blue flex-shrink-0" />
                   )}

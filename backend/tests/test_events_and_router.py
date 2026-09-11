@@ -402,3 +402,54 @@ async def test_monorepo_and_shebang_and_dsl_analysis(tmp_path):
     assert "app/auth_service.py" not in content
 
 
+@pytest.mark.asyncio
+async def test_sandbox_file_content_retrieval_and_security(tmp_path):
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
+    import uuid
+    from app.db.session import async_session_factory
+    from app.db.models import TaskModel
+
+    # Create dummy files in tmp_path
+    script_dir = tmp_path / ".github" / "scripts"
+    script_dir.mkdir(parents=True, exist_ok=True)
+    sh_file = script_dir / "docs-only.sh"
+    sh_file.write_text("#!/bin/bash\necho 'Docs verified'\n")
+
+    task_id = str(uuid.uuid4())
+    async with async_session_factory() as session:
+        task = TaskModel(
+            id=task_id,
+            title="Test sandbox explorer",
+            description="Verify file viewer endpoint",
+            persona="IssueResolver",
+            model_name="gemini-3.7-flash",
+            status="RUNNING",
+            sandbox_status="ACTIVE",
+            workspace_path=str(tmp_path),
+            git_branch="main"
+        )
+        session.add(task)
+        await session.commit()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Successful file read
+        res = await client.get(f"/api/tasks/{task_id}/files/content?path=.github/scripts/docs-only.sh")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["name"] == "docs-only.sh"
+        assert "echo 'Docs verified'" in data["content"]
+        assert data["language"] == "bash"
+        assert data["lines"] == 2
+
+        # 2. Path traversal attack attempt
+        res_traversal = await client.get(f"/api/tasks/{task_id}/files/content?path=../../etc/passwd")
+        assert res_traversal.status_code == 403 or res_traversal.status_code == 404
+
+        # 3. Non-existent file
+        res_missing = await client.get(f"/api/tasks/{task_id}/files/content?path=.github/scripts/missing.sh")
+        assert res_missing.status_code == 404
+
+
+

@@ -582,7 +582,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
           {task.repo_name && (
             <div className="flex items-center space-x-1 px-2 py-0.5 rounded-md bg-onedark-surface/60 border border-onedark-borderSubtle text-[11px] font-mono text-onedark-fgBright flex-shrink-0">
-              <FolderGit2 className="w-3 h-3 text-onedark-accent" />
+              <FolderGit2 className="w-3 h-3 text-onedark-folder" />
               <span>{task.repo_name}</span>
             </div>
           )}

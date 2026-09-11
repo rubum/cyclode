@@ -202,7 +202,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({ onSelectRepo
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-base font-semibold text-onedark-fgBright flex items-center space-x-2">
-            <FolderGit2 className="w-4 h-4 text-onedark-accent" />
+            <FolderGit2 className="w-4 h-4 text-onedark-folder" />
             <span>Repository & Vault Manager</span>
           </h1>
           <p className="text-xs text-onedark-muted mt-0.5">
@@ -233,7 +233,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({ onSelectRepo
       {/* Overview Banner */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="p-3.5 rounded-xl bg-onedark-darker border border-onedark-borderSubtle flex items-center space-x-3">
-          <div className="p-2.5 rounded-lg bg-onedark-surface text-onedark-accent border border-onedark-border">
+          <div className="p-2.5 rounded-lg bg-onedark-surface text-onedark-folder border border-onedark-border">
             <FolderGit2 className="w-4 h-4" />
           </div>
           <div>
@@ -436,7 +436,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({ onSelectRepo
           <div className="bg-onedark-darker border border-onedark-border rounded-xl max-w-md w-full p-5 space-y-4 shadow-xl">
             <div className="flex items-center justify-between border-b border-onedark-borderSubtle pb-3">
               <h3 className="text-sm font-semibold text-onedark-fgBright flex items-center space-x-2">
-                <FolderGit2 className="w-4 h-4 text-onedark-accent" />
+                <FolderGit2 className="w-4 h-4 text-onedark-folder" />
                 <span>{editingRepo ? 'Edit Repository Config' : 'Connect Repository to Vault'}</span>
               </h3>
               <button
