@@ -332,3 +332,73 @@ async def test_typescript_repository_analysis(tmp_path):
     assert "vitest" in content
     assert "pytest" not in content
 
+
+@pytest.mark.asyncio
+async def test_monorepo_and_shebang_and_dsl_analysis(tmp_path):
+    from app.agent.harness import antigravity_harness
+
+    # 1. Monorepo web package with Vue & TypeScript
+    web_dir = tmp_path / "apps" / "web"
+    (web_dir / "src").mkdir(parents=True, exist_ok=True)
+    (web_dir / "src" / "App.vue").write_text("<template><div>Hello Vue</div></template>\n<script lang='ts'>export default {};</script>\n")
+    (web_dir / "src" / "main.ts").write_text("import App from './App.vue';\nconsole.log(App);\n")
+    (web_dir / "package.json").write_text('{"name": "@monorepo/web", "dependencies": {"vue": "^3.4.0", "tailwindcss": "^3.4.0"}}')
+
+    # 2. Monorepo worker package with Elixir, Phoenix, Oban and HEEx template
+    worker_dir = tmp_path / "apps" / "worker"
+    (worker_dir / "lib").mkdir(parents=True, exist_ok=True)
+    (worker_dir / "lib" / "worker.ex").write_text("defmodule Worker do\n  use Oban.Worker\nend\n")
+    (worker_dir / "lib" / "view.heex").write_text("<div class='hero'>Phoenix HEEx template</div>\n")
+    (worker_dir / "mix.exs").write_text('defmodule Worker.MixProject do\n  use Mix.Project\n  def project do\n    [app: :worker, deps: [{:phoenix, "~> 1.7"}, {:oban, "~> 2.15"}]]\n  end\nend\n')
+
+    # 3. Extensionless script with Shebang
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    (bin_dir / "deploy").write_text("#!/usr/bin/env bash\necho 'Deploying multi-package monorepo...'\n")
+
+    # 4. Schema DSL (Prisma)
+    prisma_dir = tmp_path / "prisma"
+    prisma_dir.mkdir(parents=True, exist_ok=True)
+    (prisma_dir / "schema.prisma").write_text("model User {\n  id Int @id @default(autoincrement())\n  email String @unique\n}\n")
+
+    messages_captured = []
+    async def mock_msg(sender, content):
+        messages_captured.append((sender, content))
+
+    res = await antigravity_harness._execute_local_intent(
+        task_id="task-monorepo-analysis",
+        title="Analyze monorepo architecture",
+        prompt="Analyze monorepo architecture",
+        persona_name="PairProgrammer",
+        workspace_path=tmp_path,
+        on_thought=lambda t: None,
+        on_tool_start=lambda n, a: None,
+        on_tool_end=lambda n, o, e, d, a=None: None,
+        on_message=mock_msg,
+        on_approval_required=lambda a, d: None,
+        on_diff_updated=lambda d: None
+    )
+
+    assert res.get("status") == "COMPLETED"
+    assert len(messages_captured) == 1
+    sender, content = messages_captured[0]
+
+    # Monorepo topology
+    assert "Monorepo & Sub-Project Topology" in content
+    assert "apps/web" in content
+    assert "apps/worker" in content
+
+    # Frameworks from sub-manifests
+    assert "Vue" in content
+    assert "Oban" in content
+    assert "Phoenix" in content
+
+    # LOC Weighted breakdown
+    assert "% LOC" in content
+    assert "Elixir" in content
+
+    # Zero fake python defaults
+    assert "pytest" not in content
+    assert "app/auth_service.py" not in content
+
+

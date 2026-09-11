@@ -648,7 +648,7 @@ class AntigravityHarness:
                     if asyncio.iscoroutine(res):
                         await res
 
-        await emit_thought("Scanning workspace topology and profiling source file distributions...")
+        await emit_thought("Scanning workspace topology, sniffing shebangs, and profiling LOC distributions...")
 
         # ----------------------------------------------------------------------
         # Step 1: Discover Root and Traverse Files up to Depth 4
@@ -662,11 +662,47 @@ class AntigravityHarness:
         ignored_dirs = {
             ".git", "node_modules", "_build", "deps", ".elixir_ls", "vendor",
             "__pycache__", ".pytest_cache", ".venv", "venv", "target", "dist",
-            "build", ".terraform", "coverage", ".next", ".nuxt"
+            "build", ".terraform", "coverage", ".next", ".nuxt", ".turbo"
+        }
+
+        ext_to_lang = {
+            # Elixir & BEAM
+            ".ex": "Elixir", ".exs": "Elixir", ".heex": "Elixir (HEEx)", ".eex": "Elixir (EEx)", ".leex": "Elixir (LiveView)",
+            ".erl": "Erlang", ".hrl": "Erlang",
+            # TypeScript / JavaScript & Frontend UI DSLs
+            ".ts": "TypeScript", ".tsx": "TypeScript (React)",
+            ".js": "JavaScript", ".jsx": "JavaScript (React)", ".mjs": "JavaScript", ".cjs": "JavaScript",
+            ".vue": "Vue (SFC)", ".svelte": "Svelte", ".astro": "Astro",
+            # Python
+            ".py": "Python", ".pyi": "Python Interface",
+            # Systems & Compiled
+            ".rs": "Rust",
+            ".go": "Go",
+            ".c": "C", ".cpp": "C++", ".cc": "C++", ".cxx": "C++", ".h": "C/C++", ".hpp": "C/C++",
+            ".zig": "Zig", ".nim": "Nim",
+            # JVM & .NET
+            ".java": "Java", ".kt": "Kotlin", ".kts": "Kotlin Script", ".scala": "Scala", ".clj": "Clojure",
+            ".cs": "C# / .NET", ".fs": "F#",
+            # Mobile
+            ".swift": "Swift", ".dart": "Dart / Flutter",
+            # Dynamic & Scripting
+            ".rb": "Ruby", ".rake": "Ruby (Rake)",
+            ".php": "PHP",
+            ".lua": "Lua",
+            ".sh": "Shell", ".bash": "Shell", ".zsh": "Shell",
+            # Schemas, Contracts & Infrastructure
+            ".sol": "Solidity",
+            ".proto": "Protocol Buffers",
+            ".prisma": "Prisma Schema",
+            ".graphql": "GraphQL", ".gql": "GraphQL",
+            ".sql": "SQL",
+            ".tf": "Terraform (HCL)", ".hcl": "Terraform (HCL)",
         }
 
         all_files: List[str] = []
         extension_counts: Dict[str, int] = {}
+        lang_loc: Dict[str, int] = {}
+        subprojects: List[Dict[str, str]] = []
 
         try:
             for root, dirs, files in os.walk(str(workspace_path)):
@@ -683,45 +719,83 @@ class AntigravityHarness:
                         continue
                     rel_f = f if rel_root == "." else os.path.join(rel_root, f)
                     all_files.append(rel_f)
+                    full_path = os.path.join(root, f)
+
+                    # Subproject discovery for monorepos (apps/*, packages/*, services/*, modules/*)
+                    if rel_root != "." and depth <= 3:
+                        if f == "mix.exs":
+                            subprojects.append({"path": rel_f, "name": rel_root, "type": "Elixir Umbrella/Sub-app", "manifest": rel_f})
+                        elif f == "package.json":
+                            subprojects.append({"path": rel_f, "name": rel_root, "type": "Workspace Package", "manifest": rel_f})
+                        elif f == "Cargo.toml":
+                            subprojects.append({"path": rel_f, "name": rel_root, "type": "Rust Crate", "manifest": rel_f})
+                        elif f == "go.mod":
+                            subprojects.append({"path": rel_f, "name": rel_root, "type": "Go Module", "manifest": rel_f})
+                        elif f in ("pyproject.toml", "requirements.txt"):
+                            subprojects.append({"path": rel_f, "name": rel_root, "type": "Python Service", "manifest": rel_f})
+
                     ext = os.path.splitext(f)[-1].lower()
-                    if ext:
+                    resolved_lang = None
+
+                    if ext in ext_to_lang:
+                        resolved_lang = ext_to_lang[ext]
                         extension_counts[ext] = extension_counts.get(ext, 0) + 1
+                    elif not ext or ext in (".sh", ".command"):
+                        # Shebang Header Sniffing for extensionless files or scripts
+                        try:
+                            if os.path.isfile(full_path) and os.path.getsize(full_path) < 2_000_000:
+                                with open(full_path, "r", encoding="utf-8", errors="ignore") as sf:
+                                    first_line = sf.readline(256).strip()
+                                    if first_line.startswith("#!"):
+                                        fl_lower = first_line.lower()
+                                        if "python" in fl_lower:
+                                            resolved_lang = "Python"
+                                        elif "node" in fl_lower or "deno" in fl_lower or "bun" in fl_lower:
+                                            resolved_lang = "JavaScript"
+                                        elif "elixir" in fl_lower or "mix" in fl_lower:
+                                            resolved_lang = "Elixir"
+                                        elif "ruby" in fl_lower:
+                                            resolved_lang = "Ruby"
+                                        elif "bash" in fl_lower or "sh" in fl_lower or "zsh" in fl_lower:
+                                            resolved_lang = "Shell"
+                                        elif "perl" in fl_lower:
+                                            resolved_lang = "Perl"
+                                        elif "php" in fl_lower:
+                                            resolved_lang = "PHP"
+                                        if resolved_lang:
+                                            extension_counts["[shebang]"] = extension_counts.get("[shebang]", 0) + 1
+                        except Exception:
+                            pass
+
+                    # Measure Lines of Code (LOC) for resolved languages
+                    if resolved_lang:
+                        file_lines = 0
+                        try:
+                            if os.path.isfile(full_path) and os.path.getsize(full_path) < 3_000_000:
+                                with open(full_path, "r", encoding="utf-8", errors="ignore") as lf:
+                                    for line in lf:
+                                        if line.strip():
+                                            file_lines += 1
+                                            if file_lines >= 5000:
+                                                break
+                        except Exception:
+                            file_lines = 1
+                        lang_loc[resolved_lang] = lang_loc.get(resolved_lang, 0) + (file_lines or 1)
+
         except Exception as e:
             logger.debug(f"File walk note: {e}")
 
         # ----------------------------------------------------------------------
-        # Step 2: Language Profiling based on Real Extension Frequencies
+        # Step 2: Language Profiling based on LOC & Extension Frequencies
         # ----------------------------------------------------------------------
-        ext_to_lang = {
-            ".ex": "Elixir", ".exs": "Elixir",
-            ".ts": "TypeScript", ".tsx": "TypeScript",
-            ".js": "JavaScript", ".jsx": "JavaScript", ".mjs": "JavaScript",
-            ".py": "Python",
-            ".rs": "Rust",
-            ".go": "Go",
-            ".rb": "Ruby",
-            ".tf": "Terraform (HCL)", ".hcl": "Terraform (HCL)",
-            ".sh": "Shell", ".bash": "Shell",
-            ".java": "Java", ".kt": "Kotlin",
-            ".php": "PHP",
-            ".cs": "C# / .NET",
-            ".c": "C", ".cpp": "C++", ".h": "C/C++ Header"
-        }
-
-        lang_counts: Dict[str, int] = {}
-        for ext, count in extension_counts.items():
-            lang = ext_to_lang.get(ext)
-            if lang:
-                lang_counts[lang] = lang_counts.get(lang, 0) + count
-
-        sorted_langs = sorted(lang_counts.items(), key=lambda x: x[1], reverse=True)
-        total_src_files = sum(lang_counts.values()) or 1
+        sorted_loc_langs = sorted(lang_loc.items(), key=lambda x: x[1], reverse=True)
+        total_loc = sum(lang_loc.values()) or 1
 
         tech_stack: List[str] = []
-        if sorted_langs:
-            for lang, count in sorted_langs[:3]:
-                pct = round((count / total_src_files) * 100)
-                tech_stack.append(f"{lang} ({pct}%)" if len(sorted_langs) > 1 else lang)
+        if sorted_loc_langs:
+            for lang, loc_count in sorted_loc_langs[:4]:
+                pct = round((loc_count / total_loc) * 100)
+                tech_stack.append(f"{lang} ({pct}% LOC)" if len(sorted_loc_langs) > 1 else lang)
 
         frameworks: List[str] = []
         tools: List[str] = []
@@ -731,17 +805,21 @@ class AntigravityHarness:
         test_dir_name = ""
 
         # ----------------------------------------------------------------------
-        # Step 3: Deep Polyglot Manifest & Config Inspection
+        # Step 3: Deep Polyglot Manifest & Config Inspection (Root & Subprojects)
         # ----------------------------------------------------------------------
-        subdirs = [i["name"] for i in root_items if i.get("is_dir")]
+        manifest_candidates = [
+            f for f in all_files
+            if f in ("mix.exs", ".iex.exs", "package.json", "Cargo.toml", "go.mod", "Gemfile", "pyproject.toml", "requirements.txt", "setup.py", "Pipfile")
+            or any(f.endswith("/" + m) for m in ("mix.exs", "package.json", "Cargo.toml", "go.mod", "pyproject.toml", "requirements.txt", "Gemfile"))
+        ]
 
         # 1. Elixir / Erlang
-        is_elixir = any(f.endswith(".ex") or f.endswith(".exs") for f in all_files) or "mix.exs" in root_names or ".iex.exs" in root_names
+        is_elixir = any(f.endswith(ext) for f in all_files for ext in (".ex", ".exs", ".heex", ".eex")) or any("mix.exs" in f for f in all_files) or ".iex.exs" in root_names
         if is_elixir:
-            if "Elixir / BEAM (Erlang VM)" not in [t.split(" (")[0] for t in tech_stack]:
+            if not any("Elixir" in t for t in tech_stack):
                 tech_stack.insert(0, "Elixir / BEAM (Erlang VM)")
-            mix_file = "mix.exs" if "mix.exs" in root_names else next((f for f in all_files if f.endswith("mix.exs")), None)
-            if mix_file:
+            elixir_manifests = [f for f in manifest_candidates if f.endswith("mix.exs")]
+            for mix_file in elixir_manifests[:5]:
                 await call_tool_start("read_file", {"path": mix_file})
                 content = WorkspaceTools.read_file(workspace_path, mix_file).get("content", "")
                 await call_tool_end("read_file", f"Read {len(content)} bytes from {mix_file}", 0, 150)
@@ -769,8 +847,8 @@ class AntigravityHarness:
             test_framework = "mix test"
 
         # 2. TypeScript / JavaScript / Node
-        pkg_file = "package.json" if "package.json" in root_names else next((f for f in all_files if f.endswith("package.json")), None)
-        if pkg_file:
+        node_manifests = [f for f in manifest_candidates if f.endswith("package.json")]
+        for pkg_file in node_manifests[:5]:
             await call_tool_start("read_file", {"path": pkg_file})
             pkg_content = WorkspaceTools.read_file(workspace_path, pkg_file).get("content", "")
             await call_tool_end("read_file", f"Read {len(pkg_content)} bytes from {pkg_file}", 0, 150)
@@ -780,6 +858,8 @@ class AntigravityHarness:
                 frameworks.append("React")
             if "vue" in p_lower:
                 frameworks.append("Vue.js")
+            if "svelte" in p_lower:
+                frameworks.append("Svelte")
             if "next" in p_lower:
                 frameworks.append("Next.js")
             if "vite" in p_lower:
@@ -790,19 +870,21 @@ class AntigravityHarness:
                 frameworks.append("NestJS")
             if "tailwindcss" in p_lower:
                 tools.append("TailwindCSS")
+            if "prisma" in p_lower:
+                tools.append("Prisma ORM")
             if "vitest" in p_lower:
                 test_framework = test_framework or "vitest"
             elif "jest" in p_lower:
                 test_framework = test_framework or "jest"
-            elif not test_framework:
+            elif not test_framework and not is_elixir:
                 test_framework = "npm test"
 
         # 3. Python
-        py_manifest = next((f for f in ("pyproject.toml", "requirements.txt", "setup.py", "Pipfile") if f in root_names), None)
-        if py_manifest or (any(f.endswith(".py") for f in all_files) and not is_elixir):
-            if "Python" not in [t.split(" (")[0] for t in tech_stack]:
+        py_manifests = [f for f in manifest_candidates if any(f.endswith(pm) for pm in ("pyproject.toml", "requirements.txt", "setup.py", "Pipfile"))]
+        if py_manifests or (any(f.endswith(".py") for f in all_files) and not is_elixir and len(all_files) <= 10):
+            if not any("Python" in t for t in tech_stack) and not is_elixir:
                 tech_stack.append("Python")
-            if py_manifest:
+            for py_manifest in py_manifests[:3]:
                 await call_tool_start("read_file", {"path": py_manifest})
                 content = WorkspaceTools.read_file(workspace_path, py_manifest).get("content", "")
                 await call_tool_end("read_file", f"Read {len(content)} bytes from {py_manifest}", 0, 150)
@@ -820,53 +902,57 @@ class AntigravityHarness:
                     frameworks.append("Pydantic")
                 if "celery" in py_lower:
                     frameworks.append("Celery")
-            test_framework = test_framework or "pytest"
+            if not test_framework and not is_elixir:
+                test_framework = "pytest"
 
         # 4. Rust
-        cargo_file = "Cargo.toml" if "Cargo.toml" in root_names else next((f for f in all_files if f.endswith("Cargo.toml")), None)
-        if cargo_file:
-            if "Rust" not in [t.split(" (")[0] for t in tech_stack]:
+        rust_manifests = [f for f in manifest_candidates if f.endswith("Cargo.toml")]
+        if rust_manifests:
+            if not any("Rust" in t for t in tech_stack):
                 tech_stack.append("Rust")
-            manifest_details.append(f"**`{cargo_file}`**")
+            for cm in rust_manifests[:3]:
+                manifest_details.append(f"**`{cm}`**")
             test_framework = test_framework or "cargo test"
 
         # 5. Go
-        go_mod = "go.mod" if "go.mod" in root_names else next((f for f in all_files if f.endswith("go.mod")), None)
-        if go_mod:
-            if "Go" not in [t.split(" (")[0] for t in tech_stack]:
+        go_manifests = [f for f in manifest_candidates if f.endswith("go.mod")]
+        if go_manifests:
+            if not any("Go" in t for t in tech_stack):
                 tech_stack.append("Go")
-            manifest_details.append(f"**`{go_mod}`**")
+            for gm in go_manifests[:3]:
+                manifest_details.append(f"**`{gm}`**")
             test_framework = test_framework or "go test ./..."
 
         # 6. Ruby
-        gemfile = "Gemfile" if "Gemfile" in root_names else next((f for f in all_files if f.endswith("Gemfile")), None)
-        if gemfile:
-            if "Ruby" not in [t.split(" (")[0] for t in tech_stack]:
+        ruby_manifests = [f for f in manifest_candidates if f.endswith("Gemfile")]
+        if ruby_manifests:
+            if not any("Ruby" in t for t in tech_stack):
                 tech_stack.append("Ruby")
-            manifest_details.append(f"**`{gemfile}`**")
+            for rm in ruby_manifests[:3]:
+                manifest_details.append(f"**`{rm}`**")
             test_framework = test_framework or "bundle exec rspec"
 
         # 7. Cloud, Infrastructure & DevOps
-        fly_configs = [f for f in root_names if f.startswith("fly") and f.endswith(".toml")]
+        fly_configs = [f for f in all_files if os.path.basename(f).startswith("fly") and f.endswith(".toml")]
         if fly_configs:
             tools.append("Fly.io (PaaS)")
-            for fc in fly_configs:
+            for fc in fly_configs[:3]:
                 manifest_details.append(f"**`{fc}`**")
 
-        if "terraform" in root_names or any(f.endswith(".tf") for f in all_files):
+        if any(f.endswith(".tf") or f.endswith(".hcl") for f in all_files):
             tools.append("Terraform (IaC)")
 
-        if any(f in root_names for f in ("Dockerfile", "docker-compose.yml", "docker-compose.yaml")):
+        if any(os.path.basename(f) in ("Dockerfile", "docker-compose.yml", "docker-compose.yaml") for f in all_files):
             tools.append("Docker / Compose")
 
-        if "Makefile" in root_names:
+        if any(os.path.basename(f) == "Makefile" for f in all_files):
             tools.append("Make")
 
         # ----------------------------------------------------------------------
         # Step 4: Accurate Test Directory & Test File Resolution
         # ----------------------------------------------------------------------
         for td in ["test", "tests", "spec", "__tests__"]:
-            matching = [f for f in all_files if f.startswith(f"{td}/") or f.startswith(f"{td}\\")]
+            matching = [f for f in all_files if f.startswith(f"{td}/") or f.startswith(f"{td}\\") or f"/{td}/" in f]
             if matching:
                 test_dir_name = f"{td}/"
                 test_files_count = len([f for f in matching if any(f.endswith(ext) for ext in ("_test.exs", "_test.py", ".test.ts", ".spec.ts", ".test.tsx", ".spec.tsx", "_test.go", "_spec.rb", ".test.js", ".spec.js"))]) or len(matching)
@@ -880,11 +966,11 @@ class AntigravityHarness:
         # ----------------------------------------------------------------------
         sample_sources = [
             f for f in all_files
-            if not f.startswith(".") and not f.startswith("test") and not f.startswith("spec") and any(f.endswith(ext) for ext in (".ex", ".ts", ".tsx", ".py", ".rs", ".go", ".rb", ".tf", ".toml", ".sh"))
+            if not f.startswith(".") and not f.startswith("test") and not f.startswith("spec") and any(f.endswith(ext) for ext in (".ex", ".heex", ".ts", ".tsx", ".vue", ".svelte", ".py", ".rs", ".go", ".rb", ".tf", ".toml", ".sh"))
         ]
         preferred_samples = [
             f for f in sample_sources
-            if any(f.startswith(p) for p in ("lib/", "src/", "app/", "pkg/", "cmd/")) or f in ("start-session.sh", "fly-redis-demo.toml", "mix.exs", "package.json")
+            if any(f.startswith(p) for p in ("lib/", "src/", "app/", "apps/", "packages/", "services/", "pkg/", "cmd/")) or f in ("start-session.sh", "fly-redis-demo.toml", "mix.exs", "package.json")
         ]
         recommended_file_sample = (preferred_samples or sample_sources or all_files or ["workspace files"])[0]
 
@@ -913,6 +999,8 @@ class AntigravityHarness:
             itype = "Directory 📁" if item.get("is_dir") else "File 📄"
             if iname in ("lib", "src", "app", "backend", "cmd", "pkg"):
                 desc = "Primary application source code & business logic"
+            elif iname in ("apps", "packages", "services", "modules"):
+                desc = f"Monorepo multi-package / service workspace ({len(subprojects)} subprojects detected)" if subprojects else "Multi-module application workspace"
             elif iname in ("frontend", "ui", "web", "assets"):
                 desc = "User interface components & client assets"
             elif iname in ("test", "tests", "__tests__", "spec"):
@@ -921,6 +1009,8 @@ class AntigravityHarness:
                 desc = "Infrastructure as Code & cloud deployment topology"
             elif iname in ("config", "priv"):
                 desc = "Runtime configuration & application storage"
+            elif iname in ("bin", "scripts", "tools"):
+                desc = "Operational tooling, automation & session scripts"
             elif iname in ("docs", "documentation"):
                 desc = "Architecture guides & specifications"
             elif iname == "mix.exs":
@@ -946,6 +1036,11 @@ class AntigravityHarness:
         git_history_section = f"\n- **Recent Commits:**\n```text\n{git_log}\n```" if git_log else ""
         test_info_str = f"({test_files_count} test files in `{test_dir_name}`)" if test_dir_name else "(Test suite detected)"
 
+        monorepo_section = ""
+        if subprojects:
+            sub_rows = [f"- `{sp['name']}`: **{sp['type']}** (`{sp['manifest']}`)" for sp in subprojects[:6]]
+            monorepo_section = f"\n### 🏢 Monorepo & Sub-Project Topology\n" + "\n".join(sub_rows) + "\n"
+
         report_md = (
             f"## 📊 Repository & Architecture Analysis\n\n"
             f"> **Workspace:** `{workspace_path.name}` • **Active Branch:** `{git_branch}` • **Status:** Inspected & Validated ✅\n\n"
@@ -956,7 +1051,8 @@ class AntigravityHarness:
             f"### 🗂️ Codebase Architecture & Layout\n"
             f"| Path | Type | Role / Purpose |\n"
             f"| :--- | :--- | :--- |\n"
-            f"{layout_table}\n\n"
+            f"{layout_table}\n"
+            f"{monorepo_section}\n"
             f"### 📦 Discovered Manifests & Tooling\n"
             f"- **Manifests:** {manifest_summary}\n"
             f"- **Test Suite Runner:** `{test_framework}` {test_info_str}\n"
