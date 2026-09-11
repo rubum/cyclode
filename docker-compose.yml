@@ -1,0 +1,73 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: adappty-backend
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      - ./backend:/app
+      - ./workspaces:/workspaces
+      - adappty_data:/data
+    env_file:
+      - .env
+    environment:
+      - PORT=8000
+      - HOST=0.0.0.0
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - WORKSPACE_ROOT=/workspaces
+      - DATABASE_URL=sqlite+aiosqlite:////data/adappty.db
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - ANTIGRAVITY_MODEL=${ANTIGRAVITY_MODEL:-gemini-2.5-flash}
+      - ANTIGRAVITY_ENABLE_THINKING=${ANTIGRAVITY_ENABLE_THINKING:-true}
+      - POLICY_GIT_PUSH=${POLICY_GIT_PUSH:-require_approval}
+      - POLICY_CREATE_PR=${POLICY_CREATE_PR:-require_approval}
+      - POLICY_POST_COMMENTS=${POLICY_POST_COMMENTS:-auto}
+      - POLICY_SLACK_NOTIFY=${POLICY_SLACK_NOTIFY:-auto}
+      - POLICY_MERGE_PR=${POLICY_MERGE_PR:-require_approval}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - GITHUB_APP_ID=${GITHUB_APP_ID:-}
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-adappty_gh_webhook_secret_123}
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
+      - SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET:-}
+      - APPSIGNAL_API_KEY=${APPSIGNAL_API_KEY:-}
+      - APPSIGNAL_WEBHOOK_TOKEN=${APPSIGNAL_WEBHOOK_TOKEN:-adappty_appsignal_token_123}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - adappty-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: adappty-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-5174}:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=http://localhost:8000
+      - VITE_WS_URL=ws://localhost:8000/ws/live
+    depends_on:
+      - backend
+    networks:
+      - adappty-net
+
+volumes:
+  adappty_data:
+    name: adappty_data
+
+networks:
+  adappty-net:
+    name: adappty-net
+    driver: bridge

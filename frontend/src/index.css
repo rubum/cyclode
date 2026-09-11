@@ -1,0 +1,41 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #282C34;
+    color: #ABB2BF;
+    @apply font-sans tracking-tight;
+  }
+}
+
+/* One Dark Pro scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #21252B;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3E4451;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #4B5263;
+}
+
+/* One Dark Pro syntax diff styling */
+.diff-addition {
+  background-color: rgba(152, 195, 121, 0.14);
+  color: #98C379;
+}
+
+.diff-deletion {
+  background-color: rgba(224, 108, 117, 0.14);
+  color: #E06C75;
+}

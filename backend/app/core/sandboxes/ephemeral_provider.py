@@ -1,0 +1,276 @@
+import os
+import shutil
+import subprocess
+import logging
+from pathlib import Path
+from typing import Optional, Dict, Any, List
+from app.config import settings
+from app.core.sandboxes.base import (
+    SandboxProvider,
+    SandboxContext,
+    CommandResult,
+    CloneAuthRequiredException,
+    CloneFailedException
+)
+
+logger = logging.getLogger("adappty.sandbox")
+
+
+class EphemeralSandboxProvider(SandboxProvider):
+    """
+    Manages isolated, ephemeral sandbox workspaces that are created on-demand,
+    cloned shallowly from target repositories, and wiped completely upon task completion.
+    """
+
+    def __init__(self, base_dir: Optional[str] = None):
+        self.base_dir = Path(base_dir or settings.WORKSPACE_ROOT)
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+        self._active_sandboxes: Dict[str, SandboxContext] = {}
+
+    async def create_sandbox(
+        self,
+        task_id: str,
+        repo_name: Optional[str] = None,
+        repo_url: Optional[str] = None,
+        branch: Optional[str] = None,
+        commit_sha: Optional[str] = None
+    ) -> SandboxContext:
+        workspace_path = self.base_dir / f"sandbox-{task_id}"
+        
+        # Clean any preexisting directory
+        if workspace_path.exists():
+            shutil.rmtree(workspace_path, ignore_errors=True)
+        workspace_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Clone repository if provided, otherwise initialize clean sample service
+        if repo_url and repo_url.startswith("http"):
+            try:
+                from app.integrations.github_client import github_client
+                clone_url = repo_url
+                if github_client.token and "github.com" in repo_url and not ("@" in repo_url):
+                    clone_url = repo_url.replace("https://", f"https://x-access-token:{github_client.token}@")
+
+                cmd = ["git", "clone", "--depth", "50"]
+                if branch:
+                    cmd.extend(["--branch", branch])
+                cmd.extend([clone_url, str(workspace_path)])
+
+                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                if proc.returncode == 0:
+                    logger.info(f"Successfully cloned {repo_url} into sandbox {task_id}")
+                    if commit_sha:
+                        subprocess.run(["git", "checkout", commit_sha], cwd=workspace_path, capture_output=True)
+                else:
+                    err_msg = proc.stderr or ""
+                    err_lower = err_msg.lower()
+                    logger.warning(f"Git clone failed for {repo_url} with code {proc.returncode}: {err_msg}")
+                    
+                    is_auth_error = any(kw in err_lower for kw in [
+                        "could not read username",
+                        "authentication failed",
+                        "repository not found",
+                        "permission denied",
+                        "terminal prompts disabled",
+                        "invalid credentials",
+                        "please make sure you have the correct access rights"
+                    ]) or proc.returncode == 128
+                    
+                    if is_auth_error:
+                        raise CloneAuthRequiredException(repo_url=repo_url, stderr=err_msg)
+                    else:
+                        raise CloneFailedException(repo_url=repo_url, stderr=err_msg)
+            except (CloneAuthRequiredException, CloneFailedException):
+                raise
+            except Exception as e:
+                logger.error(f"Failed to clone remote repo {repo_url}: {e}")
+                raise CloneFailedException(repo_url=repo_url, stderr=str(e))
+        else:
+            # Default local workspace initialization when no remote repository is specified
+            workspace_path.mkdir(parents=True, exist_ok=True)
+            self._init_sample_repo(workspace_path, branch or "main")
+
+        context = SandboxContext(
+            task_id=task_id,
+            workspace_path=workspace_path,
+            repo_name=repo_name,
+            repo_url=repo_url,
+            branch=branch or "main",
+            commit_sha=commit_sha,
+            is_destroyed=False
+        )
+        self._active_sandboxes[task_id] = context
+        logger.info(f"Created ephemeral sandbox for task {task_id} at {workspace_path}")
+        return context
+
+    def _init_sample_repo(self, path: Path, branch_name: str = "main"):
+        """Initializes a standalone git repository with sample code for autonomous test execution."""
+        subprocess.run(["git", "init", "-b", branch_name], cwd=path, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Adappty Agent"], cwd=path, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "agent@adappty.ai"], cwd=path, capture_output=True)
+
+        app_dir = path / "app"
+        tests_dir = path / "tests"
+        app_dir.mkdir(parents=True, exist_ok=True)
+        tests_dir.mkdir(parents=True, exist_ok=True)
+
+        (app_dir / "auth_service.py").write_text(
+            'class AuthService:\n'
+            '    def get_user_display_name(self, user_dict):\n'
+            '        # Bug: NullPointerException when profile is missing\n'
+            '        profile = user_dict["profile"]\n'
+            '        return profile["name"]\n',
+            encoding="utf-8"
+        )
+
+        (tests_dir / "test_auth_service.py").write_text(
+            'import unittest\n'
+            'from app.auth_service import AuthService\n\n'
+            'class TestAuthService(unittest.TestCase):\n'
+            '    def setUp(self):\n'
+            '        self.auth = AuthService()\n\n'
+            '    def test_valid_profile(self):\n'
+            '        user = {"profile": {"name": "Alice"}}\n'
+            '        self.assertEqual(self.auth.get_user_display_name(user), "Alice")\n',
+            encoding="utf-8"
+        )
+
+        subprocess.run(["git", "add", "."], cwd=path, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "initial commit"], cwd=path, capture_output=True)
+
+    async def run_command(self, context: SandboxContext, command: str, timeout: int = 60) -> CommandResult:
+        if context.is_destroyed:
+            return CommandResult(command=command, exit_code=1, stdout="", stderr="Sandbox is destroyed")
+
+        try:
+            proc = subprocess.run(
+                command,
+                shell=True,
+                cwd=context.workspace_path,
+                capture_output=True,
+                text=True,
+                timeout=timeout
+            )
+            return CommandResult(
+                command=command,
+                exit_code=proc.returncode,
+                stdout=proc.stdout,
+                stderr=proc.stderr
+            )
+        except subprocess.TimeoutExpired:
+            return CommandResult(command=command, exit_code=124, stdout="", stderr=f"Command timed out after {timeout}s")
+        except Exception as e:
+            return CommandResult(command=command, exit_code=1, stdout="", stderr=str(e))
+
+    async def read_file(self, context: SandboxContext, file_path: str) -> str:
+        if context.is_destroyed:
+            return "Error: Sandbox is destroyed"
+        target = (context.workspace_path / file_path).resolve()
+        if not target.is_relative_to(context.workspace_path):
+            return "Error: Access denied outside sandbox"
+        if not target.exists() or not target.is_file():
+            return f"Error: File '{file_path}' not found"
+        return target.read_text(encoding="utf-8")
+
+    async def write_file(self, context: SandboxContext, file_path: str, content: str) -> int:
+        if context.is_destroyed:
+            return 0
+        target = (context.workspace_path / file_path).resolve()
+        if not target.is_relative_to(context.workspace_path):
+            raise PermissionError("Access denied outside sandbox")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        return len(content)
+
+    async def list_dir(self, context: SandboxContext, subpath: str = ".") -> List[Dict[str, Any]]:
+        if context.is_destroyed:
+            return []
+        target = (context.workspace_path / subpath).resolve()
+        if not target.is_relative_to(context.workspace_path) or not target.exists():
+            return []
+
+        items = []
+        for p in target.iterdir():
+            if ".git" not in p.parts:
+                items.append({
+                    "name": p.name,
+                    "is_dir": p.is_dir(),
+                    "type": "directory" if p.is_dir() else "file",
+                    "size": p.stat().st_size if p.is_file() else None
+                })
+        return items
+
+    async def get_git_diff(self, context: SandboxContext) -> List[Dict[str, Any]]:
+        if context.is_destroyed or not (context.workspace_path / ".git").exists():
+            return []
+
+        try:
+            diff_proc = subprocess.run(
+                ["git", "diff", "HEAD"],
+                cwd=context.workspace_path,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            raw_diff = diff_proc.stdout
+            if not raw_diff:
+                return []
+
+            diffs = []
+            files_proc = subprocess.run(
+                ["git", "diff", "--name-status", "HEAD"],
+                cwd=context.workspace_path,
+                capture_output=True,
+                text=True
+            )
+            for line in files_proc.stdout.strip().splitlines():
+                if not line:
+                    continue
+                parts = line.split(maxsplit=1)
+                file_name = parts[1] if len(parts) > 1 else ""
+
+                numstat = subprocess.run(
+                    ["git", "diff", "--numstat", "HEAD", "--", file_name],
+                    cwd=context.workspace_path,
+                    capture_output=True,
+                    text=True
+                )
+                adds, dels = 0, 0
+                if numstat.stdout.strip():
+                    n_parts = numstat.stdout.strip().split()
+                    if len(n_parts) >= 2:
+                        adds = int(n_parts[0]) if n_parts[0].isdigit() else 0
+                        dels = int(n_parts[1]) if n_parts[1].isdigit() else 0
+
+                file_diff_proc = subprocess.run(
+                    ["git", "diff", "HEAD", "--", file_name],
+                    cwd=context.workspace_path,
+                    capture_output=True,
+                    text=True
+                )
+
+                diffs.append({
+                    "file_path": file_name,
+                    "diff_content": file_diff_proc.stdout,
+                    "additions": adds,
+                    "deletions": dels
+                })
+            return diffs
+        except Exception as e:
+            logger.error(f"Error computing diff in sandbox {context.task_id}: {e}")
+            return []
+
+    async def destroy_sandbox(self, context: SandboxContext) -> bool:
+        """Terminates and completely removes the ephemeral sandbox filesystem."""
+        try:
+            if context.workspace_path.exists():
+                shutil.rmtree(context.workspace_path, ignore_errors=True)
+            context.is_destroyed = True
+            self._active_sandboxes.pop(context.task_id, None)
+            logger.info(f"Destroyed ephemeral sandbox for task {context.task_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error destroying sandbox {context.task_id}: {e}")
+            return False
+
+
+ephemeral_sandbox_provider = EphemeralSandboxProvider()

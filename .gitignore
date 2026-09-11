@@ -1,0 +1,69 @@
+# Environment variables and secrets
+.env
+*.local
+*.env.local
+
+# Ephemeral Sandbox Workspaces and Database Storage
+workspaces/
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# Node & Frontend
+node_modules/
+frontend/node_modules/
+frontend/dist/
+dist/
+.npm
+*.tsbuildinfo
+
+# Logs & Temporary
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.tempmediaStorage/
+
+# OS & Editors
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo

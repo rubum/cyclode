@@ -1,0 +1,37 @@
+services:
+  adappty:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: adappty-app
+    restart: always
+    ports:
+      - "${PORT:-8080}:8080"
+    volumes:
+      - ./workspaces:/workspaces
+      - adappty_prod_data:/data
+    env_file:
+      - .env
+    environment:
+      - PORT=8080
+      - HOST=0.0.0.0
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - WORKSPACE_ROOT=/workspaces
+      - DATABASE_URL=sqlite+aiosqlite:////data/adappty.db
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - adappty-net
+
+volumes:
+  adappty_prod_data:
+    name: adappty_prod_data
+
+networks:
+  adappty-net:
+    name: adappty-net
+    driver: bridge
