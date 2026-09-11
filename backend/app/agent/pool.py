@@ -589,27 +589,22 @@ class AgentTaskPool:
                 "error": str(e)
             })
         finally:
-            # Tear down ephemeral sandbox completely only if not awaiting user input or approval
-            if sandbox_ctx:
+            # We preserve the sandbox workspace on disk throughout the session lifetime.
+            # Sandbox is only destroyed when the user explicitly deletes the task session (DELETE /api/tasks/{task_id})
+            # or clears all sessions. This ensures continuous file/diff browsing and multi-turn context.
+            if sandbox_ctx and sandbox_ctx.workspace_path.exists():
                 async with async_session_factory() as session:
-                    stmt_t = select(TaskModel).where(TaskModel.id == task_id)
-                    res_t = await session.execute(stmt_t)
-                    t = res_t.scalars().first()
-                    curr_status = t.status if t else None
-                if curr_status not in ["AWAITING_INPUT", "AWAITING_APPROVAL"]:
-                    await sandbox_manager.destroy(sandbox_ctx)
-                    async with async_session_factory() as session:
-                        await session.execute(
-                            update(TaskModel)
-                            .where(TaskModel.id == task_id)
-                            .values(sandbox_status="DESTROYED")
-                        )
-                        await session.commit()
+                    await session.execute(
+                        update(TaskModel)
+                        .where(TaskModel.id == task_id)
+                        .values(sandbox_status="ACTIVE")
+                    )
+                    await session.commit()
 
-                    await ws_manager.broadcast("TASK_STATUS_CHANGE", {
-                        "task_id": task_id,
-                        "sandbox_status": "DESTROYED"
-                    })
+                await ws_manager.broadcast("TASK_STATUS_CHANGE", {
+                    "task_id": task_id,
+                    "sandbox_status": "ACTIVE"
+                })
 
             self.active_tasks.pop(task_id, None)
 

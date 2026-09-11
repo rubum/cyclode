@@ -155,7 +155,7 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
 
           <div className="flex items-center space-x-2">
             <button
-              onClick={fetchSandboxData}
+              onClick={() => fetchSandboxData(false)}
               disabled={loading}
               className="p-1.5 rounded-lg border border-onedark-border bg-onedark-surface hover:bg-onedark-darker text-onedark-muted hover:text-onedark-fgBright transition-colors disabled:opacity-40 cursor-pointer"
               title="Refresh Filesystem"

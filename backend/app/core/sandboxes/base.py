@@ -84,3 +84,8 @@ class SandboxProvider(ABC):
     async def destroy_sandbox(self, context: SandboxContext) -> bool:
         """Terminates and completely wipes the ephemeral sandbox."""
         pass
+
+    @abstractmethod
+    async def destroy_by_task_id(self, task_id: str, workspace_path: Optional[str] = None) -> bool:
+        """Terminates and wipes the sandbox directory for a given task ID."""
+        pass

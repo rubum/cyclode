@@ -29,5 +29,8 @@ class SandboxManager:
             return True
         return await self.provider.destroy_sandbox(context)
 
+    async def destroy_by_task_id(self, task_id: str, workspace_path: Optional[str] = None) -> bool:
+        return await self.provider.destroy_by_task_id(task_id, workspace_path)
+
 
 sandbox_manager = SandboxManager()

@@ -37,6 +37,25 @@ class EphemeralSandboxProvider(SandboxProvider):
     ) -> SandboxContext:
         workspace_path = self.base_dir / f"sandbox-{task_id}"
         
+        # 1. Reuse existing warm sandbox for multi-turn sessions
+        if task_id in self._active_sandboxes and not self._active_sandboxes[task_id].is_destroyed and workspace_path.exists():
+            logger.info(f"Reusing active sandbox session for task {task_id} at {workspace_path}")
+            return self._active_sandboxes[task_id]
+
+        if workspace_path.exists() and (workspace_path / ".git").exists():
+            context = SandboxContext(
+                task_id=task_id,
+                workspace_path=workspace_path,
+                repo_name=repo_name,
+                repo_url=repo_url,
+                branch=branch or "main",
+                commit_sha=commit_sha,
+                is_destroyed=False
+            )
+            self._active_sandboxes[task_id] = context
+            logger.info(f"Reattached existing sandbox directory for task {task_id} at {workspace_path}")
+            return context
+
         # Clean any preexisting directory
         if workspace_path.exists():
             shutil.rmtree(workspace_path, ignore_errors=True)
@@ -272,6 +291,22 @@ class EphemeralSandboxProvider(SandboxProvider):
             return True
         except Exception as e:
             logger.error(f"Error destroying sandbox {context.task_id}: {e}")
+            return False
+
+    async def destroy_by_task_id(self, task_id: str, workspace_path: Optional[str] = None) -> bool:
+        """Terminates and removes sandbox directory for a given task_id."""
+        try:
+            if task_id in self._active_sandboxes:
+                ctx = self._active_sandboxes.pop(task_id)
+                ctx.is_destroyed = True
+            
+            target_path = Path(workspace_path) if workspace_path else (self.base_dir / f"sandbox-{task_id}")
+            if target_path.exists() and target_path.is_dir():
+                shutil.rmtree(target_path, ignore_errors=True)
+            logger.info(f"Cleaned up sandbox workspace for task {task_id} at {target_path}")
+            return True
+        except Exception as e:
+            logger.error(f"Error destroying sandbox by task_id {task_id}: {e}")
             return False
 
 

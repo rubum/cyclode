@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 from app.db.session import get_db
 from app.db.models import TaskModel, TaskMessageModel, TaskLogModel, TaskApprovalModel, TaskDiffModel
 from app.agent.pool import agent_pool
+from app.core.sandboxes.manager import sandbox_manager
 
 router = APIRouter(prefix="/api/tasks", tags=["Tasks"])
 
@@ -169,6 +170,7 @@ async def clear_all_tasks(db: AsyncSession = Depends(get_db)):
         if task.id in agent_pool.active_tasks:
             agent_pool.active_tasks[task.id].cancel()
             agent_pool.active_tasks.pop(task.id, None)
+        await sandbox_manager.destroy_by_task_id(task.id, task.workspace_path)
         await db.delete(task)
     await db.commit()
     return {"ok": True, "count": len(tasks), "message": "All sessions cleared"}
@@ -187,6 +189,8 @@ async def delete_task(task_id: str, db: AsyncSession = Depends(get_db)):
     if task.id in agent_pool.active_tasks:
         agent_pool.active_tasks[task.id].cancel()
         agent_pool.active_tasks.pop(task.id, None)
+
+    await sandbox_manager.destroy_by_task_id(task.id, task.workspace_path)
 
     await db.delete(task)
     await db.commit()

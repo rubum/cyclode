@@ -1063,10 +1063,10 @@ class AntigravityHarness:
             elif iname.startswith("."):
                 desc = "Configuration & environment metadata"
             else:
-                desc = "Workspace resource"
-            layout_rows.append(f"| `{iname}` | {itype} | {desc} |")
+                desc = "Workspace module / resource"
+            layout_rows.append(f"- {itype} `{iname}` — *{desc}*")
 
-        layout_table = "\n".join(layout_rows) if layout_rows else "| `.` | Root | General workspace directory |"
+        layout_summary = "\n".join(layout_rows) if layout_rows else "- 📁 `.` — *Root workspace directory*"
         manifest_summary = ", ".join(dict.fromkeys(manifest_details)) if manifest_details else "Discovered active file hierarchy"
         git_history_section = f"\n- **Recent Commits:**\n```text\n{git_log}\n```" if git_log else ""
         test_info_str = f"({test_files_count} test files in `{test_dir_name}`)" if test_dir_name else "(Test suite detected)"
@@ -1083,10 +1083,9 @@ class AntigravityHarness:
             f"- **Core Runtime:** `{tech_str}`\n"
             f"- **Frameworks & Libraries:** `{fw_str}`\n"
             f"- **Build & Infrastructure:** `{tools_str}`\n\n"
-            f"### 🗂️ Codebase Architecture & Layout\n"
-            f"| Path | Type | Role / Purpose |\n"
-            f"| :--- | :--- | :--- |\n"
-            f"{layout_table}\n"
+            f"### 🗂️ Codebase Architecture & Structure\n"
+            f"{layout_summary}\n\n"
+            f"> 💡 *You can explore all workspace files, view syntax-highlighted source code, and inspect directory trees directly in the **[Files]** tab in the Auxiliary Pane.* 📂\n\n"
             f"{monorepo_section}\n"
             f"### 📦 Discovered Manifests & Tooling\n"
             f"- **Manifests:** {manifest_summary}\n"

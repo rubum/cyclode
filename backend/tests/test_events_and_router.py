@@ -452,4 +452,57 @@ async def test_sandbox_file_content_retrieval_and_security(tmp_path):
         assert res_missing.status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_sandbox_persists_for_session_and_cleans_up_on_deletion(tmp_path):
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
+    import uuid
+    from app.db.session import async_session_factory
+    from app.db.models import TaskModel
+    from app.core.sandboxes.manager import sandbox_manager
+
+    # Create dummy workspace
+    ws_dir = tmp_path / "session_ws"
+    ws_dir.mkdir(parents=True, exist_ok=True)
+    sample_file = ws_dir / "app.py"
+    sample_file.write_text("print('hello world')")
+
+    task_id = str(uuid.uuid4())
+    async with async_session_factory() as session:
+        task = TaskModel(
+            id=task_id,
+            title="Session persistence test",
+            description="Verify sandbox stays active until deletion",
+            persona="IssueResolver",
+            model_name="gemini-3.7-flash",
+            status="COMPLETED",
+            sandbox_status="ACTIVE",
+            workspace_path=str(ws_dir),
+            git_branch="main"
+        )
+        session.add(task)
+        await session.commit()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Verify sandbox info is active and accessible even when task is COMPLETED
+        res = await client.get(f"/api/tasks/{task_id}/sandbox")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["sandbox_status"] == "ACTIVE"
+        assert data["exists_on_disk"] is True
+        assert data["file_count"] >= 1
+
+        # 2. Verify file content is readable while session exists
+        res_f = await client.get(f"/api/tasks/{task_id}/files/content?path=app.py")
+        assert res_f.status_code == 200
+        assert "hello world" in res_f.json()["content"]
+
+        # 3. Delete session -> should trigger sandbox destruction
+        res_del = await client.delete(f"/api/tasks/{task_id}")
+        assert res_del.status_code == 200
+        assert not ws_dir.exists()
+
+
+
 
