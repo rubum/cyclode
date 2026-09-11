@@ -232,9 +232,18 @@ class AntigravityHarness:
                     if asyncio.iscoroutine(res):
                         await res
 
-        # Check if user prompt requests Codebase Architecture Analysis
+        # Check if user prompt requests Codebase Architecture Analysis or Repo Explanation
         has_analysis_intent = bool(
-            re.search(r"\b(analy[sz]e|analy[sz]is|breakdown|architecture|overview|audit|inspect|structure|summary)\b", lower_prompt)
+            re.search(r"\b(analy[sz]e|analy[sz]is|breakdown|architecture|overview|audit|inspect|structure|summary|topology)\b", lower_prompt)
+            or re.search(r"\b(what\s+is\s+this\s+(on|about|repo|repository|codebase|project|app|service|tool|framework))\b", lower_prompt)
+            or re.search(r"\b(explain\s+(the|this|my)?\s*(repo|repository|codebase|project|app|service|application|system|architecture|workspace))\b", lower_prompt)
+            or re.search(r"\b(tell\s+me\s+about\s+(the|this|my)?\s*(repo|repository|codebase|project|app|service))\b", lower_prompt)
+            or re.search(r"\b(what\s+does\s+this\s+(repo|project|codebase|app|service|package|tool)\s*(do|have|contain)?)\b", lower_prompt)
+            or lower_prompt.strip("?. ") in (
+                "what is this on", "what is this", "explain the repo", "explain repo", "explain this repo", 
+                "explain project", "explain codebase", "tell me what this is", "what does this do", 
+                "summarize repo", "summarize codebase", "repo overview", "project overview"
+            )
         )
 
         # Intent 0: Conversational Repo Connection & Credential Provisioning
@@ -550,16 +559,14 @@ class AntigravityHarness:
             await emit_message("agent", awakened_report)
             return {"status": "COMPLETED", "summary": "Incremental commit verification passed."}
 
-        # Intent: Repository & Codebase Architecture Analysis
-        is_analysis_query = bool(
-            re.search(r"\b(analy[sz]e|analy[sz]is|breakdown|architecture|overview|audit|inspect|codebase|structure|summary|repo status|what is this repo|tell me about (the|this) (repo|repository|codebase))\b", lower_prompt)
-            or any(w in lower_prompt for w in (
-                "analyse it", "analyze it", "analyse repo", "analyze repo", "repo analysis", "where is the repo analysis",
-                "where is the analysis", "show analysis", "show repo analysis", "inspect codebase", "codebase overview",
-                "what does this repo do", "explain this repository", "explain codebase", "audit codebase",
-                "audit repo", "scan project", "scan repo", "where is analysis"
-            ))
-        )
+        # Intent: Repository & Codebase Architecture Analysis / Explanation
+        is_analysis_query = has_analysis_intent or any(w in lower_prompt for w in (
+            "analyse it", "analyze it", "analyse repo", "analyze repo", "repo analysis", "where is the repo analysis",
+            "where is the analysis", "show analysis", "show repo analysis", "inspect codebase", "codebase overview",
+            "what does this repo do", "explain this repository", "explain codebase", "audit codebase",
+            "audit repo", "scan project", "scan repo", "where is analysis", "what is this on", "explain the repo",
+            "explain this repo", "what is this project", "what does this do"
+        ))
         if is_analysis_query:
             return await self._synthesize_repository_analysis(
                 task_id=task_id,
@@ -573,8 +580,81 @@ class AntigravityHarness:
                 on_tool_end=on_tool_end
             )
 
-        # Intent G: General Questions & Inquiries
+        # Intent G: Question Answering & Workspace File Inspection
         if (any(lower_prompt.startswith(q) for q in ("how ", "what ", "why ", "explain ", "help", "where ", "can you ", "which ", "is there ", "who ", "tell me ")) or lower_prompt.endswith("?")) and not is_analysis_query:
+            # Check if user mentioned a specific file in the workspace
+            discovered_files: List[str] = []
+            if workspace_path.exists():
+                try:
+                    for p in workspace_path.rglob("*"):
+                        if p.is_file() and not any(part in (".git", "__pycache__", "node_modules", ".pytest_cache") for part in p.parts):
+                            discovered_files.append(str(p.relative_to(workspace_path)))
+                            if len(discovered_files) >= 60:
+                                break
+                except Exception:
+                    pass
+
+            matched_file = None
+            for df in discovered_files:
+                bname = os.path.basename(df).lower()
+                if bname in lower_prompt or df.lower() in lower_prompt:
+                    matched_file = df
+                    break
+
+            if matched_file:
+                await emit_thought(f"Inspecting file `{matched_file}` to answer user query...")
+                await call_tool_start("read_file", {"path": matched_file})
+                file_res = WorkspaceTools.read_file(workspace_path, matched_file)
+                f_content = file_res.get("content", "")
+                await call_tool_end("read_file", f"Read {len(f_content)} bytes from {matched_file}", 0, 180)
+
+                lines = f_content.splitlines()
+                preview = "\n".join(lines[:35])
+                reply_md = (
+                    f"### 📄 Workspace File: `{matched_file}`\n\n"
+                    f"Here is the content of `{matched_file}` ({len(lines)} lines):\n\n"
+                    f"```\n{preview}\n```\n\n"
+                    f"> 💡 *You can view and edit the complete syntax-highlighted file in the **[Files]** tab in the Auxiliary Pane.* 📂"
+                )
+                await emit_message("agent", reply_md)
+                return {"status": "COMPLETED", "summary": f"Inspected {matched_file} for question: {title}"}
+
+            # Check if workspace has an active repository loaded
+            display_ws = workspace_path.name
+            if (workspace_path / ".git").exists():
+                orig_chk = WorkspaceTools.run_command(workspace_path, "git config --get remote.origin.url")
+                raw_orig = orig_chk.get("stdout", "").strip()
+                if "github.com/" in raw_orig:
+                    display_ws = raw_orig.split("github.com/")[-1].replace(".git", "")
+
+            # If connected to a repository, answer in context of this repo
+            if display_ws and not display_ws.startswith("sandbox-"):
+                readme_intro = ""
+                for r_name in ("README.md", "readme.md", "README.rst", "DOCS.md"):
+                    r_file = workspace_path / r_name
+                    if r_file.exists():
+                        try:
+                            r_lines = [l.strip() for l in r_file.read_text(encoding="utf-8", errors="ignore").splitlines() if l.strip() and not l.strip().startswith(("#", "<", "!", "["))]
+                            if r_lines:
+                                readme_intro = " ".join(r_lines[:3])
+                                break
+                        except Exception:
+                            pass
+
+                intro_text = f"\n\n> **{display_ws}**: {readme_intro}" if readme_intro else ""
+                info_reply = (
+                    f"### 💬 Workspace Assistant • `{display_ws}`{intro_text}\n\n"
+                    f"You asked: *\"{prompt}\"*\n\n"
+                    f"I'm operating in your workspace for **`{display_ws}`** with access to sandbox tools, tests, and diffs.\n\n"
+                    f"**Available Actions:**\n"
+                    f"- **Explain Architecture**: Ask `Explain the repo` or `Analyze architecture` for a full structural audit.\n"
+                    f"- **Inspect & Edit Code**: Ask me to read, review, or modify any file (e.g. `README.md`, `pyproject.toml`).\n"
+                    f"- **Run Tests**: Ask me to execute the test suite (e.g. `pytest`, `vitest`).\n"
+                    f"- **Autonomous PRs**: Trigger automated bug fixes or configure event automations."
+                )
+                await emit_message("agent", info_reply)
+                return {"status": "COMPLETED", "summary": f"Answered question for {display_ws}: {title}"}
+
             info_reply = (
                 "### 💬 Adappty Workstation Assistant\n\n"
                 f"You asked: *\"{prompt}\"*\n\n"
@@ -1132,12 +1212,59 @@ class AntigravityHarness:
             orig_val = orig_check.get("stdout", "").strip()
             if "github.com/" in orig_val:
                 display_workspace_name = orig_val.split("github.com/")[-1].replace(".git", "")
+        # Step 6.5: Extract Project Purpose & Summary from README / Manifest
+        project_description = ""
+        for name in ("README.md", "readme.md", "README.rst", "README.txt", "DOCS.md"):
+            target = workspace_path / name
+            if target.exists() and target.is_file():
+                try:
+                    content = target.read_text(encoding="utf-8", errors="ignore")
+                    blocks = re.split(r"\n\s*\n", content)
+                    for b in blocks:
+                        cleaned = b.strip()
+                        cleaned_no_html = re.sub(r"<[^>]+>", "", cleaned).strip()
+                        cleaned_no_html = re.sub(r"<!--.*?-->", "", cleaned_no_html, flags=re.DOTALL).strip()
+                        cleaned_no_html = re.sub(r"!\[.*?\]\(.*?\)", "", cleaned_no_html).strip()
+                        if not cleaned_no_html or cleaned_no_html.startswith("#") or cleaned_no_html.startswith("|"):
+                            continue
+                        if any(w in cleaned_no_html.lower() for w in (" is ", " are ", " for ", " framework", " library", " application", " tool", " provides", " enables", " allows", " designed", " package", " sdk")) and len(cleaned_no_html) > 40:
+                            project_description = " ".join(cleaned_no_html.split())
+                            break
+                    if project_description:
+                        break
+                except Exception:
+                    pass
+
+        if not project_description:
+            try:
+                pyproj = workspace_path / "pyproject.toml"
+                if pyproj.exists():
+                    p_txt = pyproj.read_text(encoding="utf-8", errors="ignore")
+                    desc_match = re.search(r'description\s*=\s*["\']([^"\']+)["\']', p_txt)
+                    if desc_match:
+                        project_description = desc_match.group(1).strip()
+            except Exception:
+                pass
+
+        if not project_description:
+            try:
+                pkg_json = workspace_path / "package.json"
+                if pkg_json.exists():
+                    pkg_data = json.loads(pkg_json.read_text(encoding="utf-8", errors="ignore"))
+                    if pkg_data.get("description"):
+                        project_description = pkg_data["description"].strip()
+            except Exception:
+                pass
+
         if display_workspace_name.startswith("sandbox-") and target_repo:
             display_workspace_name = target_repo.split("github.com/")[-1].replace(".git", "")
+
+        overview_section = f"### 🎯 Project Purpose & Overview\n{project_description}\n\n" if project_description else ""
 
         report_md = (
             f"## 📊 Repository & Architecture Analysis\n\n"
             f"> **Workspace:** `{display_workspace_name}` • **Active Branch:** `{git_branch}` • **Status:** Inspected & Validated ✅\n\n"
+            f"{overview_section}"
             f"### 🛠️ Tech Stack & Environment\n"
             f"- **Core Runtime:** `{tech_str}`\n"
             f"- **Frameworks & Libraries:** `{fw_str}`\n"

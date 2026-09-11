@@ -562,3 +562,87 @@ async def test_ephemeral_provider_clone_flags_and_timeout(monkeypatch):
     assert "--depth" in clone_cmd
     assert captured_timeouts[0] == 300
     assert captured_envs[0].get("GIT_TERMINAL_PROMPT") == "0"
+
+
+@pytest.mark.asyncio
+async def test_what_is_this_on_and_explain_repo_intent(tmp_path):
+    from app.agent.harness import AntigravityHarness
+
+    # Create dummy README.md and pyproject.toml in workspace
+    readme = tmp_path / "README.md"
+    readme.write_text("# DeepEval\n\nDeepEval is an open-source LLM evaluation framework for unit testing LLM apps.\n\n## Features\n- G-Eval")
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text('[project]\nname = "deepeval"\nversion = "1.0.0"')
+
+    harness = AntigravityHarness()
+    messages = []
+    thoughts = []
+
+    async def mock_msg(sender, content):
+        messages.append((sender, content))
+
+    async def mock_thought(text):
+        thoughts.append(text)
+
+    # 1. Test "What is this on"
+    res1 = await harness._execute_local_intent(
+        task_id="test-task-1",
+        title="What is this on",
+        prompt="What is this on",
+        persona_name="PairProgrammer",
+        workspace_path=tmp_path,
+        on_thought=mock_thought,
+        on_tool_start=lambda n, a: None,
+        on_tool_end=lambda n, o, e, d, a=None: None,
+        on_message=mock_msg,
+        on_approval_required=lambda a, d: None,
+        on_diff_updated=lambda d: None
+    )
+    assert res1["status"] == "COMPLETED"
+    assert len(messages) >= 1
+    content1 = messages[-1][1]
+    assert "Repository & Architecture Analysis" in content1
+    assert "DeepEval is an open-source LLM evaluation framework" in content1
+
+    # 2. Test "Explain the repo"
+    messages.clear()
+    res2 = await harness._execute_local_intent(
+        task_id="test-task-2",
+        title="Explain the repo",
+        prompt="Explain the repo",
+        persona_name="PairProgrammer",
+        workspace_path=tmp_path,
+        on_thought=mock_thought,
+        on_tool_start=lambda n, a: None,
+        on_tool_end=lambda n, o, e, d, a=None: None,
+        on_message=mock_msg,
+        on_approval_required=lambda a, d: None,
+        on_diff_updated=lambda d: None
+    )
+    assert res2["status"] == "COMPLETED"
+    assert len(messages) >= 1
+    content2 = messages[-1][1]
+    assert "Repository & Architecture Analysis" in content2
+    assert "DeepEval is an open-source LLM evaluation framework" in content2
+
+    # 3. Test specific file question "What is in pyproject.toml?"
+    messages.clear()
+    res3 = await harness._execute_local_intent(
+        task_id="test-task-3",
+        title="What is in pyproject.toml?",
+        prompt="What is in pyproject.toml?",
+        persona_name="PairProgrammer",
+        workspace_path=tmp_path,
+        on_thought=mock_thought,
+        on_tool_start=lambda n, a: None,
+        on_tool_end=lambda n, o, e, d, a=None: None,
+        on_message=mock_msg,
+        on_approval_required=lambda a, d: None,
+        on_diff_updated=lambda d: None
+    )
+    assert res3["status"] == "COMPLETED"
+    assert len(messages) >= 1
+    content3 = messages[-1][1]
+    assert "pyproject.toml" in content3
+    assert "deepeval" in content3
+
