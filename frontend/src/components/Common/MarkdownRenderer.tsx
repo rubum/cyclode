@@ -97,7 +97,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
   const parts = content.split(/(```[\s\S]*?```)/g);
 
   return (
-    <div className={`space-y-3 text-[13.5px] leading-relaxed text-onedark-fg font-sans ${className}`}>
+    <div className={`space-y-3.5 text-[15px] leading-[1.7] text-onedark-fg font-sans ${className}`}>
       {parts.map((part, index) => {
         if (part.startsWith('```') && part.endsWith('```')) {
           // Code block
@@ -109,10 +109,10 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
           const code = codeLines.join('\n');
 
           return (
-            <div key={index} className="my-3 rounded-xl border border-onedark-border bg-onedark-darker overflow-hidden shadow-sm">
+            <div key={index} className="my-3.5 rounded-xl border border-onedark-border bg-onedark-darker overflow-hidden shadow-sm">
               <div className="flex items-center justify-between px-3.5 py-1.5 bg-onedark-surface/80 border-b border-onedark-border text-xs text-onedark-muted font-mono select-none">
                 <div className="flex items-center space-x-2">
-                  <span className="text-onedark-accent text-[11px] font-semibold uppercase">{language || 'code'}</span>
+                  <span className="text-onedark-accent text-[11.5px] font-semibold uppercase">{language || 'code'}</span>
                   <span className="text-[10.5px] text-onedark-muted">({codeLines.length} line{codeLines.length > 1 ? 's' : ''})</span>
                 </div>
                 <button
@@ -133,7 +133,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                   )}
                 </button>
               </div>
-              <div className="flex font-mono text-[12.5px] leading-relaxed overflow-x-auto selection:bg-onedark-accent/30 p-3.5">
+              <div className="flex font-mono text-[13px] leading-[1.65] overflow-x-auto selection:bg-onedark-accent/30 p-3.5">
                 {codeLines.length > 2 && (
                   <div className="select-none text-onedark-muted/50 text-right pr-3.5 border-r border-onedark-borderSubtle font-mono text-xs flex-shrink-0">
                     {codeLines.map((_, i) => (
@@ -143,7 +143,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                 )}
                 <pre className={`text-onedark-fg font-mono ${codeLines.length > 2 ? 'pl-3.5' : ''} flex-1 overflow-x-auto`}>
                   <code
-                    className={`language-${language || 'text'} font-mono leading-relaxed`}
+                    className={`language-${language || 'text'} font-mono leading-[1.65]`}
                     dangerouslySetInnerHTML={{ __html: getHighlightedHtml(code, language) }}
                   />
                 </pre>
@@ -155,7 +155,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
         // Parse standard text blocks (headings, lists, paragraphs, blockquotes, tables, alerts)
         const blocks = parseBlocks(part);
         return (
-          <div key={index} className="space-y-2.5">
+          <div key={index} className="space-y-3">
             {blocks.map((block, bIdx) => {
               if (block.type === 'alert') {
                 const alertStyle = getAlertStyle(block.alertType || 'NOTE');
@@ -163,11 +163,11 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                 return (
                   <div
                     key={bIdx}
-                    className={`my-3 p-3.5 rounded-xl border ${alertStyle.border} ${alertStyle.bg} flex items-start space-x-3 text-xs leading-relaxed`}
+                    className={`my-3.5 p-4 rounded-xl border ${alertStyle.border} ${alertStyle.bg} flex items-start space-x-3 text-[14px] leading-relaxed`}
                   >
                     <Icon className={`w-4 h-4 ${alertStyle.text} flex-shrink-0 mt-0.5`} />
                     <div className="space-y-1">
-                      <div className={`font-bold font-mono text-[11px] uppercase tracking-wider ${alertStyle.text}`}>
+                      <div className={`font-bold font-mono text-[11.5px] uppercase tracking-wider ${alertStyle.text}`}>
                         {block.alertType}
                       </div>
                       <div className="text-onedark-fg">{renderInline(block.content || '')}</div>
@@ -178,13 +178,13 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.type === 'table' && block.tableRows) {
                 return (
-                  <div key={bIdx} className="my-3 overflow-x-auto rounded-xl border border-onedark-border bg-onedark-darker/60">
-                    <table className="w-full text-left border-collapse text-xs">
+                  <div key={bIdx} className="my-3.5 overflow-x-auto rounded-xl border border-onedark-border bg-onedark-darker/60">
+                    <table className="w-full text-left border-collapse text-[13.5px]">
                       {block.tableHeaders && (
                         <thead>
                           <tr className="bg-onedark-surface/60 border-b border-onedark-border text-onedark-fgBright font-semibold">
                             {block.tableHeaders.map((h, hIdx) => (
-                              <th key={hIdx} className="px-3.5 py-2 font-mono">{renderInline(h)}</th>
+                              <th key={hIdx} className="px-4 py-2.5 font-mono">{renderInline(h)}</th>
                             ))}
                           </tr>
                         </thead>
@@ -193,7 +193,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                         {block.tableRows.map((row, rIdx) => (
                           <tr key={rIdx} className="border-b border-onedark-borderSubtle last:border-0 hover:bg-onedark-surface/30">
                             {row.map((cell, cIdx) => (
-                              <td key={cIdx} className="px-3.5 py-2 text-onedark-fg">{renderInline(cell)}</td>
+                              <td key={cIdx} className="px-4 py-2.5 text-onedark-fg">{renderInline(cell)}</td>
                             ))}
                           </tr>
                         ))}
@@ -204,18 +204,18 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
               }
 
               if (block.type === 'hr') {
-                return <hr key={bIdx} className="border-t border-onedark-borderSubtle my-3" />;
+                return <hr key={bIdx} className="border-t border-onedark-borderSubtle my-4" />;
               }
 
               if (block.type === 'ul' && block.items) {
                 return (
-                  <ul key={bIdx} className="list-disc list-outside pl-5 space-y-1.5 my-2 marker:text-onedark-accent">
+                  <ul key={bIdx} className="list-disc list-outside pl-6 space-y-2.5 my-2.5 marker:text-onedark-muted/80 text-[15px] leading-[1.7]">
                     {block.items.map((item, iIdx) => {
                       const isTaskUnchecked = item.startsWith('[ ] ');
                       const isTaskChecked = item.startsWith('[x] ') || item.startsWith('[X] ');
                       if (isTaskUnchecked || isTaskChecked) {
                         return (
-                          <li key={iIdx} className="list-none -ml-5 flex items-start space-x-2 leading-relaxed">
+                          <li key={iIdx} className="list-none -ml-6 flex items-start space-x-2.5 leading-[1.7]">
                             <input
                               type="checkbox"
                               readOnly
@@ -227,7 +227,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                         );
                       }
                       return (
-                        <li key={iIdx} className="leading-relaxed pl-0.5">
+                        <li key={iIdx} className="leading-[1.7] pl-1">
                           {renderInline(item)}
                         </li>
                       );
@@ -238,9 +238,9 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.type === 'ol' && block.items) {
                 return (
-                  <ol key={bIdx} className="list-decimal list-outside pl-5 space-y-1.5 my-2 marker:text-onedark-accent font-sans">
+                  <ol key={bIdx} className="list-decimal list-outside pl-6 space-y-2.5 my-2.5 marker:text-onedark-muted font-sans text-[15px] leading-[1.7]">
                     {block.items.map((item, iIdx) => (
-                      <li key={iIdx} className="leading-relaxed pl-0.5">
+                      <li key={iIdx} className="leading-[1.7] pl-1">
                         {renderInline(item)}
                       </li>
                     ))}
@@ -250,7 +250,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.type === 'h1' && block.content) {
                 return (
-                  <h1 key={bIdx} className="text-lg font-bold text-onedark-fgBright pt-2 pb-1 border-b border-onedark-borderSubtle">
+                  <h1 key={bIdx} className="text-[19px] font-bold text-onedark-fgBright pt-3 pb-1 tracking-tight">
                     {renderInline(block.content)}
                   </h1>
                 );
@@ -258,7 +258,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.type === 'h2' && block.content) {
                 return (
-                  <h2 key={bIdx} className="text-base font-bold text-onedark-fgBright pt-2 pb-0.5">
+                  <h2 key={bIdx} className="text-[17.5px] font-bold text-onedark-fgBright pt-3 pb-1 tracking-tight">
                     {renderInline(block.content)}
                   </h2>
                 );
@@ -266,7 +266,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.type === 'h3' && block.content) {
                 return (
-                  <h3 key={bIdx} className="text-sm font-bold text-onedark-fgBright pt-1.5 pb-0.5">
+                  <h3 key={bIdx} className="text-[16px] font-semibold text-onedark-fgBright pt-2.5 pb-0.5">
                     {renderInline(block.content)}
                   </h3>
                 );
@@ -274,7 +274,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.type === 'h4' && block.content) {
                 return (
-                  <h4 key={bIdx} className="text-[13px] font-bold text-onedark-accent pt-1 pb-0.5 uppercase tracking-wide">
+                  <h4 key={bIdx} className="text-[15px] font-semibold text-onedark-accent pt-2 pb-0.5 uppercase tracking-wide">
                     {renderInline(block.content)}
                   </h4>
                 );
@@ -282,7 +282,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.type === 'h5' && block.content) {
                 return (
-                  <h5 key={bIdx} className="text-xs font-semibold text-onedark-fgBright pt-1 pb-0.5">
+                  <h5 key={bIdx} className="text-[14.5px] font-semibold text-onedark-fgBright pt-1.5 pb-0.5">
                     {renderInline(block.content)}
                   </h5>
                 );
@@ -290,7 +290,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.type === 'h6' && block.content) {
                 return (
-                  <h6 key={bIdx} className="text-xs font-semibold text-onedark-muted pt-1 pb-0.5 uppercase tracking-wider">
+                  <h6 key={bIdx} className="text-[14px] font-semibold text-onedark-muted pt-1 pb-0.5 uppercase tracking-wider">
                     {renderInline(block.content)}
                   </h6>
                 );
@@ -298,7 +298,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.type === 'blockquote' && block.content) {
                 return (
-                  <blockquote key={bIdx} className="border-l-2 border-onedark-accent/60 pl-3.5 py-1.5 my-2 bg-onedark-surface/30 rounded-r-lg text-onedark-fg leading-relaxed">
+                  <blockquote key={bIdx} className="border-l-2 border-onedark-accent/60 pl-4 py-1.5 my-2.5 bg-onedark-surface/30 rounded-r-lg text-onedark-fg text-[15px] leading-[1.7]">
                     {renderInline(block.content)}
                   </blockquote>
                 );
@@ -306,7 +306,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.content) {
                 return (
-                  <p key={bIdx} className="leading-relaxed">
+                  <p key={bIdx} className="leading-[1.7] text-[15px] text-onedark-fg">
                     {renderInline(block.content)}
                   </p>
                 );
@@ -500,7 +500,7 @@ function renderInline(text: string): React.ReactNode {
       return (
         <code
           key={i}
-          className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-border text-onedark-accent font-mono text-[12px]"
+          className="px-2 py-0.5 mx-0.5 rounded-md bg-onedark-darker/90 border border-onedark-borderSubtle text-[#e5c07b] font-mono text-[13.5px] inline-block font-normal shadow-2xs"
         >
           {token.slice(1, -1)}
         </code>

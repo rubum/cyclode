@@ -778,7 +778,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                             </span>
                           )}
                         </div>
-                        <div className="px-4 py-3 rounded-2xl bg-onedark-surface border border-onedark-border text-onedark-fgBright font-sans text-sm leading-relaxed shadow-sm">
+                        <div className="px-4 py-3 rounded-2xl bg-onedark-surface border border-onedark-border text-onedark-fgBright font-sans text-[14.5px] leading-[1.65] shadow-sm">
                           <div className="whitespace-pre-wrap">{maskSecretsInText(turn.userMessage.content)}</div>
                         </div>
                         {/* Hover Action Bar */}
@@ -946,7 +946,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                               ~{outTokens} tokens out
                             </span>
                           </div>
-                          <div className="text-onedark-fg text-[13.5px] leading-relaxed w-full">
+                          <div className="text-onedark-fg text-[15px] leading-[1.7] w-full">
                             <MarkdownRenderer content={maskSecretsInText(m.content)} isStreaming={m.isStreaming} />
                           </div>
                           {/* Hover Action Bar */}
