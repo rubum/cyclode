@@ -89,7 +89,7 @@ async def ensure_default_repositories():
                 elif raw_name and "/" in raw_name and not raw_name.startswith("http"):
                     full_name = raw_name.strip()
                 elif raw_name and raw_name != "None" and raw_name != "null":
-                    full_name = f"gowaylo/{raw_name}" if "waylo" in raw_name.lower() else raw_name
+                    full_name = raw_name.strip()
                 
                 if full_name and full_name not in existing_repos:
                     name = full_name.split("/")[-1]
@@ -112,7 +112,7 @@ async def ensure_default_repositories():
 
             # Clean up any legacy default fake values on existing repos
             for full_name, repo in existing_repos.items():
-                if repo.test_command == "pytest" and repo.tech_stack and "Python" in repo.tech_stack and "waylo" in full_name.lower():
+                if repo.test_command == "pytest" and repo.tech_stack and "Python" in repo.tech_stack and not repo.manifest_cache:
                     repo.tech_stack = []
                     repo.test_command = ""
 

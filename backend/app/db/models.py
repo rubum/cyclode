@@ -144,8 +144,8 @@ class RepositoryConfigModel(Base):
     __tablename__ = "repository_configs"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
-    name: Mapped[str] = mapped_column(String(100), nullable=False)                # e.g. "waylo"
-    full_name: Mapped[str] = mapped_column(String(200), unique=True, index=True) # e.g. "gowaylo/waylo"
+    name: Mapped[str] = mapped_column(String(100), nullable=False)                # e.g. "payment-service"
+    full_name: Mapped[str] = mapped_column(String(200), unique=True, index=True) # e.g. "acme/payment-service"
     clone_url: Mapped[str] = mapped_column(String(500), nullable=False)
     default_branch: Mapped[str] = mapped_column(String(100), default="main")
     

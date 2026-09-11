@@ -186,8 +186,8 @@ async def test_unauthenticated_private_repo_connect_and_analyze(tmp_path):
 
     res = await antigravity_harness._execute_local_intent(
         task_id="task-private-repo",
-        title="Connect and analyze repository https://github.com/gowaylo-private/waylo-internal-api",
-        prompt="Connect and analyze repository https://github.com/gowaylo-private/waylo-internal-api",
+        title="Connect and analyze repository https://github.com/acme-private/internal-service-api",
+        prompt="Connect and analyze repository https://github.com/acme-private/internal-service-api",
         persona_name="PairProgrammer",
         workspace_path=tmp_path,
         on_thought=lambda t: None,
@@ -214,26 +214,26 @@ async def test_elixir_polyglot_repository_analysis(tmp_path):
     from app.agent.harness import antigravity_harness
 
     # Create mock Elixir / Phoenix / Oban / Fly.io workspace
-    lib_dir = tmp_path / "lib" / "waylo"
+    lib_dir = tmp_path / "lib" / "sample_app"
     lib_dir.mkdir(parents=True, exist_ok=True)
-    (lib_dir / "worker.ex").write_text("defmodule Waylo.Worker do\n  use Oban.Worker\nend")
-    (lib_dir / "application.ex").write_text("defmodule Waylo.Application do\n  use Application\nend")
+    (lib_dir / "worker.ex").write_text("defmodule SampleApp.Worker do\n  use Oban.Worker\nend")
+    (lib_dir / "application.ex").write_text("defmodule SampleApp.Application do\n  use Application\nend")
 
     test_dir = tmp_path / "test"
     test_dir.mkdir(parents=True, exist_ok=True)
-    (test_dir / "waylo_test.exs").write_text("defmodule WayloTest do\n  use ExUnit.Case\nend")
+    (test_dir / "sample_app_test.exs").write_text("defmodule SampleAppTest do\n  use ExUnit.Case\nend")
     (test_dir / "worker_test.exs").write_text("defmodule WorkerTest do\n  use ExUnit.Case\nend")
 
     (tmp_path / "mix.exs").write_text(
-        'defmodule Waylo.MixProject do\n'
+        'defmodule SampleApp.MixProject do\n'
         '  use Mix.Project\n'
         '  def project do\n'
-        '    [app: :waylo, deps: [{:phoenix, "~> 1.7"}, {:oban, "~> 2.15"}, {:ecto_sql, "~> 3.10"}]]\n'
+        '    [app: :sample_app, deps: [{:phoenix, "~> 1.7"}, {:oban, "~> 2.15"}, {:ecto_sql, "~> 3.10"}]]\n'
         '  end\n'
         'end'
     )
     (tmp_path / ".iex.exs").write_text("import IEx.Helpers\n")
-    (tmp_path / "fly-redis-demo.toml").write_text('app = "waylo-redis"\n')
+    (tmp_path / "fly-redis-demo.toml").write_text('app = "sample-app-redis"\n')
     (tmp_path / "start-session.sh").write_text('#!/bin/bash\nmix phx.server\n')
 
     infra_dir = tmp_path / "terraform"

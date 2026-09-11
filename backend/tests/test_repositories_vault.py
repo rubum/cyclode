@@ -23,9 +23,9 @@ async def test_repository_vault_crud():
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # 1. Create repo config with token
         create_payload = {
-            "name": "waylo",
-            "full_name": "gowaylo/waylo",
-            "clone_url": "https://github.com/gowaylo/waylo",
+            "name": "payment-service",
+            "full_name": "octocat/payment-service",
+            "clone_url": "https://github.com/octocat/payment-service",
             "default_branch": "main",
             "token": "ghp_secureSecretToken12345",
             "test_command": "pytest -v",
@@ -36,7 +36,7 @@ async def test_repository_vault_crud():
         data = res.json()
         assert data.get("ok") is True
         repo = data.get("repository")
-        assert repo["full_name"] == "gowaylo/waylo"
+        assert repo["full_name"] == "octocat/payment-service"
         assert repo["has_token"] is True
         assert repo["masked_token"].startswith("ghp_")
         assert "secureSecretToken12345" not in repo["masked_token"]
@@ -46,7 +46,7 @@ async def test_repository_vault_crud():
         list_res = await client.get("/api/repositories")
         assert list_res.status_code == 200
         repos = list_res.json()
-        assert any(r["full_name"] == "gowaylo/waylo" for r in repos)
+        assert any(r["full_name"] == "octocat/payment-service" for r in repos)
 
         # 3. Update repo
         update_payload = {
@@ -60,22 +60,22 @@ async def test_repository_vault_crud():
         assert updated["default_branch"] == "develop"
 
         # 4. Vault token resolution
-        recovered_token = await integration_manager.get_github_token_for_repo("gowaylo/waylo")
+        recovered_token = await integration_manager.get_github_token_for_repo("octocat/payment-service")
         assert recovered_token == "ghp_secureSecretToken12345"
 
-        recovered_short = await integration_manager.get_github_token_for_repo("waylo")
+        recovered_short = await integration_manager.get_github_token_for_repo("payment-service")
         assert recovered_short == "ghp_secureSecretToken12345"
 
         # 5. Auto-resolution in task spawn
         task_id = await agent_pool.spawn_task(
-            title="Investigate issue on waylo repo",
-            description="Please check app/auth_service.py on waylo"
+            title="Investigate issue on payment-service repo",
+            description="Please check app/auth_service.py on payment-service"
         )
         task_details_res = await client.get(f"/api/tasks/{task_id}")
         assert task_details_res.status_code == 200
         t_data = task_details_res.json()
-        assert t_data.get("repo_name") == "gowaylo/waylo"
-        assert t_data.get("repo_url") == "https://github.com/gowaylo/waylo"
+        assert t_data.get("repo_name") == "octocat/payment-service"
+        assert t_data.get("repo_url") == "https://github.com/octocat/payment-service"
         assert t_data.get("target_branch") == "develop"
 
         # 6. Delete repo

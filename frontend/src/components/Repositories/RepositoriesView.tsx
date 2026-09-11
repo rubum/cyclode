@@ -457,7 +457,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({ onSelectRepo
                   value={repoFullName}
                   onChange={(e) => setRepoFullName(e.target.value)}
                   disabled={!!editingRepo}
-                  placeholder="e.g. gowaylo/waylo or https://github.com/gowaylo/waylo"
+                  placeholder="e.g. organization/repository or https://github.com/organization/repository"
                   className="w-full bg-onedark-bg border border-onedark-border rounded-lg px-3 py-1.5 text-xs text-onedark-fg font-mono focus:outline-none focus:border-onedark-accent disabled:opacity-50"
                   required
                 />
