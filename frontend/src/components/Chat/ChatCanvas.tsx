@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { 
   Send, 
   Sparkles, 
@@ -116,8 +116,12 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const [editValue, setEditValue] = useState<string>('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isSandboxModalOpen, setIsSandboxModalOpen] = useState(false);
+  const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
+
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const isAutoScrollEnabledRef = useRef<boolean>(true);
 
   const isRunning = task?.status === 'RUNNING' || task?.status === 'INITIALIZING';
 
@@ -258,14 +262,53 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     return () => window.removeEventListener('keydown', handleGlobalKeyDown);
   }, [isRunning, onStopTask]);
 
+  // Scroll to bottom helper
+  const scrollToBottom = useCallback((smooth = true) => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    if (smooth) {
+      container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+    } else {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, []);
+
+  // Handle user manual scroll: detect if user scrolled away from bottom
+  const handleScroll = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    const isAtBottom = distanceFromBottom <= 90;
+
+    isAutoScrollEnabledRef.current = isAtBottom;
+    setShowScrollBottomBtn(!isAtBottom);
+  }, []);
+
+  // Auto-scroll ONLY when user has not manually scrolled away
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (isAutoScrollEnabledRef.current && scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+    }
   }, [turns, isRunning, task?.approvals]);
+
+  // Reset scroll and re-enable auto-scroll when task changes
+  useEffect(() => {
+    if (task?.id) {
+      isAutoScrollEnabledRef.current = true;
+      setShowScrollBottomBtn(false);
+      scrollToBottom(false);
+    }
+  }, [task?.id, scrollToBottom]);
 
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     const trimmed = inputValue.trim();
     if (!trimmed) return;
+
+    isAutoScrollEnabledRef.current = true;
+    setShowScrollBottomBtn(false);
+    scrollToBottom(true);
 
     if (task) {
       onSendMessage(trimmed);
@@ -654,7 +697,11 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
       </div>
 
       {/* Centralized Conversation Feed */}
-      <div className="flex-1 overflow-y-auto px-4 py-6">
+      <div 
+        ref={scrollContainerRef} 
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto px-4 py-6 relative"
+      >
         <div className="w-full max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto space-y-6">
           {turns.map((turn, tIdx) => {
             const isTurnOpen = openThoughts[turn.id] ?? (isRunning && turn.isLatest);
@@ -988,6 +1035,28 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
           <div ref={messagesEndRef} />
         </div>
       </div>
+
+      {/* Floating Scroll to Bottom Button */}
+      {showScrollBottomBtn && (
+        <div className="absolute bottom-22 right-6 sm:right-8 z-20 animate-fadeIn">
+          <button
+            type="button"
+            onClick={() => {
+              isAutoScrollEnabledRef.current = true;
+              setShowScrollBottomBtn(false);
+              scrollToBottom(true);
+            }}
+            className="px-3.5 py-1.5 rounded-full bg-onedark-surface/95 hover:bg-onedark-surface border border-onedark-borderSubtle text-onedark-fg text-xs font-mono shadow-2xl flex items-center space-x-1.5 backdrop-blur-md transition-all hover:scale-105 active:scale-95 text-onedark-fgBright cursor-pointer"
+            title="Scroll to latest messages"
+          >
+            <ChevronDown className="w-3.5 h-3.5 text-onedark-accent" />
+            <span>Latest</span>
+            {isRunning && (
+              <span className="w-2 h-2 rounded-full bg-onedark-accent animate-ping ml-0.5" />
+            )}
+          </button>
+        </div>
+      )}
 
       {/* Centralized Bottom Chat Input Bar */}
       <div className="p-4 border-t border-onedark-borderSubtle bg-onedark-darker/90">
