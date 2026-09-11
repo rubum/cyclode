@@ -12,6 +12,15 @@ function getHighlightedHtml(code: string, lang: string): string {
   return highlightCode(code, lang);
 }
 
+interface NestedListItem {
+  content: string;
+  isTask?: boolean;
+  isTaskChecked?: boolean;
+  orderNumber?: number;
+  children?: NestedListItem[];
+  childType?: 'ul' | 'ol';
+}
+
 export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className = '', isStreaming = false }) => {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
 
@@ -19,6 +28,67 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
     navigator.clipboard.writeText(text);
     setCopiedIndex(index);
     setTimeout(() => setCopiedIndex(null), 2000);
+  };
+
+  const renderNestedList = (items: NestedListItem[], type: 'ul' | 'ol', startNumber?: number, depth: number = 0) => {
+    if (type === 'ol') {
+      return (
+        <ol
+          start={startNumber}
+          className={`list-decimal list-outside ${depth === 0 ? 'pl-5 my-2 space-y-2' : 'pl-4 my-1 space-y-1'} marker:text-onedark-accent marker:font-semibold font-sans text-[13px] sm:text-[13.5px] leading-relaxed`}
+        >
+          {items.map((item, idx) => (
+            <li key={idx} className="leading-relaxed pl-1 text-onedark-fg">
+              <span>{renderInline(item.content)}</span>
+              {item.children && item.children.length > 0 && (
+                <div className="mt-1.5 mb-1 pl-2 border-l border-onedark-borderSubtle/50 ml-1">
+                  {renderNestedList(item.children, item.childType || 'ul', undefined, depth + 1)}
+                </div>
+              )}
+            </li>
+          ))}
+        </ol>
+      );
+    }
+
+    return (
+      <ul
+        className={`list-disc list-outside ${depth === 0 ? 'pl-5 my-2 space-y-1.5' : 'pl-4 my-1 space-y-1'} ${depth > 0 ? 'marker:text-onedark-muted/80 list-[circle]' : 'marker:text-onedark-accent/80'} text-[13px] sm:text-[13.5px] leading-relaxed`}
+      >
+        {items.map((item, idx) => {
+          if (item.isTask) {
+            return (
+              <li key={idx} className="list-none -ml-4 flex items-start space-x-2 leading-relaxed">
+                <input
+                  type="checkbox"
+                  readOnly
+                  checked={item.isTaskChecked}
+                  className="mt-0.5 rounded border-onedark-border bg-onedark-darker text-onedark-accent focus:ring-0 focus:ring-offset-0 cursor-default"
+                />
+                <div className="flex-1">
+                  <span>{renderInline(item.content)}</span>
+                  {item.children && item.children.length > 0 && (
+                    <div className="mt-1.5 mb-1 pl-2 border-l border-onedark-borderSubtle/50 ml-1">
+                      {renderNestedList(item.children, item.childType || 'ul', undefined, depth + 1)}
+                    </div>
+                  )}
+                </div>
+              </li>
+            );
+          }
+          return (
+            <li key={idx} className="leading-relaxed pl-1 text-onedark-fg">
+              <span>{renderInline(item.content)}</span>
+              {item.children && item.children.length > 0 && (
+                <div className="mt-1.5 mb-1 pl-2 border-l border-onedark-borderSubtle/50 ml-1">
+                  {renderNestedList(item.children, item.childType || 'ul', undefined, depth + 1)}
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    );
   };
 
   // Split by code blocks first
@@ -135,50 +205,17 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                 return <hr key={bIdx} className="border-t border-onedark-borderSubtle/60 my-3.5" />;
               }
 
-              if (block.type === 'ul' && block.items) {
+              if ((block.type === 'ul' || block.type === 'ol') && block.items) {
                 return (
-                  <ul key={bIdx} className="list-disc list-outside pl-4 space-y-1.5 my-1.5 marker:text-onedark-accent/70 text-[13px] sm:text-[13.5px] leading-relaxed">
-                    {block.items.map((item, iIdx) => {
-                      const isTaskUnchecked = item.startsWith('[ ] ');
-                      const isTaskChecked = item.startsWith('[x] ') || item.startsWith('[X] ');
-                      if (isTaskUnchecked || isTaskChecked) {
-                        return (
-                          <li key={iIdx} className="list-none -ml-4 flex items-start space-x-2 leading-relaxed">
-                            <input
-                              type="checkbox"
-                              readOnly
-                              checked={isTaskChecked}
-                              className="mt-0.5 rounded border-onedark-border bg-onedark-darker text-onedark-accent focus:ring-0 focus:ring-offset-0 cursor-default"
-                            />
-                            <span>{renderInline(item.slice(4))}</span>
-                          </li>
-                        );
-                      }
-                      return (
-                        <li key={iIdx} className="leading-relaxed pl-0.5">
-                          {renderInline(item)}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                );
-              }
-
-              if (block.type === 'ol' && block.items) {
-                return (
-                  <ol key={bIdx} className="list-decimal list-outside pl-4 space-y-1.5 my-1.5 marker:text-onedark-accent/70 font-sans text-[13px] sm:text-[13.5px] leading-relaxed">
-                    {block.items.map((item, iIdx) => (
-                      <li key={iIdx} className="leading-relaxed pl-0.5">
-                        {renderInline(item)}
-                      </li>
-                    ))}
-                  </ol>
+                  <div key={bIdx}>
+                    {renderNestedList(block.items, block.type, block.startNumber)}
+                  </div>
                 );
               }
 
               if (block.type === 'h1' && block.content) {
                 return (
-                  <h1 key={bIdx} className="text-[15.5px] font-bold text-onedark-fgBright tracking-tight pt-3 pb-1 border-b border-onedark-borderSubtle/60">
+                  <h1 key={bIdx} className="text-[16px] font-bold text-onedark-fgBright tracking-tight pt-3 pb-1 border-b border-onedark-borderSubtle/60">
                     {renderInline(block.content)}
                   </h1>
                 );
@@ -186,7 +223,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.type === 'h2' && block.content) {
                 return (
-                  <h2 key={bIdx} className="text-[14px] font-bold text-onedark-fgBright tracking-tight pt-2.5 pb-0.5">
+                  <h2 key={bIdx} className="text-[14.5px] font-bold text-onedark-fgBright tracking-tight pt-2.5 pb-0.5">
                     {renderInline(block.content)}
                   </h2>
                 );
@@ -194,7 +231,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.type === 'h3' && block.content) {
                 return (
-                  <h3 key={bIdx} className="text-[13px] font-semibold text-onedark-fgBright pt-2 pb-0.5">
+                  <h3 key={bIdx} className="text-[13.5px] font-semibold text-onedark-fgBright pt-2 pb-0.5">
                     {renderInline(block.content)}
                   </h3>
                 );
@@ -202,7 +239,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.type === 'h4' && block.content) {
                 return (
-                  <h4 key={bIdx} className="text-[12px] font-bold text-onedark-accent pt-1.5 pb-0.5 uppercase tracking-wider">
+                  <h4 key={bIdx} className="text-[12.5px] font-bold text-onedark-accent pt-1.5 pb-0.5 uppercase tracking-wider">
                     {renderInline(block.content)}
                   </h4>
                 );
@@ -210,7 +247,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.type === 'h5' && block.content) {
                 return (
-                  <h5 key={bIdx} className="text-[11.5px] font-semibold text-onedark-fgBright pt-1 pb-0.5">
+                  <h5 key={bIdx} className="text-[12px] font-semibold text-onedark-fgBright pt-1 pb-0.5">
                     {renderInline(block.content)}
                   </h5>
                 );
@@ -270,16 +307,27 @@ function getAlertStyle(type: string) {
 interface BlockItem {
   type: 'p' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'ul' | 'ol' | 'blockquote' | 'alert' | 'table' | 'hr';
   content?: string;
-  items?: string[];
+  items?: NestedListItem[];
+  startNumber?: number;
   alertType?: string;
   tableHeaders?: string[];
   tableRows?: string[][];
 }
 
+function parseTask(content: string): { isTask: boolean; isTaskChecked: boolean; cleanContent: string } {
+  if (content.startsWith('[ ] ')) {
+    return { isTask: true, isTaskChecked: false, cleanContent: content.slice(4) };
+  }
+  if (content.startsWith('[x] ') || content.startsWith('[X] ')) {
+    return { isTask: true, isTaskChecked: true, cleanContent: content.slice(4) };
+  }
+  return { isTask: false, isTaskChecked: false, cleanContent: content };
+}
+
 function parseBlocks(text: string): BlockItem[] {
   const lines = text.split('\n');
   const blocks: BlockItem[] = [];
-  let currentList: { type: 'ul' | 'ol'; items: string[] } | null = null;
+  let currentList: { type: 'ul' | 'ol'; items: NestedListItem[]; startNumber?: number } | null = null;
   let currentTable: { headers: string[]; rows: string[][] } | null = null;
   let currentParagraph: string[] = [];
 
@@ -292,7 +340,7 @@ function parseBlocks(text: string): BlockItem[] {
 
   const flushList = () => {
     if (currentList) {
-      blocks.push(currentList);
+      blocks.push({ type: currentList.type, items: currentList.items, startNumber: currentList.startNumber });
       currentList = null;
     }
   };
@@ -332,7 +380,6 @@ function parseBlocks(text: string): BlockItem[] {
       flushTable();
       const alertType = alertMatch[1].toUpperCase();
       let alertContent = alertMatch[2];
-      // Gather subsequent blockquote lines
       while (i + 1 < lines.length && lines[i + 1].trim().startsWith('>')) {
         i++;
         alertContent += ' ' + lines[i].trim().slice(1).trim();
@@ -346,7 +393,6 @@ function parseBlocks(text: string): BlockItem[] {
       flushParagraph();
       flushList();
       const cells = trimmed.slice(1, -1).split('|').map(c => c.trim());
-      // Check if it's separator row: | --- | --- |
       if (cells.every(c => /^:?-+:?$/.test(c))) {
         continue;
       }
@@ -360,26 +406,83 @@ function parseBlocks(text: string): BlockItem[] {
       flushTable();
     }
 
-    // Bullet list
-    if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+    // Check for List item matches
+    // 1. Bullet item: -, *, +, or unicode bullet •
+    const bulletMatch = line.match(/^(\s*)(?:[-*+]|•)\s+(.*)$/);
+    // 2. Numbered item: 1. or 1)
+    const numMatch = line.match(/^(\s*)(\d+)[.)]\s+(.*)$/);
+
+    if (bulletMatch) {
       flushParagraph();
-      if (!currentList || currentList.type !== 'ul') {
-        flushList();
-        currentList = { type: 'ul', items: [] };
+      const indent = bulletMatch[1].replace(/\t/g, '  ').length;
+      const { isTask, isTaskChecked, cleanContent } = parseTask(bulletMatch[2]);
+      const newItem: NestedListItem = { content: cleanContent, isTask, isTaskChecked, children: [] };
+
+      if (currentList) {
+        if (currentList.type === 'ol') {
+          // If we are currently in an ordered list, this bullet belongs as a child of the current OL item!
+          const lastItem = currentList.items[currentList.items.length - 1];
+          if (lastItem) {
+            if (!lastItem.children) lastItem.children = [];
+            lastItem.childType = 'ul';
+            lastItem.children.push(newItem);
+          } else {
+            currentList.items.push(newItem);
+          }
+        } else {
+          // In an unordered list
+          if (indent >= 2 && currentList.items.length > 0) {
+            // Indented sub-bullet
+            const lastItem = currentList.items[currentList.items.length - 1];
+            if (!lastItem.children) lastItem.children = [];
+            lastItem.childType = 'ul';
+            lastItem.children.push(newItem);
+          } else {
+            // Sibling bullet
+            currentList.items.push(newItem);
+          }
+        }
+      } else {
+        // Start new unordered list
+        currentList = { type: 'ul', items: [newItem] };
       }
-      currentList.items.push(trimmed.slice(2));
       continue;
     }
 
-    // Numbered list
-    const numMatch = trimmed.match(/^(\d+)\.\s+(.*)$/);
     if (numMatch) {
       flushParagraph();
-      if (!currentList || currentList.type !== 'ol') {
-        flushList();
-        currentList = { type: 'ol', items: [] };
+      const indent = numMatch[1].replace(/\t/g, '  ').length;
+      const num = parseInt(numMatch[2], 10);
+      const { isTask, isTaskChecked, cleanContent } = parseTask(numMatch[3]);
+      const newItem: NestedListItem = { content: cleanContent, orderNumber: num, isTask, isTaskChecked, children: [] };
+
+      if (currentList) {
+        if (currentList.type === 'ol') {
+          if (indent >= 2 && currentList.items.length > 0) {
+            // Nested numbered list under last item
+            const lastItem = currentList.items[currentList.items.length - 1];
+            if (!lastItem.children) lastItem.children = [];
+            lastItem.childType = 'ol';
+            lastItem.children.push(newItem);
+          } else {
+            // Top-level item in existing ordered list
+            currentList.items.push(newItem);
+          }
+        } else {
+          // Was in a UL
+          if (indent >= 2 && currentList.items.length > 0) {
+            const lastItem = currentList.items[currentList.items.length - 1];
+            if (!lastItem.children) lastItem.children = [];
+            lastItem.childType = 'ol';
+            lastItem.children.push(newItem);
+          } else {
+            flushList();
+            currentList = { type: 'ol', items: [newItem], startNumber: num };
+          }
+        }
+      } else {
+        currentList = { type: 'ol', items: [newItem], startNumber: num };
       }
-      currentList.items.push(numMatch[2]);
       continue;
     }
 
