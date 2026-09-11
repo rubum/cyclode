@@ -916,11 +916,19 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   </div>
                 )}
 
-                {/* 4. Live Thinking / Responding Indicator (Shown when turn is active) */}
+                {/* 4. Live Status Indicator (Shown when turn is active) */}
                 {isTurnRunning && (
                   <div className="flex items-center space-x-2 py-2 px-0.5 text-xs font-mono text-onedark-accent/90 select-none animate-fadeIn">
                     <span className="w-2 h-2 rounded-full bg-onedark-accent animate-ping" />
-                    <span className="font-medium">Adappty is thinking & executing...</span>
+                    <span className="font-medium">
+                      {turn.agentMessages.some((m) => m.isStreaming)
+                        ? 'Generating response...'
+                        : turn.logs.length > 0
+                        ? 'Executing actions...'
+                        : turn.thoughts.some((t) => t.isStreaming)
+                        ? 'Analyzing request...'
+                        : 'Processing request...'}
+                    </span>
                   </div>
                 )}
 
