@@ -265,7 +265,7 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({ onSimulate, 
                       ? 'bg-onedark-purple/15 border-onedark-purple/30 text-onedark-purple'
                       : p.badge === 'APM Incident'
                       ? 'bg-onedark-red/15 border-onedark-red/30 text-onedark-red'
-                      : 'bg-onedark-blue/15 border-onedark-blue/30 text-onedark-blue'
+                      : 'bg-onedark-accent/15 border-onedark-accent/30 text-onedark-accent'
                   }`}>
                     {p.badge}
                   </span>

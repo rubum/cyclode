@@ -35,10 +35,10 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
       return (
         <ol
           start={startNumber}
-          className={`list-decimal list-outside ${depth === 0 ? 'pl-5 my-2 space-y-2' : 'pl-4 my-1 space-y-1'} marker:text-onedark-accent marker:font-semibold font-sans text-[13px] sm:text-[13.5px] leading-relaxed`}
+          className={`list-decimal list-outside ${depth === 0 ? 'pl-5 my-2 space-y-2' : 'pl-4 my-1 space-y-1'} marker:text-onedark-accent marker:font-semibold font-sans text-[14px] leading-[1.7]`}
         >
           {items.map((item, idx) => (
-            <li key={idx} className="leading-relaxed pl-1 text-onedark-fg">
+            <li key={idx} className="leading-[1.7] pl-1 text-[#D1D5DB]">
               <span>{renderInline(item.content)}</span>
               {item.children && item.children.length > 0 && (
                 <div className="mt-1.5 mb-1 pl-2 border-l border-onedark-borderSubtle/50 ml-1">
@@ -53,19 +53,19 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
     return (
       <ul
-        className={`list-disc list-outside ${depth === 0 ? 'pl-5 my-2 space-y-1.5' : 'pl-4 my-1 space-y-1'} ${depth > 0 ? 'marker:text-onedark-muted/80 list-[circle]' : 'marker:text-onedark-accent/80'} text-[13px] sm:text-[13.5px] leading-relaxed`}
+        className={`list-disc list-outside ${depth === 0 ? 'pl-5 my-2 space-y-1.5' : 'pl-4 my-1 space-y-1'} ${depth > 0 ? 'marker:text-onedark-muted/80 list-[circle]' : 'marker:text-onedark-accent/80'} text-[14px] leading-[1.7]`}
       >
         {items.map((item, idx) => {
           if (item.isTask) {
             return (
-              <li key={idx} className="list-none -ml-4 flex items-start space-x-2 leading-relaxed">
+              <li key={idx} className="list-none -ml-4 flex items-start space-x-2 leading-[1.7]">
                 <input
                   type="checkbox"
                   readOnly
                   checked={item.isTaskChecked}
-                  className="mt-0.5 rounded border-onedark-border bg-onedark-darker text-onedark-accent focus:ring-0 focus:ring-offset-0 cursor-default"
+                  className="mt-1 rounded border-onedark-border bg-onedark-darker text-onedark-accent focus:ring-0 focus:ring-offset-0 cursor-default"
                 />
-                <div className="flex-1">
+                <div className="flex-1 text-[#D1D5DB]">
                   <span>{renderInline(item.content)}</span>
                   {item.children && item.children.length > 0 && (
                     <div className="mt-1.5 mb-1 pl-2 border-l border-onedark-borderSubtle/50 ml-1">
@@ -77,7 +77,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
             );
           }
           return (
-            <li key={idx} className="leading-relaxed pl-1 text-onedark-fg">
+            <li key={idx} className="leading-[1.7] pl-1 text-[#D1D5DB]">
               <span>{renderInline(item.content)}</span>
               {item.children && item.children.length > 0 && (
                 <div className="mt-1.5 mb-1 pl-2 border-l border-onedark-borderSubtle/50 ml-1">
@@ -95,7 +95,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
   const parts = content.split(/(```[\s\S]*?```)/g);
 
   return (
-    <div className={`space-y-2.5 text-[13px] sm:text-[13.5px] leading-relaxed text-[#ABB2BF] font-sans ${className}`}>
+    <div className={`space-y-3 text-[14px] leading-[1.7] text-[#D1D5DB] font-sans ${className}`}>
       {parts.map((part, index) => {
         if (part.startsWith('```') && part.endsWith('```')) {
           // Code block
@@ -215,7 +215,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.type === 'h1' && block.content) {
                 return (
-                  <h1 key={bIdx} className="text-[16px] font-bold text-onedark-fgBright tracking-tight pt-3 pb-1 border-b border-onedark-borderSubtle/60">
+                  <h1 key={bIdx} className="text-[17px] font-bold text-[#F4F4F5] tracking-tight pt-3.5 pb-1 border-b border-onedark-borderSubtle/60">
                     {renderInline(block.content)}
                   </h1>
                 );
@@ -223,7 +223,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.type === 'h2' && block.content) {
                 return (
-                  <h2 key={bIdx} className="text-[14.5px] font-bold text-onedark-fgBright tracking-tight pt-2.5 pb-0.5">
+                  <h2 key={bIdx} className="text-[15.5px] font-bold text-[#F4F4F5] tracking-tight pt-3 pb-0.5">
                     {renderInline(block.content)}
                   </h2>
                 );
@@ -231,7 +231,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.type === 'h3' && block.content) {
                 return (
-                  <h3 key={bIdx} className="text-[13.5px] font-semibold text-onedark-fgBright pt-2 pb-0.5">
+                  <h3 key={bIdx} className="text-[14.5px] font-semibold text-[#F4F4F5] pt-2 pb-0.5">
                     {renderInline(block.content)}
                   </h3>
                 );
@@ -239,7 +239,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.type === 'h4' && block.content) {
                 return (
-                  <h4 key={bIdx} className="text-[12.5px] font-bold text-onedark-accent pt-1.5 pb-0.5 uppercase tracking-wider">
+                  <h4 key={bIdx} className="text-[13.5px] font-semibold text-[#F4F4F5] pt-1.5 pb-0.5">
                     {renderInline(block.content)}
                   </h4>
                 );
@@ -247,7 +247,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.type === 'h5' && block.content) {
                 return (
-                  <h5 key={bIdx} className="text-[12px] font-semibold text-onedark-fgBright pt-1 pb-0.5">
+                  <h5 key={bIdx} className="text-[12.5px] font-semibold text-[#E5E5E5] pt-1 pb-0.5">
                     {renderInline(block.content)}
                   </h5>
                 );
@@ -255,7 +255,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.type === 'h6' && block.content) {
                 return (
-                  <h6 key={bIdx} className="text-[11px] font-semibold text-onedark-muted pt-1 pb-0.5 uppercase tracking-wider">
+                  <h6 key={bIdx} className="text-[12px] font-medium text-onedark-muted pt-1 pb-0.5 uppercase tracking-wider">
                     {renderInline(block.content)}
                   </h6>
                 );
@@ -263,7 +263,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.type === 'blockquote' && block.content) {
                 return (
-                  <blockquote key={bIdx} className="border-l-2 border-onedark-accent/70 pl-3 py-1 my-2 bg-onedark-surface/40 rounded-r-lg text-onedark-fg leading-relaxed text-[12.5px]">
+                  <blockquote key={bIdx} className="border-l-2 border-onedark-accent/70 pl-3 py-1.5 my-2 bg-onedark-surface/40 rounded-r-lg text-[#D1D5DB] leading-[1.7] text-[13.5px]">
                     {renderInline(block.content)}
                   </blockquote>
                 );
@@ -271,7 +271,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.content) {
                 return (
-                  <p key={bIdx} className="leading-relaxed">
+                  <p key={bIdx} className="leading-[1.7] text-[#D1D5DB]">
                     {renderInline(block.content)}
                   </p>
                 );
@@ -299,8 +299,9 @@ function getAlertStyle(type: string) {
       return { border: 'border-onedark-yellow/40', bg: 'bg-onedark-yellow/10', text: 'text-onedark-yellow', icon: AlertTriangle };
     case 'CAUTION':
       return { border: 'border-onedark-red/40', bg: 'bg-onedark-red/10', text: 'text-onedark-red', icon: AlertCircle };
+    case 'NOTE':
     default:
-      return { border: 'border-onedark-blue/40', bg: 'bg-onedark-blue/10', text: 'text-onedark-blue', icon: Info };
+      return { border: 'border-onedark-yellow/40', bg: 'bg-onedark-yellow/10', text: 'text-onedark-yellow', icon: Info };
   }
 }
 
@@ -566,7 +567,7 @@ function renderInline(rawText: string): React.ReactNode {
       return (
         <code
           key={i}
-          className="px-1.5 py-0.5 rounded bg-onedark-surface/80 border border-onedark-borderSubtle text-onedark-cyan font-mono text-[12px] font-medium tracking-tight mx-0.5 align-baseline select-text"
+          className="px-1.5 py-0.5 rounded bg-onedark-surface/90 border border-onedark-borderSubtle text-onedark-yellow font-mono text-[12.5px] font-medium tracking-tight mx-0.5 align-baseline select-text"
         >
           {codeMatch[2]}
         </code>
@@ -579,7 +580,7 @@ function renderInline(rawText: string): React.ReactNode {
       (token.startsWith('__') && token.endsWith('__') && token.length > 4)
     ) {
       return (
-        <strong key={i} className="font-semibold text-onedark-fgBright">
+        <strong key={i} className="font-semibold text-[#F4F4F5]">
           {token.slice(2, -2)}
         </strong>
       );

@@ -601,7 +601,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   : task.status === 'AWAITING_INPUT'
                   ? 'bg-onedark-accent/10 text-onedark-accent border-onedark-accent/30'
                   : task.status === 'AWAITING_APPROVAL'
-                  ? 'bg-onedark-blue/10 text-onedark-blue border-onedark-blue/30'
+                  ? 'bg-onedark-accent/10 text-onedark-accent border-onedark-accent/30'
                   : task.status === 'FAILED'
                   ? 'bg-onedark-red/10 text-onedark-red border-onedark-red/30'
                   : 'bg-onedark-surface text-onedark-muted border-onedark-borderSubtle'

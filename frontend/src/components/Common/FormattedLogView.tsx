@@ -119,7 +119,7 @@ export const FormattedLogView: React.FC<FormattedLogViewProps> = ({
       case 'grep_search':
         return <Search className="w-3.5 h-3.5 text-onedark-yellow" />;
       case 'read_file':
-        return <FileCode2 className="w-3.5 h-3.5 text-onedark-blue" />;
+        return <FileCode2 className="w-3.5 h-3.5 text-onedark-accent" />;
       case 'edit_file':
         return <Pencil className="w-3.5 h-3.5 text-onedark-green" />;
       case 'list_dir':
@@ -228,7 +228,7 @@ export const FormattedLogView: React.FC<FormattedLogViewProps> = ({
                   {item.is_dir || item.type === 'directory' ? (
                     <Folder className="w-3.5 h-3.5 text-onedark-folder flex-shrink-0" />
                   ) : (
-                    <FileText className="w-3.5 h-3.5 text-onedark-blue flex-shrink-0" />
+                    <FileText className="w-3.5 h-3.5 text-onedark-fg flex-shrink-0" />
                   )}
                   <span className="text-onedark-fgBright truncate font-medium">{item.name}</span>
                   {item.size !== null && item.size !== undefined && (

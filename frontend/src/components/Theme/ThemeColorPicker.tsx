@@ -10,13 +10,13 @@ export interface ThemePreset {
 
 export const THEME_PRESETS: ThemePreset[] = [
   { id: 'amber-gold', name: 'Amber Gold', hex: '#E5C07B', folderHex: '#E5C07B' },
-  { id: 'onedark-blue', name: 'OneDark Blue', hex: '#61AFEF', folderHex: '#E5C07B' },
-  { id: 'emerald-green', name: 'Emerald Green', hex: '#98C379', folderHex: '#E5C07B' },
+  { id: 'warm-bronze', name: 'Warm Bronze', hex: '#D19A66', folderHex: '#E5C07B' },
+  { id: 'mocha-gold', name: 'Mocha Gold', hex: '#C8A265', folderHex: '#E5C07B' },
+  { id: 'emerald-sage', name: 'Emerald Sage', hex: '#98C379', folderHex: '#E5C07B' },
   { id: 'royal-purple', name: 'Royal Purple', hex: '#C678DD', folderHex: '#E5C07B' },
-  { id: 'cyber-cyan', name: 'Cyber Cyan', hex: '#56B6C2', folderHex: '#E5C07B' },
   { id: 'coral-sunset', name: 'Coral Sunset', hex: '#E07A5F', folderHex: '#E5C07B' },
   { id: 'ruby-crimson', name: 'Ruby Crimson', hex: '#E06C75', folderHex: '#E5C07B' },
-  { id: 'indigo-glow', name: 'Indigo Glow', hex: '#818CF8', folderHex: '#E5C07B' },
+  { id: 'titanium-silver', name: 'Titanium Silver', hex: '#E5E5E5', folderHex: '#E5C07B' },
 ];
 
 export const applyThemeColors = (accentHex: string, folderHex: string = '#E5C07B') => {
@@ -32,11 +32,15 @@ export const applyThemeColors = (accentHex: string, folderHex: string = '#E5C07B
   }
 };
 
+const LEGACY_BLUE_HEXES = ['#61afef', '#56b6c2', '#818cf8', '#3b82f6', '#2563eb', '#60a5fa', '#38bdf8', '#06b6d4', '#0284c7'];
+
 export const initThemeColors = () => {
   try {
     const savedAccent = localStorage.getItem('adappty_theme_accent');
     const savedFolder = localStorage.getItem('adappty_theme_folder') || '#E5C07B';
-    if (savedAccent) {
+    
+    // Auto-migrate any legacy blue/cyan accents to default Amber Gold (#E5C07B)
+    if (savedAccent && !LEGACY_BLUE_HEXES.includes(savedAccent.toLowerCase())) {
       applyThemeColors(savedAccent, savedFolder);
       return { accent: savedAccent, folder: savedFolder };
     }
@@ -49,7 +53,7 @@ export const ThemeColorPicker: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
   const [currentAccent, setCurrentAccent] = useState('#E5C07B');
   const [currentFolder, setCurrentFolder] = useState('#E5C07B');
-  const [customHex, setCustomHex] = useState('#61AFEF');
+  const [customHex, setCustomHex] = useState('#E5C07B');
   const popoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -167,7 +171,7 @@ export const ThemeColorPicker: React.FC = () => {
               <div className="relative w-9 h-8 rounded-lg overflow-hidden border border-onedark-border flex-shrink-0 cursor-pointer">
                 <input
                   type="color"
-                  value={currentAccent.startsWith('#') ? currentAccent : '#61AFEF'}
+                  value={currentAccent.startsWith('#') ? currentAccent : '#E5C07B'}
                   onChange={(e) => handleCustomColorChange(e.target.value)}
                   className="absolute -top-2 -left-2 w-14 h-14 cursor-pointer opacity-0"
                 />
@@ -180,7 +184,7 @@ export const ThemeColorPicker: React.FC = () => {
                 type="text"
                 value={customHex}
                 onChange={(e) => handleCustomColorChange(e.target.value)}
-                placeholder="#61AFEF"
+                placeholder="#E5C07B"
                 maxLength={7}
                 className="flex-1 bg-onedark-darker border border-onedark-border rounded-lg px-2.5 py-1 text-xs font-mono text-onedark-fg uppercase focus:outline-none focus:border-onedark-accent"
               />

@@ -65,7 +65,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       case 'IDLE':
         return 'text-onedark-purple bg-onedark-purple/10 border-onedark-purple/20';
       case 'AWAITING_APPROVAL':
-        return 'text-onedark-blue bg-onedark-blue/10 border-onedark-blue/20';
+        return 'text-onedark-accent bg-onedark-accent/10 border-onedark-accent/20';
       case 'AWAITING_INPUT':
         return 'text-onedark-accent bg-onedark-accent/10 border-onedark-accent/20';
       case 'FAILED':

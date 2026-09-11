@@ -99,7 +99,7 @@
 .token.url,
 .language-css .token.string,
 .style .token.string {
-  color: #56b6c2;
+  color: #d19a66;
 }
 
 .token.atrule,
@@ -110,7 +110,7 @@
 
 .token.function,
 .token.class-name {
-  color: #61afef;
+  color: #e5c07b;
 }
 
 .token.regex,

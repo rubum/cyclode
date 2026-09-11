@@ -47,7 +47,7 @@ export const SubagentsTab: React.FC<SubagentsTabProps> = ({ task }) => {
           </div>
 
           <p className="text-[11px] text-zinc-400">{sub.description}</p>
-          <div className="text-[10px] font-mono text-indigo-400">{sub.model}</div>
+          <div className="text-[10px] font-mono text-onedark-accent">{sub.model}</div>
         </div>
       ))}
     </div>

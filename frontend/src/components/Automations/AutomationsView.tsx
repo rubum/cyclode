@@ -197,7 +197,7 @@ export const AutomationsView: React.FC<AutomationsViewProps> = ({
                   <span className={`px-2 py-0.5 rounded-md border ${
                     rule.action === 'awaken_session'
                       ? 'bg-onedark-purple/10 border-onedark-purple/20 text-onedark-purple'
-                      : 'bg-onedark-blue/10 border-onedark-blue/20 text-onedark-blue'
+                      : 'bg-onedark-accent/10 border-onedark-accent/20 text-onedark-accent'
                   }`}>
                     {rule.action === 'awaken_session' ? '⚡ Awaken Session' : '🚀 Spawn New Task'}
                   </span>

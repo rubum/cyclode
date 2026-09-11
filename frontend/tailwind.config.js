@@ -23,7 +23,7 @@ export default {
           red: '#E06C75',
           yellow: '#E5C07B',
           purple: '#C678DD',
-          cyan: '#56B6C2'
+          bronze: '#D19A66'
         },
         dark: {
           950: '#21252B',
