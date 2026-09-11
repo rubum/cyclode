@@ -81,7 +81,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="p-3">
         <button
           onClick={onNewChat}
-          className="w-full flex items-center justify-center space-x-2 py-2 px-3 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker font-bold text-xs transition-all shadow-sm active:scale-95"
+          className="w-full flex items-center justify-center space-x-2 py-2 px-3 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright font-semibold text-xs border border-onedark-border transition-all shadow-xs active:scale-95 cursor-pointer"
         >
           <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
           <span>New Session</span>
@@ -104,11 +104,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
               }`}
             >
               <div className="flex items-center space-x-2.5">
-                <Icon className={`w-4 h-4 ${isActive ? 'text-onedark-accent' : 'text-onedark-muted'}`} />
+                <Icon className={`w-4 h-4 ${isActive ? 'text-onedark-fgBright' : (item.iconClass || 'text-onedark-muted')}`} />
                 <span>{item.label}</span>
               </div>
               {typeof item.badge === 'number' && item.badge > 0 && (
-                <span className="px-2 py-0.5 rounded-full bg-onedark-accent/15 text-onedark-accent font-mono text-[10.5px] font-semibold border border-onedark-accent/20">
+                <span className="px-2 py-0.5 rounded-full bg-onedark-surface border border-onedark-border text-onedark-fg font-mono text-[10.5px] font-semibold">
                   {item.badge}
                 </span>
               )}
@@ -156,7 +156,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }}
                 className={`group w-full text-left p-2.5 rounded-lg border transition-all cursor-pointer relative ${
                   isSelected
-                    ? 'bg-onedark-surface border-onedark-accent/40 text-onedark-fgBright shadow-sm'
+                    ? 'bg-onedark-surface border-onedark-border text-onedark-fgBright shadow-sm'
                     : 'bg-onedark-surface/20 border-transparent hover:bg-onedark-surface/50 text-onedark-fg'
                 }`}
               >
@@ -196,8 +196,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex items-center justify-between">
           {/* Brand Logo & Name */}
           <div className="flex items-center space-x-2">
-            <div className="w-5 h-5 rounded bg-onedark-accent flex items-center justify-center shadow-xs">
-              <span className="text-[11px] font-black text-onedark-darker">A</span>
+            <div className="w-5 h-5 rounded bg-onedark-surface border border-onedark-border flex items-center justify-center shadow-xs">
+              <span className="text-[11px] font-black text-onedark-yellow">A</span>
             </div>
             <span className="font-semibold text-xs tracking-tight text-onedark-fgBright">Adappty</span>
           </div>

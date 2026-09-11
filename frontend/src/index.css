@@ -3,8 +3,8 @@
 @tailwind utilities;
 
 :root {
-  --color-accent: #61AFEF;
-  --color-accent-subtle: rgba(97, 175, 239, 0.15);
+  --color-accent: #E5C07B;
+  --color-accent-subtle: rgba(229, 192, 123, 0.15);
   --color-folder: #E5C07B;
 }
 

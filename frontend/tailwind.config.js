@@ -17,7 +17,7 @@ export default {
           fg: '#ABB2BF',
           fgBright: '#E5E5E5',
           muted: '#5C6370',
-          accent: 'var(--color-accent, #61AFEF)',
+          accent: 'var(--color-accent, #E5C07B)',
           folder: 'var(--color-folder, #E5C07B)',
           green: '#98C379',
           red: '#E06C75',

@@ -461,11 +461,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
         <div className={`w-full ${contentMaxWidth} mx-auto py-12 flex flex-col justify-center flex-1 space-y-8`}>
           {/* Header Hero */}
-          <div className="text-center space-y-2.5">
-            <div className="inline-flex items-center space-x-2 px-3.5 py-1 rounded-full bg-onedark-accent/10 border border-onedark-accent/20 text-onedark-accent text-xs font-mono mb-2 shadow-sm">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Event-Driven Autonomous Multi-Agent Orchestrator</span>
-            </div>
+          <div className="text-center space-y-2">
             <h1 className="text-3xl font-extrabold text-onedark-fgBright tracking-tight sm:text-4xl">
               What do you want to build or automate?
             </h1>
@@ -477,7 +473,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
           {/* Prompt Launcher Form */}
           <form
             onSubmit={handleSubmit}
-            className="p-3.5 rounded-2xl bg-onedark-darker border border-onedark-border shadow-xl focus-within:border-onedark-accent/80 focus-within:ring-2 focus-within:ring-onedark-accent/20 transition-all space-y-3"
+            className="p-3.5 rounded-2xl bg-onedark-darker border border-onedark-border shadow-xl focus-within:border-onedark-muted/60 transition-all space-y-3"
           >
             <textarea
               ref={textareaRef}
@@ -493,7 +489,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               {/* Persona Selector */}
               <div className="flex items-center space-x-2">
                 <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-surface border border-onedark-border text-xs text-onedark-fg font-mono shadow-sm">
-                  <Sparkles className="w-3.5 h-3.5 text-onedark-accent" />
+                  <Sparkles className="w-3.5 h-3.5 text-onedark-yellow" />
                   <select
                     value={selectedPersona}
                     onChange={(e) => setSelectedPersona(e.target.value)}
@@ -512,7 +508,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               <button
                 type="submit"
                 disabled={!inputValue.trim()}
-                className="px-4 py-2 rounded-xl bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker text-xs font-bold flex items-center space-x-1.5 transition-all duration-150 disabled:opacity-35 disabled:cursor-not-allowed shadow-sm active:scale-95"
+                className="px-4 py-2 rounded-xl bg-onedark-fgBright hover:bg-white text-onedark-darker text-xs font-bold flex items-center space-x-1.5 transition-all duration-150 disabled:opacity-35 disabled:cursor-not-allowed shadow-sm active:scale-95 cursor-pointer"
               >
                 <span>Run Task</span>
                 <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />

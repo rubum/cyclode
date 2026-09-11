@@ -9,8 +9,8 @@ export interface ThemePreset {
 }
 
 export const THEME_PRESETS: ThemePreset[] = [
-  { id: 'onedark-blue', name: 'OneDark Blue', hex: '#61AFEF', folderHex: '#E5C07B' },
   { id: 'amber-gold', name: 'Amber Gold', hex: '#E5C07B', folderHex: '#E5C07B' },
+  { id: 'onedark-blue', name: 'OneDark Blue', hex: '#61AFEF', folderHex: '#E5C07B' },
   { id: 'emerald-green', name: 'Emerald Green', hex: '#98C379', folderHex: '#E5C07B' },
   { id: 'royal-purple', name: 'Royal Purple', hex: '#C678DD', folderHex: '#E5C07B' },
   { id: 'cyber-cyan', name: 'Cyber Cyan', hex: '#56B6C2', folderHex: '#E5C07B' },
@@ -41,13 +41,13 @@ export const initThemeColors = () => {
       return { accent: savedAccent, folder: savedFolder };
     }
   } catch (e) {}
-  applyThemeColors('#61AFEF', '#E5C07B');
-  return { accent: '#61AFEF', folder: '#E5C07B' };
+  applyThemeColors('#E5C07B', '#E5C07B');
+  return { accent: '#E5C07B', folder: '#E5C07B' };
 };
 
 export const ThemeColorPicker: React.FC = () => {
   const [isOpen, setIsOpen] = useState(false);
-  const [currentAccent, setCurrentAccent] = useState('#61AFEF');
+  const [currentAccent, setCurrentAccent] = useState('#E5C07B');
   const [currentFolder, setCurrentFolder] = useState('#E5C07B');
   const [customHex, setCustomHex] = useState('#61AFEF');
   const popoverRef = useRef<HTMLDivElement>(null);
