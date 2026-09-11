@@ -138,7 +138,11 @@ class IntegrationManager:
     async def test_remote_repo(self, repo_url: str, token: Optional[str] = None) -> Dict[str, Any]:
         """
         Tests access to a remote git repository using ls-remote.
+        Auto-resolves token from Vault / environment if not passed explicitly.
         """
+        if not token:
+            token = await self.get_github_token_for_repo(repo_url)
+
         auth_url = repo_url
         if token and repo_url.startswith("https://"):
             auth_url = repo_url.replace("https://", f"https://x-access-token:{token}@")
@@ -159,13 +163,26 @@ class IntegrationManager:
                     "message": f"Successfully connected to repository ({len(branches)} branches found)"
                 }
             else:
+                stderr_text = proc.stderr.strip()
+                err_lower = stderr_text.lower()
+                is_auth_error = any(kw in err_lower for kw in [
+                    "could not read username",
+                    "authentication failed",
+                    "repository not found",
+                    "permission denied",
+                    "terminal prompts disabled",
+                    "invalid credentials",
+                    "please make sure you have the correct access rights"
+                ]) or proc.returncode == 128
                 return {
                     "accessible": False,
+                    "auth_required": is_auth_error,
                     "repo_url": repo_url,
-                    "message": f"Failed to access repository: {proc.stderr.strip() or 'Invalid credentials or repository not found'}"
+                    "message": f"Failed to access repository: {stderr_text or 'Invalid credentials or repository not found'}"
                 }
         except Exception as e:
-            return {"accessible": False, "repo_url": repo_url, "message": f"Connection error: {str(e)}"}
+            return {"accessible": False, "auth_required": True, "repo_url": repo_url, "message": f"Connection error: {str(e)}"}
+
 
     async def get_github_token_for_repo(self, repo_name_or_url: Optional[str] = None) -> Optional[str]:
         """

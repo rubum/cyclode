@@ -176,5 +176,34 @@ async def test_repository_analysis_intent(tmp_path):
     assert "Quick Navigation" not in content
 
 
+@pytest.mark.asyncio
+async def test_unauthenticated_private_repo_connect_and_analyze(tmp_path):
+    from app.agent.harness import antigravity_harness
+    messages_captured = []
 
+    async def mock_msg(sender, content):
+        messages_captured.append((sender, content))
 
+    res = await antigravity_harness._execute_local_intent(
+        task_id="task-private-repo",
+        title="Connect and analyze repository https://github.com/gowaylo/waylo",
+        prompt="Connect and analyze repository https://github.com/gowaylo/waylo",
+        persona_name="PairProgrammer",
+        workspace_path=tmp_path,
+        on_thought=lambda t: None,
+        on_tool_start=lambda n, a: None,
+        on_tool_end=lambda n, o, e, d, a=None: None,
+        on_message=mock_msg,
+        on_approval_required=lambda a, d: None,
+        on_diff_updated=lambda d: None
+    )
+
+    assert res.get("status") == "AWAITING_INPUT"
+    assert len(messages_captured) == 1
+    sender, content = messages_captured[0]
+    assert sender == "agent"
+    assert "GitHub Authentication Required" in content
+    assert "private repository" in content
+    assert "Personal Access Token" in content
+    assert "Integration & Repository Configuration Updated" not in content
+    assert "Ready to execute autonomous tasks" not in content

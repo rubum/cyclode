@@ -204,6 +204,38 @@ class AntigravityHarness:
                 sender, text, on_message, on_stream_start, on_stream_chunk, on_stream_end
             )
 
+        async def call_tool_start(name: str, args: Dict[str, Any]):
+            if on_tool_start:
+                if asyncio.iscoroutinefunction(on_tool_start):
+                    await on_tool_start(name, args)
+                else:
+                    res = on_tool_start(name, args)
+                    if asyncio.iscoroutine(res):
+                        await res
+
+        async def call_tool_end(name: str, output: str, exit_code: int, duration_ms: int, tool_input: Optional[Dict[str, Any]] = None):
+            if on_tool_end:
+                import inspect
+                sig = inspect.signature(on_tool_end)
+                param_count = len(sig.parameters)
+                if asyncio.iscoroutinefunction(on_tool_end):
+                    if param_count >= 5:
+                        await on_tool_end(name, output, exit_code, duration_ms, tool_input)
+                    else:
+                        await on_tool_end(name, output, exit_code, duration_ms)
+                else:
+                    if param_count >= 5:
+                        res = on_tool_end(name, output, exit_code, duration_ms, tool_input)
+                    else:
+                        res = on_tool_end(name, output, exit_code, duration_ms)
+                    if asyncio.iscoroutine(res):
+                        await res
+
+        # Check if user prompt requests Codebase Architecture Analysis
+        has_analysis_intent = bool(
+            re.search(r"\b(analy[sz]e|analy[sz]is|breakdown|architecture|overview|audit|inspect|structure|summary)\b", lower_prompt)
+        )
+
         # Intent 0: Conversational Repo Connection & Credential Provisioning
         gh_match = re.search(r"(ghp_[A-Za-z0-9_]{8,}|github_pat_[A-Za-z0-9_]{10,})", prompt)
         slack_match = re.search(r"(xoxb-[A-Za-z0-9-]+|xoxp-[A-Za-z0-9-]+)", prompt)
@@ -215,23 +247,23 @@ class AntigravityHarness:
             configured_items = []
             if gh_match:
                 token = gh_match.group(1)
-                await on_tool_start("configure_integration", {"provider": "github", "token": integration_manager.mask_token(token)})
+                await call_tool_start("configure_integration", {"provider": "github", "token": integration_manager.mask_token(token)})
                 res = await integration_manager.update_credentials("github", {"token": token})
-                await on_tool_end("configure_integration", json.dumps(res), 0, 120)
+                await call_tool_end("configure_integration", json.dumps(res), 0, 120)
                 configured_items.append(f"- **GitHub Token**: `{integration_manager.mask_token(token)}` ({res.get('validation', {}).get('message', 'Saved ✅')})")
 
             if slack_match:
                 token = slack_match.group(1)
-                await on_tool_start("configure_integration", {"provider": "slack", "token": integration_manager.mask_token(token)})
+                await call_tool_start("configure_integration", {"provider": "slack", "token": integration_manager.mask_token(token)})
                 res = await integration_manager.update_credentials("slack", {"token": token})
-                await on_tool_end("configure_integration", json.dumps(res), 0, 120)
+                await call_tool_end("configure_integration", json.dumps(res), 0, 120)
                 configured_items.append(f"- **Slack Token**: `{integration_manager.mask_token(token)}` ({res.get('validation', {}).get('message', 'Saved ✅')})")
 
             if gemini_match:
                 key = gemini_match.group(1)
-                await on_tool_start("configure_integration", {"provider": "gemini", "api_key": integration_manager.mask_token(key)})
+                await call_tool_start("configure_integration", {"provider": "gemini", "api_key": integration_manager.mask_token(key)})
                 res = await integration_manager.update_credentials("gemini", {"api_key": key})
-                await on_tool_end("configure_integration", json.dumps(res), 0, 120)
+                await call_tool_end("configure_integration", json.dumps(res), 0, 120)
                 configured_items.append(f"- **Gemini API Key**: `{integration_manager.mask_token(key)}` (Saved ✅)")
 
             target_repo = None
@@ -241,9 +273,12 @@ class AntigravityHarness:
                 target_repo = f"https://github.com/{repo_named.group(1)}"
 
             if target_repo:
-                await on_tool_start("test_remote_repo", {"repo_url": target_repo})
-                repo_res = await integration_manager.test_remote_repo(target_repo, gh_match.group(1) if gh_match else None)
-                await on_tool_end("test_remote_repo", json.dumps(repo_res), 0, 250)
+                target_token = gh_match.group(1) if gh_match else await integration_manager.get_github_token_for_repo(target_repo)
+                await call_tool_start("test_remote_repo", {"repo_url": target_repo})
+                repo_res = await integration_manager.test_remote_repo(target_repo, target_token)
+                await call_tool_end("test_remote_repo", json.dumps(repo_res), 0, 250)
+
+
                 if repo_res.get("accessible"):
                     branches = repo_res.get("branches", [])
                     branches_str = ", ".join(f"`{b}`" for b in branches[:5]) or "`main`"
@@ -251,11 +286,46 @@ class AntigravityHarness:
                     # Auto-persist repository in vault for future sessions
                     await integration_manager.save_repo_config(
                         target_repo,
-                        gh_match.group(1) if gh_match else None,
+                        target_token,
                         branches
                     )
+
+                    # If the prompt also requested analysis, immediately clone and synthesize codebase analysis!
+                    if has_analysis_intent:
+                        await emit_thought(f"Repository `{target_repo}` is connected. Preparing architecture analysis...")
+                        if not (workspace_path / ".git").exists():
+                            clone_url = target_repo
+                            if target_token and "github.com" in target_repo and "@" not in target_repo:
+                                clone_url = target_repo.replace("https://", f"https://x-access-token:{target_token}@")
+                            await on_tool_start("git_clone", {"repo_url": target_repo})
+                            proc = subprocess.run(["git", "clone", "--depth", "50", clone_url, str(workspace_path)], capture_output=True, text=True)
+                            await on_tool_end("git_clone", proc.stdout or proc.stderr or "OK", proc.returncode, 400)
+
+                        return await self._synthesize_repository_analysis(
+                            task_id=task_id,
+                            title=title,
+                            prompt=prompt,
+                            persona_name=persona_name,
+                            workspace_path=workspace_path,
+                            emit_thought=emit_thought,
+                            emit_message=emit_message,
+                            on_tool_start=on_tool_start,
+                            on_tool_end=on_tool_end
+                        )
                 else:
-                    configured_items.append(f"- **Repository**: `{target_repo}` ({repo_res.get('message', 'Unreachable')})")
+                    # Authentication required or inaccessible! Do not falsely report success.
+                    repo_short = target_repo.split("github.com/")[-1].replace(".git", "") if "github.com/" in target_repo else target_repo
+                    auth_guidance_md = (
+                        f"### 🔒 GitHub Authentication Required for `{repo_short}`\n\n"
+                        f"I attempted to access [`{target_repo}`]({target_repo}), but it is a **private repository** or requires GitHub authorization (`fatal: could not read Username`).\n\n"
+                        f"#### How to proceed:\n"
+                        f"1. **Paste your GitHub Personal Access Token (PAT) directly in this chat** (`ghp_...` or `github_pat_...`).\n"
+                        f"   - It will be encrypted into your Vault and masked in the UI.\n"
+                        f"2. **Or configure it in the Vault**: Open the **Repositories** tab in the sidebar to set your token.\n\n"
+                        f"> 💡 *Need to create a token? Go to [GitHub Token Settings](https://github.com/settings/tokens) → **Generate new token (classic)** → check **`repo`** scope.*"
+                    )
+                    await emit_message("agent", auth_guidance_md)
+                    return {"status": "AWAITING_INPUT", "summary": f"Awaiting GitHub authentication for {repo_short}."}
 
             details_md = "\n".join(configured_items) if configured_items else "- Credentials and repository profile recorded."
             reply_md = (
@@ -269,6 +339,7 @@ class AntigravityHarness:
             )
             await emit_message("agent", reply_md)
             return {"status": "COMPLETED", "summary": "Configured integrations and verified repository connectivity."}
+
 
         # Intent: Token Generation Help & Authentication Guidance
         is_token_help_query = bool(
