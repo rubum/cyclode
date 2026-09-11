@@ -199,3 +199,18 @@ async def test_repository_connection(repo_id: str, db: AsyncSession = Depends(ge
     await db.commit()
 
     return {"ok": True, "status": repo.status, "validation": test_res}
+
+
+@router.post("/discover")
+async def discover_repositories(db: AsyncSession = Depends(get_db)):
+    """
+    Scans historical tasks and settings to auto-discover and register repositories in the Vault.
+    """
+    from app.db.session import ensure_default_repositories
+    await ensure_default_repositories()
+    
+    stmt = select(RepositoryConfigModel).order_by(RepositoryConfigModel.name)
+    res = await db.execute(stmt)
+    repos = res.scalars().all()
+    return {"ok": True, "count": len(repos), "repositories": [serialize_repo(r) for r in repos]}
+

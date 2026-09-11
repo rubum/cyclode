@@ -39,6 +39,8 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({ onSelectRepo
   const [testingId, setTestingId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<{ success?: boolean; message?: string } | null>(null);
 
+  const [discovering, setDiscovering] = useState(false);
+
   const fetchRepositories = useCallback(async () => {
     try {
       setLoading(true);
@@ -54,9 +56,27 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({ onSelectRepo
     }
   }, []);
 
+  const handleDiscoverRepositories = async () => {
+    setDiscovering(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/repositories/discover`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (res.ok && data.repositories) {
+        setRepositories(data.repositories);
+      }
+    } catch (err) {
+      console.error('Error discovering repositories:', err);
+    } finally {
+      setDiscovering(false);
+    }
+  };
+
   useEffect(() => {
     fetchRepositories();
   }, [fetchRepositories]);
+
 
   const handleOpenAdd = () => {
     setEditingRepo(null);
@@ -189,14 +209,26 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({ onSelectRepo
             Persistent repository configurations, encrypted access tokens, and cached architecture profiles across sessions.
           </p>
         </div>
-        <button
-          onClick={handleOpenAdd}
-          className="flex items-center space-x-1.5 px-3 py-1.5 bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95"
-        >
-          <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-          <span>Connect Repository</span>
-        </button>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={handleDiscoverRepositories}
+            disabled={discovering}
+            className="flex items-center space-x-1.5 px-3 py-1.5 bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright rounded-lg text-xs font-mono transition-all border border-onedark-border disabled:opacity-50"
+            title="Scan task history and environment to auto-register repositories"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${discovering ? 'animate-spin text-onedark-accent' : 'text-onedark-muted'}`} />
+            <span>{discovering ? 'Discovering...' : 'Discover Workspaces'}</span>
+          </button>
+          <button
+            onClick={handleOpenAdd}
+            className="flex items-center space-x-1.5 px-3 py-1.5 bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95"
+          >
+            <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+            <span>Connect Repository</span>
+          </button>
+        </div>
       </div>
+
 
       {/* Overview Banner */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -251,14 +283,25 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({ onSelectRepo
                 Connect your GitHub repository to enable multi-session agent persistence, automated PR reviews, and instant code tasks.
               </p>
             </div>
-            <button
-              onClick={handleOpenAdd}
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-onedark-accent text-onedark-darker rounded-lg text-xs font-bold"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Connect First Repo</span>
-            </button>
+            <div className="flex items-center justify-center space-x-2 pt-1">
+              <button
+                onClick={handleDiscoverRepositories}
+                disabled={discovering}
+                className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright rounded-lg text-xs font-mono border border-onedark-border disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${discovering ? 'animate-spin text-onedark-accent' : 'text-onedark-muted'}`} />
+                <span>{discovering ? 'Discovering...' : 'Discover from Task History'}</span>
+              </button>
+              <button
+                onClick={handleOpenAdd}
+                className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-onedark-accent text-onedark-darker rounded-lg text-xs font-bold"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Connect First Repo</span>
+              </button>
+            </div>
           </div>
+
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
             {repositories.map((repo) => {

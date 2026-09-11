@@ -51,18 +51,122 @@ class IntegrationRegistry:
         ]
 
     @staticmethod
+    def get_skills_catalog() -> List[Dict[str, Any]]:
+        """
+        Returns all mounted Antigravity Skills in the harness with their tool schemas,
+        filepaths, and active runtime readiness status.
+        """
+        return [
+            {
+                "id": "github",
+                "name": "GitHub Workflow & PR Automation",
+                "path": ".agents/skills/github/SKILL.md",
+                "description": "Enables the agent to inspect GitHub issues, create branches following conventions, and draft Pull Requests.",
+                "tools": ["github.create_pr", "github.post_comment", "github.view_issue"],
+                "status": "ACTIVE" if github_client.is_configured() else "AUTH_REQUIRED",
+                "category": "Version Control"
+            },
+            {
+                "id": "slack",
+                "name": "Slack Notifications & Human Approvals",
+                "path": ".agents/skills/slack/SKILL.md",
+                "description": "Enables the agent to post structured progress alerts, ask human questions, and send Block Kit approval request cards.",
+                "tools": ["slack.post_message", "slack.request_approval"],
+                "status": "ACTIVE" if slack_client.is_configured() else "AUTH_REQUIRED",
+                "category": "Collaboration"
+            },
+            {
+                "id": "appsignal",
+                "name": "AppSignal APM & Exception Triage",
+                "path": ".agents/skills/appsignal/SKILL.md",
+                "description": "Enables the agent to inspect exception stack traces, sample parameters, and reproduce production crashes.",
+                "tools": ["appsignal.inspect_exception", "appsignal.correlate_trace"],
+                "status": "ACTIVE" if appsignal_client.is_configured() else "AUTH_REQUIRED",
+                "category": "Observability"
+            },
+            {
+                "id": "sentry",
+                "name": "Sentry APM & Issue Triage",
+                "path": ".agents/skills/sentry/SKILL.md",
+                "description": "Fetches Sentry issue stack traces, inspects breadcrumbs, and correlates exceptions with workspace source code.",
+                "tools": ["sentry.fetch_issue"],
+                "status": "ACTIVE" if bool(settings.SENTRY_AUTH_TOKEN) else "AUTH_REQUIRED",
+                "category": "Observability"
+            },
+            {
+                "id": "git-worktree",
+                "name": "Git Worktree Isolation",
+                "path": ".agents/skills/git-worktree/SKILL.md",
+                "description": "Isolates task execution in ephemeral git worktrees without interfering with the primary branch or ongoing tasks.",
+                "tools": ["git.create_worktree", "git.cleanup_worktree"],
+                "status": "ACTIVE",
+                "category": "Core Runtime"
+            },
+            {
+                "id": "codebase-analyzer",
+                "name": "Codebase Architecture Analyzer",
+                "path": ".agents/skills/codebase-analyzer/SKILL.md",
+                "description": "Inspects architecture patterns, dependency graphs, project manifests, and directory topology.",
+                "tools": ["codebase.analyze_structure", "codebase.inspect_manifests"],
+                "status": "ACTIVE",
+                "category": "Core Runtime"
+            },
+            {
+                "id": "test-runner",
+                "name": "Automated Test Verification Harness",
+                "path": ".agents/skills/test-runner/SKILL.md",
+                "description": "Discovers repository test runners (pytest, jest, vitest, cargo test) and verifies code changes before PR generation.",
+                "tools": ["test.run_suite", "test.inspect_failures"],
+                "status": "ACTIVE",
+                "category": "Verification"
+            }
+        ]
+
+    @staticmethod
+    def get_webhook_endpoints() -> List[Dict[str, Any]]:
+        """
+        Returns live inbound webhook endpoints exposed by the Adappty Gateway.
+        """
+        return [
+            {
+                "id": "github_webhook",
+                "provider": "github",
+                "name": "GitHub Webhook Gateway",
+                "path": "/api/webhooks/github",
+                "method": "POST",
+                "secret_configured": bool(settings.GITHUB_WEBHOOK_SECRET),
+                "events": ["issues.opened", "issues.labeled", "pull_request.opened", "issue_comment.created"],
+                "description": "Ingests issue triage events and PR reviews from GitHub repositories."
+            },
+            {
+                "id": "slack_webhook",
+                "provider": "slack",
+                "name": "Slack Interactive Gateway",
+                "path": "/api/webhooks/slack",
+                "method": "POST",
+                "secret_configured": bool(settings.SLACK_SIGNING_SECRET),
+                "events": ["block_actions", "interactive_approval", "slash_command"],
+                "description": "Receives user approval button clicks and Slack slash commands."
+            },
+            {
+                "id": "appsignal_webhook",
+                "provider": "appsignal",
+                "name": "AppSignal Exception Gateway",
+                "path": "/api/webhooks/appsignal",
+                "method": "POST",
+                "secret_configured": bool(settings.APPSIGNAL_WEBHOOK_TOKEN),
+                "events": ["exception_spike", "incident.opened"],
+                "description": "Triggers automated AI bug triage and root-cause analysis on production crashes."
+            }
+        ]
+
+    @staticmethod
     def get_active_skills() -> List[str]:
         """
-        Returns list of active Antigravity skill IDs based on configured tokens.
+        Returns list of active Antigravity skill IDs.
         """
-        skills = []
-        if github_client.is_configured():
-            skills.append("github")
-        if slack_client.is_configured():
-            skills.append("slack")
-        if appsignal_client.is_configured():
-            skills.append("appsignal")
-        return skills
+        return [s["id"] for s in IntegrationRegistry.get_skills_catalog() if s["status"] == "ACTIVE"]
 
 
 integration_registry = IntegrationRegistry()
+

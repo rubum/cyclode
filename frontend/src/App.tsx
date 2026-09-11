@@ -12,7 +12,7 @@ import { PolicySettings } from './components/Policies/PolicySettings';
 import { IntegrationsView } from './components/Integrations/IntegrationsView';
 import { RepositoriesView } from './components/Repositories/RepositoriesView';
 import { SandboxInspectorModal } from './components/Sandbox/SandboxInspectorModal';
-import { Task, TaskMessage, EventItem, PolicyMap, Integration, AutomationRule } from './types';
+import { Task, TaskMessage, EventItem, PolicyMap, Integration, AutomationRule, SkillCatalogItem, WebhookEndpoint } from './types';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -27,8 +27,11 @@ const MainApp: React.FC = () => {
   const [policies, setPolicies] = useState<PolicyMap>({});
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [activeSkills, setActiveSkills] = useState<string[]>([]);
+  const [skillsCatalog, setSkillsCatalog] = useState<SkillCatalogItem[]>([]);
+  const [webhookEndpoints, setWebhookEndpoints] = useState<WebhookEndpoint[]>([]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [currentPreset, setCurrentPreset] = useState<'standard' | 'wide' | 'fullscreen'>('standard');
+
   const [isSandboxModalOpen, setIsSandboxModalOpen] = useState<boolean>(false);
 
   // Fetch tasks
@@ -104,11 +107,14 @@ const MainApp: React.FC = () => {
         const data = await res.json();
         setIntegrations(data.integrations || []);
         setActiveSkills(data.active_skills || []);
+        setSkillsCatalog(data.skills_catalog || []);
+        setWebhookEndpoints(data.webhook_endpoints || []);
       }
     } catch (err) {
       console.error('Error fetching integrations:', err);
     }
   }, []);
+
 
   useEffect(() => {
     fetchTasks();
@@ -789,9 +795,12 @@ const MainApp: React.FC = () => {
           <IntegrationsView
             integrations={integrations}
             activeSkills={activeSkills}
+            skillsCatalog={skillsCatalog}
+            webhookEndpoints={webhookEndpoints}
             onRefreshIntegrations={fetchIntegrations}
           />
         );
+
       case 'repositories':
         return (
           <RepositoriesView

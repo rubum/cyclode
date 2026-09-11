@@ -21,8 +21,11 @@ class TestRepoRequest(BaseModel):
 async def get_integrations_status():
     return {
         "integrations": integration_registry.get_status(),
-        "active_skills": integration_registry.get_active_skills()
+        "active_skills": integration_registry.get_active_skills(),
+        "skills_catalog": integration_registry.get_skills_catalog(),
+        "webhook_endpoints": integration_registry.get_webhook_endpoints()
     }
+
 
 
 @router.post("/credentials")

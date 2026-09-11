@@ -59,6 +59,66 @@ def _migrate_db(connection):
         connection.exec_driver_sql("ALTER TABLE task_messages ADD COLUMN tokens INTEGER DEFAULT 0")
 
 
+async def ensure_default_repositories():
+    """
+    Backfills discovered repositories from historical tasks and environment settings
+    into RepositoryConfigModel so they are immediately available in the Vault across sessions.
+    """
+    async with async_session_factory() as session:
+        try:
+            from sqlalchemy import select
+            from app.db.models import TaskModel, RepositoryConfigModel, get_utc_now
+            from app.core.security import encrypt_secret
+            
+            res = await session.execute(select(RepositoryConfigModel))
+            existing_repos = {r.full_name: r for r in res.scalars().all()}
+
+            task_res = await session.execute(select(TaskModel))
+            tasks = task_res.scalars().all()
+
+            token = settings.GITHUB_TOKEN
+            enc_token = encrypt_secret(token) if token else None
+
+            for t in tasks:
+                raw_url = t.repo_url or ""
+                raw_name = t.repo_name or ""
+                
+                full_name = None
+                if raw_url and "github.com/" in raw_url:
+                    full_name = raw_url.split("github.com/")[-1].replace(".git", "").strip("/")
+                elif raw_name and "/" in raw_name and not raw_name.startswith("http"):
+                    full_name = raw_name.strip()
+                elif raw_name and raw_name != "None" and raw_name != "null":
+                    full_name = f"gowaylo/{raw_name}" if "waylo" in raw_name.lower() else raw_name
+                
+                if full_name and full_name not in existing_repos:
+                    name = full_name.split("/")[-1]
+                    clone_url = f"https://github.com/{full_name}"
+                    new_repo = RepositoryConfigModel(
+                        name=name,
+                        full_name=full_name,
+                        clone_url=clone_url,
+                        default_branch=t.target_branch or "main",
+                        encrypted_token=enc_token,
+                        auth_provider="github",
+                        test_command="pytest",
+                        tech_stack=["Python", "TypeScript", "React", "FastAPI"] if "waylo" in full_name.lower() else [],
+                        status="CONNECTED",
+                        created_at=get_utc_now(),
+                        updated_at=get_utc_now(),
+                    )
+                    session.add(new_repo)
+                    existing_repos[full_name] = new_repo
+
+            await session.commit()
+        except Exception as e:
+            import logging
+            logging.getLogger("adappty.db").warning(f"Error auto-backfilling repositories: {e}")
+            await session.rollback()
+
+
 async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(_migrate_db)
+    await ensure_default_repositories()
+

@@ -140,6 +140,28 @@ export interface Integration {
   icon: string;
 }
 
+export interface SkillCatalogItem {
+  id: string;
+  name: string;
+  path: string;
+  description: string;
+  tools: string[];
+  status: 'ACTIVE' | 'AUTH_REQUIRED';
+  category: string;
+}
+
+export interface WebhookEndpoint {
+  id: string;
+  provider: string;
+  name: string;
+  path: string;
+  method: string;
+  secret_configured: boolean;
+  events: string[];
+  description: string;
+}
+
+
 export interface RepositoryConfig {
   id: string;
   name: string;
