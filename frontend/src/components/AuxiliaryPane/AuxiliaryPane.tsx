@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { FileCode2, Activity, Cpu, Inbox, Folder } from 'lucide-react';
 import { Task } from '../../types';
 import { DiffViewerTab } from './DiffViewerTab';
@@ -12,7 +12,22 @@ interface AuxiliaryPaneProps {
 }
 
 export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({ task }) => {
-  const [activeTab, setActiveTab] = useState<'files' | 'diff' | 'activity' | 'subagents' | 'event'>('files');
+  const [activeTab, setActiveTab] = useState<'files' | 'diff' | 'activity' | 'subagents' | 'event'>(() => {
+    if (task?.diffs && task.diffs.length > 0) return 'diff';
+    if (task?.repo_name || task?.repo_url) return 'files';
+    return 'activity';
+  });
+
+  useEffect(() => {
+    if (!task) return;
+    if (task.diffs && task.diffs.length > 0) {
+      setActiveTab('diff');
+    } else if (task.repo_name || task.repo_url) {
+      setActiveTab('files');
+    } else {
+      setActiveTab('activity');
+    }
+  }, [task?.id, task?.repo_name, task?.repo_url]);
 
   const tabs = [
     { id: 'files', label: 'Files', icon: Folder, iconClass: 'text-onedark-folder' },

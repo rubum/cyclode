@@ -119,9 +119,8 @@ class EphemeralSandboxProvider(SandboxProvider):
                 logger.error(f"Failed to clone remote repo {repo_url}: {e}")
                 raise CloneFailedException(repo_url=repo_url, stderr=str(e))
         else:
-            # Default local workspace initialization when no remote repository is specified
+            # Clean empty workspace initialization when no remote repository is specified
             workspace_path.mkdir(parents=True, exist_ok=True)
-            self._init_sample_repo(workspace_path, branch or "main")
 
         context = SandboxContext(
             task_id=task_id,

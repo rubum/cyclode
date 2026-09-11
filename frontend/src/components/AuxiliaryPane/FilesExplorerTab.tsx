@@ -208,14 +208,17 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
 
   if (!data || data.file_tree.length === 0) {
     const isDestroyed = task.sandbox_status === 'DESTROYED' || data?.sandbox_status === 'DESTROYED';
+    const isNoRepo = !task.repo_name && !task.repo_url;
     return (
       <div className="h-full flex flex-col items-center justify-center p-6 text-center text-onedark-muted font-mono select-none space-y-2">
         <Box className="w-8 h-8 text-onedark-border mb-1 stroke-[1.2]" />
         <div className="text-xs font-semibold text-onedark-fg">
-          {isDestroyed ? 'Sandbox Cleaned Up' : 'Workspace Empty'}
+          {isNoRepo ? 'No Files in Session' : isDestroyed ? 'Sandbox Cleaned Up' : 'Workspace Empty'}
         </div>
         <div className="text-[11px] text-onedark-muted max-w-xs leading-relaxed">
-          {isDestroyed
+          {isNoRepo
+            ? 'This is a conversational session without a connected repository.'
+            : isDestroyed
             ? 'The ephemeral sandbox workspace was safely cleaned up upon task completion.'
             : data?.exists_on_disk
             ? 'The sandbox workspace directory is currently empty.'

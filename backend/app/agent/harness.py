@@ -140,8 +140,8 @@ class AntigravityHarness:
             gemini_creds = integration_manager._custom_credentials.get("gemini", {})
             api_key = gemini_creds.get("api_key") or settings.get_api_key()
 
-        # Ensure sample workspace exists
-        worktree_manager.init_sample_repo_if_needed(workspace_path)
+        # Ensure workspace directory exists
+        workspace_path.mkdir(parents=True, exist_ok=True)
 
         # ----------------------------------------------------------------------
         # MODE 1: LIVE GEMINI API (When API key is provided)
@@ -243,15 +243,15 @@ class AntigravityHarness:
 
         # Check if user prompt requests Codebase Architecture Analysis or Repo Explanation
         has_analysis_intent = bool(
-            re.search(r"\b(analy[sz]e|analy[sz]is|breakdown|architecture|overview|audit|inspect|structure|summary|topology)\b", lower_prompt)
-            or re.search(r"\b(what\s+is\s+(in\s+)?(this|the))\b", lower_prompt)
+            re.search(r"\b(analy[sz]e|analy[sz]is|audit)\s+(this\s+|the\s+)?(repo|repository|codebase|project|workspace|app|service|topology)\b", lower_prompt)
+            or re.search(r"\b(what\s+is\s+(in\s+)?(this|the)\s+(repo|repository|codebase|project|workspace|app|service))\b", lower_prompt)
             or re.search(r"\b(what\s+is\s+this\s+(on|about|repo|repository|codebase|project|app|service|tool|framework))\b", lower_prompt)
             or re.search(r"\b(explain\s+(the|this|my)?\s*(repo|repository|codebase|project|app|service|application|system|architecture|workspace))\b", lower_prompt)
             or re.search(r"\b(tell\s+me\s+about\s+(the|this|my)?\s*(repo|repository|codebase|project|app|service))\b", lower_prompt)
             or re.search(r"\b(what\s+does\s+this\s+(repo|project|codebase|app|service|package|tool)\s*(do|have|contain)?)\b", lower_prompt)
             or any(q in lower_prompt for q in (
-                "what is this on", "what is this", "what is in this", "what is in the repo", "what is this repo", "explain the repo", "explain repo", "explain this repo", 
-                "explain project", "explain codebase", "tell me what this is", "what does this do", 
+                "what is this on", "what is in the repo", "what is this repo", "explain the repo", "explain repo", "explain this repo", 
+                "explain project", "explain codebase", "tell me what this is", "what does this repo do", 
                 "summarize repo", "summarize codebase", "repo overview", "project overview"
             ))
         )
@@ -1421,14 +1421,13 @@ class AntigravityHarness:
         ]
 
         system_instruction = (
-            f"You are Adappty, an autonomous software engineering agent powered by the Antigravity harness.\n"
+            f"You are Adappty, an autonomous AI pair programmer and software engineering assistant powered by the Antigravity agent harness.\n"
             f"Persona: {persona_name}.\n"
             f"Workspace: {workspace_path}\n"
             f"Guidelines:\n"
-            f"1. Explore the workspace using `list_dir` or `read_file` before writing code.\n"
-            f"2. When fixing a bug or adding features, edit files with `edit_file` and run test suites with `run_command`.\n"
-            f"3. Provide clear, concise reasoning and structured markdown responses.\n"
-            f"4. If all tests pass and changes are ready, summarize the solution clearly."
+            f"1. If the user asks a general, theoretical, or conceptual question (such as explaining an architecture pattern, technology concept, syntax, or discussion), answer it directly with clear, structured markdown explanations. Do NOT invoke workspace tools unless the user specifically asks to inspect, read, edit, or test files in the workspace.\n"
+            f"2. If the user asks to inspect, debug, edit, or test code in the workspace or repository, use the appropriate workspace tools (`list_dir`, `read_file`, `edit_file`, `run_command`, `grep_search`).\n"
+            f"3. Provide clear, concise reasoning and well-formatted responses."
         )
 
         model_candidates = [self.model_name, "gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-flash-latest", "gemini-3.1-flash-lite"]
