@@ -9,6 +9,7 @@ from app.db.session import get_db
 from app.db.models import TaskModel, TaskMessageModel, TaskLogModel, TaskApprovalModel, TaskDiffModel
 from app.agent.pool import agent_pool
 from app.core.sandboxes.manager import sandbox_manager
+from app.config import settings
 
 router = APIRouter(prefix="/api/tasks", tags=["Tasks"])
 
@@ -223,7 +224,7 @@ async def get_task_sandbox_info(task_id: str, db: AsyncSession = Depends(get_db)
 
     ws_path = Path(task.workspace_path).resolve() if task.workspace_path else None
     if ws_path and ws_path.name != f"sandbox-{task.id}":
-        specific_sb = settings.WORKSPACE_ROOT / f"sandbox-{task.id}"
+        specific_sb = Path(settings.WORKSPACE_ROOT) / f"sandbox-{task.id}"
         if specific_sb.exists() and specific_sb.is_dir():
             ws_path = specific_sb
 
@@ -310,7 +311,7 @@ async def get_sandbox_file_content(task_id: str, path: str, db: AsyncSession = D
 
     ws_path = Path(task.workspace_path).resolve() if task.workspace_path else None
     if ws_path and ws_path.name != f"sandbox-{task.id}":
-        specific_sb = settings.WORKSPACE_ROOT / f"sandbox-{task.id}"
+        specific_sb = Path(settings.WORKSPACE_ROOT) / f"sandbox-{task.id}"
         if specific_sb.exists() and specific_sb.is_dir():
             ws_path = specific_sb
 

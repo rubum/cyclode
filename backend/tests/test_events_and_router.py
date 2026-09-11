@@ -713,6 +713,20 @@ async def test_what_is_in_this_repo_url_synthesizes_analysis(tmp_path, monkeypat
 
     monkeypatch.setattr(integration_manager, "test_remote_repo", mock_test_remote)
 
+    # Mock subprocess.run for git clone
+    import subprocess
+    orig_run = subprocess.run
+    def mock_run(cmd, *args, **kwargs):
+        if isinstance(cmd, list) and "clone" in cmd:
+            class MockCompleted:
+                returncode = 0
+                stdout = "Cloned"
+                stderr = ""
+            return MockCompleted()
+        return orig_run(cmd, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", mock_run)
+
     # Mock _synthesize_repository_analysis
     async def mock_synth(**kwargs):
         messages.append(("agent", "### 📊 Repository Architecture & Technical Audit\nDeepEval LLM Evaluation Framework"))
