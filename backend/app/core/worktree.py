@@ -20,6 +20,7 @@ class WorktreeManager:
         """
         Creates a sample repository in the workspace if empty, so agents have files to inspect and test.
         """
+        path.mkdir(parents=True, exist_ok=True)
         if not (path / ".git").exists():
             subprocess.run(["git", "init"], cwd=path, capture_output=True)
             subprocess.run(["git", "config", "user.name", "Adappty Agent"], cwd=path, capture_output=True)

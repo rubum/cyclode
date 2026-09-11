@@ -575,13 +575,30 @@ class AgentTaskPool:
 
         except Exception as e:
             logger.error(f"Error executing task {task_id}: {e}", exc_info=True)
+            err_content = f"### ⚠️ Execution Error\n\nAn unexpected error occurred during execution:\n```text\n{e}\n```\n\nYou can click **Retry** to re-run the task."
             async with async_session_factory() as session:
+                err_msg = TaskMessageModel(
+                    task_id=task_id,
+                    sender="agent",
+                    content=err_content,
+                    thought="Execution encountered an unhandled exception.",
+                    tokens=estimate_tokens(err_content)
+                )
+                session.add(err_msg)
                 await session.execute(
                     update(TaskModel)
                     .where(TaskModel.id == task_id)
                     .values(status="FAILED", result_summary=str(e), completed_at=get_utc_now())
                 )
                 await session.commit()
+
+            await ws_manager.broadcast("TASK_MESSAGE", {
+                "task_id": task_id,
+                "sender": "agent",
+                "content": err_content,
+                "tokens": estimate_tokens(err_content),
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            })
 
             await ws_manager.broadcast("TASK_STATUS_CHANGE", {
                 "task_id": task_id,
