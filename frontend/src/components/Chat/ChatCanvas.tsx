@@ -7,7 +7,6 @@ import {
   ChevronDown, 
   ChevronRight, 
   ShieldAlert, 
-  Bot, 
   User, 
   ArrowRight, 
   GitPullRequest, 
@@ -393,6 +392,18 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     { id: 'APMTriage', label: 'APM Triage (Sentry / AppSignal)' },
   ];
 
+  const contentMaxWidth = currentPreset === 'fullscreen'
+    ? 'max-w-7xl 2xl:max-w-[1750px] px-2 sm:px-6'
+    : currentPreset === 'wide'
+    ? 'max-w-6xl 2xl:max-w-[1500px] px-2 sm:px-4'
+    : 'max-w-4xl xl:max-w-5xl px-2 sm:px-4';
+
+  const userMsgMaxWidth = currentPreset === 'fullscreen'
+    ? 'max-w-4xl'
+    : currentPreset === 'wide'
+    ? 'max-w-3xl'
+    : 'max-w-2xl';
+
   // Empty State / New Task Launcher
   if (!task) {
     return (
@@ -448,7 +459,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
           )}
         </div>
 
-        <div className="w-full max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto px-6 py-12 flex flex-col justify-center flex-1 space-y-8">
+        <div className={`w-full ${contentMaxWidth} mx-auto py-12 flex flex-col justify-center flex-1 space-y-8`}>
           {/* Header Hero */}
           <div className="text-center space-y-2.5">
             <div className="inline-flex items-center space-x-2 px-3.5 py-1 rounded-full bg-onedark-accent/10 border border-onedark-accent/20 text-onedark-accent text-xs font-mono mb-2 shadow-sm">
@@ -482,7 +493,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               {/* Persona Selector */}
               <div className="flex items-center space-x-2">
                 <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-surface border border-onedark-border text-xs text-onedark-fg font-mono shadow-sm">
-                  <Bot className="w-3.5 h-3.5 text-onedark-accent" />
+                  <Sparkles className="w-3.5 h-3.5 text-onedark-accent" />
                   <select
                     value={selectedPersona}
                     onChange={(e) => setSelectedPersona(e.target.value)}
@@ -702,7 +713,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto px-4 py-6 relative"
       >
-        <div className="w-full max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto space-y-6">
+        <div className={`w-full ${contentMaxWidth} mx-auto space-y-6`}>
           {turns.map((turn, tIdx) => {
             const isTurnOpen = openThoughts[turn.id] ?? (isRunning && turn.isLatest);
             const isActOpen = openActivities[turn.id] ?? false;
@@ -716,7 +727,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 {turn.userMessage && (
                   <div className="flex justify-end group">
                     {editingMessageId === turn.userMessage.id ? (
-                      <div className="w-full max-w-2xl p-3 rounded-2xl bg-onedark-surface border border-onedark-accent/60 shadow-lg space-y-2">
+                      <div className={`w-full ${userMsgMaxWidth} p-3 rounded-2xl bg-onedark-surface border border-onedark-accent/60 shadow-lg space-y-2`}>
                         <textarea
                           value={editValue}
                           onChange={(e) => setEditValue(e.target.value)}
@@ -754,7 +765,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                         </div>
                       </div>
                     ) : (
-                      <div className="relative max-w-2xl flex flex-col items-end space-y-1">
+                      <div className={`relative ${userMsgMaxWidth} flex flex-col items-end space-y-1`}>
                         <div className="flex items-center space-x-2 mb-0.5 pr-1 text-[11px] font-mono text-onedark-muted">
                           {turn.userMessage.isOptimistic ? (
                             <span className="px-2 py-0.5 rounded-full bg-onedark-accent/10 text-onedark-accent border border-onedark-accent/30 flex items-center space-x-1">
@@ -907,23 +918,9 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
                 {/* 4. Live Thinking / Responding Indicator (Shown when turn is active) */}
                 {isTurnRunning && (
-                  <div className="flex items-start space-x-3 pt-1">
-                    <div className="w-7 h-7 rounded-lg bg-onedark-surface border border-onedark-accent/40 flex items-center justify-center flex-shrink-0 mt-0.5 shadow-sm animate-pulse">
-                      <Bot className="w-4 h-4 text-onedark-accent" />
-                    </div>
-
-                    <div className="p-4 rounded-2xl bg-onedark-darker/90 border border-onedark-accent/30 shadow-md space-y-2.5 max-w-2xl w-full animate-fadeIn">
-                      <div className="flex items-center space-x-2 text-xs font-mono text-onedark-accent">
-                        <span className="w-2 h-2 rounded-full bg-onedark-accent animate-ping" />
-                        <span className="font-semibold">Adappty is thinking & executing...</span>
-                      </div>
-
-                      {latestThoughtText && (
-                        <div className="p-2.5 rounded-lg bg-onedark-surface/60 border border-onedark-borderSubtle text-xs text-onedark-fg font-mono leading-relaxed italic">
-                          "{latestThoughtText}"
-                        </div>
-                      )}
-                    </div>
+                  <div className="flex items-center space-x-2 py-2 px-0.5 text-xs font-mono text-onedark-accent/90 select-none animate-fadeIn">
+                    <span className="w-2 h-2 rounded-full bg-onedark-accent animate-ping" />
+                    <span className="font-medium">Adappty is thinking & executing...</span>
                   </div>
                 )}
 
@@ -933,33 +930,27 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   return (
                     <div
                       key={m.id}
-                      className={`flex items-start space-x-3 group ${
+                      className={`flex items-start group ${
                         m.sender === 'system' ? 'justify-center' : 'justify-start'
                       }`}
                     >
-                      {m.sender !== 'system' && (
-                        <div className="w-7 h-7 rounded-xl bg-onedark-accent/15 border border-onedark-accent/30 text-onedark-accent flex items-center justify-center flex-shrink-0 mt-0.5 shadow-sm">
-                          <Bot className="w-4 h-4" />
-                        </div>
-                      )}
-
                       {m.sender === 'system' ? (
                         <div className="my-2 px-4 py-2.5 rounded-xl bg-onedark-surface/40 border border-onedark-border text-xs text-onedark-fg font-mono leading-relaxed max-w-2xl text-center">
                           <MarkdownRenderer content={maskSecretsInText(m.content)} isStreaming={m.isStreaming} />
                         </div>
                       ) : (
-                        <div className="max-w-3xl w-full flex flex-col items-start space-y-1.5">
-                          <div className="flex items-center justify-between w-full px-1 text-[11px] font-mono text-onedark-muted">
+                        <div className="w-full flex flex-col items-start space-y-1.5">
+                          <div className="flex items-center justify-between w-full px-0.5 text-[11px] font-mono text-onedark-muted">
                             <span className="font-sans font-medium text-onedark-fg">{task.persona}</span>
                             <span className="px-2 py-0.5 rounded-md bg-onedark-surface border border-onedark-borderSubtle text-onedark-muted">
-                              🪙 ~{outTokens} tokens out
+                              ~{outTokens} tokens out
                             </span>
                           </div>
-                          <div className="px-5 py-4 rounded-2xl bg-onedark-darker/90 border border-onedark-border text-onedark-fg text-sm leading-relaxed shadow-sm w-full">
+                          <div className="text-onedark-fg text-[13.5px] leading-relaxed w-full">
                             <MarkdownRenderer content={maskSecretsInText(m.content)} isStreaming={m.isStreaming} />
                           </div>
                           {/* Hover Action Bar */}
-                          <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center space-x-1 pl-1">
+                          <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center space-x-1 pl-0.5 pt-0.5">
                             <button
                               onClick={() => handleCopyText(m.id, m.content)}
                               className="p-1 rounded-md hover:bg-onedark-surface border border-transparent hover:border-onedark-border text-onedark-muted hover:text-onedark-fgBright transition-colors"
@@ -1036,31 +1027,9 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
         </div>
       </div>
 
-      {/* Floating Scroll to Bottom Button */}
-      {showScrollBottomBtn && (
-        <div className="absolute bottom-22 right-6 sm:right-8 z-20 animate-fadeIn">
-          <button
-            type="button"
-            onClick={() => {
-              isAutoScrollEnabledRef.current = true;
-              setShowScrollBottomBtn(false);
-              scrollToBottom(true);
-            }}
-            className="px-3.5 py-1.5 rounded-full bg-onedark-surface/95 hover:bg-onedark-surface border border-onedark-borderSubtle text-onedark-fg text-xs font-mono shadow-2xl flex items-center space-x-1.5 backdrop-blur-md transition-all hover:scale-105 active:scale-95 text-onedark-fgBright cursor-pointer"
-            title="Scroll to latest messages"
-          >
-            <ChevronDown className="w-3.5 h-3.5 text-onedark-accent" />
-            <span>Latest</span>
-            {isRunning && (
-              <span className="w-2 h-2 rounded-full bg-onedark-accent animate-ping ml-0.5" />
-            )}
-          </button>
-        </div>
-      )}
-
       {/* Centralized Bottom Chat Input Bar */}
       <div className="p-4 border-t border-onedark-borderSubtle bg-onedark-darker/90">
-        <div className="w-full max-w-3xl lg:max-w-4xl xl:max-w-5xl mx-auto">
+        <div className={`w-full ${contentMaxWidth} mx-auto`}>
           <form onSubmit={handleSubmit} className="flex flex-col space-y-2">
             <div className="flex items-center space-x-2 bg-onedark-darker border border-onedark-border rounded-xl px-3 py-1.5 focus-within:border-onedark-accent/80 focus-within:ring-1 focus-within:ring-onedark-accent/20 transition-all shadow-inner">
               <textarea
@@ -1093,9 +1062,25 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               )}
             </div>
             <div className="flex items-center justify-between px-1 text-[11px] text-onedark-muted font-mono select-none">
-              <span>
-                <kbd className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-border text-onedark-fgBright text-[10px]">Enter ↵</kbd> to send · <kbd className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-border text-onedark-fgBright text-[10px]">Shift + Enter</kbd> for newline
-              </span>
+              <div className="flex items-center space-x-3">
+                <span>
+                  <kbd className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-border text-onedark-fgBright text-[10px]">Enter ↵</kbd> to send · <kbd className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-border text-onedark-fgBright text-[10px]">Shift + Enter</kbd> for newline
+                </span>
+                {showScrollBottomBtn && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      isAutoScrollEnabledRef.current = true;
+                      setShowScrollBottomBtn(false);
+                      scrollToBottom(true);
+                    }}
+                    className="text-onedark-accent hover:text-onedark-fgBright transition-colors flex items-center space-x-1 cursor-pointer font-medium"
+                  >
+                    <ChevronDown className="w-3 h-3" />
+                    <span>Jump to latest</span>
+                  </button>
+                )}
+              </div>
               {isRunning && (
                 <span className="text-onedark-yellow flex items-center space-x-1">
                   <kbd className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-border text-onedark-yellow text-[10px]">Esc</kbd>

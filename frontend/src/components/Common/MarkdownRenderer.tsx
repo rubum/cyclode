@@ -1,10 +1,87 @@
 import React, { useState } from 'react';
 import { Copy, Check, Info, AlertTriangle, AlertCircle, Sparkles, Flame } from 'lucide-react';
+import Prism from 'prismjs';
+import 'prismjs/components/prism-javascript';
+import 'prismjs/components/prism-typescript';
+import 'prismjs/components/prism-jsx';
+import 'prismjs/components/prism-tsx';
+import 'prismjs/components/prism-python';
+import 'prismjs/components/prism-bash';
+import 'prismjs/components/prism-json';
+import 'prismjs/components/prism-yaml';
+import 'prismjs/components/prism-sql';
+import 'prismjs/components/prism-diff';
+import 'prismjs/components/prism-markdown';
+import 'prismjs/components/prism-css';
+import 'prismjs/components/prism-markup';
 
 interface MarkdownRendererProps {
   content: string;
   className?: string;
   isStreaming?: boolean;
+}
+
+function getHighlightedHtml(code: string, lang: string): string {
+  const normLang = (lang || '').toLowerCase().trim();
+  let grammar: Prism.Grammar | undefined;
+  let prismLang = 'text';
+
+  if (normLang === 'ts' || normLang === 'typescript') {
+    grammar = Prism.languages.typescript;
+    prismLang = 'typescript';
+  } else if (normLang === 'js' || normLang === 'javascript') {
+    grammar = Prism.languages.javascript;
+    prismLang = 'javascript';
+  } else if (normLang === 'tsx') {
+    grammar = Prism.languages.tsx;
+    prismLang = 'tsx';
+  } else if (normLang === 'jsx') {
+    grammar = Prism.languages.jsx;
+    prismLang = 'jsx';
+  } else if (normLang === 'py' || normLang === 'python') {
+    grammar = Prism.languages.python;
+    prismLang = 'python';
+  } else if (normLang === 'sh' || normLang === 'bash' || normLang === 'shell' || normLang === 'zsh') {
+    grammar = Prism.languages.bash;
+    prismLang = 'bash';
+  } else if (normLang === 'json') {
+    grammar = Prism.languages.json;
+    prismLang = 'json';
+  } else if (normLang === 'yaml' || normLang === 'yml') {
+    grammar = Prism.languages.yaml;
+    prismLang = 'yaml';
+  } else if (normLang === 'sql') {
+    grammar = Prism.languages.sql;
+    prismLang = 'sql';
+  } else if (normLang === 'diff') {
+    grammar = Prism.languages.diff;
+    prismLang = 'diff';
+  } else if (normLang === 'md' || normLang === 'markdown') {
+    grammar = Prism.languages.markdown;
+    prismLang = 'markdown';
+  } else if (normLang === 'css') {
+    grammar = Prism.languages.css;
+    prismLang = 'css';
+  } else if (normLang === 'html' || normLang === 'xml' || normLang === 'svg' || normLang === 'markup') {
+    grammar = Prism.languages.markup;
+    prismLang = 'markup';
+  } else if (Prism.languages[normLang]) {
+    grammar = Prism.languages[normLang];
+    prismLang = normLang;
+  }
+
+  if (grammar) {
+    try {
+      return Prism.highlight(code, grammar, prismLang);
+    } catch {
+      // fallback to escaped html
+    }
+  }
+
+  return code
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className = '', isStreaming = false }) => {
@@ -58,14 +135,17 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
               </div>
               <div className="flex font-mono text-[12.5px] leading-relaxed overflow-x-auto selection:bg-onedark-accent/30 p-3.5">
                 {codeLines.length > 2 && (
-                  <div className="select-none text-onedark-muted/60 text-right pr-3.5 border-r border-onedark-borderSubtle font-mono text-xs">
+                  <div className="select-none text-onedark-muted/50 text-right pr-3.5 border-r border-onedark-borderSubtle font-mono text-xs flex-shrink-0">
                     {codeLines.map((_, i) => (
                       <div key={i}>{i + 1}</div>
                     ))}
                   </div>
                 )}
-                <pre className={`text-onedark-fgBright font-mono ${codeLines.length > 2 ? 'pl-3.5' : ''}`}>
-                  <code>{code}</code>
+                <pre className={`text-onedark-fg font-mono ${codeLines.length > 2 ? 'pl-3.5' : ''} flex-1 overflow-x-auto`}>
+                  <code
+                    className={`language-${language || 'text'} font-mono leading-relaxed`}
+                    dangerouslySetInnerHTML={{ __html: getHighlightedHtml(code, language) }}
+                  />
                 </pre>
               </div>
             </div>
@@ -273,27 +353,45 @@ function parseBlocks(text: string): BlockItem[] {
   const blocks: BlockItem[] = [];
   let currentList: { type: 'ul' | 'ol'; items: string[] } | null = null;
   let currentTable: { headers: string[]; rows: string[][] } | null = null;
+  let currentParagraph: string[] = [];
+
+  const flushParagraph = () => {
+    if (currentParagraph.length > 0) {
+      blocks.push({ type: 'p', content: currentParagraph.join(' ') });
+      currentParagraph = [];
+    }
+  };
+
+  const flushList = () => {
+    if (currentList) {
+      blocks.push(currentList);
+      currentList = null;
+    }
+  };
+
+  const flushTable = () => {
+    if (currentTable) {
+      blocks.push({ type: 'table', tableHeaders: currentTable.headers, tableRows: currentTable.rows });
+      currentTable = null;
+    }
+  };
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const trimmed = line.trim();
 
     if (!trimmed) {
-      if (currentList) {
-        blocks.push(currentList);
-        currentList = null;
-      }
-      if (currentTable) {
-        blocks.push({ type: 'table', tableHeaders: currentTable.headers, tableRows: currentTable.rows });
-        currentTable = null;
-      }
+      flushParagraph();
+      flushList();
+      flushTable();
       continue;
     }
 
     // Horizontal Rule
     if (trimmed === '---' || trimmed === '***' || trimmed === '___') {
-      if (currentList) { blocks.push(currentList); currentList = null; }
-      if (currentTable) { blocks.push({ type: 'table', tableHeaders: currentTable.headers, tableRows: currentTable.rows }); currentTable = null; }
+      flushParagraph();
+      flushList();
+      flushTable();
       blocks.push({ type: 'hr' });
       continue;
     }
@@ -301,8 +399,9 @@ function parseBlocks(text: string): BlockItem[] {
     // GitHub Alert: > [!NOTE], > [!WARNING], > [!TIP]
     const alertMatch = trimmed.match(/^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(.*)$/i);
     if (alertMatch) {
-      if (currentList) { blocks.push(currentList); currentList = null; }
-      if (currentTable) { blocks.push({ type: 'table', tableHeaders: currentTable.headers, tableRows: currentTable.rows }); currentTable = null; }
+      flushParagraph();
+      flushList();
+      flushTable();
       const alertType = alertMatch[1].toUpperCase();
       let alertContent = alertMatch[2];
       // Gather subsequent blockquote lines
@@ -316,6 +415,8 @@ function parseBlocks(text: string): BlockItem[] {
 
     // Table Row: | a | b |
     if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+      flushParagraph();
+      flushList();
       const cells = trimmed.slice(1, -1).split('|').map(c => c.trim());
       // Check if it's separator row: | --- | --- |
       if (cells.every(c => /^:?-+:?$/.test(c))) {
@@ -328,14 +429,14 @@ function parseBlocks(text: string): BlockItem[] {
       }
       continue;
     } else if (currentTable) {
-      blocks.push({ type: 'table', tableHeaders: currentTable.headers, tableRows: currentTable.rows });
-      currentTable = null;
+      flushTable();
     }
 
     // Bullet list
     if (trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+      flushParagraph();
       if (!currentList || currentList.type !== 'ul') {
-        if (currentList) blocks.push(currentList);
+        flushList();
         currentList = { type: 'ul', items: [] };
       }
       currentList.items.push(trimmed.slice(2));
@@ -345,42 +446,47 @@ function parseBlocks(text: string): BlockItem[] {
     // Numbered list
     const numMatch = trimmed.match(/^(\d+)\.\s+(.*)$/);
     if (numMatch) {
+      flushParagraph();
       if (!currentList || currentList.type !== 'ol') {
-        if (currentList) blocks.push(currentList);
+        flushList();
         currentList = { type: 'ol', items: [] };
       }
       currentList.items.push(numMatch[2]);
       continue;
     }
 
-    // End list if ongoing
-    if (currentList) {
-      blocks.push(currentList);
-      currentList = null;
+    // End list if ongoing and moving to heading or blockquote
+    if (trimmed.startsWith('#') || trimmed.startsWith('> ')) {
+      flushParagraph();
+      flushList();
+
+      // Headings (longest prefix first)
+      if (trimmed.startsWith('###### ')) {
+        blocks.push({ type: 'h6', content: trimmed.slice(7) });
+      } else if (trimmed.startsWith('##### ')) {
+        blocks.push({ type: 'h5', content: trimmed.slice(6) });
+      } else if (trimmed.startsWith('#### ')) {
+        blocks.push({ type: 'h4', content: trimmed.slice(5) });
+      } else if (trimmed.startsWith('### ')) {
+        blocks.push({ type: 'h3', content: trimmed.slice(4) });
+      } else if (trimmed.startsWith('## ')) {
+        blocks.push({ type: 'h2', content: trimmed.slice(3) });
+      } else if (trimmed.startsWith('# ')) {
+        blocks.push({ type: 'h1', content: trimmed.slice(2) });
+      } else if (trimmed.startsWith('> ')) {
+        blocks.push({ type: 'blockquote', content: trimmed.slice(2) });
+      }
+      continue;
     }
 
-    // Headings (longest prefix first)
-    if (trimmed.startsWith('###### ')) {
-      blocks.push({ type: 'h6', content: trimmed.slice(7) });
-    } else if (trimmed.startsWith('##### ')) {
-      blocks.push({ type: 'h5', content: trimmed.slice(6) });
-    } else if (trimmed.startsWith('#### ')) {
-      blocks.push({ type: 'h4', content: trimmed.slice(5) });
-    } else if (trimmed.startsWith('### ')) {
-      blocks.push({ type: 'h3', content: trimmed.slice(4) });
-    } else if (trimmed.startsWith('## ')) {
-      blocks.push({ type: 'h2', content: trimmed.slice(3) });
-    } else if (trimmed.startsWith('# ')) {
-      blocks.push({ type: 'h1', content: trimmed.slice(2) });
-    } else if (trimmed.startsWith('> ')) {
-      blocks.push({ type: 'blockquote', content: trimmed.slice(2) });
-    } else {
-      blocks.push({ type: 'p', content: line });
-    }
+    // Standard paragraph line
+    flushList();
+    currentParagraph.push(line);
   }
 
-  if (currentList) blocks.push(currentList);
-  if (currentTable) blocks.push({ type: 'table', tableHeaders: currentTable.headers, tableRows: currentTable.rows });
+  flushParagraph();
+  flushList();
+  flushTable();
 
   return blocks;
 }
