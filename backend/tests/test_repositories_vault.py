@@ -120,3 +120,41 @@ async def test_repository_architecture_persistence_and_retrieval():
         del_res = await client.delete(f"/api/repositories/{repo_id}")
         assert del_res.status_code == 200
 
+
+@pytest.mark.asyncio
+async def test_clear_all_repositories():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Create two test repos
+        await client.post("/api/repositories", json={
+            "full_name": "test-org/repo-alpha",
+            "default_branch": "main"
+        })
+        await client.post("/api/repositories", json={
+            "full_name": "test-org/repo-beta",
+            "default_branch": "main"
+        })
+
+        # 2. Verify repos exist
+        list_res = await client.get("/api/repositories")
+        assert list_res.status_code == 200
+        assert len(list_res.json()) >= 2
+
+        # 3. Call bulk clear all
+        clear_res = await client.delete("/api/repositories")
+        assert clear_res.status_code == 200
+        clear_data = clear_res.json()
+        assert clear_data["ok"] is True
+        assert clear_data["count"] >= 2
+        assert "Remote repositories were not modified" in clear_data["message"]
+
+        # 4. Verify list is now empty
+        empty_res = await client.get("/api/repositories")
+        assert empty_res.status_code == 200
+        assert len(empty_res.json()) == 0
+
+        # 5. Discover default templates again
+        disc_res = await client.post("/api/repositories/discover")
+        assert disc_res.status_code == 200
+        assert disc_res.json()["count"] >= 1
+

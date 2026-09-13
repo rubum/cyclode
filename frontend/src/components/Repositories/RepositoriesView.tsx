@@ -27,6 +27,7 @@ import {
   ArrowLeft
 } from 'lucide-react';
 import { RepositoryConfig } from '../../types';
+import { ConfirmModal } from '../Common/ConfirmModal';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -45,6 +46,17 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
   const [loading, setLoading] = useState(true);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingRepo, setEditingRepo] = useState<RepositoryConfig | null>(null);
+
+  // Deletion Confirmation Modal State
+  const [deleteModalState, setDeleteModalState] = useState<{
+    isOpen: boolean;
+    type: 'single' | 'all';
+    repo?: RepositoryConfig;
+    isDeleting?: boolean;
+  }>({
+    isOpen: false,
+    type: 'single',
+  });
 
   // Search, Status Filters & View Mode
   const [searchQuery, setSearchQuery] = useState('');
@@ -218,17 +230,46 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
     }
   };
 
-  const handleDeleteRepository = async (repoId: string) => {
-    if (!window.confirm('Remove this repository configuration and stored credentials from vault?')) return;
+  const handlePromptDeleteRepo = (repo: RepositoryConfig) => {
+    setDeleteModalState({
+      isOpen: true,
+      type: 'single',
+      repo,
+      isDeleting: false,
+    });
+  };
+
+  const handlePromptClearAll = () => {
+    setDeleteModalState({
+      isOpen: true,
+      type: 'all',
+      isDeleting: false,
+    });
+  };
+
+  const handleConfirmDelete = async () => {
+    setDeleteModalState((prev) => ({ ...prev, isDeleting: true }));
     try {
-      const res = await fetch(`${API_BASE}/api/repositories/${repoId}`, {
-        method: 'DELETE',
-      });
-      if (res.ok) {
-        setRepositories((prev) => prev.filter((r) => r.id !== repoId));
+      if (deleteModalState.type === 'single' && deleteModalState.repo) {
+        const repoId = deleteModalState.repo.id;
+        const res = await fetch(`${API_BASE}/api/repositories/${repoId}`, {
+          method: 'DELETE',
+        });
+        if (res.ok) {
+          setRepositories((prev) => prev.filter((r) => r.id !== repoId));
+        }
+      } else if (deleteModalState.type === 'all') {
+        const res = await fetch(`${API_BASE}/api/repositories`, {
+          method: 'DELETE',
+        });
+        if (res.ok) {
+          setRepositories([]);
+        }
       }
     } catch (err) {
-      console.error('Error deleting repo:', err);
+      console.error('Error deleting repo(s):', err);
+    } finally {
+      setDeleteModalState({ isOpen: false, type: 'single' });
     }
   };
 
@@ -399,16 +440,27 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
             <button
               onClick={handleDiscoverRepositories}
               disabled={discovering}
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-onedark-darker hover:bg-onedark-surface text-onedark-fgBright rounded-lg text-xs font-medium transition-all border border-onedark-border disabled:opacity-50"
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-onedark-darker hover:bg-onedark-surface text-onedark-fgBright rounded-lg text-xs font-medium transition-all border border-onedark-border disabled:opacity-50 cursor-pointer"
               title="Scan task history and environment to auto-register repositories"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${discovering ? 'animate-spin text-onedark-accent' : 'text-onedark-accent'}`} />
               <span>{discovering ? 'Discovering...' : 'Discover Workspaces'}</span>
             </button>
 
+            {repositories.length > 0 && (
+              <button
+                onClick={handlePromptClearAll}
+                className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-onedark-darker hover:bg-onedark-red/15 text-onedark-muted hover:text-onedark-red rounded-lg text-xs font-medium transition-all border border-onedark-borderSubtle hover:border-onedark-red/30 cursor-pointer"
+                title="Clear all repository configurations and credentials from local Vault"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Clear All</span>
+              </button>
+            )}
+
             <button
               onClick={handleOpenAdd}
-              className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95"
+              className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
               <span>Connect Repository</span>
@@ -760,9 +812,9 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
                           </button>
 
                           <button
-                            onClick={() => handleDeleteRepository(repo.id)}
-                            className="p-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-red/20 text-onedark-fg/70 hover:text-onedark-red border border-onedark-border transition-colors"
-                            title="Delete Repo"
+                            onClick={() => handlePromptDeleteRepo(repo)}
+                            className="p-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-red/20 text-onedark-fg/70 hover:text-onedark-red border border-onedark-border transition-colors cursor-pointer"
+                            title="Delete Repo from Vault"
                           >
                             <Trash2 className="w-3 h-3" />
                           </button>
@@ -939,8 +991,8 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
                       </button>
 
                       <button
-                        onClick={() => handleDeleteRepository(repo.id)}
-                        className="p-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-red/20 text-onedark-fg/60 hover:text-onedark-red transition-colors text-xs border border-onedark-border"
+                        onClick={() => handlePromptDeleteRepo(repo)}
+                        className="p-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-red/20 text-onedark-fg/60 hover:text-onedark-red transition-colors text-xs border border-onedark-border cursor-pointer"
                         title="Delete from Vault"
                       >
                         <Trash2 className="w-3 h-3" />
@@ -1070,9 +1122,52 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+      {/* Confirm Deletion Modal */}
+      <ConfirmModal
+        isOpen={deleteModalState.isOpen}
+        title={
+          deleteModalState.type === 'single'
+            ? `Delete '${deleteModalState.repo?.name || 'Repository'}' from Vault`
+            : 'Clear All Repositories from Vault'
+        }
+        description={
+          deleteModalState.type === 'single'
+            ? `Remove '${deleteModalState.repo?.full_name}' configuration and stored credentials from Adappty's local database?`
+            : `Are you sure you want to remove all ${repositories.length} repository configurations and encrypted access tokens from Adappty's local Vault?`
+        }
+        confirmText={
+          deleteModalState.type === 'single'
+            ? 'Delete Repository'
+            : 'Clear All Repositories'
+        }
+        cancelText="Cancel"
+        variant="danger"
+        requireMatchText={deleteModalState.type === 'all' ? 'CLEAR ALL' : undefined}
+        matchPlaceholder='Type "CLEAR ALL" to confirm'
+        isLoading={deleteModalState.isDeleting}
+        impactItems={
+          deleteModalState.type === 'single'
+            ? [
+                `Removes '${deleteModalState.repo?.full_name}' metadata and cached manifests from local database`,
+                'Purges stored AES-256 encrypted access token (PAT) from Vault',
+                'Local automated listeners targeting this repository will stop triggering',
+              ]
+            : [
+                `Wipes all ${repositories.length} repository records from local SQLite database`,
+                'Permanently purges all encrypted tokens (PATs) and custom build commands',
+                'Disables local webhook listener bindings for all repositories',
+              ]
+        }
+        safeItems={[
+          'Remote GitHub/GitLab repositories and codebases are NEVER modified',
+          'No remote commits, branches, or pull requests will be deleted',
+          ...(deleteModalState.type === 'all'
+            ? ['Default templates can be restored anytime using "Discover Workspaces"']
+            : []),
+        ]}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setDeleteModalState({ isOpen: false, type: 'single' })}
+      />
     </div>
   );
 };

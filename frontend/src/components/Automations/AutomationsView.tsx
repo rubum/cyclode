@@ -26,6 +26,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { AutomationRule } from '../../types';
+import { ConfirmModal } from '../Common/ConfirmModal';
 
 interface AutomationsViewProps {
   automations: AutomationRule[];
@@ -49,6 +50,7 @@ export const AutomationsView: React.FC<AutomationsViewProps> = ({
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [isBannerCollapsed, setIsBannerCollapsed] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState<boolean>(false);
+  const [ruleToDelete, setRuleToDelete] = useState<AutomationRule | null>(null);
 
   const [newRule, setNewRule] = useState<Partial<AutomationRule>>({
     name: '',
@@ -385,8 +387,8 @@ export const AutomationsView: React.FC<AutomationsViewProps> = ({
                           </button>
                           {onDeleteRule && (
                             <button
-                              onClick={() => onDeleteRule(rule.id)}
-                              className="p-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-red/20 text-onedark-fg/70 hover:text-onedark-red border border-onedark-border transition-colors"
+                              onClick={() => setRuleToDelete(rule)}
+                              className="p-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-red/20 text-onedark-fg/70 hover:text-onedark-red border border-onedark-border transition-colors cursor-pointer"
                               title="Delete rule"
                             >
                               <Trash2 className="w-3 h-3" />
@@ -484,11 +486,11 @@ export const AutomationsView: React.FC<AutomationsViewProps> = ({
 
                     {onDeleteRule && (
                       <button
-                        onClick={() => onDeleteRule(rule.id)}
-                        className="p-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-red/20 text-onedark-fg/60 hover:text-onedark-red border border-onedark-border transition-colors"
+                        onClick={() => setRuleToDelete(rule)}
+                        className="p-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-red/20 text-onedark-fg/60 hover:text-onedark-red border border-onedark-border transition-colors cursor-pointer"
                         title="Delete Rule"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-3 h-3" />
                       </button>
                     )}
                   </div>
@@ -630,6 +632,30 @@ export const AutomationsView: React.FC<AutomationsViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Delete Rule Confirm Modal */}
+      <ConfirmModal
+        isOpen={!!ruleToDelete}
+        title="Delete Automation Rule"
+        description={`Are you sure you want to delete rule "${ruleToDelete?.name}"?`}
+        confirmText="Delete Rule"
+        cancelText="Cancel"
+        variant="danger"
+        impactItems={[
+          `Inbound events for '${ruleToDelete?.source} • ${ruleToDelete?.event_type}' will no longer trigger this automated routine`,
+          'Target repo filter setting will be removed',
+        ]}
+        safeItems={[
+          'Remote repositories and codebases are completely unaffected',
+        ]}
+        onConfirm={async () => {
+          if (ruleToDelete && onDeleteRule) {
+            await onDeleteRule(ruleToDelete.id);
+            setRuleToDelete(null);
+          }
+        }}
+        onCancel={() => setRuleToDelete(null)}
+      />
     </div>
   );
 };

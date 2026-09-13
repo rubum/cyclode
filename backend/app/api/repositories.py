@@ -169,6 +169,29 @@ async def update_repository(repo_id: str, req: RepositoryUpdateRequest, db: Asyn
     return {"ok": True, "repository": serialize_repo(repo), "validation": test_res}
 
 
+@router.delete("")
+async def clear_all_repositories(db: AsyncSession = Depends(get_db)):
+    """
+    Clears all repository configurations and credentials strictly from Adappty's local vault database.
+    Does NOT modify, alter, or touch any remote repositories, GitHub branches, or code.
+    """
+    stmt = select(RepositoryConfigModel)
+    res = await db.execute(stmt)
+    repos = res.scalars().all()
+    count = len(repos)
+
+    del_stmt = delete(RepositoryConfigModel)
+    await db.execute(del_stmt)
+    await db.commit()
+
+    logger.info(f"Cleared {count} repository configurations from local Adappty Vault.")
+    return {
+        "ok": True,
+        "count": count,
+        "message": f"Successfully cleared {count} repository configuration(s) from local Adappty Vault. Remote repositories were not modified."
+    }
+
+
 @router.delete("/{repo_id}")
 async def delete_repository(repo_id: str, db: AsyncSession = Depends(get_db)):
     stmt = select(RepositoryConfigModel).where(RepositoryConfigModel.id == repo_id)

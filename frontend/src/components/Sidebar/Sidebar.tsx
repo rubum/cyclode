@@ -1,3 +1,4 @@
+import React, { useState } from 'react';
 import { 
   Plus, 
   Layers, 
@@ -5,7 +6,7 @@ import {
   Inbox, 
   FlaskConical, 
   ShieldCheck, 
-  PlugZap,
+  PlugZap, 
   Sparkles,
   ChevronRight,
   Clock,
@@ -16,6 +17,7 @@ import {
 } from 'lucide-react';
 import { Task } from '../../types';
 import { useWebSocket } from '../../contexts/WebSocketContext';
+import { ConfirmModal } from '../Common/ConfirmModal';
 
 interface SidebarProps {
   activeView: string;
@@ -45,6 +47,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleSidebar,
 }) => {
   const { isConnected } = useWebSocket();
+  const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
+  const [isClearAllOpen, setIsClearAllOpen] = useState(false);
   const navItems = [
     { id: 'chat', label: 'Workstation / Chat', icon: MessageSquare },
     { id: 'repositories', label: 'Repositories & Vault', icon: FolderGit2, iconClass: 'text-onedark-folder' },
@@ -130,8 +134,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
           {tasks.length > 0 && onClearAllTasks && (
             <button
-              onClick={onClearAllTasks}
-              className="text-[10px] font-normal text-onedark-muted hover:text-onedark-red transition-colors capitalize tracking-normal"
+              onClick={() => setIsClearAllOpen(true)}
+              className="text-[10px] font-normal text-onedark-muted hover:text-onedark-red transition-colors capitalize tracking-normal cursor-pointer"
               title="Clear all recent sessions"
             >
               clear all
@@ -168,9 +172,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        onDeleteTask(task.id);
+                        setTaskToDelete(task);
                       }}
-                      className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-onedark-red/20 text-onedark-muted hover:text-onedark-red transition-all flex-shrink-0"
+                      className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-onedark-red/20 text-onedark-muted hover:text-onedark-red transition-all flex-shrink-0 cursor-pointer"
                       title="Delete session"
                     >
                       <Trash2 className="w-3 h-3" />
@@ -235,6 +239,55 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
       </div>
+
+      {/* Delete Single Task Confirm Modal */}
+      <ConfirmModal
+        isOpen={!!taskToDelete}
+        title="Delete Agent Session"
+        description={`Are you sure you want to delete session "${taskToDelete?.title || 'Untitled'}"?`}
+        confirmText="Delete Session"
+        cancelText="Cancel"
+        variant="danger"
+        impactItems={[
+          'Removes chat conversation history and agent thought logs',
+          'Ephemeral workspace scratch directory will be cleaned up',
+        ]}
+        safeItems={[
+          'Remote repositories and code branches are completely untouched',
+        ]}
+        onConfirm={() => {
+          if (taskToDelete && onDeleteTask) {
+            onDeleteTask(taskToDelete.id);
+            setTaskToDelete(null);
+          }
+        }}
+        onCancel={() => setTaskToDelete(null)}
+      />
+
+      {/* Clear All Tasks Confirm Modal */}
+      <ConfirmModal
+        isOpen={isClearAllOpen}
+        title="Clear All Recent Sessions"
+        description={`Are you sure you want to remove all ${tasks.length} recent sessions from your workstation history?`}
+        confirmText="Clear All Sessions"
+        cancelText="Cancel"
+        variant="danger"
+        impactItems={[
+          `Clears conversation records and logs for ${tasks.length} agent sessions`,
+          'Active agent runs will be stopped',
+        ]}
+        safeItems={[
+          'Your repository configurations and Vault credentials remain saved',
+          'Remote codebases are NEVER modified',
+        ]}
+        onConfirm={() => {
+          if (onClearAllTasks) {
+            onClearAllTasks();
+          }
+          setIsClearAllOpen(false);
+        }}
+        onCancel={() => setIsClearAllOpen(false)}
+      />
     </div>
   );
 };
