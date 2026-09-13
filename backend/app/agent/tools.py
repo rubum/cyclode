@@ -179,7 +179,9 @@ class WorkspaceTools:
                             is_endpoint = True
 
                 args = [a.arg for a in node.args.args]
-                sig = f"{"async " if isinstance(node, ast.AsyncFunctionDef) else ""}def {node.name}({", ".join(args)})"
+                prefix = "async " if isinstance(node, ast.AsyncFunctionDef) else ""
+                args_str = ", ".join(args)
+                sig = f"{prefix}def {node.name}({args_str})"
                 doc = ast.get_docstring(node)
                 first_doc_line = doc.split("\n")[0].strip() if doc else ""
 
@@ -202,7 +204,8 @@ class WorkspaceTools:
 
                 doc = ast.get_docstring(node)
                 first_doc_line = doc.split("\n")[0].strip() if doc else ""
-                sig = f"class {node.name}({", ".join(bases)})" if bases else f"class {node.name}"
+                bases_str = ", ".join(bases)
+                sig = f"class {node.name}({bases_str})" if bases else f"class {node.name}"
 
                 symbols.append({
                     "name": node.name,
@@ -257,12 +260,13 @@ class WorkspaceTools:
             m_type = type_pattern.match(line)
             if m_type:
                 kind, name, extends_clause = m_type.group(1), m_type.group(2), m_type.group(3) or ""
+                ext_str = f" extends {extends_clause}" if extends_clause else ""
                 symbols.append({
                     "name": name,
                     "type": kind,
                     "file_path": file_path,
                     "line_number": idx,
-                    "signature": f"{kind} {name}{' extends ' + extends_clause if extends_clause else ''}",
+                    "signature": f"{kind} {name}{ext_str}",
                     "docstring": ""
                 })
                 continue
