@@ -59,6 +59,8 @@ interface SandboxInfo {
   task_id: string;
   sandbox_status: string;
   workspace_path: string;
+  host_path?: string;
+  container_path?: string;
   exists_on_disk: boolean;
   git_branch?: string;
   repo_url?: string;
@@ -186,8 +188,10 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
     }
   };
 
-  const wsPath = data?.workspace_path || task.workspace_path || '';
-  const cliCommand = data?.cli_command || (wsPath ? `docker exec -it adappty-backend bash -c "cd ${wsPath} && exec bash"` : '');
+  const hostPath = data?.host_path || data?.workspace_path || task.workspace_path || '';
+  const containerPath = data?.container_path || (data?.workspace_path?.startsWith('/workspaces') ? data.workspace_path : `/workspaces/sandbox-${task.id}`);
+  const wsPath = hostPath || containerPath;
+  const cliCommand = data?.cli_command || (containerPath ? `docker exec -it adappty-backend bash -c "cd ${containerPath} && exec bash"` : '');
   const repoUrl = data?.repo_url || data?.git_status?.repo_url || task.repo_url || '';
   const gitBranch = data?.git_status?.branch || data?.git_branch || task.git_branch || 'main';
 
@@ -278,8 +282,11 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
 
                 <span className="text-onedark-muted/50 text-[11px]">•</span>
 
-                <span className="text-onedark-muted truncate text-[11px] max-w-[280px] sm:max-w-md" title={wsPath}>
-                  {wsPath}
+                <span
+                  className="text-onedark-muted truncate text-[11px] max-w-[280px] sm:max-w-md"
+                  title={`Host Path: ${hostPath}\nContainer Path: ${containerPath}`}
+                >
+                  {hostPath || containerPath}
                 </span>
 
                 <span className="text-onedark-muted/50 text-[11px]">•</span>
@@ -304,18 +311,33 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
                 Quick Actions:
               </span>
 
-              {wsPath && (
+              {hostPath && (
                 <button
-                  onClick={() => handleCopy(wsPath, 'ws_path')}
+                  onClick={() => handleCopy(hostPath, 'host_path')}
                   className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright border border-onedark-borderSubtle text-[11px] font-mono transition-all active:scale-95 cursor-pointer shadow-xs"
-                  title={`Copy: ${wsPath}`}
+                  title={`Copy Host Full Path (Mac / Terminal / IDE): ${hostPath}`}
                 >
-                  {copiedKey === 'ws_path' ? (
+                  {copiedKey === 'host_path' ? (
                     <Check className="w-3.5 h-3.5 text-onedark-green" />
                   ) : (
                     <Copy className="w-3.5 h-3.5 text-onedark-accent" />
                   )}
-                  <span>Copy Mount Path</span>
+                  <span>Copy Host Path</span>
+                </button>
+              )}
+
+              {containerPath && (
+                <button
+                  onClick={() => handleCopy(containerPath, 'container_path')}
+                  className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fg border border-onedark-borderSubtle text-[11px] font-mono transition-all active:scale-95 cursor-pointer shadow-xs"
+                  title={`Copy Container Mount Path (Docker internal): ${containerPath}`}
+                >
+                  {copiedKey === 'container_path' ? (
+                    <Check className="w-3.5 h-3.5 text-onedark-green" />
+                  ) : (
+                    <HardDrive className="w-3.5 h-3.5 text-onedark-blue" />
+                  )}
+                  <span>Copy Container Path</span>
                 </button>
               )}
 
@@ -409,8 +431,36 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
                       Mounted
                     </span>
                   </div>
-                  <div className="bg-onedark-darker/80 p-2 rounded-lg border border-onedark-borderSubtle/60 text-xs text-onedark-fg select-all break-all leading-relaxed">
-                    {wsPath || 'Not provisioned'}
+                  <div className="space-y-1.5">
+                    <div className="bg-onedark-darker/80 p-2 rounded-lg border border-onedark-borderSubtle/60 text-[11px] space-y-1">
+                      <div className="flex items-center justify-between text-onedark-muted text-[10px]">
+                        <span className="font-semibold text-onedark-fgBright">Host Machine Path</span>
+                        <button
+                          onClick={() => handleCopy(hostPath, 'card_host')}
+                          className="text-onedark-muted hover:text-onedark-fgBright p-0.5 transition-colors cursor-pointer"
+                          title="Copy Host Path"
+                        >
+                          {copiedKey === 'card_host' ? <Check className="w-3 h-3 text-onedark-green" /> : <Copy className="w-3 h-3" />}
+                        </button>
+                      </div>
+                      <div className="text-onedark-fg select-all break-all font-mono leading-tight">
+                        {hostPath || 'Not provisioned'}
+                      </div>
+                    </div>
+                    {containerPath && containerPath !== hostPath && (
+                      <div className="bg-onedark-darker/50 px-2 py-1.5 rounded-lg border border-onedark-borderSubtle/40 text-[10.5px] flex items-center justify-between">
+                        <span className="text-onedark-muted truncate mr-2" title={`Container: ${containerPath}`}>
+                          Container: <span className="text-onedark-fg font-mono">{containerPath}</span>
+                        </span>
+                        <button
+                          onClick={() => handleCopy(containerPath, 'card_container')}
+                          className="text-onedark-muted hover:text-onedark-fgBright p-0.5 transition-colors cursor-pointer flex-shrink-0"
+                          title="Copy Container Path"
+                        >
+                          {copiedKey === 'card_container' ? <Check className="w-3 h-3 text-onedark-green" /> : <Copy className="w-3 h-3" />}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
 

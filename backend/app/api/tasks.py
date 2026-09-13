@@ -435,12 +435,25 @@ async def get_task_sandbox_info(task_id: str, db: AsyncSession = Depends(get_db)
     except Exception:
         pass
 
-    cli_command = f'docker exec -it adappty-backend bash -c "cd {ws_path} && exec bash"' if ws_path else ""
+    container_path = str(ws_path) if ws_path else ""
+    host_path = container_path
+    if ws_path:
+        host_root = settings.HOST_WORKSPACE_ROOT or os.environ.get("HOST_WORKSPACE_ROOT")
+        if host_root:
+            try:
+                rel = ws_path.relative_to(settings.WORKSPACE_ROOT)
+                host_path = str(Path(host_root) / rel)
+            except Exception:
+                host_path = f"{host_root.rstrip('/')}/{ws_path.name}"
+
+    cli_command = f'docker exec -it adappty-backend bash -c "cd {container_path} && exec bash"' if container_path else ""
 
     return {
         "task_id": task.id,
         "sandbox_status": task.sandbox_status or ("PROVISIONING" if task.status == "INITIALIZING" else "ACTIVE"),
-        "workspace_path": str(ws_path) if ws_path else "",
+        "workspace_path": host_path or container_path,
+        "host_path": host_path or container_path,
+        "container_path": container_path,
         "exists_on_disk": exists,
         "git_branch": task.git_branch,
         "repo_url": task.repo_url,

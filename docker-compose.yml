@@ -19,6 +19,7 @@ services:
       - ENVIRONMENT=development
       - DEBUG=true
       - WORKSPACE_ROOT=/workspaces
+      - HOST_WORKSPACE_ROOT=${HOST_WORKSPACE_ROOT:-${PWD}/workspaces}
       - DATABASE_URL=sqlite+aiosqlite:////data/adappty.db
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}

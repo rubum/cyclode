@@ -28,6 +28,7 @@ class Settings(BaseSettings):
 
     # Workspace and DB
     WORKSPACE_ROOT: str = "/workspaces"
+    HOST_WORKSPACE_ROOT: Optional[str] = None
     DATABASE_URL: str = "sqlite+aiosqlite:////data/adappty.db"
     STATIC_DIR: Optional[str] = None
 
