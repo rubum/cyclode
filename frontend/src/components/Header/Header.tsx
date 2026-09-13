@@ -10,6 +10,7 @@ import {
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { Task } from '../../types';
 import { ThemeColorPicker } from '../Theme/ThemeColorPicker';
+import { CyclodeIcon } from '../Common/CyclodeIcon';
 
 interface HeaderProps {
   activeTask: Task | null;
@@ -42,10 +43,8 @@ export const Header: React.FC<HeaderProps> = ({
       {/* Left: Brand & Sidebar Toggle & Repo Breadcrumb */}
       <div className="flex items-center space-x-2.5 min-w-0">
         <div className="flex items-center space-x-2 flex-shrink-0">
-          <div className="w-5 h-5 rounded bg-onedark-accent flex items-center justify-center shadow-sm">
-            <span className="text-[11px] font-black text-onedark-darker">A</span>
-          </div>
-          <span className="font-semibold text-xs tracking-tight text-onedark-fgBright">Adappty</span>
+          <CyclodeIcon className="w-6 h-6 flex-shrink-0" />
+          <span className="font-bold text-[14px] tracking-tight text-onedark-fgBright font-sans">Cyclode</span>
         </div>
 
         {onToggleSidebar && (

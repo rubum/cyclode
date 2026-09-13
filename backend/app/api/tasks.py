@@ -21,6 +21,10 @@ class CreateTaskRequest(BaseModel):
     model_name: Optional[str] = None
 
 
+class UpdateTaskTitleRequest(BaseModel):
+    title: str
+
+
 class UserMessageRequest(BaseModel):
     content: str
 
@@ -103,6 +107,7 @@ async def get_task_details(task_id: str, db: AsyncSession = Depends(get_db)):
         "id": task.id,
         "session_key": task.session_key,
         "title": task.title,
+        "custom_title": getattr(task, "custom_title", False),
         "description": task.description,
         "persona": task.persona,
         "model_name": task.model_name,
@@ -125,6 +130,36 @@ async def get_task_details(task_id: str, db: AsyncSession = Depends(get_db)):
         "approvals": task.approvals,
         "diffs": task.diffs
     }
+
+
+@router.patch("/{task_id}/title")
+async def update_task_title(
+    task_id: str,
+    req: UpdateTaskTitleRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    result = await db.execute(stmt)
+    task = result.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    clean_title = req.title.strip()
+    if not clean_title:
+        raise HTTPException(status_code=400, detail="Title cannot be empty")
+
+    task.title = clean_title
+    task.custom_title = True
+    await db.commit()
+
+    from app.api.websocket import ws_manager
+    await ws_manager.broadcast("TASK_TITLE_UPDATED", {
+        "task_id": task_id,
+        "title": clean_title,
+        "custom_title": True
+    })
+
+    return {"ok": True, "task_id": task_id, "title": clean_title, "custom_title": True}
 
 
 @router.post("/{task_id}/message")

@@ -83,6 +83,7 @@ export interface Task {
   session_key?: string;
   event_id?: string;
   title: string;
+  custom_title?: boolean;
   description: string;
   persona: string;
   model_name: string;

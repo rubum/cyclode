@@ -31,6 +31,9 @@ const MainApp: React.FC = () => {
   const [webhookEndpoints, setWebhookEndpoints] = useState<WebhookEndpoint[]>([]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [currentPreset, setCurrentPreset] = useState<'standard' | 'wide' | 'fullscreen'>('standard');
+  const [sessionPreviews, setSessionPreviews] = useState<Record<string, { url: string; title?: string } | null>>({});
+
+  const activePreviewTarget = activeTaskId ? (sessionPreviews[activeTaskId] || null) : null;
 
   const [isSandboxModalOpen, setIsSandboxModalOpen] = useState<boolean>(false);
 
@@ -145,6 +148,21 @@ const MainApp: React.FC = () => {
       if (activeTaskId === data.task_id) {
         fetchTaskDetails(data.task_id);
       }
+    });
+
+    const unsubTitleUpdated = subscribe('TASK_TITLE_UPDATED', (data: any) => {
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === data.task_id
+            ? { ...t, title: data.title, custom_title: data.custom_title }
+            : t
+        )
+      );
+      setActiveTaskDetails((prev) =>
+        prev && prev.id === data.task_id
+          ? { ...prev, title: data.title, custom_title: data.custom_title }
+          : prev
+      );
     });
 
     const unsubStreamStart = subscribe('STREAM_START', (data: any) => {
@@ -339,6 +357,7 @@ const MainApp: React.FC = () => {
     return () => {
       unsubTaskCreated();
       unsubStatus();
+      unsubTitleUpdated();
       unsubStreamStart();
       unsubStreamChunk();
       unsubStreamEnd();
@@ -362,11 +381,67 @@ const MainApp: React.FC = () => {
     setActiveView('chat');
   };
 
+  const getCleanInitialTitle = (text: string): string => {
+    if (!text || !text.trim()) return 'New Session';
+    let clean = text.replace(/https?:\/\/\S+/g, '').trim();
+    const ghMatch = text.match(/github\.com\/[A-Za-z0-9_.-]+\/([A-Za-z0-9_.-]+)/i);
+    const repo = ghMatch ? ghMatch[1].replace('.git', '') : null;
+    clean = clean.replace(/^[#*`>\-\s]+/, '');
+    clean = clean.replace(/^(?:please\s+)?(?:can\s+you\s+)?(?:could\s+you\s+)?(?:help\s+(?:me\s+)?(?:to\s+)?)?/i, '');
+    clean = clean.replace(/\s+/g, ' ').trim();
+    if (!clean && repo) return `Explore ${repo}`;
+    if (repo && !clean.toLowerCase().includes(repo.toLowerCase())) {
+      const words = clean.split(' ').slice(0, 4).join(' ');
+      clean = `${words} (${repo})`.trim();
+    } else {
+      clean = clean.split(' ').slice(0, 6).join(' ');
+    }
+    clean = clean.replace(/[:;,.\-?!]+$/, '').trim();
+    if (clean.length > 50) clean = clean.slice(0, 47).trim() + '...';
+    if (clean) clean = clean[0].toUpperCase() + clean.slice(1);
+    return clean || 'New Session';
+  };
+
+  const handleUpdateTaskTitle = async (taskId: string, newTitle: string) => {
+    const trimmed = newTitle.trim();
+    if (!trimmed) return;
+
+    // Optimistic update in UI
+    setTasks((prev) =>
+      prev.map((t) => (t.id === taskId ? { ...t, title: trimmed, custom_title: true } : t))
+    );
+    setActiveTaskDetails((prev) =>
+      prev && prev.id === taskId ? { ...prev, title: trimmed, custom_title: true } : prev
+    );
+
+    try {
+      const res = await fetch(`${API_BASE}/api/tasks/${taskId}/title`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: trimmed }),
+      });
+      if (!res.ok) {
+        fetchTasks();
+        if (activeTaskId === taskId) {
+          fetchTaskDetails(taskId);
+        }
+      }
+    } catch (err) {
+      console.error('Error updating task title:', err);
+      fetchTasks();
+      if (activeTaskId === taskId) {
+        fetchTaskDetails(taskId);
+      }
+    }
+  };
+
   const handleNewChatWithPrompt = async (prompt: string, persona: string = 'PairProgrammer') => {
     const tempId = `temp-${Date.now()}`;
+    const initialTitle = getCleanInitialTitle(prompt);
     const tempTask: Task = {
       id: tempId,
-      title: prompt.slice(0, 70),
+      title: initialTitle,
+      custom_title: false,
       description: prompt,
       persona: persona || 'PairProgrammer',
       model_name: 'gemini-2.5-flash',
@@ -399,7 +474,7 @@ const MainApp: React.FC = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          title: prompt.slice(0, 70),
+          title: initialTitle,
           description: prompt,
           persona: persona || 'PairProgrammer',
         }),
@@ -757,6 +832,11 @@ const MainApp: React.FC = () => {
           setActiveTaskId(null);
           setActiveTaskDetails(null);
         }
+        setSessionPreviews((prev) => {
+          const next = { ...prev };
+          delete next[taskId];
+          return next;
+        });
         fetchTasks();
       }
     } catch (err) {
@@ -772,6 +852,7 @@ const MainApp: React.FC = () => {
       if (res.ok) {
         setActiveTaskId(null);
         setActiveTaskDetails(null);
+        setSessionPreviews({});
         fetchTasks();
       }
     } catch (err) {
@@ -792,11 +873,13 @@ const MainApp: React.FC = () => {
             onEditMessage={handleEditMessage}
             onRetryTask={handleRetryTask}
             onStopTask={handleStopTask}
+            onUpdateTaskTitle={handleUpdateTaskTitle}
             isSidebarCollapsed={isSidebarCollapsed}
             onToggleSidebar={handleToggleSidebar}
             currentPreset={currentPreset}
             onSetPreset={handleSetPreset}
             onOpenSandboxModal={() => setIsSandboxModalOpen(true)}
+            onOpenPreview={handleOpenPreview}
           />
         );
       case 'automations':
@@ -892,6 +975,27 @@ const MainApp: React.FC = () => {
     setIsSidebarCollapsed((prev) => !prev);
   };
 
+  const handleOpenPreview = (url: string, title?: string) => {
+    if (activeTaskId) {
+      setSessionPreviews((prev) => ({
+        ...prev,
+        [activeTaskId]: { url, title },
+      }));
+    }
+    if (currentPreset === 'fullscreen') {
+      handleSetPreset('standard');
+    }
+  };
+
+  const handleClearPreview = () => {
+    if (activeTaskId) {
+      setSessionPreviews((prev) => ({
+        ...prev,
+        [activeTaskId]: null,
+      }));
+    }
+  };
+
   return (
     <div className="h-screen w-screen flex flex-col bg-onedark-bg text-onedark-fg font-sans overflow-hidden">
       <ResizablePanes
@@ -910,13 +1014,28 @@ const MainApp: React.FC = () => {
             onNewChat={handleNewChat}
             onDeleteTask={handleDeleteTask}
             onClearAllTasks={handleClearAllTasks}
+            onUpdateTaskTitle={handleUpdateTaskTitle}
             onOpenSettings={() => setActiveView('policies')}
             activeAgentsCount={tasks.filter((t) => t.status === 'RUNNING').length}
             onToggleSidebar={handleToggleSidebar}
           />
         }
         center={renderCenterView()}
-        auxiliary={<AuxiliaryPane task={activeTaskDetails} />}
+        auxiliary={
+          <AuxiliaryPane
+            task={activeTaskDetails}
+            previewTarget={activePreviewTarget}
+            onClearPreview={handleClearPreview}
+            onAskAboutRepo={(repoName) => {
+              setActiveView('chat');
+              handleSendMessage(`Can you analyze the architecture and features of the ${repoName} repository?`);
+            }}
+            onCloneToSession={(cloneUrl, repoName) => {
+              setActiveView('chat');
+              handleSendMessage(`Please clone and inspect the repository ${cloneUrl} into this session workspace.`);
+            }}
+          />
+        }
       />
 
       {isSandboxModalOpen && (activeTaskDetails || activeTask) && (

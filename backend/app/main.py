@@ -17,6 +17,7 @@ from app.api.integrations import router as integrations_router
 from app.api.automations import router as automations_router, ensure_default_rules
 from app.api.repositories import router as repositories_router
 from app.api.health import router as health_router
+from app.api.reader import router as reader_router
 
 
 @asynccontextmanager
@@ -54,6 +55,7 @@ app.include_router(policies_router)
 app.include_router(integrations_router)
 app.include_router(automations_router)
 app.include_router(repositories_router)
+app.include_router(reader_router)
 
 
 # WebSocket Gateway

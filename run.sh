@@ -10,7 +10,7 @@ BOLD='\033[1m'
 NC='\033[0m' # No Color
 
 echo -e "${BLUE}====================================================${NC}"
-echo -e "${BLUE}⚡ Adappty: Event-Driven Autonomous Orchestrator ⚡${NC}"
+echo -e "${BLUE}Cyclode: Autonomous AI Engineering Workstation${NC}"
 echo -e "${BLUE}====================================================${NC}"
 
 # 1. Check Docker prerequisite
@@ -67,12 +67,12 @@ printf "\n"
 
 if [ $BACKEND_READY -eq 1 ] && [ $FRONTEND_READY -eq 1 ]; then
     echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${GREEN}${BOLD}✅ Adappty is Live, Healthy, and Ready!${NC}"
+    echo -e "${GREEN}${BOLD}✅ Cyclode is Live, Healthy, and Ready!${NC}"
     echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "  🌐 ${BOLD}Frontend Dashboard:${NC}       ${CYAN}http://localhost:${FRONT_PORT}${NC}"
-    echo -e "  ⚡ ${BOLD}Backend API & WebSockets:${NC} ${CYAN}http://localhost:${BACK_PORT}${NC}"
+    echo -e "  🌐 ${BOLD}Workstation UI:${NC}           ${CYAN}http://localhost:${FRONT_PORT}${NC}"
+    echo -e "  🔗 ${BOLD}Backend API & WebSockets:${NC} ${CYAN}http://localhost:${BACK_PORT}${NC}"
     echo -e "  📚 ${BOLD}Interactive API Docs:${NC}     ${CYAN}http://localhost:${BACK_PORT}/docs${NC}"
-    echo -e "  ✦  ${BOLD}Antigravity Harness:${NC}      Gemini 3.7 Flash"
+    echo -e "  ✦  ${BOLD}Model Harness:${NC}            Gemini 3.7 / Flash / Claude"
     echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
     echo -e "${YELLOW}Streaming container logs below (Press Ctrl+C to stop)...${NC}\n"
 else

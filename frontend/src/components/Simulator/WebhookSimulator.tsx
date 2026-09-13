@@ -124,7 +124,7 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({
     },
     {
       id: 'github-pr-comment',
-      label: 'GitHub: PR #42 @adappty Question',
+      label: 'GitHub: PR #42 Comment (@cyclode Question)',
       desc: 'Awakens session with conversation context to answer code queries',
       badge: 'Awaken',
       icon: MessageSquare,
@@ -144,7 +144,7 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({
           user: {
             login: "senior-eng"
           },
-          body: "@adappty please verify whether the Redis TTL for idempotency keys is set to 24 hours."
+          body: "@cyclode please verify whether the Redis TTL for idempotency keys is set to 24 hours."
         }
       }
     },
@@ -193,14 +193,14 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({
     },
     {
       id: 'slack-command',
-      label: 'Slack: /adappty review PR #42 test suite',
+      label: 'Slack: /cyclode review PR #42 test suite',
       desc: 'Interactive chat invocation dispatched from Slack channel',
       badge: 'Interactive',
       icon: Zap,
       source: 'slack',
       eventType: 'slash_command',
       payload: {
-        command: "/adappty",
+        command: "/cyclode",
         text: "run full security test suite on PR #42",
         user_name: "lead_architect",
         channel_name: "#security-triage"

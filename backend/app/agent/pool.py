@@ -15,6 +15,7 @@ from app.agent.harness import antigravity_harness
 from app.api.websocket import ws_manager
 from app.integrations.github_client import github_client
 from app.integrations.slack_client import slack_client
+from app.agent.title_generator import generate_heuristic_title, generate_ai_title
 
 logger = logging.getLogger("adappty.pool")
 
@@ -76,12 +77,18 @@ class AgentTaskPool:
             except Exception as e:
                 logger.debug(f"Vault auto-resolution note: {e}")
 
+        # If interactive user session without an explicit custom title, generate clean heuristic title immediately
+        initial_title = title
+        if not event_id and (not title or "http" in title or title == description[:70]):
+            initial_title = generate_heuristic_title(description or title, repo_name)
+
         chosen_model = model_name or settings.ANTIGRAVITY_MODEL
-        init_tokens = estimate_tokens(description or title)
+        init_tokens = estimate_tokens(description or initial_title)
         
         async with async_session_factory() as session:
             task = TaskModel(
-                title=title,
+                title=initial_title,
+                custom_title=False,
                 description=description,
                 persona=persona,
                 model_name=chosen_model,
@@ -104,7 +111,7 @@ class AgentTaskPool:
         # Broadcast task creation to UI
         await ws_manager.broadcast("TASK_CREATED", {
             "id": task_id,
-            "title": title,
+            "title": initial_title,
             "persona": persona,
             "model_name": chosen_model,
             "status": "INITIALIZING",
@@ -115,11 +122,21 @@ class AgentTaskPool:
             "created_at": datetime.now(timezone.utc).isoformat()
         })
 
+        # For user-initiated tasks, spawn async AI title generator in background
+        if not event_id:
+            asyncio.create_task(
+                self._generate_and_update_title(
+                    task_id=task_id,
+                    prompt=description or initial_title,
+                    repo_name=repo_name
+                )
+            )
+
         # Spawn background execution worker
         worker = asyncio.create_task(
             self._run_task_worker(
                 task_id=task_id,
-                title=title,
+                title=initial_title,
                 description=description,
                 persona=persona,
                 repo_name=repo_name,
@@ -130,6 +147,47 @@ class AgentTaskPool:
         )
         self.active_tasks[task_id] = worker
         return task_id
+
+    async def _generate_and_update_title(
+        self,
+        task_id: str,
+        prompt: str,
+        repo_name: Optional[str] = None
+    ):
+        """
+        Asynchronously generates a concise 3-6 word AI title using Gemini and updates
+        the task title in the database & broadcasts via WebSocket, respecting user custom titles.
+        """
+        try:
+            # Yield control so worker starts first
+            await asyncio.sleep(0.1)
+            ai_title = await generate_ai_title(prompt, repo_name)
+            if not ai_title:
+                return
+
+            async with async_session_factory() as session:
+                stmt = select(TaskModel).where(TaskModel.id == task_id)
+                res = await session.execute(stmt)
+                task = res.scalars().first()
+                if not task:
+                    return
+                # Do NOT overwrite if user has manually edited the title!
+                if getattr(task, "custom_title", False):
+                    logger.info(f"Skipping AI title update for task {task_id} because custom title is set")
+                    return
+
+                task.title = ai_title
+                await session.commit()
+
+            # Broadcast update over WebSocket
+            await ws_manager.broadcast("TASK_TITLE_UPDATED", {
+                "task_id": task_id,
+                "title": ai_title,
+                "custom_title": False
+            })
+            logger.info(f"Task {task_id} title updated to '{ai_title}' via AI")
+        except Exception as e:
+            logger.debug(f"Async AI title generation notice: {e}")
 
     async def awaken_task(
         self,
@@ -928,7 +986,18 @@ class AgentTaskPool:
             if message_id == "initial":
                 # Editing initial task prompt
                 task.description = new_content
-                task.title = new_content[:70]
+                # If user hasn't manually renamed the session, update title to match new prompt
+                if not getattr(task, "custom_title", False):
+                    new_heuristic = generate_heuristic_title(new_content, repo_name)
+                    task.title = new_heuristic
+                    title = new_heuristic
+                    asyncio.create_task(
+                        self._generate_and_update_title(
+                            task_id=task_id,
+                            prompt=new_content,
+                            repo_name=repo_name
+                        )
+                    )
                 task.status = "RUNNING"
                 task.result_summary = None
                 task.completed_at = None
@@ -939,6 +1008,13 @@ class AgentTaskPool:
                 await session.execute(delete(TaskApprovalModel).where(TaskApprovalModel.task_id == task_id))
                 await session.execute(delete(TaskDiffModel).where(TaskDiffModel.task_id == task_id))
                 await session.commit()
+
+                if not getattr(task, "custom_title", False):
+                    await ws_manager.broadcast("TASK_TITLE_UPDATED", {
+                        "task_id": task_id,
+                        "title": title,
+                        "custom_title": False
+                    })
 
                 history = None
                 prompt_to_run = new_content

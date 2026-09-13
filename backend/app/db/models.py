@@ -38,6 +38,7 @@ class TaskModel(Base):
     session_key: Mapped[Optional[str]] = mapped_column(String(200), index=True, nullable=True)  # e.g. github:org/repo:pr:42
     event_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("events.id"), nullable=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
+    custom_title: Mapped[bool] = mapped_column(Boolean, default=False)
     description: Mapped[str] = mapped_column(Text, default="")
     persona: Mapped[str] = mapped_column(String(50), default="IssueResolver")
     model_name: Mapped[str] = mapped_column(String(50), default="gemini-3.7-flash")
