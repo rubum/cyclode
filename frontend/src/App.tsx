@@ -807,6 +807,7 @@ const MainApp: React.FC = () => {
             onCreateRule={handleCreateRule}
             onDeleteRule={handleDeleteRule}
             onNavigateToSimulator={() => setActiveView('simulator')}
+            onBackToChat={() => setActiveView('chat')}
           />
         );
       case 'fleet':
@@ -815,6 +816,7 @@ const MainApp: React.FC = () => {
             tasks={tasks}
             onSelectTask={handleSelectTask}
             onNewChat={handleNewChat}
+            onBackToChat={() => setActiveView('chat')}
           />
         );
       case 'events':
@@ -836,6 +838,7 @@ const MainApp: React.FC = () => {
               setActiveView('chat');
               fetchTasks();
             }}
+            onBackToChat={() => setActiveView('chat')}
           />
         );
       case 'policies':
@@ -843,6 +846,7 @@ const MainApp: React.FC = () => {
           <PolicySettings
             policies={policies}
             onUpdatePolicies={handleUpdatePolicies}
+            onBackToChat={() => setActiveView('chat')}
           />
         );
       case 'integrations':
@@ -853,6 +857,7 @@ const MainApp: React.FC = () => {
             skillsCatalog={skillsCatalog}
             webhookEndpoints={webhookEndpoints}
             onRefreshIntegrations={fetchIntegrations}
+            onBackToChat={() => setActiveView('chat')}
           />
         );
 
