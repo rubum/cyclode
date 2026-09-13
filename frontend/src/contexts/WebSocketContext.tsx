@@ -43,7 +43,11 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     ws.onmessage = (event) => {
       try {
         const parsed: WebSocketEvent = JSON.parse(event.data);
-        setLastEvent(parsed);
+
+        // Avoid re-rendering all context consumers on high-frequency stream chunks
+        if (parsed.type !== 'STREAM_CHUNK') {
+          setLastEvent(parsed);
+        }
 
         // Notify specific event subscribers
         const handlers = subscribersRef.current.get(parsed.type);

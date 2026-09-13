@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Copy, Check, Info, AlertTriangle, AlertCircle, Sparkles, Flame } from 'lucide-react';
+import { Copy, Check, Info, AlertTriangle, AlertCircle, Sparkles, Flame, ExternalLink } from 'lucide-react';
 import katex from 'katex';
 import { highlightCode, resolveLanguage, escapeHtml } from '../../utils/syntaxHighlighter';
 
@@ -7,6 +7,7 @@ interface MarkdownRendererProps {
   content: string;
   className?: string;
   isStreaming?: boolean;
+  onLinkClick?: (url: string, text: string) => void;
 }
 
 function getHighlightedHtml(code: string, lang: string): string {
@@ -35,8 +36,9 @@ interface NestedListItem {
   childType?: 'ul' | 'ol';
 }
 
-export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className = '', isStreaming = false }) => {
+export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className = '', isStreaming = false, onLinkClick }) => {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const inline = (text: string) => renderInline(text, onLinkClick);
 
   const handleCopy = (text: string, index: number) => {
     navigator.clipboard.writeText(text);
@@ -53,7 +55,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
         >
           {items.map((item, idx) => (
             <li key={idx} className="leading-[1.7] pl-1 text-[#D1D5DB]">
-              <span>{renderInline(item.content)}</span>
+              <span>{inline(item.content)}</span>
               {item.children && item.children.length > 0 && (
                 <div className="mt-1.5 mb-1 pl-2 border-l border-onedark-borderSubtle/50 ml-1">
                   {renderNestedList(item.children, item.childType || 'ul', undefined, depth + 1)}
@@ -80,7 +82,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                   className="mt-1 rounded border-onedark-border bg-onedark-darker text-onedark-accent focus:ring-0 focus:ring-offset-0 cursor-default"
                 />
                 <div className="flex-1 text-[#D1D5DB]">
-                  <span>{renderInline(item.content)}</span>
+                  <span>{inline(item.content)}</span>
                   {item.children && item.children.length > 0 && (
                     <div className="mt-1.5 mb-1 pl-2 border-l border-onedark-borderSubtle/50 ml-1">
                       {renderNestedList(item.children, item.childType || 'ul', undefined, depth + 1)}
@@ -92,7 +94,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
           }
           return (
             <li key={idx} className="leading-[1.7] pl-1 text-[#D1D5DB]">
-              <span>{renderInline(item.content)}</span>
+              <span>{inline(item.content)}</span>
               {item.children && item.children.length > 0 && (
                 <div className="mt-1.5 mb-1 pl-2 border-l border-onedark-borderSubtle/50 ml-1">
                   {renderNestedList(item.children, item.childType || 'ul', undefined, depth + 1)}
@@ -105,8 +107,28 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
     );
   };
 
+  // Normalize unclosed code blocks during active streaming so they render smoothly as code blocks from line 1
+  const normalizedContent = (() => {
+    if (!isStreaming) return content;
+    const codeBlockCount = (content.match(/```/g) || []).length;
+    if (codeBlockCount % 2 !== 0) {
+      return content + '\n```';
+    }
+    return content;
+  })();
+
   // Split by code blocks and display math blocks ($$...$$ or \[...\])
-  const parts = content.split(/(```[\s\S]*?```|\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\])/g);
+  const parts = normalizedContent.split(/(```[\s\S]*?```|\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\])/g);
+  let cursorAttached = false;
+  const renderCursor = () => {
+    cursorAttached = true;
+    return (
+      <span
+        className="inline-block w-1.5 h-3.5 ml-1 bg-onedark-accent animate-pulse align-middle rounded-xs"
+        title="Streaming..."
+      />
+    );
+  };
 
   return (
     <div className={`space-y-3 text-[14px] leading-[1.7] text-[#D1D5DB] font-sans ${className}`}>
@@ -197,7 +219,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                       <div className={`font-bold font-mono text-[10.5px] uppercase tracking-wider ${alertStyle.text}`}>
                         {block.alertType}
                       </div>
-                      <div className="text-onedark-fg">{renderInline(block.content || '')}</div>
+                      <div className="text-onedark-fg">{inline(block.content || '')}</div>
                     </div>
                   </div>
                 );
@@ -211,7 +233,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                         <thead>
                           <tr className="bg-onedark-surface/70 border-b border-onedark-border text-onedark-fgBright font-semibold">
                             {block.tableHeaders.map((h, hIdx) => (
-                              <th key={hIdx} className="px-3 py-1.5 font-mono text-[11.5px]">{renderInline(h)}</th>
+                              <th key={hIdx} className="px-3 py-1.5 font-mono text-[11.5px]">{inline(h)}</th>
                             ))}
                           </tr>
                         </thead>
@@ -220,7 +242,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                         {block.tableRows.map((row, rIdx) => (
                           <tr key={rIdx} className="border-b border-onedark-borderSubtle last:border-0 hover:bg-onedark-surface/30">
                             {row.map((cell, cIdx) => (
-                              <td key={cIdx} className="px-3 py-1.5 text-onedark-fg">{renderInline(cell)}</td>
+                              <td key={cIdx} className="px-3 py-1.5 text-onedark-fg">{inline(cell)}</td>
                             ))}
                           </tr>
                         ))}
@@ -242,50 +264,74 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                 );
               }
 
+              const slugify = (text: string) =>
+                text
+                  .toLowerCase()
+                  .replace(/<[^>]+>/g, '')
+                  .replace(/[^\w\s-]/g, '')
+                  .trim()
+                  .replace(/\s+/g, '-');
+
+              const isLastValidPart = index === parts.length - 1 || parts.slice(index + 1).every((p) => !p.trim());
+              const isLastBlock = bIdx === blocks.length - 1;
+              const shouldAttachCursor = isStreaming && isLastValidPart && isLastBlock && !cursorAttached;
+
               if (block.type === 'h1' && block.content) {
+                const hId = slugify(block.content);
                 return (
-                  <h1 key={bIdx} className="text-[17px] font-bold text-[#F4F4F5] tracking-tight pt-3.5 pb-1 border-b border-onedark-borderSubtle/60">
-                    {renderInline(block.content)}
+                  <h1 id={hId} key={bIdx} className="text-[17px] font-bold text-[#F4F4F5] tracking-tight pt-3.5 pb-1 border-b border-onedark-borderSubtle/60 scroll-mt-4">
+                    {inline(block.content)}
+                    {shouldAttachCursor && renderCursor()}
                   </h1>
                 );
               }
 
               if (block.type === 'h2' && block.content) {
+                const hId = slugify(block.content);
                 return (
-                  <h2 key={bIdx} className="text-[15.5px] font-bold text-[#F4F4F5] tracking-tight pt-3 pb-0.5">
-                    {renderInline(block.content)}
+                  <h2 id={hId} key={bIdx} className="text-[15.5px] font-bold text-[#F4F4F5] tracking-tight pt-3 pb-0.5 scroll-mt-4">
+                    {inline(block.content)}
+                    {shouldAttachCursor && renderCursor()}
                   </h2>
                 );
               }
 
               if (block.type === 'h3' && block.content) {
+                const hId = slugify(block.content);
                 return (
-                  <h3 key={bIdx} className="text-[14.5px] font-semibold text-[#F4F4F5] pt-2 pb-0.5">
-                    {renderInline(block.content)}
+                  <h3 id={hId} key={bIdx} className="text-[14.5px] font-semibold text-[#F4F4F5] pt-2 pb-0.5 scroll-mt-4">
+                    {inline(block.content)}
+                    {shouldAttachCursor && renderCursor()}
                   </h3>
                 );
               }
 
               if (block.type === 'h4' && block.content) {
+                const hId = slugify(block.content);
                 return (
-                  <h4 key={bIdx} className="text-[13.5px] font-semibold text-[#F4F4F5] pt-1.5 pb-0.5">
-                    {renderInline(block.content)}
+                  <h4 id={hId} key={bIdx} className="text-[13.5px] font-semibold text-[#F4F4F5] pt-1.5 pb-0.5 scroll-mt-4">
+                    {inline(block.content)}
+                    {shouldAttachCursor && renderCursor()}
                   </h4>
                 );
               }
 
               if (block.type === 'h5' && block.content) {
+                const hId = slugify(block.content);
                 return (
-                  <h5 key={bIdx} className="text-[12.5px] font-semibold text-[#E5E5E5] pt-1 pb-0.5">
-                    {renderInline(block.content)}
+                  <h5 id={hId} key={bIdx} className="text-[12.5px] font-semibold text-[#E5E5E5] pt-1 pb-0.5 scroll-mt-4">
+                    {inline(block.content)}
+                    {shouldAttachCursor && renderCursor()}
                   </h5>
                 );
               }
 
               if (block.type === 'h6' && block.content) {
+                const hId = slugify(block.content);
                 return (
-                  <h6 key={bIdx} className="text-[12px] font-medium text-onedark-muted pt-1 pb-0.5 uppercase tracking-wider">
-                    {renderInline(block.content)}
+                  <h6 id={hId} key={bIdx} className="text-[12px] font-medium text-onedark-muted pt-1 pb-0.5 uppercase tracking-wider scroll-mt-4">
+                    {inline(block.content)}
+                    {shouldAttachCursor && renderCursor()}
                   </h6>
                 );
               }
@@ -293,7 +339,8 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
               if (block.type === 'blockquote' && block.content) {
                 return (
                   <blockquote key={bIdx} className="border-l-2 border-onedark-accent/70 pl-3 py-1.5 my-2 bg-onedark-surface/40 rounded-r-lg text-[#D1D5DB] leading-[1.7] text-[13.5px]">
-                    {renderInline(block.content)}
+                    {inline(block.content)}
+                    {shouldAttachCursor && renderCursor()}
                   </blockquote>
                 );
               }
@@ -301,7 +348,8 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
               if (block.content) {
                 return (
                   <p key={bIdx} className="leading-[1.7] text-[#D1D5DB]">
-                    {renderInline(block.content)}
+                    {inline(block.content)}
+                    {shouldAttachCursor && renderCursor()}
                   </p>
                 );
               }
@@ -311,8 +359,8 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
           </div>
         );
       })}
-      {isStreaming && (
-        <span className="inline-block w-2 h-4 ml-1 bg-onedark-accent animate-pulse align-middle rounded-xs" title="Streaming..." />
+      {isStreaming && !cursorAttached && (
+        <span className="inline-block w-1.5 h-3.5 ml-1 bg-onedark-accent animate-pulse align-middle rounded-xs" title="Streaming..." />
       )}
     </div>
   );
@@ -393,8 +441,25 @@ function parseBlocks(text: string): BlockItem[] {
       continue;
     }
 
+    // Ignore lines that only contain HTML wrapper tags
+    if (/^<\/?(?:p|div|center|picture|source|span|details|summary)[^>]*>$/i.test(trimmed)) {
+      continue;
+    }
+
+    // HTML Headings: <h1>Title</h1> to <h6>Title</h6>
+    const htmlHeadingMatch = trimmed.match(/^<h([1-6])[^>]*>([\s\S]*?)<\/h\1>$/i);
+    if (htmlHeadingMatch) {
+      flushParagraph();
+      flushList();
+      flushTable();
+      const level = htmlHeadingMatch[1];
+      const headingText = htmlHeadingMatch[2].replace(/<[^>]+>/g, '').trim();
+      blocks.push({ type: `h${level}` as any, content: headingText });
+      continue;
+    }
+
     // Horizontal Rule
-    if (trimmed === '---' || trimmed === '***' || trimmed === '___') {
+    if (trimmed === '---' || trimmed === '***' || trimmed === '___' || /^<hr\s*\/?>$/i.test(trimmed)) {
       flushParagraph();
       flushList();
       flushTable();
@@ -554,6 +619,10 @@ function parseBlocks(text: string): BlockItem[] {
 
 function normalizeSpecialSymbols(text: string): string {
   return text
+    // Strip stray HTML wrapper tags
+    .replace(/<\/?(?:p|div|center|picture|source|span|details|summary)[^>]*>/gi, '')
+    // Convert <br> or <br/> to newline
+    .replace(/<br\s*\/?>/gi, '\n')
     // Escaped backticks: \` -> `
     .replace(/\\`/g, '`')
     // Escaped asterisks: \* -> *
@@ -562,10 +631,10 @@ function normalizeSpecialSymbols(text: string): string {
     .replace(/\\_/g, '_');
 }
 
-function renderInline(rawText: string): React.ReactNode {
-  // Match display math ($$...$$ or \[...\]), inline math ($...$ or \(...\)), inline code (`...`), bold, strikethrough, italic, and links
+function renderInline(rawText: string, onLinkClick?: (url: string, text: string) => void): React.ReactNode {
+  // Match display math ($$...$$ or \[...\]), inline math ($...$ or \(...\)), inline code (`...`), bold, strikethrough, italic, linked images, images, links, and HTML img/a tags
   const tokens = rawText.split(
-    /(\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|\$(?!\s)(?:\\\$|[^\$\n])+?(?<!\s)\$|`+[^`]+`+|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\*[^*]+\*|(?<!\w)_[^_]+_(?!\w)|\[[^\]]+\]\([^)]+\))/g
+    /(\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|\$(?!\s)(?:\\\$|[^\$\n])+?(?<!\s)\$|`+[^`]+`+|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\*[^*]+\*|(?<!\w)_[^_]+_(?!\w)|\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|!\[[^\]]*\]\([^)]+\)|\[[^\]]+\]\([^)]+\)|<img\s+[^>]*src=["'][^"']+["'][^>]*\/?>|<a\s+[^>]*href=["'][^"']+["'][^>]*>[\s\S]*?<\/a>)/gi
   );
 
   return tokens.map((token, i) => {
@@ -621,7 +690,7 @@ function renderInline(rawText: string): React.ReactNode {
     ) {
       return (
         <strong key={i} className="font-semibold text-[#F4F4F5]">
-          {renderInline(token.slice(2, -2))}
+          {renderInline(token.slice(2, -2), onLinkClick)}
         </strong>
       );
     }
@@ -630,7 +699,7 @@ function renderInline(rawText: string): React.ReactNode {
     if (token.startsWith('~~') && token.endsWith('~~') && token.length > 4) {
       return (
         <del key={i} className="line-through text-onedark-muted">
-          {renderInline(token.slice(2, -2))}
+          {renderInline(token.slice(2, -2), onLinkClick)}
         </del>
       );
     }
@@ -642,24 +711,176 @@ function renderInline(rawText: string): React.ReactNode {
     ) {
       return (
         <em key={i} className="italic text-onedark-fgBright">
-          {renderInline(token.slice(1, -1))}
+          {renderInline(token.slice(1, -1), onLinkClick)}
         </em>
+      );
+    }
+
+    // Linked image: [![alt](imgUrl)](linkUrl)
+    const linkedImgMatch = token.match(/^\[!\[([^\]]*)\]\(([^)]+)\)\]\(([^)]+)\)$/);
+    if (linkedImgMatch) {
+      const altText = linkedImgMatch[1];
+      const imgUrl = linkedImgMatch[2];
+      const linkUrl = linkedImgMatch[3];
+      return (
+        <a
+          key={i}
+          href={linkUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-block my-1 mr-1.5 align-middle transition-opacity hover:opacity-85 cursor-pointer"
+          title={`Open ${altText || linkUrl}`}
+          onClick={(e) => {
+            if (onLinkClick && !e.metaKey && !e.ctrlKey) {
+              e.preventDefault();
+              onLinkClick(linkUrl, altText || 'link');
+            }
+          }}
+        >
+          <img
+            src={imgUrl}
+            alt={altText}
+            className="inline-block max-h-8 max-w-full rounded border border-transparent align-middle"
+            loading="lazy"
+            onError={(e) => {
+              (e.currentTarget as HTMLElement).style.display = 'none';
+            }}
+          />
+        </a>
+      );
+    }
+
+    // Markdown Image: ![alt](imgUrl)
+    const imgMatch = token.match(/^!\[([^\]]*)\]\(([^)]+)\)$/);
+    if (imgMatch) {
+      const altText = imgMatch[1];
+      const imgUrl = imgMatch[2];
+      return (
+        <img
+          key={i}
+          src={imgUrl}
+          alt={altText}
+          className="inline-block max-w-full max-h-[360px] object-contain rounded-lg my-2 align-middle border border-onedark-borderSubtle/50 shadow-xs"
+          loading="lazy"
+          onError={(e) => {
+            (e.currentTarget as HTMLElement).style.display = 'none';
+          }}
+        />
+      );
+    }
+
+    // HTML <img> tag
+    const htmlImgMatch = token.match(/^<img\s+([^>]*)\/?>$/i);
+    if (htmlImgMatch) {
+      const attrs = htmlImgMatch[1];
+      const srcMatch = attrs.match(/src=["']([^"']+)["']/i);
+      const altMatch = attrs.match(/alt=["']([^"']*)["']/i);
+      if (srcMatch) {
+        return (
+          <img
+            key={i}
+            src={srcMatch[1]}
+            alt={altMatch ? altMatch[1] : ''}
+            className="inline-block max-w-full max-h-[360px] object-contain rounded-lg my-2 align-middle border border-onedark-borderSubtle/50 shadow-xs"
+            loading="lazy"
+            onError={(e) => {
+              (e.currentTarget as HTMLElement).style.display = 'none';
+            }}
+          />
+        );
+      }
+    }
+
+    // HTML <a> tag
+    const htmlAnchorMatch = token.match(/^<a\s+[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>$/i);
+    if (htmlAnchorMatch) {
+      const linkUrl = htmlAnchorMatch[1];
+      const rawLinkContent = htmlAnchorMatch[2].trim();
+      const linkText = rawLinkContent.replace(/<[^>]+>/g, '').trim() || linkUrl;
+      return (
+        <span key={i} className="inline-flex items-center space-x-0.5 group/link">
+          <a
+            href={linkUrl}
+            onClick={(e) => {
+              if (linkUrl.startsWith('#')) {
+                e.preventDefault();
+                const targetId = linkUrl.slice(1);
+                const targetEl = document.getElementById(targetId);
+                if (targetEl) {
+                  targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+                return;
+              }
+              if (e.metaKey || e.ctrlKey || !onLinkClick) {
+                return;
+              }
+              e.preventDefault();
+              onLinkClick(linkUrl, linkText);
+            }}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-onedark-accent underline underline-offset-2 hover:text-onedark-accent/80 transition-colors font-medium cursor-pointer"
+            title={`Preview ${linkText} in sidebar (Cmd/Ctrl + click for new tab)`}
+          >
+            {linkText}
+          </a>
+          <a
+            href={linkUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="opacity-0 group-hover/link:opacity-100 text-onedark-muted hover:text-onedark-accent transition-all p-0.5"
+            title="Open in external browser tab"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <ExternalLink className="w-2.5 h-2.5 inline" />
+          </a>
+        </span>
       );
     }
 
     // Markdown Link [text](url)
     const linkMatch = token.match(/^\[([^\]]+)\]\(([^)]+)\)$/);
     if (linkMatch) {
+      const linkText = linkMatch[1];
+      const linkUrl = linkMatch[2];
       return (
-        <a
-          key={i}
-          href={linkMatch[2]}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-onedark-accent underline underline-offset-2 hover:text-onedark-accent/80 transition-colors font-medium"
-        >
-          {linkMatch[1]}
-        </a>
+        <span key={i} className="inline-flex items-center space-x-0.5 group/link">
+          <a
+            href={linkUrl}
+            onClick={(e) => {
+              if (linkUrl.startsWith('#')) {
+                e.preventDefault();
+                const targetId = linkUrl.slice(1);
+                const targetEl = document.getElementById(targetId);
+                if (targetEl) {
+                  targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+                return;
+              }
+              if (e.metaKey || e.ctrlKey || !onLinkClick) {
+                return;
+              }
+              e.preventDefault();
+              onLinkClick(linkUrl, linkText);
+            }}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-onedark-accent underline underline-offset-2 hover:text-onedark-accent/80 transition-colors font-medium cursor-pointer"
+            title={`Preview ${linkText} in sidebar (Cmd/Ctrl + click for new tab)`}
+          >
+            {linkText}
+          </a>
+          <a
+            href={linkUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="opacity-0 group-hover/link:opacity-100 text-onedark-muted hover:text-onedark-accent transition-all p-0.5"
+            title="Open in external browser tab"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <ExternalLink className="w-2.5 h-2.5 inline" />
+          </a>
+        </span>
       );
     }
 

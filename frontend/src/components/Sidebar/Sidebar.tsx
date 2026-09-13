@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Plus, 
   Layers, 
@@ -11,11 +11,17 @@ import {
   Clock,
   Trash2,
   Settings,
-  FolderGit2
+  PanelLeftClose,
+  FolderGit2,
+  Pencil,
+  Check,
+  X,
+  Search
 } from 'lucide-react';
 import { Task } from '../../types';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { ConfirmModal } from '../Common/ConfirmModal';
+import { CyclodeIcon } from '../Common/CyclodeIcon';
 
 interface SidebarProps {
   activeView: string;
@@ -26,6 +32,7 @@ interface SidebarProps {
   onNewChat: () => void;
   onDeleteTask?: (taskId: string) => void;
   onClearAllTasks?: () => void;
+  onUpdateTaskTitle?: (taskId: string, newTitle: string) => void;
   onOpenSettings?: () => void;
   activeAgentsCount?: number;
   onToggleSidebar?: () => void;
@@ -40,10 +47,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onNewChat,
   onDeleteTask,
   onClearAllTasks,
+  onUpdateTaskTitle,
   onOpenSettings,
   activeAgentsCount = 0,
   onToggleSidebar,
 }) => {
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState<string>('');
+  const [sessionSearchQuery, setSessionSearchQuery] = useState<string>('');
+
+  const filteredTasks = useMemo(() => {
+    if (!sessionSearchQuery.trim()) return tasks;
+    const q = sessionSearchQuery.toLowerCase();
+    return tasks.filter((t) =>
+      (t.title && t.title.toLowerCase().includes(q)) ||
+      (t.repo_name && t.repo_name.toLowerCase().includes(q)) ||
+      (t.description && t.description.toLowerCase().includes(q))
+    );
+  }, [tasks, sessionSearchQuery]);
+
+  const handleCommitEdit = (taskId: string) => {
+    if (editingTitle.trim() && onUpdateTaskTitle) {
+      onUpdateTaskTitle(taskId, editingTitle.trim());
+    }
+    setEditingTaskId(null);
+  };
   const { isConnected } = useWebSocket();
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
   const [isClearAllOpen, setIsClearAllOpen] = useState(false);
@@ -124,13 +152,41 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
+        {tasks.length > 2 && (
+          <div className="px-1 mb-2">
+            <div className="flex items-center space-x-1.5 bg-onedark-surface/40 rounded-md px-2 py-1 border border-onedark-borderSubtle text-[11px] focus-within:border-onedark-accent/50">
+              <Search className="w-3 h-3 text-onedark-muted flex-shrink-0" />
+              <input
+                type="text"
+                value={sessionSearchQuery}
+                onChange={(e) => setSessionSearchQuery(e.target.value)}
+                placeholder="Search sessions..."
+                className="w-full bg-transparent border-none text-[11px] text-onedark-fg focus:outline-none placeholder:text-onedark-muted/60"
+              />
+              {sessionSearchQuery && (
+                <button
+                  onClick={() => setSessionSearchQuery('')}
+                  className="text-onedark-muted hover:text-onedark-fg cursor-pointer"
+                  title="Clear search"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {tasks.length === 0 ? (
           <div className="px-3 py-6 text-center text-xs text-onedark-muted leading-relaxed">
             <Clock className="w-5 h-5 mx-auto mb-2 text-onedark-muted/60" />
             No active sessions.<br />Click New Session to begin.
           </div>
+        ) : filteredTasks.length === 0 ? (
+          <div className="px-3 py-6 text-center text-xs text-onedark-muted leading-relaxed">
+            No sessions match "{sessionSearchQuery}"
+          </div>
         ) : (
-          tasks.map((task) => {
+          filteredTasks.map((task) => {
             const isSelected = activeTaskId === task.id && activeView === 'chat';
             return (
               <div
@@ -146,20 +202,85 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 }`}
               >
                 <div className="flex items-center justify-between space-x-2">
-                  <span className="text-xs font-semibold truncate text-onedark-fgBright flex-1">
-                    {task.title || 'Untitled Session'}
-                  </span>
-                  {onDeleteTask && (
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setTaskToDelete(task);
-                      }}
-                      className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-onedark-red/20 text-onedark-muted hover:text-onedark-red transition-all flex-shrink-0 cursor-pointer"
-                      title="Delete session"
+                  {editingTaskId === task.id ? (
+                    <div 
+                      className="flex items-center space-x-1 flex-1 min-w-0"
+                      onClick={(e) => e.stopPropagation()}
                     >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
+                      <input
+                        type="text"
+                        value={editingTitle}
+                        onChange={(e) => setEditingTitle(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleCommitEdit(task.id);
+                          } else if (e.key === 'Escape') {
+                            e.preventDefault();
+                            setEditingTaskId(null);
+                          }
+                        }}
+                        autoFocus
+                        className="flex-1 bg-onedark-bg border border-onedark-accent text-xs text-onedark-fgBright px-1.5 py-0.5 rounded outline-none w-full min-w-0 font-medium"
+                      />
+                      <button
+                        onClick={() => handleCommitEdit(task.id)}
+                        className="p-1 rounded hover:bg-onedark-green/20 text-onedark-green transition-all flex-shrink-0 cursor-pointer"
+                        title="Save title"
+                      >
+                        <Check className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={() => setEditingTaskId(null)}
+                        className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-all flex-shrink-0 cursor-pointer"
+                        title="Cancel"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <span 
+                        className="text-xs font-semibold truncate text-onedark-fgBright flex-1"
+                        title={task.title || 'Untitled Session'}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          if (onUpdateTaskTitle) {
+                            setEditingTaskId(task.id);
+                            setEditingTitle(task.title || '');
+                          }
+                        }}
+                      >
+                        {task.title || 'Untitled Session'}
+                      </span>
+                      <div className="flex items-center space-x-0.5 flex-shrink-0">
+                        {onUpdateTaskTitle && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingTaskId(task.id);
+                              setEditingTitle(task.title || '');
+                            }}
+                            className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-onedark-accent/20 text-onedark-muted hover:text-onedark-accent transition-all flex-shrink-0 cursor-pointer"
+                            title="Rename session"
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                        )}
+                        {onDeleteTask && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setTaskToDelete(task);
+                            }}
+                            className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-onedark-red/20 text-onedark-muted hover:text-onedark-red transition-all flex-shrink-0 cursor-pointer"
+                            title="Delete session"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    </>
                   )}
                 </div>
                 <div className="flex items-center justify-between mt-1.5 text-[11px]">
@@ -208,15 +329,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
         })}
       </div>
 
-      {/* Sidebar Footer: Adappty Brand, Settings, and Realtime Connection Badge */}
-      <div className="p-3 border-t border-onedark-borderSubtle bg-onedark-darker flex flex-col space-y-2 select-none flex-shrink-0">
+      {/* Sidebar Footer: Cyclode Brand, Settings, and Realtime Connection Badge */}
+      <div className="p-3 border-t border-onedark-borderSubtle bg-onedark-darker/95 flex flex-col space-y-2 select-none flex-shrink-0">
         <div className="flex items-center justify-between">
           {/* Brand Logo & Name */}
           <div className="flex items-center space-x-2">
-            <div className="w-5 h-5 rounded bg-onedark-surface border border-onedark-border flex items-center justify-center shadow-xs">
-              <span className="text-[11px] font-black text-onedark-yellow">A</span>
-            </div>
-            <span className="font-semibold text-xs tracking-tight text-onedark-fgBright">Adappty</span>
+            <CyclodeIcon className="w-6 h-6 flex-shrink-0" />
+            <span className="font-bold text-[14px] tracking-tight text-onedark-fgBright font-sans">Cyclode</span>
           </div>
 
           {/* Realtime Connection Badge & Settings */}

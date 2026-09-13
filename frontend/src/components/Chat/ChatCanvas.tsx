@@ -43,12 +43,14 @@ interface ChatCanvasProps {
   onEditMessage?: (messageId: string, newContent: string) => void;
   onRetryTask?: (fromMessageId?: string) => void;
   onStopTask?: () => void;
+  onUpdateTaskTitle?: (taskId: string, newTitle: string) => void;
   isSidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
   currentPreset?: 'standard' | 'wide' | 'fullscreen';
   onSetPreset?: (preset: 'standard' | 'wide' | 'fullscreen') => void;
   onOpenSandboxModal?: () => void;
-  onSelectAuxTab?: (tab: 'files' | 'diff' | 'activity' | 'subagents' | 'event') => void;
+  onSelectAuxTab?: (tab: 'docs' | 'files' | 'diff' | 'activity' | 'subagents' | 'event') => void;
+  onOpenPreview?: (url: string, title?: string) => void;
 }
 
 interface ConversationTurn {
@@ -103,12 +105,14 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   onEditMessage,
   onRetryTask,
   onStopTask,
+  onUpdateTaskTitle,
   isSidebarCollapsed,
   onToggleSidebar,
   currentPreset,
   onSetPreset,
   onOpenSandboxModal,
   onSelectAuxTab,
+  onOpenPreview,
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [selectedPersona, setSelectedPersona] = useState('PairProgrammer');
@@ -119,11 +123,27 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isSandboxModalOpen, setIsSandboxModalOpen] = useState(false);
   const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [titleInput, setTitleInput] = useState('');
+
+  const handleStartEditTitle = () => {
+    if (!task) return;
+    setTitleInput(task.title || '');
+    setIsEditingTitle(true);
+  };
+
+  const handleCommitTitle = () => {
+    if (task && titleInput.trim() && onUpdateTaskTitle) {
+      onUpdateTaskTitle(task.id, titleInput.trim());
+    }
+    setIsEditingTitle(false);
+  };
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isAutoScrollEnabledRef = useRef<boolean>(true);
+  const scrollRafRef = useRef<number | null>(null);
 
   const isRunning = task?.status === 'RUNNING' || task?.status === 'INITIALIZING';
 
@@ -287,11 +307,32 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     setShowScrollBottomBtn(!isAtBottom);
   }, []);
 
-  // Auto-scroll ONLY when user has not manually scrolled away
+  // Auto-scroll smoothly ONLY when user has not manually scrolled away
   useEffect(() => {
-    if (isAutoScrollEnabledRef.current && scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+    if (!isAutoScrollEnabledRef.current || !scrollContainerRef.current) return;
+
+    if (scrollRafRef.current) {
+      cancelAnimationFrame(scrollRafRef.current);
     }
+
+    scrollRafRef.current = requestAnimationFrame(() => {
+      const container = scrollContainerRef.current;
+      if (!container || !isAutoScrollEnabledRef.current) return;
+
+      const targetScrollTop = container.scrollHeight - container.clientHeight;
+      const distance = targetScrollTop - container.scrollTop;
+
+      // Avoid layout thrashing if already within 2px of target
+      if (Math.abs(distance) <= 2) return;
+
+      container.scrollTop = targetScrollTop;
+    });
+
+    return () => {
+      if (scrollRafRef.current) {
+        cancelAnimationFrame(scrollRafRef.current);
+      }
+    };
   }, [turns, isRunning, task?.approvals]);
 
   // Reset scroll and re-enable auto-scroll when task changes
@@ -483,7 +524,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask Adappty to review a PR, investigate a bug, write tests, or triage an APM incident..."
+              placeholder="Ask Cyclode to review a PR, investigate a bug, write tests, or triage an APM incident..."
               rows={3}
               className="w-full bg-transparent text-sm text-onedark-fgBright placeholder-onedark-muted focus:outline-none resize-none font-sans leading-relaxed p-1.5"
             />
@@ -586,9 +627,59 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
             </div>
           )}
 
-          <h1 className="text-xs sm:text-sm font-bold text-onedark-fgBright truncate tracking-tight" title={task.title}>
-            {task.title}
-          </h1>
+          {isEditingTitle ? (
+            <div className="flex items-center space-x-1.5 flex-1 max-w-sm">
+              <input
+                type="text"
+                value={titleInput}
+                onChange={(e) => setTitleInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleCommitTitle();
+                  } else if (e.key === 'Escape') {
+                    e.preventDefault();
+                    setIsEditingTitle(false);
+                  }
+                }}
+                autoFocus
+                className="bg-onedark-bg border border-onedark-accent text-xs sm:text-sm font-bold text-onedark-fgBright px-2 py-0.5 rounded outline-none w-full"
+              />
+              <button
+                onClick={handleCommitTitle}
+                className="p-1 rounded hover:bg-onedark-green/20 text-onedark-green transition-all flex-shrink-0"
+                title="Save title"
+              >
+                <Check className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => setIsEditingTitle(false)}
+                className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-all flex-shrink-0"
+                title="Cancel"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center space-x-1.5 min-w-0 group/title">
+              <h1 
+                className="text-xs sm:text-sm font-bold text-onedark-fgBright truncate tracking-tight cursor-pointer hover:text-onedark-accent transition-colors" 
+                title={task.title}
+                onClick={handleStartEditTitle}
+              >
+                {task.title}
+              </h1>
+              {onUpdateTaskTitle && (
+                <button
+                  onClick={handleStartEditTitle}
+                  className="opacity-0 group-hover/title:opacity-100 p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-all flex-shrink-0"
+                  title="Rename session"
+                >
+                  <Pencil className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Right: Sandbox, Status Badge, Presets, Retry */}
@@ -710,7 +801,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
       <div 
         ref={scrollContainerRef} 
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-4 py-6 relative"
+        className="flex-1 overflow-y-auto px-4 py-6 relative [overflow-anchor:none]"
       >
         <div className={`w-full ${contentMaxWidth} mx-auto space-y-6`}>
           {turns.map((turn, tIdx) => {
@@ -991,7 +1082,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                     >
                       {m.sender === 'system' ? (
                         <div className="my-2 px-4 py-2.5 rounded-xl bg-onedark-surface/40 border border-onedark-border text-xs text-onedark-fg font-mono leading-relaxed max-w-2xl text-center">
-                          <MarkdownRenderer content={maskSecretsInText(m.content)} isStreaming={m.isStreaming} />
+                          <MarkdownRenderer content={maskSecretsInText(m.content)} isStreaming={m.isStreaming} onLinkClick={onOpenPreview} />
                         </div>
                       ) : (
                         <div className="w-full flex flex-col items-start space-y-1.5">
@@ -1002,7 +1093,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                             </span>
                           </div>
                           <div className="text-onedark-fg text-[13px] sm:text-[13.5px] leading-relaxed w-full">
-                            <MarkdownRenderer content={maskSecretsInText(m.content)} isStreaming={m.isStreaming} />
+                            <MarkdownRenderer content={maskSecretsInText(m.content)} isStreaming={m.isStreaming} onLinkClick={onOpenPreview} />
                           </div>
                           {/* Hover Action Bar */}
                           <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center space-x-1 pl-0.5 pt-0.5">

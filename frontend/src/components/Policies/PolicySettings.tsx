@@ -65,7 +65,7 @@ export const PolicySettings: React.FC<PolicySettingsProps> = ({
   const actionDescriptions: Record<string, { label: string; desc: string; category: string; icon: any }> = {
     git_push: {
       label: 'Push Branch to Git Remote',
-      desc: 'Allows the agent to push new branches (e.g. adappty/fix-*) to upstream.',
+      desc: 'Allows the agent to push new branches (e.g. cyclode/fix-*) to upstream.',
       category: 'Git Operations',
       icon: GitBranch,
     },

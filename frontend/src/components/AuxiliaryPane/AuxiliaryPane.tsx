@@ -1,24 +1,34 @@
 import React, { useState, useEffect } from 'react';
-import { FileCode2, Activity, Cpu, Inbox, Folder } from 'lucide-react';
+import { FileCode2, Activity, Cpu, Inbox, Folder, Compass } from 'lucide-react';
 import { Task } from '../../types';
 import { DiffViewerTab } from './DiffViewerTab';
 import { TerminalTab } from './TerminalTab';
 import { SubagentsTab } from './SubagentsTab';
 import { EventInspectorTab } from './EventInspectorTab';
 import { FilesExplorerTab } from './FilesExplorerTab';
+import { DocsViewerTab } from './DocsViewerTab';
 
 interface AuxiliaryPaneProps {
   task: Task | null;
-  activeTab?: 'files' | 'diff' | 'activity' | 'subagents' | 'event';
-  onTabChange?: (tab: 'files' | 'diff' | 'activity' | 'subagents' | 'event') => void;
+  activeTab?: 'docs' | 'files' | 'diff' | 'activity' | 'subagents' | 'event';
+  onTabChange?: (tab: 'docs' | 'files' | 'diff' | 'activity' | 'subagents' | 'event') => void;
+  previewTarget?: { url: string; title?: string } | null;
+  onClearPreview?: () => void;
+  onAskAboutRepo?: (repoName: string) => void;
+  onCloneToSession?: (repoUrl: string, repoName: string) => void;
 }
 
 export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({ 
   task, 
   activeTab: controlledTab, 
-  onTabChange 
+  onTabChange,
+  previewTarget,
+  onClearPreview,
+  onAskAboutRepo,
+  onCloneToSession,
 }) => {
-  const [internalTab, setInternalTab] = useState<'files' | 'diff' | 'activity' | 'subagents' | 'event'>(() => {
+  const [internalTab, setInternalTab] = useState<'docs' | 'files' | 'diff' | 'activity' | 'subagents' | 'event'>(() => {
+    if (previewTarget?.url) return 'docs';
     if (task?.diffs && task.diffs.length > 0) return 'diff';
     if (task?.repo_name || task?.repo_url) return 'files';
     return 'activity';
@@ -26,23 +36,35 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
 
   const activeTab = controlledTab ?? internalTab;
 
-  const handleTabClick = (tab: 'files' | 'diff' | 'activity' | 'subagents' | 'event') => {
+  const handleTabClick = (tab: 'docs' | 'files' | 'diff' | 'activity' | 'subagents' | 'event') => {
     setInternalTab(tab);
     onTabChange?.(tab);
   };
 
+  const lastUrlRef = React.useRef(previewTarget?.url);
+
+  useEffect(() => {
+    if (previewTarget?.url && previewTarget.url !== lastUrlRef.current) {
+      handleTabClick('docs');
+    }
+    lastUrlRef.current = previewTarget?.url;
+  }, [previewTarget?.url]);
+
   useEffect(() => {
     if (!task) return;
-    if (task.diffs && task.diffs.length > 0) {
-      handleTabClick('diff');
-    } else if (task.repo_name || task.repo_url) {
-      handleTabClick('files');
-    } else {
-      handleTabClick('activity');
+    if (activeTab === 'docs' && !previewTarget?.url) {
+      if (task.diffs && task.diffs.length > 0) {
+        handleTabClick('diff');
+      } else if (task.repo_name || task.repo_url) {
+        handleTabClick('files');
+      } else {
+        handleTabClick('activity');
+      }
     }
-  }, [task?.id, task?.diffs?.length, task?.repo_name, task?.repo_url]);
+  }, [task?.id, previewTarget?.url]);
 
   const tabs = [
+    { id: 'docs', label: 'Web & Docs', icon: Compass, badge: previewTarget?.url ? '●' : undefined },
     { id: 'files', label: 'Files', icon: Folder, iconClass: 'text-onedark-folder' },
     { id: 'diff', label: 'Diff', icon: FileCode2, count: task?.diffs?.length || 0 },
     { id: 'activity', label: 'Tool Activity', icon: Activity, count: task?.logs?.length || 0 },
@@ -81,6 +103,15 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
 
       {/* Tab body */}
       <div className="flex-1 overflow-hidden">
+        {activeTab === 'docs' && (
+          <DocsViewerTab
+            url={previewTarget?.url || null}
+            initialTitle={previewTarget?.title}
+            onClear={onClearPreview}
+            onAskAboutRepo={onAskAboutRepo}
+            onCloneToSession={onCloneToSession}
+          />
+        )}
         {activeTab === 'files' && task && <FilesExplorerTab task={task} />}
         {activeTab === 'files' && !task && (
           <div className="h-full flex items-center justify-center text-xs text-onedark-muted font-mono">

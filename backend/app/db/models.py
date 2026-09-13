@@ -38,6 +38,7 @@ class TaskModel(Base):
     session_key: Mapped[Optional[str]] = mapped_column(String(200), index=True, nullable=True)  # e.g. github:org/repo:pr:42
     event_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("events.id"), nullable=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
+    custom_title: Mapped[bool] = mapped_column(Boolean, default=False)
     description: Mapped[str] = mapped_column(Text, default="")
     persona: Mapped[str] = mapped_column(String(50), default="IssueResolver")
     model_name: Mapped[str] = mapped_column(String(50), default="gemini-3.7-flash")
@@ -161,6 +162,19 @@ class RepositoryConfigModel(Base):
     # Status & Timestamps
     status: Mapped[str] = mapped_column(String(50), default="CONNECTED")         # CONNECTED, AUTH_REQUIRED, UNREACHABLE
     last_synced_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now, onupdate=get_utc_now)
+
+
+class DocPageCacheModel(Base):
+    __tablename__ = "doc_pages_cache"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)                 # Hash of url
+    url: Mapped[str] = mapped_column(String(500), unique=True, index=True)
+    domain: Mapped[str] = mapped_column(String(200), index=True)                 # e.g. "doc.arroyo.dev"
+    title: Mapped[str] = mapped_column(String(300), default="")
+    content_markdown: Mapped[str] = mapped_column(Text, default="")
+    headings_json: Mapped[str] = mapped_column(Text, default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now, onupdate=get_utc_now)
 
