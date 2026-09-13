@@ -1,10 +1,16 @@
 import re
+import json
+import hashlib
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from urllib.parse import urlparse, urljoin
 from html.parser import HTMLParser
 import httpx
 from fastapi import APIRouter, HTTPException, Query
+from sqlalchemy import select, and_, or_
+from app.db.session import async_session_factory
+from app.db.models import DocPageCacheModel
+
 
 logger = logging.getLogger("adappty.reader")
 router = APIRouter(prefix="/api/reader", tags=["Reader"])
@@ -547,6 +553,80 @@ async def _fetch_github_repo_info(owner: str, repo: str) -> Dict[str, Any]:
         }
 
 
+def _extract_snippet(text: str, query: str, max_chars: int = 220) -> str:
+    if not text or not query:
+        return ""
+    lower_text = text.lower()
+    lower_q = query.lower()
+    idx = lower_text.find(lower_q)
+    if idx == -1:
+        lines = [line.strip() for line in text.split("\n") if line.strip() and not line.startswith("#")]
+        candidate = " ".join(lines[:3])
+        return candidate[:max_chars] + ("..." if len(candidate) > max_chars else "")
+
+    half_window = max(10, (max_chars - len(query)) // 2)
+    start = max(0, idx - half_window)
+    end = min(len(text), idx + len(query) + half_window)
+    prefix = "..." if start > 0 else ""
+    suffix = "..." if end < len(text) else ""
+    return f"{prefix}{text[start:end].replace(chr(10), ' ').strip()}{suffix}"
+
+
+@router.get("/search")
+async def search_doc_pages(
+    q: str = Query(..., min_length=1, description="Search term or phrase"),
+    domain: Optional[str] = Query(None, description="Filter by documentation domain, e.g. doc.arroyo.dev"),
+    limit: int = Query(20, ge=1, le=50)
+):
+    """
+    Full-text search across cached documentation pages with highlighted snippets.
+    """
+    clean_q = q.strip()
+    if not clean_q:
+        return {"query": q, "domain": domain, "total_results": 0, "results": []}
+
+    try:
+        async with async_session_factory() as session:
+            conditions = [
+                or_(
+                    DocPageCacheModel.title.ilike(f"%{clean_q}%"),
+                    DocPageCacheModel.content_markdown.ilike(f"%{clean_q}%")
+                )
+            ]
+            if domain:
+                clean_domain = domain.lower().strip()
+                conditions.append(DocPageCacheModel.domain == clean_domain)
+
+            stmt = (
+                select(DocPageCacheModel)
+                .where(and_(*conditions))
+                .order_by(DocPageCacheModel.created_at.desc())
+                .limit(limit)
+            )
+            res = await session.execute(stmt)
+            pages = res.scalars().all()
+
+            results = []
+            for p in pages:
+                snippet = _extract_snippet(p.content_markdown, clean_q)
+                results.append({
+                    "url": p.url,
+                    "title": p.title,
+                    "domain": p.domain,
+                    "snippet": snippet
+                })
+
+            return {
+                "query": clean_q,
+                "domain": domain,
+                "total_results": len(results),
+                "results": results
+            }
+    except Exception as e:
+        logger.warning(f"Error in doc search: {e}")
+        return {"query": clean_q, "domain": domain, "total_results": 0, "results": []}
+
+
 @router.get("")
 async def get_url_reader(url: str = Query(..., description="Target URL to read")):
     """
@@ -622,6 +702,36 @@ async def get_url_reader(url: str = Query(..., description="Target URL to read")
                 final_content = markdown_body.strip()
             else:
                 final_content = f"# {page_title}\n\n{markdown_body}".strip()
+
+            # Cache page content for full-text search
+            try:
+                page_id = hashlib.sha256(clean_url.encode("utf-8")).hexdigest()[:32]
+                headings_list = [
+                    {"title": m.group(2).strip(), "level": len(m.group(1))}
+                    for m in re.finditer(r"^(#{1,4})\s+(.+)$", final_content, re.MULTILINE)
+                ]
+                async with async_session_factory() as session:
+                    stmt = select(DocPageCacheModel).where(DocPageCacheModel.id == page_id)
+                    res = await session.execute(stmt)
+                    existing = res.scalars().first()
+                    if existing:
+                        existing.title = page_title
+                        existing.content_markdown = final_content
+                        existing.headings_json = json.dumps(headings_list)
+                        existing.domain = hostname
+                    else:
+                        new_page = DocPageCacheModel(
+                            id=page_id,
+                            url=clean_url,
+                            domain=hostname,
+                            title=page_title,
+                            content_markdown=final_content,
+                            headings_json=json.dumps(headings_list)
+                        )
+                        session.add(new_page)
+                    await session.commit()
+            except Exception as e:
+                logger.debug(f"Doc caching notice: {e}")
 
             return {
                 "type": "web",

@@ -216,3 +216,58 @@ def test_extract_site_navigation_docusaurus():
     assert "children" in tree[2]
     assert tree[2]["children"][0]["title"] == "Controller"
     assert tree[2]["children"][0]["url"] == "https://doc.arroyo.dev/architecture/controller"
+
+
+def test_extract_snippet():
+    from app.api.reader import _extract_snippet
+
+    text = "Line 1.\nLine 2.\nHere is an awesome high-throughput pipeline for streaming data.\nLine 4.\nLine 5."
+    snippet = _extract_snippet(text, "high-throughput", max_chars=50)
+    assert "high-throughput pipeline" in snippet
+    assert "..." in snippet
+
+    # Case insensitive
+    snippet_ci = _extract_snippet(text, "PIPELINE", max_chars=50)
+    assert "pipeline" in snippet_ci.lower()
+
+    # Query not found returns first chunk
+    snippet_not_found = _extract_snippet("Short string", "nonexistent", max_chars=20)
+    assert "Short string" in snippet_not_found
+
+
+@pytest.mark.asyncio
+async def test_search_doc_pages_endpoint():
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
+    from app.db.session import async_session_factory
+    from app.db.models import DocPageCacheModel
+
+    # Seed a cached doc page
+    async with async_session_factory() as session:
+        cached = DocPageCacheModel(
+            id="test-doc-search-id-1",
+            url="https://doc.arroyo.dev/tutorial/windowing",
+            domain="doc.arroyo.dev",
+            title="Windowing Mechanics",
+            content_markdown="# Windowing Mechanics\n\nTumbling and sliding windows are fundamental primitives in stream processing.",
+            headings_json='[{"title": "Windowing Mechanics", "level": 1}]'
+        )
+        await session.merge(cached)
+        await session.commit()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Search by term
+        resp = await client.get("/api/reader/search?q=sliding+windows&domain=doc.arroyo.dev")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total_results"] >= 1
+        assert any("Windowing Mechanics" in r["title"] for r in data["results"])
+        first_match = next(r for r in data["results"] if r["title"] == "Windowing Mechanics")
+        assert "sliding windows" in first_match["snippet"].lower()
+
+        # Search with no matches
+        resp_empty = await client.get("/api/reader/search?q=completelyabsentqueryxyz")
+        assert resp_empty.status_code == 200
+        assert resp_empty.json()["total_results"] == 0
+

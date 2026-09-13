@@ -18,7 +18,9 @@ import {
   ChevronDown, 
   List, 
   ListTree, 
-  Search 
+  Search,
+  FileText,
+  Loader2
 } from 'lucide-react';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 
@@ -26,6 +28,13 @@ export interface DocNavItem {
   title: string;
   url?: string;
   children?: DocNavItem[];
+}
+
+export interface DocSearchResult {
+  url: string;
+  title: string;
+  domain: string;
+  snippet: string;
 }
 
 interface ReaderResponse {
@@ -133,6 +142,26 @@ const DocTreeNode: React.FC<DocTreeNodeProps> = ({ item, activeUrl, onSelectUrl,
   );
 };
 
+const renderHighlightedSnippet = (snippet: string, query: string) => {
+  if (!query.trim()) return <span>{snippet}</span>;
+  const escaped = query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`(${escaped})`, 'gi');
+  const parts = snippet.split(regex);
+  return (
+    <span>
+      {parts.map((part, i) =>
+        regex.test(part) ? (
+          <mark key={i} className="bg-onedark-accent/30 text-onedark-accent font-medium px-0.5 rounded">
+            {part}
+          </mark>
+        ) : (
+          part
+        )
+      )}
+    </span>
+  );
+};
+
 export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
   url,
   initialTitle,
@@ -153,6 +182,9 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
   const [isOutlineOpen, setIsOutlineOpen] = useState<boolean>(false);
   const [isSiteTreeOpen, setIsSiteTreeOpen] = useState<boolean>(false);
   const [treeSearchQuery, setTreeSearchQuery] = useState<string>('');
+  const [searchMode, setSearchMode] = useState<'tree' | 'full'>('tree');
+  const [fullSearchResults, setFullSearchResults] = useState<DocSearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState<boolean>(false);
 
   const contentScrollRef = useRef<HTMLDivElement>(null);
   const outlinePopoverRef = useRef<HTMLDivElement>(null);
@@ -238,6 +270,40 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
       setTimeout(() => setIsCopied(false), 2000);
     }
   };
+
+  // Debounced full-text search across cached doc pages
+  useEffect(() => {
+    if (searchMode !== 'full' || !treeSearchQuery.trim()) {
+      setFullSearchResults([]);
+      setIsSearching(false);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const apiBase = import.meta.env.VITE_API_URL || '';
+        let domainParam = '';
+        if (activeUrl) {
+          try {
+            const parsed = new URL(activeUrl);
+            domainParam = `&domain=${encodeURIComponent(parsed.hostname)}`;
+          } catch {}
+        }
+        const res = await fetch(`${apiBase}/api/reader/search?q=${encodeURIComponent(treeSearchQuery.trim())}${domainParam}`);
+        if (res.ok) {
+          const json = await res.json();
+          setFullSearchResults(json.results || []);
+        }
+      } catch (e) {
+        console.error('Error searching docs:', e);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [searchMode, treeSearchQuery, activeUrl]);
 
   // Extract on-page headings for Table of Contents
   const headings = useMemo<HeadingItem[]>(() => {
@@ -385,19 +451,19 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
 
         {/* Right: Actions */}
         <div className="flex items-center space-x-1 flex-shrink-0">
-          {/* Site Tree Drawer Toggle */}
-          {data?.navigation && data.navigation.length > 0 && (
+          {/* Site Tree & Search Drawer Toggle */}
+          {((data?.navigation && data.navigation.length > 0) || (data && !isGitHub)) && (
             <button
               onClick={() => setIsSiteTreeOpen(!isSiteTreeOpen)}
-              className={`flex items-center space-x-1 px-2 py-1 rounded text-xs transition-all border ${
+              className={`flex items-center space-x-1 px-2 py-1 rounded text-xs transition-all border cursor-pointer ${
                 isSiteTreeOpen
                   ? 'bg-onedark-accent/20 border-onedark-accent/40 text-onedark-accent font-semibold'
                   : 'bg-onedark-surface/60 border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fg'
               }`}
-              title="Toggle Documentation Site Tree"
+              title="Toggle Documentation Sections & Full-Text Search"
             >
               <ListTree className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline text-[11px]">Site Tree</span>
+              <span className="hidden sm:inline text-[11px]">Docs & Search</span>
             </button>
           )}
 
@@ -567,48 +633,135 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
 
       {/* Main Content Area with Optional Collapsible Site Tree */}
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Collapsible Site Tree Drawer */}
-        {isSiteTreeOpen && data?.navigation && data.navigation.length > 0 && (
-          <div className="w-56 border-r border-onedark-borderSubtle bg-onedark-bg/95 flex flex-col flex-shrink-0 z-10 shadow-lg sm:shadow-none">
-            <div className="p-2 border-b border-onedark-borderSubtle flex items-center justify-between gap-1.5">
-              <div className="flex items-center space-x-1.5 flex-1 min-w-0 bg-onedark-surface/60 rounded px-2 py-1 border border-onedark-borderSubtle/60">
-                <Search className="w-3 h-3 text-onedark-muted flex-shrink-0" />
+        {/* Collapsible Site Tree & Full Doc Search Drawer */}
+        {isSiteTreeOpen && (
+          <div className="w-64 border-r border-onedark-borderSubtle bg-onedark-bg/95 flex flex-col flex-shrink-0 z-10 shadow-lg sm:shadow-none">
+            {/* Drawer Header with Mode Switch and Search Input */}
+            <div className="p-2 border-b border-onedark-borderSubtle space-y-2">
+              <div className="flex items-center justify-between">
+                {/* Search Mode Toggle */}
+                <div className="flex items-center bg-onedark-surface/80 rounded p-0.5 text-[10.5px] border border-onedark-borderSubtle">
+                  <button
+                    onClick={() => setSearchMode('tree')}
+                    className={`px-2 py-0.5 rounded transition-all cursor-pointer ${
+                      searchMode === 'tree'
+                        ? 'bg-onedark-accent text-white font-semibold shadow-xs'
+                        : 'text-onedark-muted hover:text-onedark-fg'
+                    }`}
+                  >
+                    Sections
+                  </button>
+                  <button
+                    onClick={() => setSearchMode('full')}
+                    className={`px-2 py-0.5 rounded transition-all cursor-pointer ${
+                      searchMode === 'full'
+                        ? 'bg-onedark-accent text-white font-semibold shadow-xs'
+                        : 'text-onedark-muted hover:text-onedark-fg'
+                    }`}
+                  >
+                    Full Docs
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => setIsSiteTreeOpen(false)}
+                  className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-colors cursor-pointer"
+                  title="Collapse Drawer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* Search input */}
+              <div className="flex items-center space-x-1.5 bg-onedark-surface/60 rounded px-2 py-1 border border-onedark-borderSubtle/60">
+                {isSearching ? (
+                  <Loader2 className="w-3 h-3 text-onedark-accent animate-spin flex-shrink-0" />
+                ) : (
+                  <Search className="w-3 h-3 text-onedark-muted flex-shrink-0" />
+                )}
                 <input
                   type="text"
                   value={treeSearchQuery}
                   onChange={(e) => setTreeSearchQuery(e.target.value)}
-                  placeholder="Filter sections..."
+                  placeholder={searchMode === 'tree' ? 'Filter sections...' : 'Search cached docs...'}
                   className="w-full bg-transparent border-none text-[11px] text-onedark-fg focus:outline-none placeholder:text-onedark-muted/60"
                 />
                 {treeSearchQuery && (
-                  <button onClick={() => setTreeSearchQuery('')} className="text-onedark-muted hover:text-onedark-fg">
+                  <button onClick={() => setTreeSearchQuery('')} className="text-onedark-muted hover:text-onedark-fg cursor-pointer">
                     <X className="w-3 h-3" />
                   </button>
                 )}
               </div>
-              <button
-                onClick={() => setIsSiteTreeOpen(false)}
-                className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-colors"
-                title="Collapse Site Tree"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
-              {filteredNav.length === 0 ? (
-                <div className="p-3 text-center text-xs text-onedark-muted">
-                  No sections match "{treeSearchQuery}"
-                </div>
+            {/* Content list */}
+            <div className="flex-1 overflow-y-auto p-1.5 space-y-1">
+              {searchMode === 'tree' ? (
+                // Section Tree view
+                filteredNav.length === 0 ? (
+                  <div className="p-3 text-center text-xs text-onedark-muted">
+                    {treeSearchQuery ? `No sections match "${treeSearchQuery}"` : 'No sections available'}
+                  </div>
+                ) : (
+                  filteredNav.map((node, idx) => (
+                    <DocTreeNode
+                      key={`${node.title}-${idx}`}
+                      item={node}
+                      activeUrl={activeUrl}
+                      onSelectUrl={(targetUrl) => navigateTo(targetUrl)}
+                    />
+                  ))
+                )
               ) : (
-                filteredNav.map((node, idx) => (
-                  <DocTreeNode
-                    key={`${node.title}-${idx}`}
-                    item={node}
-                    activeUrl={activeUrl}
-                    onSelectUrl={(targetUrl) => navigateTo(targetUrl)}
-                  />
-                ))
+                // Full Doc Search Results view
+                <div className="space-y-1.5">
+                  {!treeSearchQuery.trim() ? (
+                    <div className="p-3 text-center text-xs text-onedark-muted leading-relaxed">
+                      Type terms above to search full body of indexed documentation.
+                    </div>
+                  ) : isSearching ? (
+                    <div className="p-4 text-center text-xs text-onedark-muted space-y-1">
+                      <Loader2 className="w-4 h-4 text-onedark-accent animate-spin mx-auto mb-1" />
+                      <span>Searching documentation...</span>
+                    </div>
+                  ) : fullSearchResults.length === 0 ? (
+                    <div className="p-3 text-center text-xs text-onedark-muted leading-relaxed">
+                      No documentation matches found for "{treeSearchQuery}".
+                    </div>
+                  ) : (
+                    <>
+                      <div className="px-1 py-0.5 text-[10px] text-onedark-muted font-mono">
+                        {fullSearchResults.length} page{fullSearchResults.length === 1 ? '' : 's'} matched
+                      </div>
+                      {fullSearchResults.map((res, idx) => {
+                        const isSelected = activeUrl === res.url;
+                        return (
+                          <div
+                            key={`${res.url}-${idx}`}
+                            onClick={() => navigateTo(res.url)}
+                            className={`p-2 rounded-lg border text-left cursor-pointer transition-all ${
+                              isSelected
+                                ? 'bg-onedark-accent/20 border-onedark-accent/40 text-onedark-fgBright'
+                                : 'bg-onedark-surface/30 border-onedark-borderSubtle hover:bg-onedark-surface hover:border-onedark-border'
+                            }`}
+                          >
+                            <div className="flex items-center space-x-1.5 mb-1">
+                              <FileText className="w-3 h-3 text-onedark-accent flex-shrink-0" />
+                              <span className="text-xs font-semibold text-onedark-fgBright truncate flex-1">
+                                {res.title || res.url}
+                              </span>
+                            </div>
+                            {res.snippet && (
+                              <p className="text-[11px] text-onedark-muted line-clamp-2 leading-relaxed font-sans">
+                                {renderHighlightedSnippet(res.snippet, treeSearchQuery)}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </>
+                  )}
+                </div>
               )}
             </div>
           </div>

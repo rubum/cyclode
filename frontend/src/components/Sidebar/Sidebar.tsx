@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
   Plus, 
   Layers, 
@@ -16,7 +16,8 @@ import {
   FolderGit2,
   Pencil,
   Check,
-  X
+  X,
+  Search
 } from 'lucide-react';
 import { Task } from '../../types';
 import { useWebSocket } from '../../contexts/WebSocketContext';
@@ -54,6 +55,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState<string>('');
+  const [sessionSearchQuery, setSessionSearchQuery] = useState<string>('');
+
+  const filteredTasks = useMemo(() => {
+    if (!sessionSearchQuery.trim()) return tasks;
+    const q = sessionSearchQuery.toLowerCase();
+    return tasks.filter((t) =>
+      (t.title && t.title.toLowerCase().includes(q)) ||
+      (t.repo_name && t.repo_name.toLowerCase().includes(q)) ||
+      (t.description && t.description.toLowerCase().includes(q))
+    );
+  }, [tasks, sessionSearchQuery]);
 
   const handleCommitEdit = (taskId: string) => {
     if (editingTitle.trim() && onUpdateTaskTitle) {
@@ -158,13 +170,41 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
         </div>
 
+        {tasks.length > 2 && (
+          <div className="px-1 mb-2">
+            <div className="flex items-center space-x-1.5 bg-onedark-surface/40 rounded-md px-2 py-1 border border-onedark-borderSubtle text-[11px] focus-within:border-onedark-accent/50">
+              <Search className="w-3 h-3 text-onedark-muted flex-shrink-0" />
+              <input
+                type="text"
+                value={sessionSearchQuery}
+                onChange={(e) => setSessionSearchQuery(e.target.value)}
+                placeholder="Search sessions..."
+                className="w-full bg-transparent border-none text-[11px] text-onedark-fg focus:outline-none placeholder:text-onedark-muted/60"
+              />
+              {sessionSearchQuery && (
+                <button
+                  onClick={() => setSessionSearchQuery('')}
+                  className="text-onedark-muted hover:text-onedark-fg cursor-pointer"
+                  title="Clear search"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {tasks.length === 0 ? (
           <div className="px-3 py-6 text-center text-xs text-onedark-muted leading-relaxed">
             <Clock className="w-5 h-5 mx-auto mb-2 text-onedark-muted/60" />
             No active sessions.<br />Click New Session to begin.
           </div>
+        ) : filteredTasks.length === 0 ? (
+          <div className="px-3 py-6 text-center text-xs text-onedark-muted leading-relaxed">
+            No sessions match "{sessionSearchQuery}"
+          </div>
         ) : (
-          tasks.map((task) => {
+          filteredTasks.map((task) => {
             const isSelected = activeTaskId === task.id && activeView === 'chat';
             return (
               <div

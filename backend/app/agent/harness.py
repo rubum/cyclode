@@ -1425,6 +1425,42 @@ class AntigravityHarness:
                             },
                             "required": ["query"]
                         }
+                    },
+                    {
+                        "name": "search_code",
+                        "description": "Fast workspace code search ignoring build & vendor folders, returning matching lines and file paths.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "query": {"type": "STRING", "description": "Search pattern or text"},
+                                "is_regex": {"type": "BOOLEAN", "description": "Whether query is a regex pattern (default: false)"},
+                                "file_pattern": {"type": "STRING", "description": "Optional file glob filter, e.g. '*.py' or 'src/**'"}
+                            },
+                            "required": ["query"]
+                        }
+                    },
+                    {
+                        "name": "find_symbols",
+                        "description": "Locate functions, classes, interfaces, React components, and API route handlers across the workspace using AST indexing in 1 turn.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "name_pattern": {"type": "STRING", "description": "Substring or symbol name to look for (e.g. 'verify_signature')"},
+                                "symbol_type": {"type": "STRING", "description": "Optional symbol filter: 'function', 'class', 'endpoint', 'component', 'interface', 'type'"},
+                                "file_pattern": {"type": "STRING", "description": "Optional glob filter, e.g. '*.py' or '*.tsx'"}
+                            }
+                        }
+                    },
+                    {
+                        "name": "tgrep_ast",
+                        "description": "Structural AST search matching syntax patterns (e.g. decorators '@app.post', class inheritance 'class:BaseModel', or functions).",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "pattern": {"type": "STRING", "description": "AST pattern to match, e.g. '@app.post', 'class:BaseModel', or symbol name"}
+                            },
+                            "required": ["pattern"]
+                        }
                     }
                 ]
             }
@@ -1587,12 +1623,47 @@ class AntigravityHarness:
                                 if not out_parts:
                                     out_parts.append(f"(Command executed with exit code {exit_code})")
                                 out_str = "\n".join(out_parts)
-                            elif fn_name == "grep_search":
+                            elif fn_name in ["grep_search", "search_code"]:
                                 query = args.get("query", "")
-                                tool_result = WorkspaceTools.run_command(workspace_path, f"grep -rn '{query}' . --exclude-dir=.git")
-                                exit_code = tool_result.get("exit_code", 0)
-                                stdout = tool_result.get("stdout", "")
-                                out_str = stdout if stdout.strip() else "(No matching lines found)"
+                                is_regex = args.get("is_regex", False)
+                                file_pattern = args.get("file_pattern")
+                                tool_result = WorkspaceTools.search_code(
+                                    workspace_path, query, is_regex=is_regex, file_pattern=file_pattern
+                                )
+                                matches = tool_result.get("matches", [])
+                                if matches:
+                                    out_str = f"Found {len(matches)} match(es):\n" + "\n".join(
+                                        f"  {m['file_path']}:{m['line_number']}  {m['line_content']}"
+                                        for m in matches[:25]
+                                    )
+                                else:
+                                    out_str = f"No matches found for query: '{query}'"
+                            elif fn_name == "find_symbols":
+                                name_pattern = args.get("name_pattern", "")
+                                symbol_type = args.get("symbol_type")
+                                file_pattern = args.get("file_pattern")
+                                tool_result = WorkspaceTools.find_symbols(
+                                    workspace_path, name_pattern=name_pattern, symbol_type=symbol_type, file_pattern=file_pattern
+                                )
+                                symbols = tool_result.get("symbols", [])
+                                if symbols:
+                                    out_str = f"Found {len(symbols)} symbol(s):\n" + "\n".join(
+                                        f"  [{s.get('type')}] {s.get('name')} -> {s.get('file_path')}:{s.get('line_number')} ({s.get('signature')})"
+                                        for s in symbols[:30]
+                                    )
+                                else:
+                                    out_str = f"No symbols found matching '{name_pattern}'."
+                            elif fn_name == "tgrep_ast":
+                                pattern = args.get("pattern", "")
+                                tool_result = WorkspaceTools.tgrep_ast(workspace_path, pattern)
+                                matches = tool_result.get("matches", [])
+                                if matches:
+                                    out_str = f"AST pattern '{pattern}' matched {len(matches)} node(s):\n" + "\n".join(
+                                        f"  {m.get('file_path')}:{m.get('line_number')} -> {m.get('symbol')} ({m.get('signature', '')})"
+                                        for m in matches[:25]
+                                    )
+                                else:
+                                    out_str = f"No AST structures matched pattern '{pattern}'."
                             else:
                                 tool_result = {"error": f"Unknown tool: {fn_name}"}
                                 exit_code = 1
