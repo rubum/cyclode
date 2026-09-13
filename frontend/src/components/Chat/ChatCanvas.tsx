@@ -140,6 +140,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isAutoScrollEnabledRef = useRef<boolean>(true);
+  const scrollRafRef = useRef<number | null>(null);
 
   const isRunning = task?.status === 'RUNNING' || task?.status === 'INITIALIZING';
 
@@ -303,11 +304,32 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     setShowScrollBottomBtn(!isAtBottom);
   }, []);
 
-  // Auto-scroll ONLY when user has not manually scrolled away
+  // Auto-scroll smoothly ONLY when user has not manually scrolled away
   useEffect(() => {
-    if (isAutoScrollEnabledRef.current && scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+    if (!isAutoScrollEnabledRef.current || !scrollContainerRef.current) return;
+
+    if (scrollRafRef.current) {
+      cancelAnimationFrame(scrollRafRef.current);
     }
+
+    scrollRafRef.current = requestAnimationFrame(() => {
+      const container = scrollContainerRef.current;
+      if (!container || !isAutoScrollEnabledRef.current) return;
+
+      const targetScrollTop = container.scrollHeight - container.clientHeight;
+      const distance = targetScrollTop - container.scrollTop;
+
+      // Avoid layout thrashing if already within 2px of target
+      if (Math.abs(distance) <= 2) return;
+
+      container.scrollTop = targetScrollTop;
+    });
+
+    return () => {
+      if (scrollRafRef.current) {
+        cancelAnimationFrame(scrollRafRef.current);
+      }
+    };
   }, [turns, isRunning, task?.approvals]);
 
   // Reset scroll and re-enable auto-scroll when task changes
@@ -776,7 +798,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
       <div 
         ref={scrollContainerRef} 
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-4 py-6 relative"
+        className="flex-1 overflow-y-auto px-4 py-6 relative [overflow-anchor:none]"
       >
         <div className={`w-full ${contentMaxWidth} mx-auto space-y-6`}>
           {turns.map((turn, tIdx) => {

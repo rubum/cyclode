@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { WebSocketProvider, useWebSocket } from './contexts/WebSocketContext';
 import { Sidebar } from './components/Sidebar/Sidebar';
 import { ResizablePanes } from './components/Layout/ResizablePanes';
@@ -36,6 +36,8 @@ const MainApp: React.FC = () => {
   const activePreviewTarget = activeTaskId ? (sessionPreviews[activeTaskId] || null) : null;
 
   const [isSandboxModalOpen, setIsSandboxModalOpen] = useState<boolean>(false);
+  const streamBufferRef = useRef<Map<string, any>>(new Map());
+  const streamRafRef = useRef<number | null>(null);
 
   // Fetch tasks
   const fetchTasks = useCallback(async () => {
@@ -192,11 +194,16 @@ const MainApp: React.FC = () => {
       }
     });
 
-    const unsubStreamChunk = subscribe('STREAM_CHUNK', (data: any) => {
-      if (activeTaskId === data.task_id) {
-        setActiveTaskDetails((prev) => {
-          if (!prev) return prev;
-          const messages = [...(prev.messages || [])];
+    const flushStreamBuffer = () => {
+      if (streamBufferRef.current.size === 0) return;
+      const chunks = Array.from(streamBufferRef.current.values());
+      streamBufferRef.current.clear();
+
+      setActiveTaskDetails((prev) => {
+        if (!prev) return prev;
+        let messages = [...(prev.messages || [])];
+        for (const data of chunks) {
+          if (activeTaskId !== data.task_id) continue;
           const existingIdx = messages.findIndex((m) => m.id === data.stream_id);
           if (existingIdx >= 0) {
             messages[existingIdx] = {
@@ -216,13 +223,31 @@ const MainApp: React.FC = () => {
               created_at: new Date().toISOString(),
             });
           }
-          return { ...prev, messages };
-        });
+        }
+        return { ...prev, messages };
+      });
+    };
+
+    const unsubStreamChunk = subscribe('STREAM_CHUNK', (data: any) => {
+      if (activeTaskId === data.task_id) {
+        streamBufferRef.current.set(data.stream_id, data);
+        if (!streamRafRef.current) {
+          streamRafRef.current = requestAnimationFrame(() => {
+            streamRafRef.current = null;
+            flushStreamBuffer();
+          });
+        }
       }
     });
 
     const unsubStreamEnd = subscribe('STREAM_END', (data: any) => {
       if (activeTaskId === data.task_id) {
+        if (streamRafRef.current) {
+          cancelAnimationFrame(streamRafRef.current);
+          streamRafRef.current = null;
+        }
+        streamBufferRef.current.delete(data.stream_id);
+
         setActiveTaskDetails((prev) => {
           if (!prev) return prev;
           const messages = [...(prev.messages || [])];
@@ -355,6 +380,11 @@ const MainApp: React.FC = () => {
     });
 
     return () => {
+      if (streamRafRef.current) {
+        cancelAnimationFrame(streamRafRef.current);
+        streamRafRef.current = null;
+      }
+      streamBufferRef.current.clear();
       unsubTaskCreated();
       unsubStatus();
       unsubTitleUpdated();

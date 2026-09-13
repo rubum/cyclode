@@ -107,8 +107,28 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
     );
   };
 
+  // Normalize unclosed code blocks during active streaming so they render smoothly as code blocks from line 1
+  const normalizedContent = (() => {
+    if (!isStreaming) return content;
+    const codeBlockCount = (content.match(/```/g) || []).length;
+    if (codeBlockCount % 2 !== 0) {
+      return content + '\n```';
+    }
+    return content;
+  })();
+
   // Split by code blocks and display math blocks ($$...$$ or \[...\])
-  const parts = content.split(/(```[\s\S]*?```|\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\])/g);
+  const parts = normalizedContent.split(/(```[\s\S]*?```|\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\])/g);
+  let cursorAttached = false;
+  const renderCursor = () => {
+    cursorAttached = true;
+    return (
+      <span
+        className="inline-block w-1.5 h-3.5 ml-1 bg-onedark-accent animate-pulse align-middle rounded-xs"
+        title="Streaming..."
+      />
+    );
+  };
 
   return (
     <div className={`space-y-3 text-[14px] leading-[1.7] text-[#D1D5DB] font-sans ${className}`}>
@@ -252,11 +272,16 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                   .trim()
                   .replace(/\s+/g, '-');
 
+              const isLastValidPart = index === parts.length - 1 || parts.slice(index + 1).every((p) => !p.trim());
+              const isLastBlock = bIdx === blocks.length - 1;
+              const shouldAttachCursor = isStreaming && isLastValidPart && isLastBlock && !cursorAttached;
+
               if (block.type === 'h1' && block.content) {
                 const hId = slugify(block.content);
                 return (
                   <h1 id={hId} key={bIdx} className="text-[17px] font-bold text-[#F4F4F5] tracking-tight pt-3.5 pb-1 border-b border-onedark-borderSubtle/60 scroll-mt-4">
                     {inline(block.content)}
+                    {shouldAttachCursor && renderCursor()}
                   </h1>
                 );
               }
@@ -266,6 +291,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                 return (
                   <h2 id={hId} key={bIdx} className="text-[15.5px] font-bold text-[#F4F4F5] tracking-tight pt-3 pb-0.5 scroll-mt-4">
                     {inline(block.content)}
+                    {shouldAttachCursor && renderCursor()}
                   </h2>
                 );
               }
@@ -275,6 +301,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                 return (
                   <h3 id={hId} key={bIdx} className="text-[14.5px] font-semibold text-[#F4F4F5] pt-2 pb-0.5 scroll-mt-4">
                     {inline(block.content)}
+                    {shouldAttachCursor && renderCursor()}
                   </h3>
                 );
               }
@@ -284,6 +311,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                 return (
                   <h4 id={hId} key={bIdx} className="text-[13.5px] font-semibold text-[#F4F4F5] pt-1.5 pb-0.5 scroll-mt-4">
                     {inline(block.content)}
+                    {shouldAttachCursor && renderCursor()}
                   </h4>
                 );
               }
@@ -293,6 +321,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                 return (
                   <h5 id={hId} key={bIdx} className="text-[12.5px] font-semibold text-[#E5E5E5] pt-1 pb-0.5 scroll-mt-4">
                     {inline(block.content)}
+                    {shouldAttachCursor && renderCursor()}
                   </h5>
                 );
               }
@@ -302,6 +331,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                 return (
                   <h6 id={hId} key={bIdx} className="text-[12px] font-medium text-onedark-muted pt-1 pb-0.5 uppercase tracking-wider scroll-mt-4">
                     {inline(block.content)}
+                    {shouldAttachCursor && renderCursor()}
                   </h6>
                 );
               }
@@ -310,6 +340,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                 return (
                   <blockquote key={bIdx} className="border-l-2 border-onedark-accent/70 pl-3 py-1.5 my-2 bg-onedark-surface/40 rounded-r-lg text-[#D1D5DB] leading-[1.7] text-[13.5px]">
                     {inline(block.content)}
+                    {shouldAttachCursor && renderCursor()}
                   </blockquote>
                 );
               }
@@ -318,6 +349,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                 return (
                   <p key={bIdx} className="leading-[1.7] text-[#D1D5DB]">
                     {inline(block.content)}
+                    {shouldAttachCursor && renderCursor()}
                   </p>
                 );
               }
@@ -327,8 +359,8 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
           </div>
         );
       })}
-      {isStreaming && (
-        <span className="inline-block w-2 h-4 ml-1 bg-onedark-accent animate-pulse align-middle rounded-xs" title="Streaming..." />
+      {isStreaming && !cursorAttached && (
+        <span className="inline-block w-1.5 h-3.5 ml-1 bg-onedark-accent animate-pulse align-middle rounded-xs" title="Streaming..." />
       )}
     </div>
   );

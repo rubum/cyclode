@@ -45,7 +45,7 @@ class AntigravityHarness:
                 else:
                     on_stream_start("thought", s_id)
 
-                words = re.findall(r'\S+|\s+', thought_text)
+                words = re.findall(r'\S+\s*|\s+', thought_text)
                 accumulated = ""
                 for word in words:
                     accumulated += word
@@ -53,7 +53,12 @@ class AntigravityHarness:
                         await on_stream_chunk("thought", s_id, word, accumulated)
                     else:
                         on_stream_chunk("thought", s_id, word, accumulated)
-                    await asyncio.sleep(0.012)
+                    delay = 0.018
+                    if word.endswith(('.', '!', '?', ':\n', ';\n', '\n\n')):
+                        delay = 0.035
+                    elif word.isspace():
+                        delay = 0.005
+                    await asyncio.sleep(delay)
 
                 if asyncio.iscoroutinefunction(on_stream_end):
                     await on_stream_end("thought", s_id, thought_text)
@@ -85,7 +90,7 @@ class AntigravityHarness:
                 else:
                     on_stream_start("message", s_id)
 
-                words = re.findall(r'\S+|\s+', content)
+                words = re.findall(r'\S+\s*|\s+', content)
                 accumulated = ""
                 for word in words:
                     accumulated += word
@@ -93,7 +98,12 @@ class AntigravityHarness:
                         await on_stream_chunk("message", s_id, word, accumulated)
                     else:
                         on_stream_chunk("message", s_id, word, accumulated)
-                    await asyncio.sleep(0.008)
+                    delay = 0.024
+                    if word.endswith(('.', '!', '?', ':\n', ';\n', '\n\n')):
+                        delay = 0.045
+                    elif word.isspace():
+                        delay = 0.006
+                    await asyncio.sleep(delay)
 
                 if asyncio.iscoroutinefunction(on_stream_end):
                     await on_stream_end("message", s_id, content)
