@@ -11,7 +11,9 @@ import {
   Copy, 
   Check, 
   Radio, 
-  Search
+  Search,
+  ArrowLeft,
+  FolderGit2
 } from 'lucide-react';
 import { EventItem } from '../../types';
 
@@ -19,9 +21,17 @@ interface EventInboxProps {
   events: EventItem[];
   onRefresh: () => void;
   onSelectTask?: (taskId: string) => void;
+  onBackToChat?: () => void;
+  onNavigateToRepos?: () => void;
 }
 
-export const EventInbox: React.FC<EventInboxProps> = ({ events, onRefresh, onSelectTask }) => {
+export const EventInbox: React.FC<EventInboxProps> = ({ 
+  events, 
+  onRefresh, 
+  onSelectTask,
+  onBackToChat,
+  onNavigateToRepos 
+}) => {
   const [expandedEvents, setExpandedEvents] = useState<Record<string, boolean>>({});
   const [selectedSource, setSelectedSource] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -81,37 +91,59 @@ export const EventInbox: React.FC<EventInboxProps> = ({ events, onRefresh, onSel
   };
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-onedark-bg font-sans">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
+    <div className="flex-1 overflow-y-auto px-6 pb-8 bg-onedark-bg font-sans text-onedark-fg">
+      {/* Sticky Header */}
+      <div className="sticky top-0 z-20 bg-onedark-bg/95 backdrop-blur-md pt-5 pb-4 border-b border-onedark-borderSubtle -mx-6 px-6 mb-5 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center space-x-3">
-            <div className="p-2.5 rounded-xl bg-onedark-darker border border-onedark-borderSubtle text-onedark-accent shadow-xs">
-              <Inbox className="w-5 h-5" />
+            {onBackToChat && (
+              <button
+                onClick={onBackToChat}
+                className="inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright text-xs font-medium border border-onedark-border transition-all active:scale-95 shadow-xs"
+                title="Return to Workstation / Chat"
+              >
+                <ArrowLeft className="w-3.5 h-3.5 text-onedark-accent" />
+                <span>Workstation</span>
+              </button>
+            )}
+
+            <div className="p-2 rounded-xl bg-onedark-darker border border-onedark-border text-onedark-accent shadow-xs">
+              <Inbox className="w-4 h-4" />
             </div>
+
             <div>
-              <h1 className="text-lg font-bold text-onedark-fgBright flex items-center space-x-2">
+              <h1 className="text-base font-bold text-onedark-fgBright flex items-center space-x-2">
                 <span>Event Ingestion & Webhook Inbox</span>
-                <span className="inline-flex items-center space-x-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-onedark-green/10 text-onedark-green border border-onedark-green/20">
+                <span className="inline-flex items-center space-x-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-onedark-green/15 text-onedark-green border border-onedark-green/30">
                   <span className="w-1.5 h-1.5 rounded-full bg-onedark-green animate-pulse" />
                   <span>LIVE LISTENER</span>
                 </span>
               </h1>
-              <p className="text-xs text-onedark-muted mt-0.5">
+              <p className="text-xs text-onedark-fg/70 mt-0.5">
                 Real-time audit log of incoming webhooks from GitHub, AppSignal, Slack, and REST APIs.
               </p>
             </div>
           </div>
-        </div>
 
-        <div className="flex items-center space-x-2 self-start sm:self-auto">
-          <button
-            onClick={onRefresh}
-            className="px-3 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright border border-onedark-borderSubtle text-xs flex items-center space-x-1.5 transition-colors"
-          >
-            <RefreshCw className="w-3.5 h-3.5 text-onedark-accent" />
-            <span>Refresh</span>
-          </button>
+          <div className="flex items-center space-x-2 self-start sm:self-auto">
+            {onNavigateToRepos && (
+              <button
+                onClick={onNavigateToRepos}
+                className="px-3 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright border border-onedark-border text-xs font-medium flex items-center space-x-1.5 transition-colors shadow-xs"
+              >
+                <FolderGit2 className="w-3.5 h-3.5 text-onedark-folder" />
+                <span>Repositories</span>
+              </button>
+            )}
+
+            <button
+              onClick={onRefresh}
+              className="px-3 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-fgBright border border-onedark-border text-xs font-medium flex items-center space-x-1.5 transition-colors shadow-xs"
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-onedark-accent" />
+              <span>Refresh</span>
+            </button>
+          </div>
         </div>
       </div>
 

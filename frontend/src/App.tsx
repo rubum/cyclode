@@ -818,7 +818,15 @@ const MainApp: React.FC = () => {
           />
         );
       case 'events':
-        return <EventInbox events={events} onRefresh={fetchEvents} onSelectTask={handleSelectTask} />;
+        return (
+          <EventInbox 
+            events={events} 
+            onRefresh={fetchEvents} 
+            onSelectTask={handleSelectTask} 
+            onBackToChat={() => setActiveView('chat')}
+            onNavigateToRepos={() => setActiveView('repositories')}
+          />
+        );
       case 'simulator':
         return (
           <WebhookSimulator
@@ -852,6 +860,7 @@ const MainApp: React.FC = () => {
         return (
           <RepositoriesView
             onNavigateToInbox={() => setActiveView('events')}
+            onBackToChat={() => setActiveView('chat')}
             onSelectRepoForChat={(repoFullName) => {
               setActiveView('chat');
               handleNewChatWithPrompt(`Connect and analyze repository https://github.com/${repoFullName}`);
