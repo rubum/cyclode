@@ -8,8 +8,14 @@ from app.config import settings
 
 class WorktreeManager:
     def __init__(self, root_dir: Optional[str] = None):
-        self.root_dir = Path(root_dir or settings.WORKSPACE_ROOT)
-        self.root_dir.mkdir(parents=True, exist_ok=True)
+        target = Path(root_dir or settings.WORKSPACE_ROOT)
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+            self.root_dir = target
+        except Exception:
+            fallback = Path("/tmp/workspaces")
+            fallback.mkdir(parents=True, exist_ok=True)
+            self.root_dir = fallback
 
     def get_task_workspace_path(self, task_id: str) -> Path:
         path = self.root_dir / f"task-{task_id}"

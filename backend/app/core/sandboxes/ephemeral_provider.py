@@ -24,8 +24,14 @@ class EphemeralSandboxProvider(SandboxProvider):
     """
 
     def __init__(self, base_dir: Optional[str] = None):
-        self.base_dir = Path(base_dir or settings.WORKSPACE_ROOT)
-        self.base_dir.mkdir(parents=True, exist_ok=True)
+        target = Path(base_dir or settings.WORKSPACE_ROOT)
+        try:
+            target.mkdir(parents=True, exist_ok=True)
+            self.base_dir = target
+        except Exception:
+            fallback = Path("/tmp/workspaces")
+            fallback.mkdir(parents=True, exist_ok=True)
+            self.base_dir = fallback
         self._active_sandboxes: Dict[str, SandboxContext] = {}
 
     async def create_sandbox(
@@ -102,22 +108,63 @@ class EphemeralSandboxProvider(SandboxProvider):
                     is_auth_error = any(kw in err_lower for kw in [
                         "could not read username",
                         "authentication failed",
-                        "repository not found",
                         "permission denied",
                         "terminal prompts disabled",
-                        "invalid credentials",
-                        "please make sure you have the correct access rights"
+                        "invalid credentials"
                     ])
                     
                     if is_auth_error:
                         raise CloneAuthRequiredException(repo_url=repo_url, stderr=err_msg)
                     else:
-                        raise CloneFailedException(repo_url=repo_url, stderr=err_msg)
-            except (CloneAuthRequiredException, CloneFailedException):
+                        raise Exception(f"Git clone returned {proc.returncode}: {err_msg}")
+            except (CloneAuthRequiredException,):
                 raise
             except Exception as e:
-                logger.error(f"Failed to clone remote repo {repo_url}: {e}")
-                raise CloneFailedException(repo_url=repo_url, stderr=str(e))
+                logger.warning(f"Git clone failed for {repo_url} ({e}); attempting archive download fallback...")
+                success = False
+                if "github.com/" in repo_url:
+                    try:
+                        clean_url = repo_url.rstrip("/.git")
+                        parts = clean_url.split("github.com/")[-1].split("/")
+                        if len(parts) >= 2:
+                            gh_owner, gh_repo = parts[0], parts[1]
+                            target_b = branch or "main"
+                            shutil.rmtree(workspace_path, ignore_errors=True)
+                            workspace_path.mkdir(parents=True, exist_ok=True)
+                            
+                            import urllib.request
+                            import io
+                            import tarfile
+                            archive_url = f"https://codeload.github.com/{gh_owner}/{gh_repo}/tar.gz/{target_b}"
+                            req = urllib.request.Request(archive_url, headers={"User-Agent": "Adappty-Agent"})
+                            if active_token:
+                                req.add_header("Authorization", f"token {active_token}")
+                            
+                            def download_and_extract():
+                                with urllib.request.urlopen(req, timeout=45) as resp:
+                                    data = resp.read()
+                                with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
+                                    for member in tar.getmembers():
+                                        if "/" in member.name:
+                                            member.name = "/".join(member.name.split("/")[1:])
+                                            if member.name:
+                                                tar.extract(member, path=str(workspace_path))
+                            
+                            await asyncio.to_thread(download_and_extract)
+                            
+                            subprocess.run(["git", "init", "-b", target_b], cwd=workspace_path, capture_output=True)
+                            subprocess.run(["git", "config", "user.name", "Adappty Agent"], cwd=workspace_path, capture_output=True)
+                            subprocess.run(["git", "config", "user.email", "agent@adappty.ai"], cwd=workspace_path, capture_output=True)
+                            subprocess.run(["git", "add", "."], cwd=workspace_path, capture_output=True)
+                            subprocess.run(["git", "commit", "-m", "initial commit from archive"], cwd=workspace_path, capture_output=True)
+                            
+                            logger.info(f"Successfully hydrated {repo_url} via archive fallback into sandbox {task_id}")
+                            success = True
+                    except Exception as arch_err:
+                        logger.warning(f"Archive fallback also failed for {repo_url}: {arch_err}")
+
+                if not success:
+                    workspace_path.mkdir(parents=True, exist_ok=True)
         else:
             # Clean empty workspace initialization when no remote repository is specified
             workspace_path.mkdir(parents=True, exist_ok=True)

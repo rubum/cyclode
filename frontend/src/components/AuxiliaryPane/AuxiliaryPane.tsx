@@ -9,25 +9,38 @@ import { FilesExplorerTab } from './FilesExplorerTab';
 
 interface AuxiliaryPaneProps {
   task: Task | null;
+  activeTab?: 'files' | 'diff' | 'activity' | 'subagents' | 'event';
+  onTabChange?: (tab: 'files' | 'diff' | 'activity' | 'subagents' | 'event') => void;
 }
 
-export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({ task }) => {
-  const [activeTab, setActiveTab] = useState<'files' | 'diff' | 'activity' | 'subagents' | 'event'>(() => {
+export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({ 
+  task, 
+  activeTab: controlledTab, 
+  onTabChange 
+}) => {
+  const [internalTab, setInternalTab] = useState<'files' | 'diff' | 'activity' | 'subagents' | 'event'>(() => {
     if (task?.diffs && task.diffs.length > 0) return 'diff';
     if (task?.repo_name || task?.repo_url) return 'files';
     return 'activity';
   });
 
+  const activeTab = controlledTab ?? internalTab;
+
+  const handleTabClick = (tab: 'files' | 'diff' | 'activity' | 'subagents' | 'event') => {
+    setInternalTab(tab);
+    onTabChange?.(tab);
+  };
+
   useEffect(() => {
     if (!task) return;
     if (task.diffs && task.diffs.length > 0) {
-      setActiveTab('diff');
+      handleTabClick('diff');
     } else if (task.repo_name || task.repo_url) {
-      setActiveTab('files');
+      handleTabClick('files');
     } else {
-      setActiveTab('activity');
+      handleTabClick('activity');
     }
-  }, [task?.id, task?.repo_name, task?.repo_url]);
+  }, [task?.id, task?.diffs?.length, task?.repo_name, task?.repo_url]);
 
   const tabs = [
     { id: 'files', label: 'Files', icon: Folder, iconClass: 'text-onedark-folder' },
@@ -47,7 +60,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({ task }) => {
           return (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
+              onClick={() => handleTabClick(tab.id as any)}
               className={`flex items-center space-x-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-all cursor-pointer ${
                 isActive
                   ? 'border-onedark-accent text-onedark-fgBright bg-onedark-surface/60 rounded-t-md'

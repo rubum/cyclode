@@ -177,6 +177,38 @@ async def test_repository_analysis_intent(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_repository_use_cases_intent(tmp_path):
+    from app.agent.harness import antigravity_harness
+    from app.core.worktree import worktree_manager
+
+    worktree_manager.init_sample_repo_if_needed(tmp_path)
+    (tmp_path / "README.md").write_text("# Sage Agents\n\n- Fault-Tolerant Autonomous Agent Swarms\n- Real-Time Multi-Agent Coordination\n- Stateful Workflow & Memory Management\n", encoding="utf-8")
+
+    messages_captured = []
+    res = await antigravity_harness._execute_local_intent(
+        task_id="task-use-cases-1",
+        title="Use cases of this lib are",
+        prompt="Use cases of this lib are",
+        persona_name="PairProgrammer",
+        workspace_path=tmp_path,
+        on_thought=lambda t: None,
+        on_tool_start=lambda n, a: None,
+        on_tool_end=lambda n, o, e, d, a=None: None,
+        on_message=lambda s, c: messages_captured.append((s, c)),
+        on_approval_required=lambda a, d: None,
+        on_diff_updated=lambda d: None
+    )
+
+    assert res.get("status") == "COMPLETED"
+    assert len(messages_captured) == 1
+    sender, content = messages_captured[0]
+    assert sender == "agent"
+    assert "Key Use Cases & Applications" in content
+    assert "Language Breakdown" not in content
+    assert "Workspace Topology" not in content
+
+
+@pytest.mark.asyncio
 async def test_unauthenticated_private_repo_connect_and_analyze(tmp_path):
     from app.agent.harness import antigravity_harness
     messages_captured = []
@@ -727,12 +759,13 @@ async def test_what_is_in_this_repo_url_synthesizes_analysis(tmp_path, monkeypat
 
     monkeypatch.setattr(subprocess, "run", mock_run)
 
-    # Mock _synthesize_repository_analysis
-    async def mock_synth(**kwargs):
-        messages.append(("agent", "### 📊 Repository Architecture & Technical Audit\nDeepEval LLM Evaluation Framework"))
+    from app.agent.handlers.repo_handlers import RepoAnalysisHandler
+
+    async def mock_synth(self, ctx):
+        await ctx.emit_message("agent", "### 📊 Repository Architecture & Technical Audit\nDeepEval LLM Evaluation Framework")
         return {"status": "COMPLETED", "summary": "DeepEval analysis complete"}
 
-    monkeypatch.setattr(harness, "_synthesize_repository_analysis", mock_synth)
+    monkeypatch.setattr(RepoAnalysisHandler, "execute", mock_synth)
 
     res = await harness._execute_local_intent(
         task_id="test-what-is-in-this",

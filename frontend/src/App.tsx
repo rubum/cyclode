@@ -31,6 +31,7 @@ const MainApp: React.FC = () => {
   const [webhookEndpoints, setWebhookEndpoints] = useState<WebhookEndpoint[]>([]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [currentPreset, setCurrentPreset] = useState<'standard' | 'wide' | 'fullscreen'>('standard');
+  const [activeAuxTab, setActiveAuxTab] = useState<'files' | 'diff' | 'activity' | 'subagents' | 'event'>('activity');
 
   const [isSandboxModalOpen, setIsSandboxModalOpen] = useState<boolean>(false);
 
@@ -797,6 +798,7 @@ const MainApp: React.FC = () => {
             currentPreset={currentPreset}
             onSetPreset={handleSetPreset}
             onOpenSandboxModal={() => setIsSandboxModalOpen(true)}
+            onSelectAuxTab={handleSelectAuxTab}
           />
         );
       case 'automations':
@@ -879,6 +881,13 @@ const MainApp: React.FC = () => {
 
   const activeTask = tasks.find((t) => t.id === activeTaskId);
 
+  const handleSelectAuxTab = (tab: 'files' | 'diff' | 'activity' | 'subagents' | 'event') => {
+    setActiveAuxTab(tab);
+    if (currentPreset === 'fullscreen') {
+      handleSetPreset('standard');
+    }
+  };
+
   const handleSetPreset = (preset: 'standard' | 'wide' | 'fullscreen') => {
     setCurrentPreset(preset);
     if (preset === 'standard') {
@@ -916,7 +925,13 @@ const MainApp: React.FC = () => {
           />
         }
         center={renderCenterView()}
-        auxiliary={<AuxiliaryPane task={activeTaskDetails} />}
+        auxiliary={
+          <AuxiliaryPane 
+            task={activeTaskDetails} 
+            activeTab={activeAuxTab} 
+            onTabChange={setActiveAuxTab} 
+          />
+        }
       />
 
       {isSandboxModalOpen && (activeTaskDetails || activeTask) && (

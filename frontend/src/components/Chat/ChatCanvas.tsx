@@ -26,7 +26,8 @@ import {
   PanelLeft,
   Box,
   Coins,
-  FolderGit2
+  FolderGit2,
+  ExternalLink
 } from 'lucide-react';
 import { Task, TaskMessage, TaskLog } from '../../types';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
@@ -47,6 +48,7 @@ interface ChatCanvasProps {
   currentPreset?: 'standard' | 'wide' | 'fullscreen';
   onSetPreset?: (preset: 'standard' | 'wide' | 'fullscreen') => void;
   onOpenSandboxModal?: () => void;
+  onSelectAuxTab?: (tab: 'files' | 'diff' | 'activity' | 'subagents' | 'event') => void;
 }
 
 interface ConversationTurn {
@@ -106,6 +108,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   currentPreset,
   onSetPreset,
   onOpenSandboxModal,
+  onSelectAuxTab,
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [selectedPersona, setSelectedPersona] = useState('PairProgrammer');
@@ -869,48 +872,96 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 )}
 
                 {/* 3. Turn Workspace Activity (Placed JUST ABOVE RESPONSE) */}
-                {hasLogs && (
-                  <div className="rounded-xl border border-onedark-border bg-onedark-darker/60 overflow-hidden shadow-sm transition-all">
-                    <button
-                      type="button"
-                      onClick={() => setOpenActivities((prev) => ({ ...prev, [turn.id]: !isActOpen }))}
-                      className="w-full px-3.5 py-2.5 flex items-center justify-between text-xs text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/30 transition-colors cursor-pointer select-none"
-                    >
-                      <div className="flex items-center space-x-2">
-                        <Zap className="w-3.5 h-3.5 text-onedark-accent" />
-                        <span className="font-mono text-xs font-medium text-onedark-fg">
-                          Workspace Activity
-                        </span>
-                        <span className="text-[11px] text-onedark-muted font-mono">
-                          ({turn.logs.length} tool{turn.logs.length > 1 ? 's' : ''} executed)
-                        </span>
+                {hasLogs && (() => {
+                  const totalDuration = turn.logs.reduce((acc, l) => acc + (l.duration_ms || 0), 0);
+                  const uniqueTools = Array.from(new Set(turn.logs.map((l) => l.tool_name)));
+                  const formattedDuration = totalDuration < 1000 
+                    ? `${totalDuration}ms` 
+                    : `${(totalDuration / 1000).toFixed(1)}s`;
+
+                  return (
+                    <div className="rounded-xl border border-onedark-border bg-onedark-darker/60 overflow-hidden shadow-sm transition-all">
+                      <div
+                        onClick={() => setOpenActivities((prev) => ({ ...prev, [turn.id]: !isActOpen }))}
+                        className="w-full px-3.5 py-2.5 flex items-center justify-between text-xs text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/30 transition-colors cursor-pointer select-none"
+                      >
+                        <div className="flex items-center space-x-2.5 min-w-0 pr-2">
+                          <div className="w-5 h-5 rounded-md bg-onedark-accent/10 border border-onedark-accent/20 flex items-center justify-center flex-shrink-0 text-onedark-accent">
+                            <Zap className="w-3 h-3" />
+                          </div>
+                          <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                            <span className="font-mono text-xs font-semibold text-onedark-fgBright">
+                              Workspace Activity
+                            </span>
+                            <span className="text-[11px] text-onedark-muted font-mono">
+                              • {turn.logs.length} tool{turn.logs.length > 1 ? 's' : ''} ({formattedDuration})
+                            </span>
+                            <div className="hidden sm:flex items-center space-x-1">
+                              {uniqueTools.map((tName) => (
+                                <span
+                                  key={tName}
+                                  className="px-1.5 py-0.2 rounded bg-onedark-surface text-[10px] font-mono text-onedark-muted border border-onedark-borderSubtle"
+                                >
+                                  {tName}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-2 flex-shrink-0">
+                          {onSelectAuxTab && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onSelectAuxTab('activity');
+                              }}
+                              className="hidden sm:flex items-center space-x-1 px-2 py-1 rounded-md bg-onedark-surface/50 hover:bg-onedark-surface text-onedark-muted hover:text-onedark-accent text-[11px] font-mono border border-onedark-borderSubtle transition-colors"
+                              title="Inspect logs in Auxiliary Tool Activity tab"
+                            >
+                              <span>Activity Pane</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </button>
+                          )}
+                          <span className="px-2 py-1 rounded-md bg-onedark-surface text-onedark-muted text-[11px] font-mono border border-onedark-borderSubtle flex items-center space-x-1">
+                            <span>{isActOpen ? 'Hide' : 'Show details'}</span>
+                            {isActOpen ? (
+                              <ChevronDown className="w-3.5 h-3.5 ml-0.5" />
+                            ) : (
+                              <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
+                            )}
+                          </span>
+                        </div>
                       </div>
 
-                      <div className="flex items-center space-x-2">
-                        <span className="px-2 py-0.5 rounded-md bg-onedark-surface text-onedark-muted text-[10.5px] font-mono border border-onedark-borderSubtle">
-                          {isActOpen ? 'Hide' : 'Show details'}
-                        </span>
-                        {isActOpen ? (
-                          <ChevronDown className="w-4 h-4 text-onedark-muted" />
-                        ) : (
-                          <ChevronRight className="w-4 h-4 text-onedark-muted" />
-                        )}
-                      </div>
-                    </button>
-
-                    {isActOpen && (
-                      <div className="p-3 border-t border-onedark-borderSubtle space-y-2 bg-onedark-darker/90">
-                        {turn.logs.map((log, idx) => (
-                          <FormattedLogView
-                            key={log.id || idx}
-                            log={log}
-                            initiallyExpanded={false}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
+                      {isActOpen && (
+                        <div className="p-3 border-t border-onedark-borderSubtle space-y-2 bg-onedark-darker/90">
+                          {onSelectAuxTab && (
+                            <div className="flex items-center justify-between pb-1 text-[11px] font-mono text-onedark-muted border-b border-onedark-borderSubtle/60">
+                              <span>Execution Trace ({turn.logs.length} event{turn.logs.length > 1 ? 's' : ''})</span>
+                              <button
+                                type="button"
+                                onClick={() => onSelectAuxTab('activity')}
+                                className="text-onedark-accent hover:underline flex items-center space-x-1 cursor-pointer"
+                              >
+                                <span>Open full streaming logs</span>
+                                <ExternalLink className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
+                          {turn.logs.map((log, idx) => (
+                            <FormattedLogView
+                              key={log.id || idx}
+                              log={log}
+                              initiallyExpanded={false}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* 4. Live Status Indicator (Shown when turn is active) */}
                 {isTurnRunning && (

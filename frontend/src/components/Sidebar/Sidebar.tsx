@@ -8,11 +8,9 @@ import {
   ShieldCheck, 
   PlugZap, 
   Sparkles,
-  ChevronRight,
   Clock,
   Trash2,
   Settings,
-  PanelLeftClose,
   FolderGit2
 } from 'lucide-react';
 import { Task } from '../../types';
@@ -49,8 +47,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const { isConnected } = useWebSocket();
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
   const [isClearAllOpen, setIsClearAllOpen] = useState(false);
-  const navItems = [
-    { id: 'chat', label: 'Workstation / Chat', icon: MessageSquare },
+
+  const toolNavItems = [
     { id: 'repositories', label: 'Repositories & Vault', icon: FolderGit2, iconClass: 'text-onedark-folder' },
     { id: 'automations', label: 'Automations & Rules', icon: Sparkles },
     { id: 'fleet', label: 'Agent Fleet', icon: Layers, badge: tasks.length > 0 ? tasks.length : undefined },
@@ -81,48 +79,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <div className="flex flex-col h-full bg-onedark-darker select-none border-r border-onedark-borderSubtle text-onedark-fg font-sans">
-      {/* Primary Action Button */}
-      <div className="p-3">
+      {/* Top Action: New Session Button */}
+      <div className="p-3 pb-2 border-b border-onedark-borderSubtle/60">
         <button
-          onClick={onNewChat}
-          className="w-full flex items-center justify-center space-x-2 py-2 px-3 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright font-semibold text-xs border border-onedark-border transition-all shadow-xs active:scale-95 cursor-pointer"
+          onClick={() => {
+            onNewChat();
+            setActiveView('chat');
+          }}
+          className="w-full flex items-center justify-between py-2 px-3 rounded-lg bg-onedark-surface hover:bg-onedark-border/80 text-onedark-fgBright font-semibold text-xs border border-onedark-border transition-all shadow-xs active:scale-[0.98] group cursor-pointer"
         >
-          <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-          <span>New Session</span>
+          <div className="flex items-center space-x-2">
+            <div className="w-4 h-4 rounded bg-onedark-yellow/15 border border-onedark-yellow/30 flex items-center justify-center text-onedark-yellow group-hover:scale-105 transition-transform">
+              <Plus className="w-3 h-3 stroke-[2.5]" />
+            </div>
+            <span>New Session</span>
+          </div>
+          <span className="text-[10px] font-mono text-onedark-muted/60 group-hover:text-onedark-muted bg-onedark-darker/60 px-1.5 py-0.5 rounded border border-onedark-borderSubtle">
+            +
+          </span>
         </button>
       </div>
 
-      {/* Main Navigation */}
-      <div className="px-2 py-1 space-y-0.5 border-b border-onedark-borderSubtle">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = activeView === item.id;
-          return (
-            <button
-              key={item.id}
-              onClick={() => setActiveView(item.id)}
-              className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                isActive
-                  ? 'bg-onedark-surface text-onedark-fgBright font-semibold'
-                  : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
-              }`}
-            >
-              <div className="flex items-center space-x-2.5">
-                <Icon className={`w-4 h-4 ${isActive ? 'text-onedark-fgBright' : (item.iconClass || 'text-onedark-muted')}`} />
-                <span>{item.label}</span>
-              </div>
-              {typeof item.badge === 'number' && item.badge > 0 && (
-                <span className="px-2 py-0.5 rounded-full bg-onedark-surface border border-onedark-border text-onedark-fg font-mono text-[10.5px] font-semibold">
-                  {item.badge}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Tasks List */}
-      <div className="flex-1 overflow-y-auto px-2 py-3 space-y-1.5">
+      {/* Primary Middle Section: Recent Sessions History (Scrollable) */}
+      <div className="flex-1 overflow-y-auto px-2 py-2.5 space-y-1.5 min-h-0">
         <div className="px-2.5 flex items-center justify-between text-[11px] font-semibold tracking-wider text-onedark-muted uppercase mb-1">
           <div className="flex items-center space-x-1.5">
             <span>Recent Sessions</span>
@@ -132,15 +111,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </span>
             )}
           </div>
-          {tasks.length > 0 && onClearAllTasks && (
-            <button
-              onClick={() => setIsClearAllOpen(true)}
-              className="text-[10px] font-normal text-onedark-muted hover:text-onedark-red transition-colors capitalize tracking-normal cursor-pointer"
-              title="Clear all recent sessions"
-            >
-              clear all
-            </button>
-          )}
+          <div className="flex items-center space-x-2">
+            {tasks.length > 0 && onClearAllTasks && (
+              <button
+                onClick={() => setIsClearAllOpen(true)}
+                className="text-[10px] font-normal text-onedark-muted hover:text-onedark-red transition-colors capitalize tracking-normal cursor-pointer"
+                title="Clear all recent sessions"
+              >
+                clear all
+              </button>
+            )}
+          </div>
         </div>
 
         {tasks.length === 0 ? (
@@ -195,8 +176,40 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
       </div>
 
+      {/* Bottom Pinned Section: Workspace Tools & Management */}
+      <div className="flex-shrink-0 border-t border-onedark-borderSubtle bg-onedark-darker/95 p-2 space-y-0.5">
+        <div className="px-2.5 py-1 text-[10px] font-semibold tracking-wider text-onedark-muted/70 uppercase">
+          Workspace & Tools
+        </div>
+        {toolNavItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = activeView === item.id;
+          return (
+            <button
+              key={item.id}
+              onClick={() => setActiveView(item.id)}
+              className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                isActive
+                  ? 'bg-onedark-surface text-onedark-fgBright font-semibold'
+                  : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
+              }`}
+            >
+              <div className="flex items-center space-x-2.5">
+                <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-onedark-fgBright' : (item.iconClass || 'text-onedark-muted')}`} />
+                <span>{item.label}</span>
+              </div>
+              {typeof item.badge === 'number' && item.badge > 0 && (
+                <span className="px-2 py-0.5 rounded-full bg-onedark-surface border border-onedark-border text-onedark-fg font-mono text-[10px] font-semibold">
+                  {item.badge}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Sidebar Footer: Adappty Brand, Settings, and Realtime Connection Badge */}
-      <div className="p-3 border-t border-onedark-borderSubtle bg-onedark-darker/95 flex flex-col space-y-2 select-none flex-shrink-0">
+      <div className="p-3 border-t border-onedark-borderSubtle bg-onedark-darker flex flex-col space-y-2 select-none flex-shrink-0">
         <div className="flex items-center justify-between">
           {/* Brand Logo & Name */}
           <div className="flex items-center space-x-2">
