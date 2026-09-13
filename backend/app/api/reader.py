@@ -648,6 +648,29 @@ async def get_url_reader(url: str = Query(..., description="Target URL to read")
             repo = path_parts[1].replace(".git", "")
             try:
                 gh_info = await _fetch_github_repo_info(owner, repo)
+                try:
+                    page_id = hashlib.sha256(gh_info["url"].encode("utf-8")).hexdigest()[:32]
+                    async with async_session_factory() as session:
+                        stmt = select(DocPageCacheModel).where(DocPageCacheModel.id == page_id)
+                        res = await session.execute(stmt)
+                        existing = res.scalars().first()
+                        if existing:
+                            existing.title = gh_info.get("title", f"{owner}/{repo}")
+                            existing.content_markdown = gh_info.get("content_markdown", "")
+                            existing.domain = "github.com"
+                        else:
+                            new_page = DocPageCacheModel(
+                                id=page_id,
+                                url=gh_info["url"],
+                                domain="github.com",
+                                title=gh_info.get("title", f"{owner}/{repo}"),
+                                content_markdown=gh_info.get("content_markdown", ""),
+                                headings_json="[]"
+                            )
+                            session.add(new_page)
+                        await session.commit()
+                except Exception as e:
+                    logger.debug(f"GitHub doc caching notice: {e}")
                 return gh_info
             except Exception as e:
                 logger.warning(f"Error resolving GitHub repo {owner}/{repo}: {e}")
