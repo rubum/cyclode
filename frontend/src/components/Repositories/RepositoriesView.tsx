@@ -338,7 +338,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
   }, [repositories]);
 
   return (
-    <div className="flex-1 overflow-y-auto px-6 pb-8 bg-onedark-bg font-sans text-onedark-fg">
+    <div className="h-full w-full flex flex-col min-h-0 overflow-y-auto px-6 pb-8 bg-onedark-bg font-sans text-onedark-fg">
       {/* Sticky Header with Navigation & Primary Actions */}
       <div className="sticky top-0 z-20 bg-onedark-bg/95 backdrop-blur-md pt-5 pb-4 border-b border-onedark-borderSubtle -mx-6 px-6 mb-5 space-y-3">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">

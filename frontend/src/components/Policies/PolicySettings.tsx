@@ -68,7 +68,7 @@ export const PolicySettings: React.FC<PolicySettingsProps> = ({ policies, onUpda
   };
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-onedark-bg font-sans text-onedark-fg">
+    <div className="h-full w-full flex flex-col min-h-0 overflow-y-auto p-6 space-y-6 bg-onedark-bg font-sans text-onedark-fg">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-base font-semibold text-onedark-fgBright flex items-center space-x-2">

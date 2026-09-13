@@ -85,7 +85,7 @@ export const AutomationsView: React.FC<AutomationsViewProps> = ({
   };
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 space-y-6 bg-onedark-bg font-sans text-onedark-fg">
+    <div className="h-full w-full flex flex-col min-h-0 overflow-y-auto p-6 space-y-6 bg-onedark-bg font-sans text-onedark-fg">
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-onedark-borderSubtle pb-5">
         <div>
