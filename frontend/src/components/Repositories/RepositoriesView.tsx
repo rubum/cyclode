@@ -292,10 +292,14 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
         });
         await fetchRepositories();
       } else {
+        let msg = data.message || data.detail || 'Failed to install webhook listener.';
+        if (typeof msg === 'string' && (msg.includes('localhost') || msg.includes('127.0.0.1') || msg.includes('public Internet'))) {
+          msg = `GitHub requires a publicly reachable URL and rejected 'localhost'. For local testing, click the '⚡ Simulate' button to trigger events offline, or expose port 8000 via ngrok / Cloudflare Tunnel.`;
+        }
         setActionFeedback({
           id: repoId,
           success: false,
-          message: data.message || data.detail || 'Failed to install webhook listener.',
+          message: msg,
         });
       }
     } catch (err: any) {
@@ -1122,6 +1126,10 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
       {/* Confirm Deletion Modal */}
       <ConfirmModal
         isOpen={deleteModalState.isOpen}
@@ -1158,13 +1166,18 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
                 'Disables local webhook listener bindings for all repositories',
               ]
         }
-        safeItems={[
-          'Remote GitHub/GitLab repositories and codebases are NEVER modified',
-          'No remote commits, branches, or pull requests will be deleted',
-          ...(deleteModalState.type === 'all'
-            ? ['Default templates can be restored anytime using "Discover Workspaces"']
-            : []),
-        ]}
+        safeItems={
+          deleteModalState.type === 'all'
+            ? [
+                'Remote GitHub/GitLab repositories and codebases are NEVER modified',
+                'No remote commits, branches, or pull requests will be deleted',
+                'Default templates can be restored anytime using "Discover Workspaces"',
+              ]
+            : [
+                'Remote GitHub/GitLab repositories and codebases are NEVER modified',
+                'No remote commits, branches, or pull requests will be deleted',
+              ]
+        }
         onConfirm={handleConfirmDelete}
         onCancel={() => setDeleteModalState({ isOpen: false, type: 'single' })}
       />

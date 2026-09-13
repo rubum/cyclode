@@ -183,6 +183,15 @@ class GitHubClient:
                     "events": events,
                     "webhook_url": webhook_url
                 }
+            if "localhost" in webhook_url or "127.0.0.1" in webhook_url:
+                if resp.status_code == 422:
+                    return {
+                        "success": False,
+                        "error": resp.text,
+                        "status_code": resp.status_code,
+                        "message": f"GitHub requires a publicly accessible URL and rejected '{webhook_url}'. For offline local development, use the '⚡ Simulate' button to trigger events instantly, or expose port 8000 via a public tunnel (e.g., ngrok or Cloudflare Tunnel)."
+                    }
+
             return {
                 "success": False,
                 "error": resp.text,
