@@ -1,3 +1,5 @@
+import os
+import subprocess
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
@@ -249,6 +251,37 @@ async def delete_task(task_id: str, db: AsyncSession = Depends(get_db)):
 
 
 
+EXTENSION_MAP = {
+    ".rs": "Rust",
+    ".py": "Python",
+    ".ts": "TypeScript",
+    ".tsx": "TSX",
+    ".js": "JavaScript",
+    ".jsx": "JSX",
+    ".go": "Go",
+    ".c": "C",
+    ".cpp": "C++",
+    ".h": "C/C++ Header",
+    ".hpp": "C/C++ Header",
+    ".java": "Java",
+    ".kt": "Kotlin",
+    ".rb": "Ruby",
+    ".sh": "Shell",
+    ".bash": "Shell",
+    ".zsh": "Shell",
+    ".ps1": "PowerShell",
+    ".json": "JSON",
+    ".toml": "TOML",
+    ".yaml": "YAML",
+    ".yml": "YAML",
+    ".md": "Markdown",
+    ".html": "HTML",
+    ".css": "CSS",
+    ".sql": "SQL",
+    ".dockerfile": "Dockerfile",
+}
+
+
 @router.get("/{task_id}/sandbox")
 async def get_task_sandbox_info(task_id: str, db: AsyncSession = Depends(get_db)):
     stmt = select(TaskModel).where(TaskModel.id == task_id)
@@ -265,52 +298,144 @@ async def get_task_sandbox_info(task_id: str, db: AsyncSession = Depends(get_db)
 
     exists = bool(ws_path and ws_path.exists() and ws_path.is_dir())
 
-    def build_tree(current_path: Path, max_depth: int = 4, current_depth: int = 0) -> List[Dict[str, Any]]:
-        if not current_path.exists() or current_depth >= max_depth:
-            return []
-        items = []
+    top_directories: List[Dict[str, Any]] = []
+    language_counts: Dict[str, Dict[str, Any]] = {}
+    manifests: List[Dict[str, Any]] = []
+    total_files = 0
+    total_bytes = 0
+
+    git_status = {
+        "branch": task.git_branch or "main",
+        "repo_url": task.repo_url or "",
+        "commit_sha": task.commit_sha or "",
+        "is_clean": True,
+        "modified_count": 0,
+        "untracked_count": 0
+    }
+
+    if exists and ws_path:
+        # Check project manifests
+        manifest_checks = [
+            ("Cargo.toml", "Rust (Cargo)"),
+            ("package.json", "Node.js (npm/yarn/pnpm)"),
+            ("pyproject.toml", "Python (PEP 621/Poetry)"),
+            ("requirements.txt", "Python (pip)"),
+            ("go.mod", "Go Module"),
+            ("pom.xml", "Java (Maven)"),
+            ("build.gradle", "Java/Kotlin (Gradle)"),
+            ("Dockerfile", "Docker Container"),
+            ("Makefile", "GNU Make"),
+        ]
+        for fname, label in manifest_checks:
+            m_path = ws_path / fname
+            if m_path.exists():
+                try:
+                    manifests.append({
+                        "name": fname,
+                        "type": label,
+                        "size_bytes": m_path.stat().st_size
+                    })
+                except Exception:
+                    pass
+
+        # Scan filesystem for stats and languages
+        ignored_dirs = {".git", "__pycache__", ".pytest_cache", "node_modules", "dist", "build", ".gemini", ".next", ".cache"}
+        for root, dirs, files in os.walk(ws_path):
+            dirs[:] = [d for d in dirs if d not in ignored_dirs and not d.startswith(".")]
+            for f in files:
+                p = Path(root) / f
+                ext = p.suffix.lower()
+                lang = EXTENSION_MAP.get(ext, "Other" if ext else "Plain Text")
+                try:
+                    fsize = p.stat().st_size
+                except Exception:
+                    fsize = 0
+
+                total_files += 1
+                total_bytes += fsize
+
+                if lang not in language_counts:
+                    language_counts[lang] = {"count": 0, "bytes": 0}
+                language_counts[lang]["count"] += 1
+                language_counts[lang]["bytes"] += fsize
+
+        # Top-level directories directly under workspace
         try:
-            for p in sorted(current_path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
-                if p.name in (".git", "__pycache__", ".pytest_cache", "node_modules"):
-                    continue
-                rel = str(p.relative_to(ws_path)) if ws_path else p.name
-                if p.is_dir():
-                    children = build_tree(p, max_depth, current_depth + 1)
-                    items.append({
-                        "name": p.name,
-                        "path": rel,
-                        "is_dir": True,
-                        "type": "directory",
-                        "children": children
+            for item in ws_path.iterdir():
+                if item.is_dir() and item.name not in ignored_dirs and not item.name.startswith("."):
+                    dir_files = 0
+                    dir_bytes = 0
+                    for r, d, fls in os.walk(item):
+                        d[:] = [sub for sub in d if sub not in ignored_dirs and not sub.startswith(".")]
+                        dir_files += len(fls)
+                        for fl in fls:
+                            try:
+                                dir_bytes += (Path(r) / fl).stat().st_size
+                            except Exception:
+                                pass
+                    top_directories.append({
+                        "name": item.name,
+                        "file_count": dir_files,
+                        "size_bytes": dir_bytes
                     })
-                else:
-                    items.append({
-                        "name": p.name,
-                        "path": rel,
-                        "is_dir": False,
-                        "type": "file",
-                        "size": p.stat().st_size
-                    })
+            top_directories.sort(key=lambda x: x["size_bytes"], reverse=True)
         except Exception:
             pass
-        return items
 
-    file_tree = build_tree(ws_path) if (exists and ws_path) else []
+        # Git status inspection
+        if (ws_path / ".git").exists():
+            try:
+                proc = subprocess.run(
+                    ["git", "status", "--porcelain"],
+                    cwd=str(ws_path),
+                    capture_output=True,
+                    text=True,
+                    timeout=2.0
+                )
+                if proc.returncode == 0:
+                    lines = [l for l in proc.stdout.split("\n") if l.strip()]
+                    modified = [l for l in lines if not l.startswith("??")]
+                    untracked = [l for l in lines if l.startswith("??")]
+                    git_status["is_clean"] = len(lines) == 0
+                    git_status["modified_count"] = len(modified)
+                    git_status["untracked_count"] = len(untracked)
+            except Exception:
+                pass
 
-    def count_and_size(tree: List[Dict[str, Any]]) -> Tuple[int, int]:
-        f_count = 0
-        tot_size = 0
-        for item in tree:
-            if item.get("is_dir"):
-                c, s = count_and_size(item.get("children", []))
-                f_count += c
-                tot_size += s
-            else:
-                f_count += 1
-                tot_size += item.get("size", 0)
-        return f_count, tot_size
+    # Format languages
+    languages_list = []
+    total_lang_bytes = sum(v["bytes"] for v in language_counts.values()) or 1
+    for lang_name, stats in sorted(language_counts.items(), key=lambda x: x[1]["bytes"], reverse=True):
+        pct = round((stats["bytes"] / total_lang_bytes) * 100, 1)
+        languages_list.append({
+            "name": lang_name,
+            "count": stats["count"],
+            "size_bytes": stats["bytes"],
+            "percentage": pct
+        })
 
-    total_files, total_bytes = count_and_size(file_tree)
+    # Recent tool executions from TaskLogModel
+    recent_logs = []
+    try:
+        stmt_logs = (
+            select(TaskLogModel)
+            .where(TaskLogModel.task_id == task.id)
+            .order_by(desc(TaskLogModel.created_at))
+            .limit(6)
+        )
+        logs_res = await db.execute(stmt_logs)
+        for log in logs_res.scalars().all():
+            recent_logs.append({
+                "tool_name": log.tool_name,
+                "exit_code": log.exit_code,
+                "duration_ms": log.duration_ms,
+                "created_at": log.created_at.isoformat() if log.created_at else None,
+                "tool_input": log.tool_input or {}
+            })
+    except Exception:
+        pass
+
+    cli_command = f'docker exec -it adappty-backend bash -c "cd {ws_path} && exec bash"' if ws_path else ""
 
     return {
         "task_id": task.id,
@@ -321,9 +446,14 @@ async def get_task_sandbox_info(task_id: str, db: AsyncSession = Depends(get_db)
         "repo_url": task.repo_url,
         "target_branch": task.target_branch,
         "commit_sha": task.commit_sha,
-        "file_tree": file_tree,
         "file_count": total_files,
         "total_size_bytes": total_bytes,
+        "top_directories": top_directories[:10],
+        "languages": languages_list[:8],
+        "manifests": manifests,
+        "git_status": git_status,
+        "recent_logs": recent_logs,
+        "cli_command": cli_command,
         "runtime": {
             "mode": "ephemeral_sandbox",
             "isolation": "filesystem_confinement",
