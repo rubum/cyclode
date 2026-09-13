@@ -254,62 +254,123 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
           </div>
         </div>
 
-        {/* Quick Actions Bar */}
-        <div className="px-4 py-2.5 bg-onedark-surface/30 border-b border-onedark-borderSubtle flex flex-wrap items-center justify-between gap-2 text-xs">
-          <div className="flex items-center space-x-2 flex-wrap gap-y-1.5">
-            <span className="text-[10.5px] uppercase font-bold tracking-wider text-onedark-muted font-mono mr-1">
-              Quick Actions:
-            </span>
-
-            {wsPath && (
-              <button
-                onClick={() => handleCopy(wsPath, 'ws_path')}
-                className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright border border-onedark-borderSubtle text-[11px] font-mono transition-all active:scale-95 cursor-pointer shadow-xs"
-                title="Copy full workspace mount path"
-              >
-                {copiedKey === 'ws_path' ? (
-                  <Check className="w-3.5 h-3.5 text-onedark-green" />
+        {/* Quick Actions & Target Context Header */}
+        <div className="px-4 py-3 bg-onedark-surface/30 border-b border-onedark-borderSubtle space-y-2.5">
+          {/* Target Being Acted On */}
+          <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl bg-onedark-darker/80 border border-onedark-borderSubtle text-xs font-mono">
+            <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+              <span className="px-2 py-0.5 rounded bg-onedark-accent/20 border border-onedark-accent/40 text-onedark-accent font-bold text-[10px] tracking-wider uppercase flex-shrink-0">
+                Acting On
+              </span>
+              
+              <div className="flex items-center space-x-2 truncate">
+                {repoUrl ? (
+                  <span className="font-bold text-onedark-fgBright truncate text-xs flex items-center space-x-1.5" title={repoUrl}>
+                    <FolderGit2 className="w-3.5 h-3.5 text-onedark-folder flex-shrink-0" />
+                    <span>{repoUrl.replace('https://github.com/', '')}</span>
+                  </span>
                 ) : (
-                  <Copy className="w-3.5 h-3.5 text-onedark-accent" />
+                  <span className="font-bold text-onedark-fgBright truncate text-xs flex items-center space-x-1.5">
+                    <Box className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
+                    <span>Workspace Directory</span>
+                  </span>
                 )}
-                <span>Copy Mount Path</span>
-              </button>
-            )}
 
-            {cliCommand && (
-              <button
-                onClick={() => handleCopy(cliCommand, 'cli')}
-                className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright border border-onedark-borderSubtle text-[11px] font-mono transition-all active:scale-95 cursor-pointer shadow-xs"
-                title="Copy Docker shell command to enter this workspace directly"
-              >
-                {copiedKey === 'cli' ? (
-                  <Check className="w-3.5 h-3.5 text-onedark-green" />
-                ) : (
-                  <Terminal className="w-3.5 h-3.5 text-onedark-purple" />
-                )}
-                <span>Copy Shell Command</span>
-              </button>
-            )}
+                <span className="text-onedark-muted/50 text-[11px]">•</span>
 
-            {repoUrl && (
-              <button
-                onClick={() => handleCopy(repoUrl, 'repo_url')}
-                className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright border border-onedark-borderSubtle text-[11px] font-mono transition-all active:scale-95 cursor-pointer shadow-xs"
-                title="Copy Git repository URL"
-              >
-                {copiedKey === 'repo_url' ? (
-                  <Check className="w-3.5 h-3.5 text-onedark-green" />
-                ) : (
-                  <FolderGit2 className="w-3.5 h-3.5 text-onedark-folder" />
-                )}
-                <span>Copy Repo URL</span>
-              </button>
-            )}
+                <span className="text-onedark-muted truncate text-[11px] max-w-[280px] sm:max-w-md" title={wsPath}>
+                  {wsPath}
+                </span>
+
+                <span className="text-onedark-muted/50 text-[11px]">•</span>
+
+                <span className="text-onedark-accent text-[11px] flex items-center space-x-1 flex-shrink-0 font-semibold" title={`Branch: ${gitBranch}`}>
+                  <GitBranch className="w-3 h-3" />
+                  <span>{gitBranch}</span>
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-1.5 text-[10.5px] text-onedark-green bg-onedark-green/10 border border-onedark-green/20 px-2.5 py-0.5 rounded-full flex-shrink-0">
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>Filesystem Jailed</span>
+            </div>
           </div>
 
-          <div className="flex items-center space-x-2 text-[11px] text-onedark-muted font-mono">
-            <ShieldCheck className="w-3.5 h-3.5 text-onedark-green flex-shrink-0" />
-            <span>Filesystem Jailed & Isolated</span>
+          {/* Quick Action Buttons */}
+          <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
+            <div className="flex items-center space-x-2 flex-wrap gap-y-1.5">
+              <span className="text-[10.5px] uppercase font-bold tracking-wider text-onedark-muted font-mono mr-1">
+                Quick Actions:
+              </span>
+
+              {wsPath && (
+                <button
+                  onClick={() => handleCopy(wsPath, 'ws_path')}
+                  className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright border border-onedark-borderSubtle text-[11px] font-mono transition-all active:scale-95 cursor-pointer shadow-xs"
+                  title={`Copy: ${wsPath}`}
+                >
+                  {copiedKey === 'ws_path' ? (
+                    <Check className="w-3.5 h-3.5 text-onedark-green" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5 text-onedark-accent" />
+                  )}
+                  <span>Copy Mount Path</span>
+                </button>
+              )}
+
+              {cliCommand && (
+                <button
+                  onClick={() => handleCopy(cliCommand, 'cli')}
+                  className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright border border-onedark-borderSubtle text-[11px] font-mono transition-all active:scale-95 cursor-pointer shadow-xs"
+                  title={`Copy: ${cliCommand}`}
+                >
+                  {copiedKey === 'cli' ? (
+                    <Check className="w-3.5 h-3.5 text-onedark-green" />
+                  ) : (
+                    <Terminal className="w-3.5 h-3.5 text-onedark-purple" />
+                  )}
+                  <span>Copy Shell Command</span>
+                </button>
+              )}
+
+              {repoUrl && (
+                <button
+                  onClick={() => handleCopy(repoUrl, 'repo_url')}
+                  className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright border border-onedark-borderSubtle text-[11px] font-mono transition-all active:scale-95 cursor-pointer shadow-xs"
+                  title={`Copy: ${repoUrl}`}
+                >
+                  {copiedKey === 'repo_url' ? (
+                    <Check className="w-3.5 h-3.5 text-onedark-green" />
+                  ) : (
+                    <FolderGit2 className="w-3.5 h-3.5 text-onedark-folder" />
+                  )}
+                  <span>Copy Repo URL</span>
+                </button>
+              )}
+
+              {gitBranch && (
+                <button
+                  onClick={() => handleCopy(gitBranch, 'branch')}
+                  className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright border border-onedark-borderSubtle text-[11px] font-mono transition-all active:scale-95 cursor-pointer shadow-xs"
+                  title={`Copy: ${gitBranch}`}
+                >
+                  {copiedKey === 'branch' ? (
+                    <Check className="w-3.5 h-3.5 text-onedark-green" />
+                  ) : (
+                    <GitBranch className="w-3.5 h-3.5 text-onedark-accent" />
+                  )}
+                  <span>Copy Branch</span>
+                </button>
+              )}
+            </div>
+
+            {copiedKey && (
+              <span className="text-[11px] text-onedark-green font-mono flex items-center space-x-1 animate-fadeIn">
+                <Check className="w-3.5 h-3.5" />
+                <span>Copied to clipboard!</span>
+              </span>
+            )}
           </div>
         </div>
 
