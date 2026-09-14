@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 class WebIntelligenceHandler(IntentHandler):
     name = "WebIntelligenceHandler"
-    description = "Searches the live web for tech news, company acquisitions, AI model releases, financial deals, and real-time developer ecosystem intelligence."
+    description = "Searches the live web for tech news, research articles, developer discussions, company acquisitions, AI model releases, essays, and real-time developer ecosystem intelligence."
     exemplars = [
         "search the web for tech news today",
         "what happened today in tech",
@@ -24,16 +24,34 @@ class WebIntelligenceHandler(IntentHandler):
         "latest breaking tech news",
         "search for recent updates on Apple intelligence",
         "what is new in AI this week",
-        "explain the Google Anthropic cloud deal"
+        "explain the Google Anthropic cloud deal",
+        "get latest articles on 'review is the bottleneck'",
+        "get latest articles on review is the bottleneck",
+        "search articles on code review bottlenecks",
+        "find latest papers on LLM agents",
+        "latest articles on developer productivity",
+        "search posts about code review latency",
+        "research literature on testing strategies",
+        "find news and articles about AI benchmarks",
+        "what are the latest essays on software engineering bottlenecks",
+        "search web for discussions on CI/CD pipelines",
+        "get recent articles on code review",
+        "search for articles on 'review is the bottleneck'",
+        "find research papers on agentic coding",
+        "latest essays on developer velocity",
+        "articles on review bottlenecks"
     ]
     negative_exemplars = [
         "explain this repository",
         "what is in this codebase",
         "how do i get a github token",
         "run pytest on this project",
-        "analyze workspace architecture"
+        "analyze workspace architecture",
+        "review this pull request",
+        "audit PR changes in sandbox",
+        "do a code review on this file"
     ]
-    priority_weight = 1.25
+    priority_weight = 1.30
 
     def matches(self, ctx: IntentContext) -> bool:
         lower = ctx.lower_prompt
@@ -42,9 +60,11 @@ class WebIntelligenceHandler(IntentHandler):
 
         tech_entities = r"(?:nvidia|hugging\s*face|openai|anthropic|google|apple|meta|microsoft|amazon|deepseek|mistral|xai|tech|ai)"
         action_terms = r"(?:acquire|acquires|acquisition|buy|buys|bought|announcement|announces|release|releases|partnership|partner|deal|merger|sec filing|ipo)"
+        research_terms = r"(?:articles?|papers?|essays?|posts?|blogs?|discussions?|literature|benchmarks?|findings?|studies|analysis)"
 
         return bool(
-            re.search(rf"\b(search (?:the )?web|search (?:for )?news|tech news|ai news|{tech_entities}\s+news)\b", lower)
+            re.search(rf"\b(search (?:the )?web|search (?:for )?(?:news|{research_terms})|tech news|ai news|{tech_entities}\s+news)\b", lower)
+            or re.search(rf"\b(get|find|fetch|search|show|summarize|lookup|provide)?\s*(?:the\s+)?(?:latest|recent|top|new|best)?\s*{research_terms}\s+(?:on|about|regarding|for)\b", lower)
             or re.search(rf"\b(what (?:happened|is new|is happening)|provide a summary of (?:what happened|news|developments|announcements))\b.*\b(today|this week|this month|recently|recent|{tech_entities})\b", lower)
             or re.search(r"\b(any news|latest news|breaking news|recent news|news on|updates on|what happened at)\b", lower)
             or re.search(rf"\b(explain\s+(?:this\s+)?|summarize\s+(?:this\s+)?|tell\s+me\s+about\s+(?:this\s+)?|what\s+about\s+|what\s+is\s+this\s+)?{tech_entities}\b.*\b{action_terms}\b", lower)
@@ -59,11 +79,19 @@ class WebIntelligenceHandler(IntentHandler):
 
     async def execute(self, ctx: IntentContext) -> Dict[str, Any]:
         lower = ctx.lower_prompt
-        # 1. Clean leading conversational questions
+        # 1. Clean leading conversational questions and search wrappers
         clean_prompt = re.sub(
-            r"^(?:what\s+is\s+happening\s+(?:at|with|in|to)\s+|what\s+happened\s+(?:at|with|in|to)\s+|what\s+is\s+new\s+(?:at|with|in)\s+|what\'s\s+new\s+(?:at|with|in)\s+|tell\s+me\s+about\s+|explain\s+(?:this\s+)?|summarize\s+(?:this\s+)?|search\s+(?:the\s+)?(?:web\s+)?(?:for\s+)?(?:news\s+)?(?:about\s+)?|news\s+(?:on|about)\s+)",
+            r"^(?:get\s+|find\s+|fetch\s+|search\s+(?:the\s+)?(?:web\s+)?(?:for\s+)?|lookup\s+|show\s+(?:me\s+)?|provide\s+(?:a\s+)?(?:summary\s+of\s+)?|tell\s+me\s+about\s+|explain\s+(?:this\s+)?|summarize\s+(?:this\s+)?|what\s+is\s+happening\s+(?:at|with|in|to)\s+|what\s+happened\s+(?:at|with|in|to)\s+|what\s+is\s+new\s+(?:at|with|in)\s+|what\'s\s+new\s+(?:at|with|in)\s+)",
             "",
             ctx.prompt,
+            flags=re.IGNORECASE
+        ).strip()
+
+        # Clean "latest articles on", "recent papers about", "news on", etc.
+        clean_prompt = re.sub(
+            r"^(?:(?:the\s+)?(?:latest|recent|top|new|best)\s+)?(?:articles|papers|essays|posts|blogs|discussions|literature|news|updates|announcements)\s+(?:on|about|regarding|for)\s+",
+            "",
+            clean_prompt,
             flags=re.IGNORECASE
         ).strip()
 
@@ -76,6 +104,7 @@ class WebIntelligenceHandler(IntentHandler):
             flags=re.IGNORECASE
         ).strip()
         clean_prompt = re.sub(r"^(?:at|with|about|for|in|on|to)\s+", "", clean_prompt).strip()
+        clean_prompt = clean_prompt.strip("'\"`").strip()
         clean_prompt = re.sub(r"\s+", " ", clean_prompt).strip()
 
         search_query = clean_prompt if len(clean_prompt.split()) >= 1 and len(clean_prompt) >= 2 else ctx.prompt
@@ -121,28 +150,32 @@ class WebIntelligenceHandler(IntentHandler):
                 if any(k in lower_t for k in ("security", "attack", "pwned", "vulnerability", "cve", "breach", "hack")):
                     category = "Security & Research"
                 elif any(k in lower_t for k in ("support", "policy", "cancellation", "lockout", "pricing", "terms", "ban")):
-                    category = "Product & Account Policies"
+                    category = "Product & Policies"
                 elif any(k in lower_t for k in ("camp", "conference", "summit", "meetup", "hackathon", "event")):
                     category = "Events & Community"
                 elif any(k in lower_t for k in ("acquire", "acquisition", "buy", "buys", "bought", "valuation", "fund", "raise", "ipo", "$")):
-                    category = "M&A & Ecosystem"
+                    category = "M&A & Strategy"
                 elif any(k in lower_t for k in ("release", "v0", "v1", "v2", "update", "launch", "announc", "feature")):
-                    category = "Releases & Features"
+                    category = "Releases & Architecture"
+                elif any(k in lower_t for k in ("bottleneck", "review", "productivity", "velocity", "ci/cd", "pipeline", "pull request", "pr")):
+                    category = "Developer Velocity & Workflow"
                 else:
-                    category = "Developer Discussion"
+                    category = "Industry Analysis"
                 
                 synthesized_items.append(f"* **{category}**: [{t}]({u}){date_suffix}")
 
             highlights_md = "\n".join(synthesized_items)
             briefing_md = (
-                f"Looking at recent community discussions and ecosystem developments around **{topic_title}**, here are the key highlights and updates:\n\n"
+                f"### 🌐 Web Intelligence & Research: {topic_title}\n\n"
+                f"Synthesizing recent technical articles, developer discussions, and publications surrounding **{topic_title}**:\n\n"
                 f"{highlights_md}\n\n"
-                f"*(Discussions and coverage sourced directly from developer feeds and live community tracking.)*"
+                f"*(Direct citations retrieved live from engineering publications and community feeds.)*"
             )
         else:
             briefing_md = (
-                f"I checked live developer feeds for recent news and discussions regarding **{topic_title}**, but no verified stories were returned under current parameters.\n\n"
-                f"You can try searching with broader keywords or checking direct project repositories."
+                f"### 🌐 Web Intelligence & Research: {topic_title}\n\n"
+                f"Live retrieval across developer publications and community feeds for **{topic_title}** returned no direct matches under current constraints.\n\n"
+                f"Consider broadening search keywords or querying specific publication archives."
             )
 
         await ctx.emit_message("agent", briefing_md)

@@ -537,17 +537,19 @@ class WorkspaceTools:
             is_temporal = False
         
         months_pat = r"january|february|march|april|may|june|july|august|september|october|november|december"
+        research_wrapper = r"articles?|papers?|essays?|posts?|blogs?|discussions?|literature|benchmarks?|findings?|studies|get|find|fetch|lookup|show"
         entity_query = re.sub(
-            rf"\b(news|announcements|announcement|latest|today|yesterday|tonight|this morning|this week|this month|this year|recently|recent|releases|update|updates|what happened|what is happening|what is happening at|what happened at|what happened with|esp the last weeks|especially the last weeks|in the last weeks|over the last weeks|last weeks|last week|tell me about|provide a summary of|summary of|2023|2024|2025|2026|{months_pat})\b",
+            rf"\b(news|announcements|announcement|latest|today|yesterday|tonight|this morning|this week|this month|this year|recently|recent|releases|update|updates|what happened|what is happening|what is happening at|what happened at|what happened with|esp the last weeks|especially the last weeks|in the last weeks|over the last weeks|last weeks|last week|tell me about|provide a summary of|summary of|2023|2024|2025|2026|{research_wrapper}|{months_pat})\b",
             "",
             clean_q,
             flags=re.IGNORECASE
         ).strip()
-        entity_query = re.sub(r"^(?:at|with|about|for|in|on|to)\s+", "", entity_query).strip()
+        entity_query = re.sub(r"^(?:at|with|about|for|in|on|to|of)\s+", "", entity_query).strip()
         entity_query = re.sub(r"(?:,\s*)?(?:esp(?:ecially)?\s+)?(?:the\s+)?(?:last|recent|past)\s+(?:weeks?|months?|days?|year)\s*$", "", entity_query, flags=re.IGNORECASE).strip()
+        entity_query = entity_query.strip("'\"`").strip()
         entity_query = re.sub(r"\s+", " ", entity_query).strip()
         if not entity_query:
-            entity_query = clean_q
+            entity_query = clean_q.strip("'\"`").strip()
 
         ENTITY_EXPANSIONS = {
             "cursor": ["cursor ide", "cursor ai", "cursor"],

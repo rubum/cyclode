@@ -204,23 +204,46 @@ class CodeReviewHandler(IntentHandler):
     description = "Performs an automated pull request code review checking code boundaries, null safety, architectural regressions, and test verification."
     exemplars = [
         "review this pull request",
-        "do a code review",
-        "review PR diff",
-        "audit pull request changes",
+        "do a code review on this branch",
+        "review PR diff and check boundaries",
+        "audit pull request changes in sandbox",
         "pull_request.opened review this pr",
-        "check the code quality on this branch"
+        "check the code quality on this pull request branch",
+        "perform automated code review on this diff"
     ]
     negative_exemplars = [
+        "get latest articles on review is the bottleneck",
         "search web for news",
+        "find latest articles on developer productivity",
+        "search papers on code review bottleneck",
         "how to get a token",
         "list workspace files",
-        "who are you"
+        "who are you",
+        "what happened today in tech",
+        "search for articles on review",
+        "read essays on code review",
+        "find literature on software engineering"
     ]
-    priority_weight = 1.1
+    priority_weight = 1.05
 
     def matches(self, ctx: IntentContext) -> bool:
         lower = ctx.lower_prompt
-        return ctx.persona_name == "CodeReviewer" or "review pr" in lower or "code review" in lower or "pull_request.opened" in lower
+        # Reject informational research, literature, articles, papers, news, and web queries
+        if any(w in lower for w in (
+            "article", "articles", "paper", "papers", "essay", "essays",
+            "news", "search", "post", "posts", "blog", "blogs", "web",
+            "literature", "discussion", "discussions", "lookup", "feed"
+        )):
+            return False
+
+        if ctx.persona_name == "CodeReviewer":
+            return True
+
+        return bool(
+            re.search(r"\b(review\s+(?:this\s+)?(?:pr|pull\s+request|diff|branch|patch|commit))\b", lower)
+            or re.search(r"\b(code\s+review\s+(?:this|on|for)?\s*(?:pr|pull\s+request|diff|branch|file)?)\b", lower)
+            or "pull_request.opened" in lower
+        )
 
     async def execute(self, ctx: IntentContext) -> Dict[str, Any]:
         test_cmd = await resolve_test_cmd(ctx.workspace_path)
