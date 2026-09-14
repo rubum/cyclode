@@ -483,21 +483,29 @@ def _clean_github_markdown(markdown_text: str, owner: str, repo: str, default_br
     return result
 
 
-async def _fetch_github_repo_info(owner: str, repo: str) -> Dict[str, Any]:
-    """
-    Fetches GitHub repository information and README markdown with Vault token support.
-    """
+async def _get_github_auth_token(owner: str, repo: str) -> Optional[str]:
     full_name = f"{owner}/{repo}"
     token = None
     try:
         from app.config import settings
         token = getattr(settings, "GITHUB_TOKEN", None)
+        from app.integrations.github_client import github_client
+        if not token and github_client.token:
+            token = github_client.token
         from app.integrations.manager import integration_manager
         vault_token = await integration_manager.get_github_token_for_repo(f"https://github.com/{full_name}")
         if vault_token:
             token = vault_token
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"GitHub token lookup notice for {owner}/{repo}: {e}")
+    return token
+
+
+async def _fetch_github_repo_info(owner: str, repo: str) -> Dict[str, Any]:
+    """
+    Fetches GitHub repository information and README markdown with Vault token support.
+    """
+    token = await _get_github_auth_token(owner, repo)
 
     headers = {
         "User-Agent": "Cyclode-Workstation/1.0",
@@ -570,6 +578,167 @@ async def _fetch_github_repo_info(owner: str, repo: str) -> Dict[str, Any]:
             "clone_url": repo_data.get("clone_url") or f"https://github.com/{owner}/{repo}.git",
             "default_branch": default_branch,
             "content_markdown": readme_md
+        }
+
+
+async def _fetch_github_pr_info(owner: str, repo: str, pr_number: int) -> Dict[str, Any]:
+    """
+    Fetches GitHub Pull Request metadata, description, and unified diff.
+    """
+    token = await _get_github_auth_token(owner, repo)
+    headers = {
+        "User-Agent": "Cyclode-Workstation/1.0",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    if token:
+        headers["Authorization"] = f"token {token}"
+
+    pr_url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}"
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+        pr_data: Dict[str, Any] = {}
+        try:
+            r = await client.get(pr_url, headers=headers)
+            if r.status_code == 200:
+                pr_data = r.json()
+        except Exception as e:
+            logger.warning(f"Failed to fetch GitHub PR {owner}/{repo}#{pr_number}: {e}")
+
+        # Fetch unified diff
+        diff_text = ""
+        try:
+            diff_headers = dict(headers)
+            diff_headers["Accept"] = "application/vnd.github.v3.diff"
+            r_diff = await client.get(pr_url, headers=diff_headers)
+            if r_diff.status_code == 200:
+                diff_text = r_diff.text
+        except Exception as e:
+            logger.debug(f"Failed to fetch PR diff via GitHub API: {e}")
+
+        if not diff_text:
+            try:
+                r_diff2 = await client.get(
+                    f"https://patch-diff.githubusercontent.com/raw/{owner}/{repo}/pull/{pr_number}.diff",
+                    headers=headers
+                )
+                if r_diff2.status_code == 200:
+                    diff_text = r_diff2.text
+            except Exception:
+                pass
+
+        title = pr_data.get("title") or f"Pull Request #{pr_number}"
+        user_login = pr_data.get("user", {}).get("login", "unknown")
+        state = pr_data.get("state", "open")
+        merged = pr_data.get("merged", False)
+        status_str = "MERGED" if merged else state.upper()
+        head_ref = pr_data.get("head", {}).get("ref", "")
+        base_ref = pr_data.get("base", {}).get("ref", "main")
+        body = (pr_data.get("body") or "").strip()
+        additions = pr_data.get("additions", 0)
+        deletions = pr_data.get("deletions", 0)
+        changed_files = pr_data.get("changed_files", 0)
+        html_url = pr_data.get("html_url") or f"https://github.com/{owner}/{repo}/pull/{pr_number}"
+
+        meta_parts = [f"**Status**: `{status_str}`", f"**Author**: @{user_login}"]
+        if head_ref and base_ref:
+            meta_parts.append(f"**Branches**: `{head_ref}` ➔ `{base_ref}`")
+        if additions or deletions or changed_files:
+            meta_parts.append(f"**Changes**: `+{additions}` / `-{deletions}` ({changed_files} files)")
+
+        md_parts = [
+            f"# Pull Request #{pr_number}: {title}\n",
+            f"{' | '.join(meta_parts)}\n",
+            "## Description\n",
+            f"{body if body else '*No description provided.*'}\n"
+        ]
+
+        if diff_text.strip():
+            md_parts.append("## Unified Diff\n")
+            md_parts.append(f"```diff\n{diff_text.strip()}\n```\n")
+
+        full_md = "\n".join(md_parts).strip()
+
+        return {
+            "type": "github",
+            "url": html_url,
+            "title": f"{owner}/{repo} #{pr_number}: {title}",
+            "repo_name": f"{owner}/{repo}",
+            "description": f"Pull Request #{pr_number} ({status_str}) - {title}",
+            "clone_url": f"https://github.com/{owner}/{repo}.git",
+            "default_branch": base_ref,
+            "content_markdown": full_md
+        }
+
+
+async def _fetch_github_issue_info(owner: str, repo: str, issue_number: int) -> Dict[str, Any]:
+    """
+    Fetches GitHub Issue metadata, description, and comments.
+    """
+    token = await _get_github_auth_token(owner, repo)
+    headers = {
+        "User-Agent": "Cyclode-Workstation/1.0",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    if token:
+        headers["Authorization"] = f"token {token}"
+
+    issue_url = f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}"
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+        issue_data: Dict[str, Any] = {}
+        try:
+            r = await client.get(issue_url, headers=headers)
+            if r.status_code == 200:
+                issue_data = r.json()
+        except Exception as e:
+            logger.warning(f"Failed to fetch issue {owner}/{repo}#{issue_number}: {e}")
+
+        # If it's a pull request returned by the issues endpoint
+        if "pull_request" in issue_data:
+            return await _fetch_github_pr_info(owner, repo, issue_number)
+
+        comments = []
+        try:
+            r_comments = await client.get(f"{issue_url}/comments", headers=headers)
+            if r_comments.status_code == 200:
+                comments = r_comments.json()
+        except Exception:
+            pass
+
+        title = issue_data.get("title") or f"Issue #{issue_number}"
+        user_login = issue_data.get("user", {}).get("login", "unknown")
+        state = issue_data.get("state", "open").upper()
+        body = (issue_data.get("body") or "").strip()
+        html_url = issue_data.get("html_url") or f"https://github.com/{owner}/{repo}/issues/{issue_number}"
+        labels = [l.get("name") for l in issue_data.get("labels", []) if isinstance(l, dict) and l.get("name")]
+
+        meta_parts = [f"**Status**: `{state}`", f"**Author**: @{user_login}"]
+        if labels:
+            meta_parts.append(f"**Labels**: {', '.join(f'`{lb}`' for lb in labels)}")
+
+        md_parts = [
+            f"# Issue #{issue_number}: {title}\n",
+            f"{' | '.join(meta_parts)}\n",
+            "## Description\n",
+            f"{body if body else '*No description provided.*'}\n"
+        ]
+
+        if comments:
+            md_parts.append(f"## Discussion ({len(comments)})\n")
+            for c in comments:
+                c_user = c.get("user", {}).get("login", "unknown")
+                c_body = (c.get("body") or "").strip()
+                c_date = (c.get("created_at") or "")[:10]
+                md_parts.append(f"### @{c_user} ({c_date})\n\n{c_body}\n")
+
+        full_md = "\n".join(md_parts).strip()
+
+        return {
+            "type": "github",
+            "url": html_url,
+            "title": f"{owner}/{repo} #{issue_number}: {title}",
+            "repo_name": f"{owner}/{repo}",
+            "description": f"Issue #{issue_number} ({state}) - {title}",
+            "clone_url": f"https://github.com/{owner}/{repo}.git",
+            "content_markdown": full_md
         }
 
 
@@ -660,12 +829,78 @@ async def get_url_reader(url: str = Query(..., description="Target URL to read")
     parsed = urlparse(clean_url)
     hostname = (parsed.hostname or "").lower()
 
-    # Check for GitHub repository URL
+    # Check for GitHub repository, PR, or Issue URL
     if "github.com" in hostname:
         path_parts = [p for p in parsed.path.strip("/").split("/") if p]
         if len(path_parts) >= 2 and path_parts[0].lower() not in RESERVED_GITHUB_PATHS:
             owner = path_parts[0]
             repo = path_parts[1].replace(".git", "")
+
+            # Check for GitHub Pull Request URL: /owner/repo/pull/123 or /owner/repo/pulls/123
+            if len(path_parts) >= 4 and path_parts[2].lower() in ("pull", "pulls") and path_parts[3].isdigit():
+                pr_number = int(path_parts[3])
+                try:
+                    gh_info = await _fetch_github_pr_info(owner, repo, pr_number)
+                    try:
+                        page_id = hashlib.sha256(gh_info["url"].encode("utf-8")).hexdigest()[:32]
+                        async with async_session_factory() as session:
+                            stmt = select(DocPageCacheModel).where(DocPageCacheModel.id == page_id)
+                            res = await session.execute(stmt)
+                            existing = res.scalars().first()
+                            if existing:
+                                existing.title = gh_info.get("title", f"{owner}/{repo} #{pr_number}")
+                                existing.content_markdown = gh_info.get("content_markdown", "")
+                                existing.domain = "github.com"
+                            else:
+                                new_page = DocPageCacheModel(
+                                    id=page_id,
+                                    url=gh_info["url"],
+                                    domain="github.com",
+                                    title=gh_info.get("title", f"{owner}/{repo} #{pr_number}"),
+                                    content_markdown=gh_info.get("content_markdown", ""),
+                                    headings_json="[]"
+                                )
+                                session.add(new_page)
+                            await session.commit()
+                    except Exception as e:
+                        logger.debug(f"GitHub PR doc caching notice: {e}")
+                    return gh_info
+                except Exception as e:
+                    logger.warning(f"Error resolving GitHub PR {owner}/{repo}#{pr_number}: {e}")
+
+            # Check for GitHub Issue URL: /owner/repo/issues/123 or /owner/repo/issue/123
+            elif len(path_parts) >= 4 and path_parts[2].lower() in ("issue", "issues") and path_parts[3].isdigit():
+                issue_number = int(path_parts[3])
+                try:
+                    gh_info = await _fetch_github_issue_info(owner, repo, issue_number)
+                    try:
+                        page_id = hashlib.sha256(gh_info["url"].encode("utf-8")).hexdigest()[:32]
+                        async with async_session_factory() as session:
+                            stmt = select(DocPageCacheModel).where(DocPageCacheModel.id == page_id)
+                            res = await session.execute(stmt)
+                            existing = res.scalars().first()
+                            if existing:
+                                existing.title = gh_info.get("title", f"{owner}/{repo} #{issue_number}")
+                                existing.content_markdown = gh_info.get("content_markdown", "")
+                                existing.domain = "github.com"
+                            else:
+                                new_page = DocPageCacheModel(
+                                    id=page_id,
+                                    url=gh_info["url"],
+                                    domain="github.com",
+                                    title=gh_info.get("title", f"{owner}/{repo} #{issue_number}"),
+                                    content_markdown=gh_info.get("content_markdown", ""),
+                                    headings_json="[]"
+                                )
+                                session.add(new_page)
+                            await session.commit()
+                    except Exception as e:
+                        logger.debug(f"GitHub issue doc caching notice: {e}")
+                    return gh_info
+                except Exception as e:
+                    logger.warning(f"Error resolving GitHub Issue {owner}/{repo}#{issue_number}: {e}")
+
+            # Fallback to GitHub Repository README
             try:
                 gh_info = await _fetch_github_repo_info(owner, repo)
                 try:
