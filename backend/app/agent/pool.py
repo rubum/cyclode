@@ -350,7 +350,7 @@ class AgentTaskPool:
                     msg = TaskMessageModel(
                         task_id=task_id,
                         sender="agent",
-                        content=thought_text,
+                        content="",
                         thought=thought_text,
                         tokens=t_tokens
                     )

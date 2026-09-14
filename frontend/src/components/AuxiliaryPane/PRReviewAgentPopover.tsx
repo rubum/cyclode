@@ -76,12 +76,14 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
   const [isExpanded, setIsExpanded] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [attachedContext, setAttachedContext] = useState<LineContext | null>(null);
+  const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
 
   // Resizable dimension state
   const [size, setSize] = useState<{ width: number; height: number }>({ width: 520, height: 640 });
   const [isResizing, setIsResizing] = useState(false);
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isAutoScrollEnabledRef = useRef<boolean>(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { subscribe } = useWebSocket();
 
@@ -131,15 +133,34 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
     }
   }, [activeLineComment]);
 
-  // Scroll to bottom when new messages or chunks arrive
-  const scrollToBottom = () => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  };
+  // Handle user manual scroll: detect if user scrolled away from bottom
+  const handleScroll = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const { scrollTop, scrollHeight, clientHeight } = container;
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    const isAtBottom = distanceFromBottom <= 60;
+    isAutoScrollEnabledRef.current = isAtBottom;
+    setShowScrollBottomBtn(!isAtBottom);
+  }, []);
 
+  // Jump to bottom helper
+  const scrollToBottom = useCallback((smooth = false) => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    if (smooth) {
+      container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+    } else {
+      container.scrollTop = container.scrollHeight;
+    }
+    isAutoScrollEnabledRef.current = true;
+    setShowScrollBottomBtn(false);
+  }, []);
+
+  // Auto-scroll on new chunks/messages ONLY if user hasn't scrolled away
   useEffect(() => {
-    scrollToBottom();
+    if (!isAutoScrollEnabledRef.current || !scrollContainerRef.current) return;
+    scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
   }, [messages, isLoading]);
 
   // Handle popover drag resizing
@@ -186,6 +207,9 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
     const unsubStreamStart = subscribe('STREAM_START', (data: any) => {
       if (data.task_id === taskId) {
         setIsLoading(true);
+        if (data.stream_type === 'thought') {
+          setShowThoughts(prev => ({ ...prev, [data.stream_id]: true }));
+        }
         setMessages(prev => {
           const existingIdx = prev.findIndex(m => m.id === data.stream_id);
           if (existingIdx >= 0) {
@@ -197,7 +221,7 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
               id: data.stream_id,
               task_id: taskId,
               sender: 'agent',
-              content: '',
+              content: data.stream_type === 'message' ? '' : '',
               thought: data.stream_type === 'thought' ? '' : undefined,
               isStreaming: true,
               created_at: data.timestamp || new Date().toISOString()
@@ -258,41 +282,6 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
     };
   }, [taskId, subscribe]);
 
-  // Initialize or spawn a dedicated Reviewer task session on demand
-  const ensureReviewTask = async (): Promise<string> => {
-    if (taskId) return taskId;
-
-    setIsInitializing(true);
-    try {
-      const sessionKey = `review:${repoName}:pr:${prNumber}`;
-      const res = await fetch(`${API_BASE}/api/tasks`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: `Code Review: ${repoName} #${prNumber} - ${prTitle}`,
-          description: `Interactive Code Review session for ${repoName} Pull Request #${prNumber} (${prTitle}). Head: ${headBranch || 'unknown'}, Base: ${baseBranch || 'main'}, Author: @${author || 'unknown'}.`,
-          persona: 'CodeReviewer',
-          session_key: sessionKey,
-          is_subsession: true,
-          parent_task_id: parentTaskId || null,
-          repo_name: repoName
-        })
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        const newTaskId = data.task_id;
-        setTaskId(newTaskId);
-        setIsInitializing(false);
-        return newTaskId;
-      }
-      throw new Error('Failed to spawn review session');
-    } catch (e) {
-      setIsInitializing(false);
-      throw e;
-    }
-  };
-
   const handleSendMessage = async (customPrompt?: string) => {
     const rawText = customPrompt || inputPrompt;
     if (!rawText.trim() && !attachedContext) return;
@@ -319,19 +308,52 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
     setMessages(prev => [...prev, newMsg]);
     setIsLoading(true);
 
+    // Re-enable autoscroll on sending message
+    isAutoScrollEnabledRef.current = true;
+    setShowScrollBottomBtn(false);
+
     try {
-      const activeId = await ensureReviewTask();
-      const res = await fetch(`${API_BASE}/api/tasks/${activeId}/message`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: finalPrompt })
-      });
-      if (!res.ok) {
-        throw new Error(`HTTP error ${res.status}`);
+      if (!taskId) {
+        // Initial message: Spawn dedicated review task with this prompt as description
+        setIsInitializing(true);
+        const sessionKey = `review:${repoName}:pr:${prNumber}`;
+        const res = await fetch(`${API_BASE}/api/tasks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: `Code Review: ${repoName} #${prNumber} - ${prTitle}`,
+            description: finalPrompt,
+            persona: 'CodeReviewer',
+            session_key: sessionKey,
+            is_subsession: true,
+            parent_task_id: parentTaskId || null,
+            repo_name: repoName
+          })
+        });
+        setIsInitializing(false);
+
+        if (res.ok) {
+          const data = await res.json();
+          setTaskId(data.task_id);
+          // Worker is already running via spawn_task; DO NOT call /message endpoint again!
+          return;
+        }
+        throw new Error('Failed to spawn review session');
+      } else {
+        // Subsequent message on active review session
+        const res = await fetch(`${API_BASE}/api/tasks/${taskId}/message`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: finalPrompt })
+        });
+        if (!res.ok) {
+          throw new Error(`HTTP error ${res.status}`);
+        }
       }
     } catch (err) {
       console.error('Error dispatching reviewer message:', err);
       setIsLoading(false);
+      setIsInitializing(false);
       setMessages(prev => [
         ...prev,
         {
@@ -480,7 +502,11 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
       </div>
 
       {/* Messages Conversation Container */}
-      <div className="flex-1 p-3.5 overflow-y-auto space-y-3.5 select-text text-xs leading-relaxed">
+      <div 
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 p-3.5 overflow-y-auto space-y-3.5 select-text text-xs leading-relaxed relative"
+      >
         {messages.length === 0 && (
           <div className="h-full flex flex-col items-center justify-center text-center p-6 text-onedark-muted select-none space-y-2.5">
             <div className="w-10 h-10 rounded-2xl bg-onedark-surface/60 border border-onedark-border flex items-center justify-center text-onedark-accent">
@@ -498,6 +524,12 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
         {messages.map((msg, index) => {
           const isAgent = msg.sender === 'agent';
           const isSystem = msg.sender === 'system';
+          const hasContent = Boolean(msg.content && msg.content.trim().length > 0);
+          const hasThought = Boolean(msg.thought && msg.thought.trim().length > 0);
+
+          if (!hasContent && !hasThought && !msg.isStreaming) {
+            return null;
+          }
 
           if (isSystem) {
             return (
@@ -516,7 +548,7 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
               </div>
 
               {/* Agent Thought Accordion if present */}
-              {isAgent && msg.thought && (
+              {isAgent && hasThought && (
                 <div className="w-full max-w-full rounded-xl border border-onedark-borderSubtle bg-onedark-surface/30 overflow-hidden text-[11px]">
                   <button
                     onClick={() => toggleThought(msg.id)}
@@ -536,36 +568,40 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
                 </div>
               )}
 
-              {/* Main Message Bubble */}
-              <div 
-                className={`p-3 rounded-2xl max-w-[94%] shadow-xs leading-relaxed group relative ${
-                  isAgent
-                    ? 'bg-onedark-surface/80 border border-onedark-border text-onedark-fg'
-                    : 'bg-onedark-accent/20 border border-onedark-accent/40 text-onedark-fgBright'
-                }`}
-              >
-                <MarkdownRenderer 
-                  content={msg.content} 
-                  isStreaming={msg.isStreaming} 
-                  onLinkClick={(url, text) => {
-                    if (url.startsWith('#') || url.includes('#L')) {
-                      const m = url.match(/(?:#L|:)(\d+)/);
-                      if (m && onNavigateToFileLine) {
-                        onNavigateToFileLine(text, parseInt(m[1], 10));
-                      }
-                    }
-                  }}
-                />
-
-                {/* Copy button */}
-                <button
-                  onClick={() => handleCopyMessage(msg.content, index)}
-                  className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-onedark-bg/80 text-onedark-muted hover:text-onedark-fg transition-all"
-                  title="Copy message"
+              {/* Main Message Bubble (only render if there is text content or active stream) */}
+              {(hasContent || (!hasThought && msg.isStreaming)) && (
+                <div 
+                  className={`p-3 rounded-2xl max-w-[94%] shadow-xs leading-relaxed group relative ${
+                    isAgent
+                      ? 'bg-onedark-surface/80 border border-onedark-border text-onedark-fg'
+                      : 'bg-onedark-accent/20 border border-onedark-accent/40 text-onedark-fgBright'
+                  }`}
                 >
-                  {copiedIndex === index ? <Check className="w-3 h-3 text-onedark-green" /> : <Copy className="w-3 h-3" />}
-                </button>
-              </div>
+                  <MarkdownRenderer 
+                    content={msg.content} 
+                    isStreaming={msg.isStreaming} 
+                    onLinkClick={(url, text) => {
+                      if (url.startsWith('#') || url.includes('#L')) {
+                        const m = url.match(/(?:#L|:)(\d+)/);
+                        if (m && onNavigateToFileLine) {
+                          onNavigateToFileLine(text, parseInt(m[1], 10));
+                        }
+                      }
+                    }}
+                  />
+
+                  {/* Copy button */}
+                  {msg.content && (
+                    <button
+                      onClick={() => handleCopyMessage(msg.content, index)}
+                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-onedark-bg/80 text-onedark-muted hover:text-onedark-fg transition-all"
+                      title="Copy message"
+                    >
+                      {copiedIndex === index ? <Check className="w-3 h-3 text-onedark-green" /> : <Copy className="w-3 h-3" />}
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
@@ -576,9 +612,20 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
             <span>Reviewer agent is analyzing diffs...</span>
           </div>
         )}
-
-        <div ref={messagesEndRef} />
       </div>
+
+      {/* Floating Scroll to Bottom Button */}
+      {showScrollBottomBtn && (
+        <div className="absolute bottom-20 right-5 z-20">
+          <button
+            onClick={() => scrollToBottom(true)}
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-onedark-accent/90 hover:bg-onedark-accent text-white shadow-lg text-[11px] font-medium transition-all backdrop-blur-xs cursor-pointer animate-in fade-in"
+          >
+            <ChevronDown className="w-3.5 h-3.5" />
+            <span>Scroll to bottom</span>
+          </button>
+        </div>
+      )}
 
       {/* Input / Composer Area */}
       <div className="p-3 bg-onedark-surface/80 border-t border-onedark-border space-y-2 flex-shrink-0 select-none">
