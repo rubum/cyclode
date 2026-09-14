@@ -175,3 +175,25 @@ async def test_intent_registry_dispatch_technical_example(tmp_path):
     assert "Standing by for next instruction" not in content
     assert "Workspace inspected and validated" not in content
 
+
+@pytest.mark.asyncio
+async def test_find_all_services_routes_to_coding_action(tmp_path):
+    cargo_dir = tmp_path / "src" / "my_service" / "src"
+    cargo_dir.mkdir(parents=True)
+    (cargo_dir / "main.rs").write_text("fn main() {}")
+
+    messages = []
+    async def mock_msg(s, c):
+        messages.append((s, c))
+
+    ctx = make_ctx("Find all services in the codebase")
+    ctx.workspace_path = tmp_path
+    ctx.emit_message = mock_msg
+
+    res = await intent_registry.dispatch(ctx)
+    assert res["status"] == "COMPLETED"
+    assert len(messages) >= 1
+    content = messages[0][1]
+    assert "my_service" in content
+    assert "Discovered Services" in content
+

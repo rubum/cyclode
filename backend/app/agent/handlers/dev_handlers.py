@@ -715,7 +715,12 @@ class CodingActionHandler(IntentHandler):
         "fix failing test assertions",
         "write function to validate tokens",
         "implement feature in codebase",
-        "modify backend service code"
+        "modify backend service code",
+        "find all services in the codebase",
+        "find all services",
+        "locate all services in repo",
+        "find all endpoints",
+        "find all functions in the codebase"
     ]
     negative_exemplars = [
         "hello",
@@ -786,6 +791,62 @@ class CodingActionHandler(IntentHandler):
                     "description": f"Autonomously resolved: **{ctx.title}**\n\nVerification: Unit tests passed."
                 })
                 return {"status": "AWAITING_APPROVAL", "summary": "Fix applied and verified. Awaiting PR approval."}
+
+        # Service / binary / daemon discovery
+        is_service_query = any(w in lower for w in ("service", "services", "daemon", "server", "microservice", "binaries", "entrypoint"))
+        if is_service_query:
+            await ctx.emit_thought("Scanning workspace for executable services, binary entrypoints, and API routes...")
+            discovered_services = []
+
+            # 1. Rust binary crates / main.rs
+            for root, dirs, files in os.walk(ctx.workspace_path):
+                dirs[:] = [d for d in dirs if d not in {".git", "target", "node_modules", "dist", "build"} and not d.startswith(".")]
+                if "main.rs" in files:
+                    rel = Path(root).relative_to(ctx.workspace_path)
+                    svc_name = rel.parts[1] if len(rel.parts) > 1 and rel.parts[0] == "src" else rel.parts[0]
+                    discovered_services.append({
+                        "name": svc_name,
+                        "type": "Rust Executable / Daemon",
+                        "entrypoint": str(rel / "main.rs")
+                    })
+
+            # 2. Go binaries
+            for root, dirs, files in os.walk(ctx.workspace_path):
+                dirs[:] = [d for d in dirs if d not in {".git", "vendor"} and not d.startswith(".")]
+                if "main.go" in files:
+                    rel = Path(root).relative_to(ctx.workspace_path)
+                    svc_name = rel.parts[-2] if len(rel.parts) > 1 else rel.parts[-1]
+                    discovered_services.append({
+                        "name": svc_name,
+                        "type": "Go Service Binary",
+                        "entrypoint": str(rel / "main.go")
+                    })
+
+            # 3. Python / TS AST endpoints and services
+            ast_symbols = WorkspaceTools.find_symbols(ctx.workspace_path, max_results=30)
+            endpoints = [s for s in ast_symbols.get("symbols", []) if s.get("type") in ("endpoint", "component") or "service" in s.get("name", "").lower()]
+            for ep in endpoints[:10]:
+                discovered_services.append({
+                    "name": ep["name"],
+                    "type": f"{ep['type'].capitalize()}",
+                    "entrypoint": f"{ep['file_path']}:{ep['line_number']}"
+                })
+
+            if discovered_services:
+                rows = [f"| `{s['name']}` | {s['type']} | `{s['entrypoint']}` |" for s in discovered_services]
+                svc_table = "\n".join(rows)
+                msg = (
+                    f"### ⚙️ Discovered Services & Binaries in `{ctx.workspace_path.name}`\n\n"
+                    f"I scanned the codebase for executable services, background daemons, and service entrypoints:\n\n"
+                    f"| Service / Binary | Classification | Source Entrypoint |\n"
+                    f"| :--- | :--- | :--- |\n"
+                    f"{svc_table}\n\n"
+                    f"**Analysis:**\n"
+                    f"- **Total Services Discovered**: {len(discovered_services)}\n"
+                    f"- You can inspect any service's implementation or ask me to trace execution flows for a specific binary."
+                )
+                await ctx.emit_message("agent", msg)
+                return {"status": "COMPLETED", "summary": f"Identified {len(discovered_services)} services in {ctx.workspace_path.name}."}
 
         # Substantive fallback response when no specific bug is matched
         symbols_res = WorkspaceTools.find_symbols(ctx.workspace_path, max_results=10)

@@ -569,7 +569,13 @@ class RepoAnalysisHandler(IntentHandler):
         "search news on stripe buying bridge",
         "explain this nvidia agrees to acquire hugging face for $13b",
         "explain this stripe buys bridge for $1.1b",
-        "explain this acquisition deal"
+        "explain this acquisition deal",
+        "find all services in the codebase",
+        "find all services",
+        "find all functions",
+        "find all endpoints",
+        "search services in codebase",
+        "locate all services in repo"
     ]
     priority_weight = 1.35
 
