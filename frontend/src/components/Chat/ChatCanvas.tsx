@@ -98,6 +98,51 @@ const maskSecretsInText = (text?: string): string => {
     .replace(/(appsignal_[A-Za-z0-9_-]{4})[A-Za-z0-9_-]+/g, '$1••••••••');
 };
 
+const renderHighlightedInputText = (text: string) => {
+  if (!text) return null;
+  const mentionRegex = /(@[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)?)/g;
+  const parts = text.split(mentionRegex);
+  return (
+    <>
+      {parts.map((part, i) => {
+        if (part.startsWith('@') && part.length > 1) {
+          return (
+            <span
+              key={i}
+              className="font-bold text-onedark-yellow bg-onedark-yellow/20 px-1 py-0.5 rounded border border-onedark-yellow/40 font-mono text-[13px] shadow-xs"
+            >
+              {part}
+            </span>
+          );
+        }
+        return <span key={i} className="text-onedark-fgBright">{part}</span>;
+      })}
+    </>
+  );
+};
+
+const renderStyledMessageContent = (text?: string) => {
+  if (!text) return null;
+  const masked = maskSecretsInText(text);
+  const mentionRegex = /(@[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)?)/g;
+  const parts = masked.split(mentionRegex);
+
+  return parts.map((part, i) => {
+    if (part.startsWith('@') && part.length > 1) {
+      return (
+        <span
+          key={i}
+          className="inline-flex items-center space-x-1 font-bold text-onedark-yellow bg-onedark-yellow/20 px-1.5 py-0.5 rounded-md border border-onedark-yellow/40 font-mono text-[12px] shadow-xs my-0.5 align-baseline"
+        >
+          <FolderGit2 className="w-3 h-3 text-onedark-folder flex-shrink-0" />
+          <span>{part}</span>
+        </span>
+      );
+    }
+    return <span key={i}>{part}</span>;
+  });
+};
+
 export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   task,
   repositories: propRepositories,
@@ -354,6 +399,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   }, [task?.id, scrollToBottom]);
 
   const emptyStateTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const emptyStateBackdropRef = useRef<HTMLDivElement>(null);
+  const chatBackdropRef = useRef<HTMLDivElement>(null);
 
   const fetchRepos = useCallback(async () => {
     const apiBase = import.meta.env.VITE_API_URL || '';
@@ -762,6 +809,17 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
             className="p-3.5 rounded-2xl bg-onedark-darker border border-onedark-border shadow-xl focus-within:border-onedark-muted/60 transition-all space-y-3 relative"
           >
             <div className="relative w-full z-20">
+              {/* Highlight backdrop overlay */}
+              {inputValue && (
+                <div
+                  ref={emptyStateBackdropRef}
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-0 w-full bg-transparent text-sm font-sans leading-relaxed p-1.5 whitespace-pre-wrap break-words overflow-y-auto select-none"
+                >
+                  {renderHighlightedInputText(inputValue)}
+                </div>
+              )}
+
               <textarea
                 ref={emptyStateTextareaRef}
                 value={inputValue}
@@ -770,9 +828,17 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                 onClick={handleCursorMove}
                 onSelect={handleCursorMove}
                 onKeyDown={handleKeyDown}
+                onScroll={(e) => {
+                  if (emptyStateBackdropRef.current) {
+                    emptyStateBackdropRef.current.scrollTop = e.currentTarget.scrollTop;
+                    emptyStateBackdropRef.current.scrollLeft = e.currentTarget.scrollLeft;
+                  }
+                }}
                 placeholder="Ask Cyclode to review a PR, investigate a bug, write tests, or type '@' to reference a registered repo..."
                 rows={3}
-                className="w-full bg-transparent text-sm text-onedark-fgBright placeholder-onedark-muted focus:outline-none resize-none font-sans leading-relaxed p-1.5"
+                className={`w-full bg-transparent text-sm placeholder-onedark-muted focus:outline-none resize-none font-sans leading-relaxed p-1.5 caret-onedark-yellow ${
+                  inputValue ? 'text-transparent' : 'text-onedark-fgBright'
+                }`}
               />
               {/* Repository Mention Autocomplete Menu for Launcher */}
               {renderMentionMenu("top-full left-0 mt-1.5")}
@@ -1163,7 +1229,7 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                           )}
                         </div>
                         <div className="px-4 py-2.5 rounded-2xl bg-onedark-surface border border-onedark-border text-onedark-fgBright font-sans text-[13px] sm:text-[13.5px] leading-relaxed shadow-sm">
-                          <div className="whitespace-pre-wrap">{maskSecretsInText(turn.userMessage.content)}</div>
+                          <div className="whitespace-pre-wrap">{renderStyledMessageContent(turn.userMessage.content)}</div>
                         </div>
                         {/* Hover Action Bar */}
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center space-x-1 pr-1">
@@ -1475,18 +1541,38 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
             {renderMentionMenu("bottom-full left-0 mb-2")}
 
             <div className="flex items-center space-x-2 bg-onedark-darker border border-onedark-border rounded-xl px-3 py-1.5 focus-within:border-onedark-accent/80 focus-within:ring-1 focus-within:ring-onedark-accent/20 transition-all shadow-inner">
-              <textarea
-                ref={textareaRef}
-                rows={1}
-                value={inputValue}
-                onChange={handleInputChange}
-                onKeyUp={handleCursorMove}
-                onClick={handleCursorMove}
-                onSelect={handleCursorMove}
-                onKeyDown={handleKeyDown}
-                placeholder={isRunning ? "Task is running... Type follow-up instructions or hit Stop..." : "Type instructions, or '@' to reference a registered repo (e.g. 'Get pending prs in @myproject')..."}
-                className="flex-1 bg-transparent text-sm text-onedark-fgBright placeholder-onedark-muted focus:outline-none resize-none font-sans leading-relaxed py-1.5 max-h-32 min-h-[32px]"
-              />
+              <div className="relative flex-1 min-h-[32px] max-h-32 flex items-center">
+                {/* Highlight backdrop overlay */}
+                {inputValue && (
+                  <div
+                    ref={chatBackdropRef}
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-0 w-full bg-transparent text-sm font-sans leading-relaxed py-1.5 whitespace-pre-wrap break-words overflow-y-auto select-none"
+                  >
+                    {renderHighlightedInputText(inputValue)}
+                  </div>
+                )}
+                <textarea
+                  ref={textareaRef}
+                  rows={1}
+                  value={inputValue}
+                  onChange={handleInputChange}
+                  onKeyUp={handleCursorMove}
+                  onClick={handleCursorMove}
+                  onSelect={handleCursorMove}
+                  onKeyDown={handleKeyDown}
+                  onScroll={(e) => {
+                    if (chatBackdropRef.current) {
+                      chatBackdropRef.current.scrollTop = e.currentTarget.scrollTop;
+                      chatBackdropRef.current.scrollLeft = e.currentTarget.scrollLeft;
+                    }
+                  }}
+                  placeholder={isRunning ? "Task is running... Type follow-up instructions or hit Stop..." : "Type instructions, or '@' to reference a registered repo (e.g. 'Get pending prs in @myproject')..."}
+                  className={`w-full bg-transparent text-sm placeholder-onedark-muted focus:outline-none resize-none font-sans leading-relaxed py-1.5 max-h-32 min-h-[32px] caret-onedark-yellow ${
+                    inputValue ? 'text-transparent' : 'text-onedark-fgBright'
+                  }`}
+                />
+              </div>
               {isRunning && onStopTask ? (
                 <button
                   type="button"
