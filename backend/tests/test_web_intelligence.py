@@ -51,10 +51,8 @@ async def test_harness_unconfigured_api_key_guidance(tmp_path: Path):
     async def on_message(sender, content):
         messages.append((sender, content))
 
-    from app.config import settings
-    with patch.object(settings, "get_api_key", return_value=None), \
-         patch.object(settings, "GEMINI_API_KEY", None), \
-         patch.object(settings, "GOOGLE_API_KEY", None), \
+    from app.config import Settings
+    with patch.object(Settings, "get_api_key", return_value=None), \
          patch.dict("app.integrations.manager.integration_manager._custom_credentials", {"gemini": {}}, clear=True):
         res = await antigravity_harness.execute_task(
             task_id="test-unconfigured-task",
