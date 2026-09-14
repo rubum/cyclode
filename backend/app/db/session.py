@@ -75,6 +75,8 @@ def _migrate_db(connection):
         ("commit_sha", "VARCHAR(64)"),
         ("sandbox_status", "VARCHAR(32) DEFAULT 'NONE'"),
         ("custom_title", "BOOLEAN DEFAULT 0"),
+        ("is_subsession", "BOOLEAN DEFAULT 0"),
+        ("parent_task_id", "VARCHAR(36)"),
     ]
     for col_name, col_type in new_task_columns:
         if col_name not in tasks_cols:
