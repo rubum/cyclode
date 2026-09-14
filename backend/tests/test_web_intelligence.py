@@ -51,8 +51,9 @@ async def test_harness_unconfigured_api_key_guidance(tmp_path: Path):
     async def on_message(sender, content):
         messages.append((sender, content))
 
-    with patch("app.config.settings.get_api_key", return_value=None), \
-         patch.dict("app.integrations.manager.integration_manager._custom_credentials", {"gemini": {}}):
+    with patch("app.agent.harness.settings.get_api_key", return_value=None), \
+         patch("app.config.settings.get_api_key", return_value=None), \
+         patch.dict("app.integrations.manager.integration_manager._custom_credentials", {"gemini": {}}, clear=True):
         res = await antigravity_harness.execute_task(
             task_id="test-unconfigured-task",
             title="Review PR #42",

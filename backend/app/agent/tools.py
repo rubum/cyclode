@@ -820,7 +820,7 @@ class WorkspaceTools:
         res = await github_client.post_pull_request_review(
             owner=owner,
             repo=repo,
-            pull_number=pr_number,
+            pr_number=pr_number,
             body=body,
             event=event,
             custom_token=token

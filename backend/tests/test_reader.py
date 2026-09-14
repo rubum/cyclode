@@ -36,6 +36,7 @@ def test_clean_html_to_markdown():
 async def test_fetch_github_repo_info():
     mock_meta_resp = MagicMock()
     mock_meta_resp.status_code = 200
+    mock_meta_resp.text = ""
     mock_meta_resp.json.return_value = {
         "full_name": "arroyo-systems/arroyo",
         "description": "Distributed streaming engine in Rust",
@@ -51,10 +52,10 @@ async def test_fetch_github_repo_info():
     mock_readme_resp.text = "# Arroyo\n\nArroyo is a distributed stream processing engine."
 
     async def mock_get(url, *args, **kwargs):
-        if "api.github.com" in url:
-            return mock_meta_resp
-        elif "raw.githubusercontent.com" in url:
+        if "/readme" in url or "raw.githubusercontent.com" in url:
             return mock_readme_resp
+        elif "api.github.com" in url:
+            return mock_meta_resp
         res = MagicMock()
         res.status_code = 404
         res.text = ""
