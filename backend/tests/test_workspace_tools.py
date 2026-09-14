@@ -125,3 +125,39 @@ def test_tgrep_ast_class(temp_workspace):
     res = WorkspaceTools.tgrep_ast(temp_workspace, "DatabaseConfig")
     assert res["total_matches"] >= 1
     assert res["matches"][0]["type"] == "class"
+
+
+@pytest.mark.asyncio
+async def test_github_pr_tools():
+    # 1. Test get_pull_request_details
+    details = await WorkspaceTools.get_pull_request_details("confident-ai/deepeval", 101)
+    assert details["repository"] == "confident-ai/deepeval"
+    assert details["number"] == 101
+    assert "title" in details
+    assert "head_branch" in details
+
+    # 2. Test get_pull_request_diff
+    diff_res = await WorkspaceTools.get_pull_request_diff("confident-ai/deepeval", 101)
+    assert diff_res["repository"] == "confident-ai/deepeval"
+    assert diff_res["number"] == 101
+    assert "diff" in diff_res
+    assert len(diff_res["diff"]) > 0
+
+    # 3. Test list_pull_requests
+    list_res = await WorkspaceTools.list_pull_requests("confident-ai/deepeval", state="open")
+    assert list_res["repository"] == "confident-ai/deepeval"
+    assert list_res["total_found"] >= 1
+    assert len(list_res["pull_requests"]) >= 1
+
+    # 4. Test post_pull_request_review
+    review_res = await WorkspaceTools.post_pull_request_review(
+        "confident-ai/deepeval", 101, body="Looks good to merge!", event="APPROVE"
+    )
+    assert review_res["ok"] is True
+
+    # 5. Test post_pull_request_line_comment
+    comment_res = await WorkspaceTools.post_pull_request_line_comment(
+        "confident-ai/deepeval", 101, body="Verify null safety here", commit_sha="a1b2c3d4", path="server.py", line=25
+    )
+    assert comment_res["ok"] is True
+

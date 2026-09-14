@@ -6,7 +6,7 @@ import fnmatch
 import subprocess
 import httpx
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timezone
 import urllib.parse
 
@@ -689,4 +689,230 @@ class WorkspaceTools:
             "query": query,
             "results_count": len(deduped),
             "results": deduped
+        }
+
+    @staticmethod
+    def _parse_repo(repository: Optional[str]) -> Tuple[str, str]:
+        if not repository or not repository.strip():
+            return "org", "repo"
+        clean = repository.strip().replace(".git", "")
+        if "github.com/" in clean:
+            clean = clean.split("github.com/")[-1]
+        if "/" in clean:
+            parts = clean.split("/", 1)
+            return parts[0], parts[1]
+        return "org", clean
+
+    @classmethod
+    async def get_pull_request_details(cls, repository: str, pr_number: int) -> Dict[str, Any]:
+        """
+        Retrieves complete pull request metadata, description, branches, and modified files list.
+        """
+        from app.integrations.github_client import github_client
+        from app.integrations.manager import integration_manager
+        owner, repo = cls._parse_repo(repository)
+        token = await integration_manager.get_github_token_for_repo(f"{owner}/{repo}")
+        
+        pr_data = await github_client.get_pull_request(owner, repo, pr_number, custom_token=token)
+        files_data = await github_client.get_pull_request_files(owner, repo, pr_number, custom_token=token)
+        
+        return {
+            "repository": f"{owner}/{repo}",
+            "number": pr_number,
+            "title": pr_data.get("title", f"Pull Request #{pr_number}"),
+            "state": pr_data.get("state", "open"),
+            "author": pr_data.get("user", {}).get("login", "unknown") if isinstance(pr_data.get("user"), dict) else "unknown",
+            "head_branch": pr_data.get("head", {}).get("ref", "") if isinstance(pr_data.get("head"), dict) else "",
+            "base_branch": pr_data.get("base", {}).get("ref", "main") if isinstance(pr_data.get("base"), dict) else "main",
+            "body": pr_data.get("body", ""),
+            "html_url": pr_data.get("html_url", f"https://github.com/{owner}/{repo}/pull/{pr_number}"),
+            "changed_files_count": len(files_data),
+            "files": [
+                {
+                    "filename": f.get("filename"),
+                    "status": f.get("status"),
+                    "additions": f.get("additions", 0),
+                    "deletions": f.get("deletions", 0),
+                    "patch": f.get("patch", "")[:1000] if f.get("patch") else ""
+                }
+                for f in files_data
+            ]
+        }
+
+    @classmethod
+    async def get_pull_request_diff(cls, repository: str, pr_number: int) -> Dict[str, Any]:
+        """
+        Fetches the full unified code diff for a specific pull request.
+        """
+        from app.integrations.github_client import github_client
+        from app.integrations.manager import integration_manager
+        owner, repo = cls._parse_repo(repository)
+        token = await integration_manager.get_github_token_for_repo(f"{owner}/{repo}")
+        
+        diff_text = await github_client.get_pull_request_diff(owner, repo, pr_number, custom_token=token)
+        return {
+            "repository": f"{owner}/{repo}",
+            "number": pr_number,
+            "diff": diff_text,
+            "length_bytes": len(diff_text)
+        }
+
+    @classmethod
+    async def list_pull_requests(
+        cls,
+        repository: str,
+        state: str = "open",
+        author: Optional[str] = None,
+        limit: int = 10
+    ) -> Dict[str, Any]:
+        """
+        Lists pull requests in a GitHub repository filtered by status and optional author.
+        """
+        from app.integrations.github_client import github_client
+        from app.integrations.manager import integration_manager
+        owner, repo = cls._parse_repo(repository)
+        token = await integration_manager.get_github_token_for_repo(f"{owner}/{repo}")
+        
+        prs = await github_client.list_pull_requests(owner, repo, state=state, custom_token=token)
+        
+        filtered = []
+        for p in prs:
+            if author:
+                p_author = p.get("user", {}).get("login", "") if isinstance(p.get("user"), dict) else str(p.get("user") or "")
+                if author.lower().replace("@", "") != p_author.lower():
+                    continue
+            filtered.append({
+                "number": p.get("number"),
+                "title": p.get("title"),
+                "author": p.get("user", {}).get("login", "unknown") if isinstance(p.get("user"), dict) else "unknown",
+                "state": p.get("state"),
+                "head_branch": p.get("head", {}).get("ref") if isinstance(p.get("head"), dict) else "",
+                "base_branch": p.get("base", {}).get("ref") if isinstance(p.get("base"), dict) else "",
+                "html_url": p.get("html_url"),
+                "additions": p.get("additions", 0),
+                "deletions": p.get("deletions", 0)
+            })
+            if len(filtered) >= limit:
+                break
+                
+        return {
+            "repository": f"{owner}/{repo}",
+            "total_found": len(filtered),
+            "pull_requests": filtered
+        }
+
+    @classmethod
+    async def post_pull_request_review(
+        cls,
+        repository: str,
+        pr_number: int,
+        body: str,
+        event: str = "COMMENT"
+    ) -> Dict[str, Any]:
+        """
+        Submits an AI code review or comment to a GitHub pull request.
+        """
+        from app.integrations.github_client import github_client
+        from app.integrations.manager import integration_manager
+        owner, repo = cls._parse_repo(repository)
+        token = await integration_manager.get_github_token_for_repo(f"{owner}/{repo}")
+        
+        res = await github_client.post_pull_request_review(
+            owner=owner,
+            repo=repo,
+            pull_number=pr_number,
+            body=body,
+            event=event,
+            custom_token=token
+        )
+        return res
+
+    @classmethod
+    async def post_pull_request_line_comment(
+        cls,
+        repository: str,
+        pr_number: int,
+        body: str,
+        commit_sha: str,
+        path: str,
+        line: int,
+        side: str = "RIGHT"
+    ) -> Dict[str, Any]:
+        """
+        Submits an inline review comment on a specific line of code in a GitHub pull request.
+        """
+        from app.integrations.github_client import github_client
+        from app.integrations.manager import integration_manager
+        owner, repo = cls._parse_repo(repository)
+        token = await integration_manager.get_github_token_for_repo(f"{owner}/{repo}")
+        
+        res = await github_client.post_pull_request_line_comment(
+            owner=owner,
+            repo=repo,
+            pull_number=pr_number,
+            body=body,
+            commit_sha=commit_sha,
+            path=path,
+            line=line,
+            side=side,
+            custom_token=token
+        )
+        return res
+
+    @classmethod
+    async def create_pull_request(
+        cls,
+        repository: str,
+        title: str,
+        body: str,
+        head_branch: str,
+        base_branch: Optional[str] = "main"
+    ) -> Dict[str, Any]:
+        """
+        Creates a new pull request on GitHub.
+        """
+        from app.integrations.github_client import github_client
+        from app.integrations.manager import integration_manager
+        owner, repo = cls._parse_repo(repository)
+        token = await integration_manager.get_github_token_for_repo(f"{owner}/{repo}")
+        
+        res = await github_client.create_pull_request(
+            owner=owner,
+            repo=repo,
+            title=title,
+            body=body,
+            head_branch=head_branch,
+            base_branch=base_branch or "main",
+            custom_token=token
+        )
+        return res
+
+    @classmethod
+    async def connect_repository(
+        cls,
+        repo_url: str,
+        token: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Connects and vaults a GitHub repository, verifying remote branch access.
+        """
+        from app.integrations.manager import integration_manager
+        test_res = await integration_manager.test_remote_repo(repo_url, token)
+        if test_res.get("accessible"):
+            save_res = await integration_manager.save_repo_config(
+                repo_url=repo_url,
+                token=token,
+                branches=test_res.get("branches"),
+                default_branch=test_res.get("default_branch")
+            )
+            return {
+                "success": True,
+                "message": f"Successfully connected repository {save_res.get('full_name')}",
+                "default_branch": test_res.get("default_branch"),
+                "branches": test_res.get("branches")
+            }
+        return {
+            "success": False,
+            "message": test_res.get("message", "Failed to connect repository"),
+            "auth_required": test_res.get("auth_required", False)
         }

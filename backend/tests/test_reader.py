@@ -57,6 +57,7 @@ async def test_fetch_github_repo_info():
             return mock_readme_resp
         res = MagicMock()
         res.status_code = 404
+        res.text = ""
         return res
 
     with patch("httpx.AsyncClient.get", side_effect=mock_get):

@@ -4,8 +4,6 @@ import json
 import logging
 import os
 import re
-import shutil
-import subprocess
 from pathlib import Path
 from typing import Dict, Any, Callable, Optional, List, Tuple
 from datetime import datetime, timezone
@@ -20,18 +18,14 @@ from app.agent.tools import WorkspaceTools
 from app.agent.personas import get_persona
 from app.integrations.github_client import github_client
 from app.integrations.manager import integration_manager
-from app.agent.handlers import (
-    IntentContext,
-    VaultInterceptor,
-    intent_registry,
-    RepoAnalysisHandler
-)
+from app.agent.vault_interceptor import VaultInterceptor
 
 
 class AntigravityHarness:
     """
-    Antigravity Agent Harness: interfaces directly with Gemini models via native function-calling
-    or dispatches cleanly through the modular offline semantic intent engine.
+    Antigravity Agent Harness: Universal LLM-native execution engine.
+    Orchestrates dynamic multi-turn tool calling across Workspace, GitHub, AST symbol search,
+    and live web intelligence with real-time streaming and telemetry.
     """
 
     def __init__(self, model_name: Optional[str] = None):
@@ -145,11 +139,11 @@ class AntigravityHarness:
         on_stream_end: Optional[Callable[[str, str, str], Any]] = None
     ) -> Dict[str, Any]:
         """
-        Executes an agent task dynamically based on real intent.
+        Executes an agent task directly via the LLM-First ReAct engine with native function calling.
         """
         raw_prompt = description or title
 
-        # Pre-process secrets into Vault and mask them
+        # 1. Pre-process secrets into Vault and mask them
         sanitized_prompt, extracted_creds = await VaultInterceptor.process_prompt(raw_prompt)
 
         gemini_creds = integration_manager._custom_credentials.get("gemini", {})
@@ -158,32 +152,23 @@ class AntigravityHarness:
         # Ensure workspace directory exists
         workspace_path.mkdir(parents=True, exist_ok=True)
 
-        # ----------------------------------------------------------------------
-        # MODE 1: LIVE GEMINI API (When API key is provided)
-        # ----------------------------------------------------------------------
-        if api_key:
-            return await self._execute_with_gemini_api(
-                api_key=api_key,
-                task_id=task_id,
-                prompt=sanitized_prompt,
-                persona_name=persona_name,
-                workspace_path=workspace_path,
-                on_thought=on_thought,
-                on_tool_start=on_tool_start,
-                on_tool_end=on_tool_end,
-                on_message=on_message,
-                on_approval_required=on_approval_required,
-                on_diff_updated=on_diff_updated,
-                history=history,
-                on_stream_start=on_stream_start,
-                on_stream_chunk=on_stream_chunk,
-                on_stream_end=on_stream_end
+        # 2. Check for configured LLM API Key
+        if not api_key:
+            guidance_msg = (
+                f"### 🤖 LLM Model Configuration Required\n\n"
+                f"To run autonomous code reviews, synthesize PR diffs, and orchestrate workspace tools, please configure an LLM provider:\n\n"
+                f"1. **Gemini API Key**: Set `GEMINI_API_KEY` in your `.env` file or configure it in **Settings > Integrations**.\n"
+                f"2. **ChatOps Provisioning**: Reply directly in this chat with your API key (`AIzaSy...`), and I'll immediately hot-load it into your session vault!\n\n"
+                f"*Standing by for credentials to proceed with your task.*"
             )
+            await self._emit_streamed_message(
+                "agent", guidance_msg, on_message, on_stream_start, on_stream_chunk, on_stream_end
+            )
+            return {"status": "AWAITING_INPUT", "summary": "Awaiting LLM API Key configuration."}
 
-        # ----------------------------------------------------------------------
-        # MODE 2: INTENT-AWARE MODULAR HARNESS (When offline / no API key)
-        # ----------------------------------------------------------------------
-        return await self._execute_local_intent(
+        # 3. Execute with LLM ReAct function calling loop
+        return await self._execute_with_llm(
+            api_key=api_key,
             task_id=task_id,
             title=title,
             prompt=sanitized_prompt,
@@ -195,90 +180,17 @@ class AntigravityHarness:
             on_message=on_message,
             on_approval_required=on_approval_required,
             on_diff_updated=on_diff_updated,
+            history=history,
             on_stream_start=on_stream_start,
             on_stream_chunk=on_stream_chunk,
-            on_stream_end=on_stream_end,
-            extra=extracted_creds
+            on_stream_end=on_stream_end
         )
 
-    async def _execute_local_intent(
-        self,
-        task_id: str,
-        title: str,
-        prompt: str,
-        persona_name: str,
-        workspace_path: Path,
-        on_thought: Callable[[str], Any],
-        on_tool_start: Callable[[str, Dict[str, Any]], Any],
-        on_tool_end: Callable[..., Any],
-        on_message: Callable[[str, str], Any],
-        on_approval_required: Callable[[str, Dict[str, Any]], Any],
-        on_diff_updated: Callable[[List[Dict[str, Any]]], Any],
-        on_stream_start: Optional[Callable[[str, str], Any]] = None,
-        on_stream_chunk: Optional[Callable[[str, str, str, str], Any]] = None,
-        on_stream_end: Optional[Callable[[str, str, str], Any]] = None,
-        extra: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        lower_prompt = prompt.lower().strip()
-
-        async def emit_thought(text: str):
-            await self._emit_streamed_thought(
-                text, on_thought, on_stream_start, on_stream_chunk, on_stream_end
-            )
-
-        async def emit_message(sender: str, text: str):
-            await self._emit_streamed_message(
-                sender, text, on_message, on_stream_start, on_stream_chunk, on_stream_end
-            )
-
-        async def call_tool_start(name: str, args: Dict[str, Any]):
-            if on_tool_start:
-                if inspect.iscoroutinefunction(on_tool_start):
-                    await on_tool_start(name, args)
-                else:
-                    res = on_tool_start(name, args)
-                    if asyncio.iscoroutine(res):
-                        await res
-
-        async def call_tool_end(name: str, output: str, exit_code: int, duration_ms: int, tool_input: Optional[Dict[str, Any]] = None):
-            if on_tool_end:
-                sig = inspect.signature(on_tool_end)
-                param_count = len(sig.parameters)
-                if inspect.iscoroutinefunction(on_tool_end):
-                    if param_count >= 5:
-                        await on_tool_end(name, output, exit_code, duration_ms, tool_input)
-                    else:
-                        await on_tool_end(name, output, exit_code, duration_ms)
-                else:
-                    if param_count >= 5:
-                        res = on_tool_end(name, output, exit_code, duration_ms, tool_input)
-                    else:
-                        res = on_tool_end(name, output, exit_code, duration_ms)
-                    if asyncio.iscoroutine(res):
-                        await res
-
-        ctx = IntentContext(
-            task_id=task_id,
-            title=title,
-            prompt=prompt,
-            lower_prompt=lower_prompt,
-            persona_name=persona_name,
-            workspace_path=workspace_path,
-            emit_thought=emit_thought,
-            emit_message=emit_message,
-            call_tool_start=call_tool_start,
-            call_tool_end=call_tool_end,
-            on_approval_required=on_approval_required,
-            on_diff_updated=on_diff_updated,
-            extra=extra or {}
-        )
-
-        return await intent_registry.dispatch(ctx)
-
-    async def _execute_with_gemini_api(
+    async def _execute_with_llm(
         self,
         api_key: str,
         task_id: str,
+        title: str,
         prompt: str,
         persona_name: str,
         workspace_path: Path,
@@ -294,7 +206,7 @@ class AntigravityHarness:
         on_stream_end: Optional[Callable[[str, str, str], Any]] = None
     ) -> Dict[str, Any]:
         """
-        Primary LLM-first execution engine: invokes Gemini with native function calling.
+        Primary LLM-first ReAct engine: invokes model with comprehensive tool declarations.
         """
         tools_def = [
             {
@@ -341,17 +253,6 @@ class AntigravityHarness:
                                 "command": {"type": "STRING", "description": "Shell command line"}
                             },
                             "required": ["command"]
-                        }
-                    },
-                    {
-                        "name": "grep_search",
-                        "description": "Search for code patterns across workspace files.",
-                        "parameters": {
-                            "type": "OBJECT",
-                            "properties": {
-                                "query": {"type": "STRING", "description": "Search pattern or string"}
-                            },
-                            "required": ["query"]
                         }
                     },
                     {
@@ -411,6 +312,102 @@ class AntigravityHarness:
                             },
                             "required": ["url"]
                         }
+                    },
+                    {
+                        "name": "get_pull_request_details",
+                        "description": "Fetch pull request metadata, description, base/head branches, and list of modified files.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "repository": {"type": "STRING", "description": "Repository in owner/repo format (e.g. 'gowaylo/waylo')"},
+                                "pr_number": {"type": "INTEGER", "description": "Pull request number"}
+                            },
+                            "required": ["repository", "pr_number"]
+                        }
+                    },
+                    {
+                        "name": "get_pull_request_diff",
+                        "description": "Fetch the raw unified code diff for a specific GitHub pull request.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "repository": {"type": "STRING", "description": "Repository in owner/repo format (e.g. 'gowaylo/waylo')"},
+                                "pr_number": {"type": "INTEGER", "description": "Pull request number"}
+                            },
+                            "required": ["repository", "pr_number"]
+                        }
+                    },
+                    {
+                        "name": "list_pull_requests",
+                        "description": "List pull requests in a GitHub repository.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "repository": {"type": "STRING", "description": "Repository in owner/repo format"},
+                                "state": {"type": "STRING", "description": "PR state: 'open', 'closed', 'all' (default: 'open')"},
+                                "author": {"type": "STRING", "description": "Optional author filter"},
+                                "limit": {"type": "INTEGER", "description": "Maximum PRs to return (default: 10)"}
+                            },
+                            "required": ["repository"]
+                        }
+                    },
+                    {
+                        "name": "post_pull_request_review",
+                        "description": "Submit a code review or summary comment to a GitHub pull request.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "repository": {"type": "STRING", "description": "Repository in owner/repo format"},
+                                "pr_number": {"type": "INTEGER", "description": "Pull request number"},
+                                "body": {"type": "STRING", "description": "Review comment body in Markdown format"},
+                                "event": {"type": "STRING", "description": "Review action: 'COMMENT', 'APPROVE', 'REQUEST_CHANGES'"}
+                            },
+                            "required": ["repository", "pr_number", "body"]
+                        }
+                    },
+                    {
+                        "name": "post_pull_request_line_comment",
+                        "description": "Post an inline review comment on a specific line of code in a GitHub pull request diff.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "repository": {"type": "STRING", "description": "Repository in owner/repo format"},
+                                "pr_number": {"type": "INTEGER", "description": "Pull request number"},
+                                "body": {"type": "STRING", "description": "Comment text"},
+                                "commit_sha": {"type": "STRING", "description": "Head commit SHA"},
+                                "path": {"type": "STRING", "description": "File path in repository"},
+                                "line": {"type": "INTEGER", "description": "Diff line number"},
+                                "side": {"type": "STRING", "description": "'LEFT' or 'RIGHT' (default: 'RIGHT')"}
+                            },
+                            "required": ["repository", "pr_number", "body", "commit_sha", "path", "line"]
+                        }
+                    },
+                    {
+                        "name": "create_pull_request",
+                        "description": "Create a new pull request on GitHub.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "repository": {"type": "STRING", "description": "Repository in owner/repo format"},
+                                "title": {"type": "STRING", "description": "Pull request title"},
+                                "body": {"type": "STRING", "description": "Pull request description"},
+                                "head_branch": {"type": "STRING", "description": "Source head branch"},
+                                "base_branch": {"type": "STRING", "description": "Target base branch (default: main)"}
+                            },
+                            "required": ["repository", "title", "body", "head_branch"]
+                        }
+                    },
+                    {
+                        "name": "connect_repository",
+                        "description": "Connect a remote GitHub repository to Cyclode.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "repo_url": {"type": "STRING", "description": "GitHub repository clone URL"},
+                                "token": {"type": "STRING", "description": "Optional GitHub personal access token"}
+                            },
+                            "required": ["repo_url"]
+                        }
                     }
                 ]
             }
@@ -428,28 +425,24 @@ class AntigravityHarness:
             f"You are Cyclode, an autonomous AI pair programmer and software engineering assistant powered by the Antigravity agent harness.\n"
             f"Persona: {persona_name}.\n"
             f"Workspace: {workspace_path}\n"
+            f"Task Context: {title}\n"
             f"CURRENT TEMPORAL BASELINE: {current_date_str} (Current Year: {current_year}, Current Month: {now.strftime('%B')})\n\n"
             f"{persona_instructions}\n\n"
             f"Core Operational Directives:\n"
-            f"1. TEMPORAL ANCHOR & REAL-TIME WEB RETRIEVAL MANDATE:\n"
-            f"   - CURRENT DATE IS {current_date_str}. The current month is {now.strftime('%B')} and current year is {current_year}.\n"
-            f"   - When answering queries referencing 'this month', 'this week', 'today', 'latest', or 'recent events', resolve them relative to {current_month_year}.\n"
-            f"   - NEVER search for or assume historical cutoff dates like 2024 or 2025 unless the user explicitly requested historical archives.\n"
-            f"   - When given a URL or searching for real-time news/releases: invoke `fetch_url` or `search_web` ONCE to retrieve the content.\n"
-            f"   - Immediately upon receiving the tool response, you MUST synthesize your final complete response with clickable markdown links.\n"
-            f"   - Do NOT issue secondary or repetitive tool calls.\n"
-            f"   - NEVER output canned refusals ('I don't have real-time internet access', 'as an AI...'). You HAVE the `search_web` and `fetch_url` tools. Call them immediately.\n"
-            f"2. BALANCED PROSE, SUBTLE BULLET HIGHLIGHTS & STRUCTURED TABLES:\n"
-            f"   - Lead with an Executive Summary in fluid analytical prose synthesizing core takeaways.\n"
-            f"   - Break down distinct announcements, features, or architectural points into subtle, fact-dense single-level bullet highlights with bold prefixes (* **Topic / Event**: concise summary with [Title](https://...)).\n"
-            f"   - Include a structured Markdown comparison table (| Topic / Announcement | Source | Date | Link |) when presenting multi-item intelligence.\n"
-            f"   - Prohibit rigid cookie-cutter bullet templates (e.g. repeating 'What's New: ... Significance: ...') and deep multi-level nested outlines.\n"
-            f"   - EVERY cited article, repository, or announcement MUST include a direct clickable markdown link ([Title](https://...)).\n"
-            f"3. WORKSPACE CODE TASKS:\n"
-            f"   - Use `list_dir`, `read_file`, `edit_file`, `run_command`, and `grep_search` when inspecting, editing, or testing code in the workspace."
+            f"1. DIRECT TOOL INVOCATION & REASONING:\n"
+            f"   - When reviewing PRs or summarizing changes: call `get_pull_request_diff` and `get_pull_request_details` to analyze the exact code hunks.\n"
+            f"   - When answering user questions about the workspace: use `read_file`, `search_code`, `find_symbols`, and `run_command`.\n"
+            f"   - When asked to search the web: call `search_web` or `fetch_url`.\n"
+            f"2. ANALYTICAL PROSE & RICH CITATIONS:\n"
+            f"   - Lead with an Executive Summary in fluid analytical prose.\n"
+            f"   - Break down distinct architectural changes, modified files, and risks clearly.\n"
+            f"   - EVERY cited article, repository, PR link, or URL MUST include a direct clickable markdown link ([Title](https://...)).\n"
+            f"   - Prohibit rigid cookie-cutter bullet templates (e.g. repeating 'What's New: ... Significance: ...').\n"
+            f"3. MULTI-TURN CONTEXT:\n"
+            f"   - If the user asks follow-up questions about specific lines, files, or diff hunks, reason directly on the code."
         )
 
-        model_candidates = [self.model_name, "gemini-3.7-flash"]
+        model_candidates = [self.model_name, "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
         unique_models = list(dict.fromkeys(m for m in model_candidates if m))
 
         contents: List[Dict[str, Any]] = []
@@ -472,7 +465,7 @@ class AntigravityHarness:
                     break
                 api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{active_model}:generateContent?key={api_key}"
                 turn = 0
-                max_turns = 4
+                max_turns = 6
                 model_succeeded = False
                 final_agent_text = ""
 
@@ -499,7 +492,7 @@ class AntigravityHarness:
                             quota_exhausted = True
                             quota_thought = (
                                 f"⚠️ **Google Gemini API Quota Notice (429)**: {err_text}\n\n"
-                                f"💡 *To use live Gemini models, add prepayment credits at https://ai.studio/projects or paste a new key (`AIzaSy...`) in chat. Falling back to dynamic local workspace analysis...*"
+                                f"💡 *Please configure prepayment credits at https://ai.studio/projects or paste a new API key (`AIzaSy...`) in chat.*"
                             )
                             await self._emit_streamed_thought(
                                 quota_thought, on_thought, on_stream_start, on_stream_chunk, on_stream_end
@@ -659,6 +652,61 @@ class AntigravityHarness:
                                 target_url = args.get("url", "")
                                 tool_result = await WorkspaceTools.fetch_url(target_url)
                                 out_str = tool_result.get("content", tool_result.get("error", "Error fetching URL"))
+                            elif fn_name == "get_pull_request_details":
+                                repo_arg = args.get("repository", "")
+                                pr_num = int(args.get("pr_number", 1))
+                                tool_result = await WorkspaceTools.get_pull_request_details(repo_arg, pr_num)
+                                out_str = json.dumps(tool_result, indent=2)
+                            elif fn_name == "get_pull_request_diff":
+                                repo_arg = args.get("repository", "")
+                                pr_num = int(args.get("pr_number", 1))
+                                tool_result = await WorkspaceTools.get_pull_request_diff(repo_arg, pr_num)
+                                out_str = tool_result.get("diff", "")
+                            elif fn_name == "list_pull_requests":
+                                repo_arg = args.get("repository", "")
+                                state_arg = args.get("state", "open")
+                                author_arg = args.get("author")
+                                limit_arg = int(args.get("limit", 10))
+                                tool_result = await WorkspaceTools.list_pull_requests(
+                                    repo_arg, state=state_arg, author=author_arg, limit=limit_arg
+                                )
+                                out_str = json.dumps(tool_result, indent=2)
+                            elif fn_name == "post_pull_request_review":
+                                repo_arg = args.get("repository", "")
+                                pr_num = int(args.get("pr_number", 1))
+                                body_arg = args.get("body", "")
+                                event_arg = args.get("event", "COMMENT")
+                                tool_result = await WorkspaceTools.post_pull_request_review(
+                                    repo_arg, pr_num, body_arg, event=event_arg
+                                )
+                                out_str = json.dumps(tool_result, indent=2)
+                            elif fn_name == "post_pull_request_line_comment":
+                                repo_arg = args.get("repository", "")
+                                pr_num = int(args.get("pr_number", 1))
+                                body_arg = args.get("body", "")
+                                commit_sha_arg = args.get("commit_sha", "")
+                                path_arg = args.get("path", "")
+                                line_arg = int(args.get("line", 1))
+                                side_arg = args.get("side", "RIGHT")
+                                tool_result = await WorkspaceTools.post_pull_request_line_comment(
+                                    repo_arg, pr_num, body_arg, commit_sha_arg, path_arg, line_arg, side=side_arg
+                                )
+                                out_str = json.dumps(tool_result, indent=2)
+                            elif fn_name == "create_pull_request":
+                                repo_arg = args.get("repository", "")
+                                title_arg = args.get("title", "")
+                                body_arg = args.get("body", "")
+                                head_branch_arg = args.get("head_branch", "")
+                                base_branch_arg = args.get("base_branch", "main")
+                                tool_result = await WorkspaceTools.create_pull_request(
+                                    repo_arg, title_arg, body_arg, head_branch_arg, base_branch_arg
+                                )
+                                out_str = json.dumps(tool_result, indent=2)
+                            elif fn_name == "connect_repository":
+                                repo_url_arg = args.get("repo_url", "")
+                                token_arg = args.get("token")
+                                tool_result = await WorkspaceTools.connect_repository(repo_url_arg, token_arg)
+                                out_str = json.dumps(tool_result, indent=2)
                             else:
                                 tool_result = {"error": f"Unknown tool: {fn_name}"}
                                 exit_code = 1
@@ -699,12 +747,14 @@ class AntigravityHarness:
                     logger.error(f"Gemini execution notice: {str(e)}")
                     continue
 
-        logger.info("Live Gemini API unavailable or incomplete; executing modular local intent engine.")
-        return await self._execute_local_intent(
-            task_id, prompt, prompt, persona_name, workspace_path,
-            on_thought, on_tool_start, on_tool_end, on_message, on_approval_required, on_diff_updated,
-            on_stream_start=on_stream_start, on_stream_chunk=on_stream_chunk, on_stream_end=on_stream_end
+        fallback_msg = (
+            f"### ⚠️ Agent Notice\n\n"
+            f"The LLM execution turn completed. If you'd like to perform further actions, ask any question or prompt the reviewer."
         )
+        await self._emit_streamed_message(
+            "agent", fallback_msg, on_message, on_stream_start, on_stream_chunk, on_stream_end
+        )
+        return {"status": "COMPLETED", "summary": "Execution completed."}
 
 
 antigravity_harness = AntigravityHarness()
