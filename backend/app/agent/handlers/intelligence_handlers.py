@@ -16,6 +16,7 @@ class WebIntelligenceHandler(IntentHandler):
         "what happened this week at nvidia",
         "huggingface news today",
         "explain this Nvidia agrees to acquire Hugging Face for $13B",
+        "explain this Stripe buys Bridge for $1.1B",
         "tell me about the recent OpenAI partnership",
         "search news on Stripe buying Bridge",
         "what are the latest AI announcements this month",
@@ -32,7 +33,7 @@ class WebIntelligenceHandler(IntentHandler):
         "run pytest on this project",
         "analyze workspace architecture"
     ]
-    priority_weight = 1.0
+    priority_weight = 1.25
 
     def matches(self, ctx: IntentContext) -> bool:
         lower = ctx.lower_prompt

@@ -12,6 +12,7 @@ from app.agent.handlers.dev_handlers import (
     TestRunnerHandler,
     CodeReviewHandler,
     CommitVerificationHandler,
+    TechnicalExampleHandler,
     FileInspectorHandler,
     CodingActionHandler
 )
@@ -120,3 +121,57 @@ async def test_strict_credentials_override_takes_precedence():
     # Strict matching should route to RepoConnectionHandler because of credentials
     routed = intent_registry._vector_router.route(ctx)
     assert isinstance(routed[0], RepoConnectionHandler)
+
+
+def test_vector_router_technical_example_ranking():
+    router = intent_registry._vector_router
+
+    ranked_agent = router.rank("Show a Comprehensive example of a Real-Time Distributed Multi-Agent Coordination")
+    best_handler, score = ranked_agent[0]
+    assert isinstance(best_handler, TechnicalExampleHandler)
+    assert score > 0.20
+
+    ranked_pubsub = router.rank("Provide a code example for Phoenix PubSub with GenServer")
+    best_handler, score = ranked_pubsub[0]
+    assert isinstance(best_handler, TechnicalExampleHandler)
+    assert score > 0.20
+
+
+@pytest.mark.asyncio
+async def test_intent_registry_dispatch_technical_example(tmp_path):
+    messages = []
+    thoughts = []
+
+    async def mock_msg(sender, content):
+        messages.append((sender, content))
+
+    async def mock_thought(t):
+        thoughts.append(t)
+
+    async def mock_tool_start(n, a): pass
+    async def mock_tool_end(*args, **kwargs): pass
+
+    ctx = IntentContext(
+        task_id="task-multi-agent-example",
+        title="Show a Comprehensive example of a Real-Time Distributed Multi-Agent Coordination",
+        prompt="Show a Comprehensive example of a Real-Time Distributed Multi-Agent Coordination",
+        lower_prompt="show a comprehensive example of a real-time distributed multi-agent coordination",
+        persona_name="PairProgrammer",
+        workspace_path=tmp_path,
+        emit_thought=mock_thought,
+        emit_message=mock_msg,
+        call_tool_start=mock_tool_start,
+        call_tool_end=mock_tool_end,
+        on_approval_required=lambda a, d: None,
+        on_diff_updated=lambda d: None
+    )
+
+    res = await intent_registry.dispatch(ctx)
+    assert res["status"] == "COMPLETED"
+    assert len(messages) >= 1
+    content = messages[0][1]
+    # Verify rich architecture & code contents are present and no hollow stubs
+    assert "Phoenix.PubSub" in content or "Sagents" in content or "DynamicSupervisor" in content
+    assert "Standing by for next instruction" not in content
+    assert "Workspace inspected and validated" not in content
+

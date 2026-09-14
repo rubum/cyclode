@@ -888,5 +888,36 @@ async def test_repository_simulate_event_endpoint(monkeypatch):
         assert res["result"]["persona"] == "CodeReviewer"
 
 
+@pytest.mark.asyncio
+async def test_harness_technical_example_multi_agent_coordination(tmp_path):
+    from app.agent.harness import antigravity_harness
+    messages_captured = []
+
+    async def mock_msg(sender, content):
+        messages_captured.append((sender, content))
+
+    res = await antigravity_harness._execute_local_intent(
+        task_id="task-example-multi-agent",
+        title="Show a Comprehensive example of a Real-Time Distributed Multi-Agent Coordination",
+        prompt="Show a Comprehensive example of a Real-Time Distributed Multi-Agent Coordination",
+        persona_name="PairProgrammer",
+        workspace_path=tmp_path,
+        on_thought=lambda t: None,
+        on_tool_start=lambda n, a: None,
+        on_tool_end=lambda n, o, e, d, a=None: None,
+        on_message=mock_msg,
+        on_approval_required=lambda a, d: None,
+        on_diff_updated=lambda d: None
+    )
+
+    assert res.get("status") == "COMPLETED"
+    assert len(messages_captured) >= 1
+    sender, content = messages_captured[0]
+    assert sender == "agent"
+    assert "Phoenix.PubSub" in content or "Sagents" in content or "DynamicSupervisor" in content
+    assert "Task Executed: Workspace inspected and validated" not in content
+
+
+
 
 

@@ -325,14 +325,22 @@ class RepoAnalysisHandler(IntentHandler):
         "where is the repo analysis",
         "audit and overview the workspace codebase",
         "what is in this repo https://github.com/confident-ai/deepeval",
-        "explain the monorepo structure"
+        "explain the monorepo structure",
+        "use cases of this lib are",
+        "use cases of this repo",
+        "what are the use cases of this library",
+        "key features and use cases"
     ]
     negative_exemplars = [
         "search web for tech news",
         "how do i get a github token",
         "run pytest test suite",
         "review my git commit diff",
-        "search news on nvidia acquiring hugging face"
+        "search news on nvidia acquiring hugging face",
+        "search news on stripe buying bridge",
+        "explain this nvidia agrees to acquire hugging face for $13b",
+        "explain this stripe buys bridge for $1.1b",
+        "explain this acquisition deal"
     ]
     priority_weight = 1.3
 
@@ -357,7 +365,9 @@ class RepoAnalysisHandler(IntentHandler):
             or re.search(r"\b(explain\s+(the|this|my)?\s*(repo|repository|codebase|project|app|service|application|system|architecture|workspace|monorepo))\b", lower)
             or re.search(r"\b(tell\s+me\s+about\s+(the|this|my)?\s*(repo|repository|codebase|project|app|service|monorepo))\b", lower)
             or re.search(r"\b(what\s+does\s+this\s+(repo|project|codebase|app|service|package|tool|monorepo)\s*(do|have|contain)?)\b", lower)
-            or any(q in lower for w in ("analyse it", "analyze it", "analyse repo", "analyze repo", "repo analysis", "where is the repo analysis", "where is the analysis", "show analysis", "show repo analysis", "inspect codebase", "codebase overview", "explain the repo", "explain this repo", "what is this project", "what does this do", "what is this on", "what is in this") if (q := w) in lower)
+            or re.search(r"\buse\s*cases?\b", lower)
+            or "use case" in lower
+            or any(q in lower for w in ("analyse it", "analyze it", "analyse repo", "analyze repo", "repo analysis", "where is the repo analysis", "where is the analysis", "show analysis", "show repo analysis", "inspect codebase", "codebase overview", "explain the repo", "explain this repo", "what is this project", "what does this do", "what is this on", "what is in this", "use cases") if (q := w) in lower)
         )
 
     async def execute(self, ctx: IntentContext) -> Dict[str, Any]:

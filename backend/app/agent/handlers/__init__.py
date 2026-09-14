@@ -19,6 +19,7 @@ from app.agent.handlers.dev_handlers import (
     TestRunnerHandler,
     CodeReviewHandler,
     CommitVerificationHandler,
+    TechnicalExampleHandler,
     FileInspectorHandler,
     CodingActionHandler
 )
@@ -47,6 +48,7 @@ class IntentRegistry:
             TestRunnerHandler(),
             CodeReviewHandler(),
             CommitVerificationHandler(),
+            TechnicalExampleHandler(),
             FileInspectorHandler(),
             CodingActionHandler(),
         ]
