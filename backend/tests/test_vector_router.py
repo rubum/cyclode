@@ -195,7 +195,7 @@ async def test_find_all_services_routes_to_coding_action(tmp_path):
     assert len(messages) >= 1
     content = messages[0][1]
     assert "my_service" in content
-    assert "Discovered Services" in content
+    assert any(w in content for w in ("Discovered Services", "Component", "Service", "Architectural Classification"))
 
 
 @pytest.mark.asyncio
@@ -220,3 +220,49 @@ async def test_what_is_a_service_does_not_trigger_test_runner(tmp_path):
     assert "cargo test" not in content
     assert "my_service" in content
 
+
+@pytest.mark.asyncio
+async def test_what_is_a_service_firecracker_conceptual_explanation(tmp_path):
+    # Simulate Firecracker workspace layout with real documentation and code snippets
+    (tmp_path / "README.md").write_text(
+        "Firecracker is an open-source Virtual Machine Monitor (VMM) purpose-built for creating and managing secure, multi-tenant container and function-based services.\n\n"
+        "Firecracker provides a REST API server listening on a UNIX domain socket. Guest communication is handled via virtio-vsock."
+    )
+
+    fc_dir = tmp_path / "src" / "firecracker" / "src"
+    fc_dir.mkdir(parents=True)
+    (fc_dir / "main.rs").write_text("use std::os::unix::net::UnixListener;\nfn main() { let _ = UnixListener::bind(\"/tmp/firecracker.socket\"); }")
+
+    jailer_dir = tmp_path / "src" / "jailer" / "src"
+    jailer_dir.mkdir(parents=True)
+    (jailer_dir / "main.rs").write_text("fn main() {\n    // chroot, seccomp, and cgroup isolation\n}")
+
+    # Add overlay test fixture that should never be labeled as a service
+    overlay_dir = tmp_path / "resources" / "rootfs" / "overlay" / "usr" / "local" / "bin"
+    overlay_dir.mkdir(parents=True)
+    (overlay_dir / "main.go").write_text("package main\nfunc main() {}")
+
+    messages = []
+    async def mock_msg(s, c):
+        messages.append((s, c))
+
+    ctx = make_ctx("What is a service in this project")
+    ctx.workspace_path = tmp_path
+    ctx.emit_message = mock_msg
+
+    res = await intent_registry.dispatch(ctx)
+    assert res["status"] == "COMPLETED"
+    assert len(messages) >= 1
+    content = messages[0][1]
+
+    # Must provide conceptual architectural prose explaining Firecracker's process model
+    lower_content = content.lower()
+    assert "virtual machine monitor" in lower_content or "vmm" in lower_content
+    assert "unix" in lower_content and "socket" in lower_content
+    assert "jailer" in lower_content
+    assert "firecracker" in lower_content
+    assert "vsock" in lower_content
+
+    # Must not contain false positives from test overlays
+    assert "resources/rootfs" not in content
+    assert "Go Service Binary" not in content

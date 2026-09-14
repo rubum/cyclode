@@ -1,13 +1,20 @@
 import asyncio
 import os
 import re
+import json
+import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional
+import httpx
 
 from app.agent.handlers.base import IntentContext, IntentHandler
 from app.agent.tools import WorkspaceTools
+from app.config import settings
 from app.core.policies import policy_engine
 from app.core.worktree import worktree_manager
+from app.integrations.manager import integration_manager
+
+logger = logging.getLogger(__name__)
 
 
 async def resolve_test_cmd(workspace_path: Path) -> str:
@@ -729,6 +736,287 @@ class FileInspectorHandler(IntentHandler):
         return {"status": "COMPLETED", "summary": f"Answered question: {ctx.title}"}
 
 
+def harvest_codebase_dossier(workspace_path: Path) -> Dict[str, Any]:
+    """
+    Deterministically gathers verifiable ground truth from the workspace:
+    - Documentation excerpts (README.md, ARCHITECTURE.md)
+    - Build and package manifests (Cargo.toml, go.mod, package.json, pyproject.toml)
+    - Discovered executables and code characteristics (strictly excluding tests/fixtures/overlays)
+    - AST symbols matching services or endpoints
+    """
+    # 1. Project Documentation Excerpt
+    doc_candidates = [
+        workspace_path / "ARCHITECTURE.md",
+        workspace_path / "docs" / "design.md",
+        workspace_path / "docs" / "architecture.md",
+        workspace_path / "README.md",
+        workspace_path / "readme.md",
+        workspace_path / "README.rst",
+    ]
+    doc_text = ""
+    for doc_p in doc_candidates:
+        if doc_p.exists():
+            try:
+                raw = doc_p.read_text(errors="ignore")
+                if len(raw.strip()) > 40:
+                    doc_text = raw
+                    break
+            except Exception:
+                pass
+
+    readme_excerpt = ""
+    if doc_text:
+        clean_doc = re.sub(r"<!--.*?-->", "", doc_text, flags=re.DOTALL)
+        clean_doc = re.sub(r"<picture>.*?</picture>", "", clean_doc, flags=re.DOTALL | re.IGNORECASE)
+        clean_doc = re.sub(r"<[^>]+>", "", clean_doc)
+        paragraphs = [p.strip() for p in clean_doc.split("\n\n") if p.strip()]
+        useful_paragraphs = []
+        for p in paragraphs:
+            if p.startswith("#") and len(p.split("\n")) == 1:
+                continue
+            if any(w in p.lower() for w in ("badge", "shields.io", "trendshift", "github release", "license", "build status", "ci/cd")):
+                continue
+            if len(p) > 40:
+                useful_paragraphs.append(p.replace("\n", " ").strip())
+            if len(useful_paragraphs) >= 3:
+                break
+        readme_excerpt = "\n\n".join(useful_paragraphs)
+
+    # 2. Build & Package Manifests
+    manifest_files = [
+        ("Cargo.toml", workspace_path / "Cargo.toml"),
+        ("go.mod", workspace_path / "go.mod"),
+        ("package.json", workspace_path / "package.json"),
+        ("pyproject.toml", workspace_path / "pyproject.toml"),
+        ("docker-compose.yml", workspace_path / "docker-compose.yml"),
+        ("compose.yaml", workspace_path / "compose.yaml"),
+    ]
+    manifest_chunks = []
+    for m_name, m_path in manifest_files:
+        if m_path.exists():
+            try:
+                m_content = m_path.read_text(errors="ignore")[:1000].strip()
+                manifest_chunks.append(f"**`{m_name}`**:\n```\n{m_content}\n```")
+            except Exception:
+                pass
+    manifest_summary = "\n\n".join(manifest_chunks)
+
+    # 3. Discovered Executable Entrypoints & Semantic Characteristics
+    excluded_dirs = {
+        ".git", "target", "node_modules", "dist", "build", "resources", "tests", "test",
+        "fixtures", "fixture", "mock", "mocks", "overlay", "vendor", "third_party",
+        ".cargo", "tools", "tooling", "ci", "docker", ".github"
+    }
+
+    discovered = []
+    for root, dirs, files in os.walk(workspace_path):
+        dirs[:] = [d for d in dirs if d not in excluded_dirs and not d.startswith(".")]
+
+        entrypoints = [f for f in files if f in ("main.rs", "main.go", "app.py", "server.py", "main.py", "server.ts", "app.ts")]
+        for ep_file in entrypoints:
+            ep_path = Path(root) / ep_file
+            rel = ep_path.relative_to(workspace_path)
+            rel_str = str(rel).lower()
+
+            if any(x in rel_str for x in ("resources/", "tests/", "overlay/", "fixtures/", "mocks/")):
+                continue
+
+            if ep_file == "main.rs":
+                name = rel.parts[1] if len(rel.parts) > 1 and rel.parts[0] == "src" else rel.parts[0]
+            elif ep_file == "main.go":
+                name = rel.parts[-2] if len(rel.parts) > 1 else rel.parts[-1]
+                if name == "bin":
+                    continue
+            else:
+                name = rel.stem
+
+            code_sample = ""
+            try:
+                with open(ep_path, "r", errors="ignore") as f:
+                    code_sample = f.read(8192)
+            except Exception:
+                pass
+
+            lower_code = code_sample.lower()
+
+            has_unix_socket = any(w in code_sample for w in ("UnixListener", "UnixStream", "AF_UNIX", "bind_unix", ".socket", "unix_socket"))
+            has_vsock = any(w in code_sample for w in ("Vsock", "vsock", "AF_VSOCK", "virtio-vsock")) or ("vsock" in doc_text.lower())
+            has_tcp = any(w in code_sample for w in ("TcpListener", "HttpServer", "ListenAndServe", "axum::serve", "FastAPI", "uvicorn", "express()"))
+            has_reactor = any(w in code_sample for w in ("epoll", "kqueue", "event_loop", "tokio::select", "Reactor", "Poll::"))
+            has_isolation = any(w in lower_code for w in ("chroot", "seccomp", "cgroup", "setuid", "setgid", "unshare", "jail"))
+            is_cli_parser = any(w in code_sample for w in ("clap", "structopt", "cobra", "argparse", "click", "flag.Parse"))
+            is_dev_tool = any(w in rel_str for w in ("clippy", "tool", "lint", "trace", "bench", "devctr"))
+
+            traits = []
+            if has_isolation: traits.append("chroot/seccomp/cgroup boundary")
+            if has_unix_socket: traits.append("UNIX domain socket listener")
+            if has_vsock: traits.append("virtio-vsock transport")
+            if has_tcp: traits.append("TCP/HTTP server listener")
+            if has_reactor: traits.append("epoll/event reactor")
+            if is_cli_parser: traits.append("CLI argument parser")
+            if is_dev_tool: traits.append("Internal development tool")
+            trait_desc = ", ".join(traits) if traits else "Standard executable"
+
+            if has_isolation:
+                c_type = "Process Supervisor / Security Boundary"
+            elif has_reactor and (has_unix_socket or has_tcp):
+                c_type = "Core Runtime Daemon / API Server"
+            elif has_tcp or has_unix_socket:
+                c_type = "Background Service / Server Daemon"
+            elif is_dev_tool:
+                c_type = "Developer Tooling"
+            elif is_cli_parser:
+                c_type = "CLI Utility"
+            else:
+                c_type = "Executable Binary"
+
+            discovered.append({
+                "name": name,
+                "type": c_type,
+                "entrypoint": str(rel),
+                "traits": trait_desc,
+                "sample_code": code_sample[:500]
+            })
+
+    # 4. AST Symbols Matching Services / Endpoints
+    ast_symbols = []
+    try:
+        sym_res = WorkspaceTools.find_symbols(workspace_path, max_results=20)
+        for s in sym_res.get("symbols", []):
+            if s.get("type") in ("endpoint", "component") or any(w in s.get("name", "").lower() for w in ("service", "daemon", "server", "handler")):
+                ast_symbols.append(s)
+    except Exception:
+        pass
+
+    entrypoint_signatures = "\n".join(
+        f"- `{d['name']}` ({d['type']}) at `{d['entrypoint']}`: {d['traits']}" for d in discovered
+    )
+    ast_symbols_summary = "\n".join(
+        f"- `{s.get('name')}` ({s.get('type')}) in `{s.get('file_path')}:{s.get('line_number')}`" for s in ast_symbols[:8]
+    )
+
+    return {
+        "project_name": workspace_path.name,
+        "readme_excerpt": readme_excerpt,
+        "manifest_summary": manifest_summary,
+        "discovered_services": discovered,
+        "entrypoint_signatures": entrypoint_signatures,
+        "ast_symbols": ast_symbols,
+        "ast_symbols_summary": ast_symbols_summary
+    }
+
+
+def format_factual_audit_report(dossier: Dict[str, Any], is_conceptual: bool = True) -> str:
+    """
+    Mode 2: Honest, verifiable codebase auditor report when running offline without an LLM.
+    Presents ground-truth evidence directly with zero bias, zero fabricated essays, and zero proxy flags.
+    """
+    name = dossier["project_name"]
+    readme = dossier["readme_excerpt"]
+    services = dossier["discovered_services"]
+    ast_symbols = dossier["ast_symbols"]
+
+    if services:
+        rows = [f"| `{s['name']}` | **{s['type']}** | `{s['entrypoint']}` | {s['traits']} |" for s in services]
+        table_str = "| Component / Target | Architectural Classification | Source Entrypoint | Observable Traits |\n| :--- | :--- | :--- | :--- |\n" + "\n".join(rows)
+    else:
+        table_str = "No standalone service entrypoints detected; the workspace is structured as a library package."
+
+    doc_section = f"#### 📖 Project Overview (from Documentation)\n> {readme}\n\n" if readme else ""
+
+    sym_section = ""
+    if ast_symbols:
+        sym_lines = "\n".join(f"- `{s.get('name')}` ({s.get('type')}) in `{s.get('file_path')}`" for s in ast_symbols[:6])
+        sym_section = f"#### 🔍 Service Symbols & Endpoints in Codebase\n{sym_lines}\n\n"
+
+    if not is_conceptual:
+        return (
+            f"### ⚙️ Discovered Services & Binaries in `{name}`\n\n"
+            f"{table_str}\n\n"
+            f"{sym_section}"
+            f"**Audit Summary:**\n"
+            f"- Identified **{len(services)}** execution components across the workspace based on build manifests and entrypoints."
+        )
+
+    return (
+        f"### 🧩 Codebase Architecture & Service Audit: `{name}`\n\n"
+        f"{doc_section}"
+        f"#### ⚙️ Audited Components & Execution Boundaries\n"
+        f"{table_str}\n\n"
+        f"{sym_section}"
+        f"> 💡 *Note: This is an objective codebase audit. To generate a real-time, generative AI architectural deep dive, configure your Gemini API key in Settings.*"
+    )
+
+
+async def analyze_codebase_architecture_guided(ctx: IntentContext, is_conceptual: bool = True) -> str:
+    """
+    Guided LLM Codebase Understanding Engine:
+    Harvests ground-truth repository dossier and invokes Gemini with focused architectural guidance.
+    Falls back gracefully to the honest codebase auditor if offline or quota-limited.
+    """
+    dossier = harvest_codebase_dossier(ctx.workspace_path)
+
+    api_key = (
+        ctx.extra.get("gemini_api_key")
+        or ctx.extra.get("api_key")
+        or integration_manager._custom_credentials.get("gemini", {}).get("api_key")
+        or settings.get_api_key()
+    )
+
+    if api_key:
+        try:
+            await ctx.emit_thought("Analyzing codebase structure with guided LLM reasoning...")
+            system_instruction = (
+                "You are an expert principal software architect conducting an autonomous codebase architecture audit. "
+                "Analyze the provided ground-truth repository dossier (manifests, documentation excerpts, entrypoint source code, AST symbols). "
+                "Synthesize a clear, analytical architectural explanation tailored specifically to THIS codebase. "
+                "Address:\n"
+                "1. Core System Archetype: What is this project and what paradigm does it follow (e.g. Virtual Machine Monitor, distributed backend, monolith, CLI suite, library)?\n"
+                "2. Service / Process Architecture: What constitutes a 'service' or runtime execution unit in this specific project? (Do not assume web microservices if this is a systems daemon, CLI, or library).\n"
+                "3. IPC & Communication Topology: How do components communicate (e.g. UNIX domain sockets, network TCP/HTTP, virtio-vsock, shared memory, in-process function calls)?\n"
+                "4. Component Matrix: Present a clear Markdown table of discovered entrypoints with their accurate architectural classifications (Daemon vs Supervisor vs CLI Utility vs Developer Tooling) and operational roles.\n\n"
+                "Formatting: Fluid, cohesive analytical prose with strong topic sentences and a structured comparison table. No repetitive bullet boilerplate."
+            )
+
+            prompt_text = (
+                f"The user is asking: \"{ctx.prompt}\"\n\n"
+                f"Here is the ground-truth codebase dossier harvested directly from the workspace filesystem:\n\n"
+                f"### Project Name: {dossier['project_name']}\n\n"
+                f"### Project Documentation (README / ARCHITECTURE):\n{dossier['readme_excerpt'] or 'No documentation file found.'}\n\n"
+                f"### Build Manifests & Dependencies:\n{dossier['manifest_summary'] or 'No manifest file found.'}\n\n"
+                f"### Discovered Entrypoints & Source Code Signatures:\n{dossier['entrypoint_signatures'] or 'No executable entrypoints found.'}\n\n"
+                f"### Relevant AST Symbols in Codebase:\n{dossier['ast_symbols_summary'] or 'None'}\n\n"
+                f"Please provide your architectural synthesis."
+            )
+
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{settings.ANTIGRAVITY_MODEL}:generateContent?key={api_key}"
+            payload = {
+                "contents": [{"role": "user", "parts": [{"text": prompt_text}]}],
+                "system_instruction": {"parts": [{"text": system_instruction}]}
+            }
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(url, json=payload)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    candidates = data.get("candidates", [])
+                    if candidates:
+                        content_parts = candidates[0].get("content", {}).get("parts", [])
+                        if content_parts:
+                            text = "".join(p.get("text", "") for p in content_parts).strip()
+                            if text:
+                                return text
+                elif resp.status_code == 429:
+                    logger.warning("Gemini API quota exceeded in guided architecture engine, falling back to honest auditor.")
+                else:
+                    logger.warning(f"Gemini API returned status {resp.status_code} in guided architecture engine.")
+        except Exception as e:
+            logger.warning(f"Guided LLM execution failed: {e}. Falling back to honest auditor.")
+
+    # Fallback: Honest factual audit report
+    return format_factual_audit_report(dossier, is_conceptual=is_conceptual)
+
+
 class CodingActionHandler(IntentHandler):
     name = "CodingActionHandler"
     description = "General coding, bug fixing, defensive patching, and test-driven code editing in the workspace repository."
@@ -819,61 +1107,31 @@ class CodingActionHandler(IntentHandler):
                 })
                 return {"status": "AWAITING_APPROVAL", "summary": "Fix applied and verified. Awaiting PR approval."}
 
-        # Service / binary / daemon discovery
+        # Service / binary / daemon discovery or conceptual inquiry
         is_service_query = any(w in lower for w in ("service", "services", "daemon", "server", "microservice", "binaries", "entrypoint"))
         if is_service_query:
-            await ctx.emit_thought("Scanning workspace for executable services, binary entrypoints, and API routes...")
-            discovered_services = []
-
-            # 1. Rust binary crates / main.rs
-            for root, dirs, files in os.walk(ctx.workspace_path):
-                dirs[:] = [d for d in dirs if d not in {".git", "target", "node_modules", "dist", "build"} and not d.startswith(".")]
-                if "main.rs" in files:
-                    rel = Path(root).relative_to(ctx.workspace_path)
-                    svc_name = rel.parts[1] if len(rel.parts) > 1 and rel.parts[0] == "src" else rel.parts[0]
-                    discovered_services.append({
-                        "name": svc_name,
-                        "type": "Rust Executable / Daemon",
-                        "entrypoint": str(rel / "main.rs")
-                    })
-
-            # 2. Go binaries
-            for root, dirs, files in os.walk(ctx.workspace_path):
-                dirs[:] = [d for d in dirs if d not in {".git", "vendor"} and not d.startswith(".")]
-                if "main.go" in files:
-                    rel = Path(root).relative_to(ctx.workspace_path)
-                    svc_name = rel.parts[-2] if len(rel.parts) > 1 else rel.parts[-1]
-                    discovered_services.append({
-                        "name": svc_name,
-                        "type": "Go Service Binary",
-                        "entrypoint": str(rel / "main.go")
-                    })
-
-            # 3. Python / TS AST endpoints and services
-            ast_symbols = WorkspaceTools.find_symbols(ctx.workspace_path, max_results=30)
-            endpoints = [s for s in ast_symbols.get("symbols", []) if s.get("type") in ("endpoint", "component") or "service" in s.get("name", "").lower()]
-            for ep in endpoints[:10]:
-                discovered_services.append({
-                    "name": ep["name"],
-                    "type": f"{ep['type'].capitalize()}",
-                    "entrypoint": f"{ep['file_path']}:{ep['line_number']}"
-                })
-
-            if discovered_services:
-                rows = [f"| `{s['name']}` | {s['type']} | `{s['entrypoint']}` |" for s in discovered_services]
-                svc_table = "\n".join(rows)
-                msg = (
-                    f"### ⚙️ Discovered Services & Binaries in `{ctx.workspace_path.name}`\n\n"
-                    f"I scanned the codebase for executable services, background daemons, and service entrypoints:\n\n"
-                    f"| Service / Binary | Classification | Source Entrypoint |\n"
-                    f"| :--- | :--- | :--- |\n"
-                    f"{svc_table}\n\n"
-                    f"**Analysis:**\n"
-                    f"- **Total Services Discovered**: {len(discovered_services)}\n"
-                    f"- You can inspect any service's implementation or ask me to trace execution flows for a specific binary."
+            is_conceptual = (
+                any(phrase in lower for phrase in (
+                    "what is a service", "what is the service", "what does service mean",
+                    "what are the services", "what are services", "how do services",
+                    "explain the service", "service architecture", "service model",
+                    "service concept", "what service is", "what services exist",
+                    "what is a daemon", "what does daemon mean", "how does a service work",
+                    "what counts as a service"
+                ))
+                or (
+                    any(lower.startswith(p) for p in ("what is", "what are", "explain", "describe", "how does", "tell me about"))
+                    and any(w in lower for w in ("service", "services", "daemon", "server", "microservice"))
                 )
-                await ctx.emit_message("agent", msg)
-                return {"status": "COMPLETED", "summary": f"Identified {len(discovered_services)} services in {ctx.workspace_path.name}."}
+            )
+
+            await ctx.emit_thought("Harvesting codebase dossier and analyzing service architecture...")
+            reply_md = await analyze_codebase_architecture_guided(ctx, is_conceptual=is_conceptual)
+            await ctx.emit_message("agent", reply_md)
+            return {
+                "status": "COMPLETED",
+                "summary": f"{'Explained service architecture' if is_conceptual else 'Discovered services'} for {ctx.workspace_path.name}."
+            }
 
         # Substantive fallback response when no specific bug is matched
         symbols_res = WorkspaceTools.find_symbols(ctx.workspace_path, max_results=10)

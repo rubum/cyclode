@@ -260,37 +260,23 @@ class URLSummarizeHandler(IntentHandler):
                 except Exception as e:
                     logger.warning(f"Fallback shallow clone for {raw_target_url} failed: {e}")
 
-            if "deepeval" in repo.lower():
-                summary_md = (
-                    f"### 📦 [{repo_full_name}](https://github.com/{repo_full_name}) — *Production LLM Evaluation Framework*\n\n"
-                    f"[DeepEval](https://github.com/confident-ai/deepeval), developed by Confident AI, serves as an open-source evaluation framework for large language model applications and retrieval-augmented generation (RAG) pipelines. Functioning conceptually as a specialized \"Pytest for LLMs\", the framework bridges the gap between traditional unit testing and probabilistic model evaluation by enabling engineering teams to codify quality criteria, benchmark iterations, and guard against prompt or retrieval drift in continuous integration environments.\n\n"
-                    f"#### Evaluation Architecture & Metrics Topology\n"
-                    f"DeepEval categorizes evaluations across reference-free heuristic algorithms and LLM-as-a-judge protocols, executing scoring either entirely locally on bare metal or via private inference endpoints without third-party vendor lock-in.\n\n"
-                    f"| Evaluation Metric | Description | Target Use Case |\n"
-                    f"| :--- | :--- | :--- |\n"
-                    f"| **G-Eval** | Custom LLM-as-a-judge scoring based on user-defined rubrics and weighting | Bespoke domain alignment, compliance, and custom business logic |\n"
-                    f"| **Faithfulness** | Measures factual consistency of LLM output relative to retrieved context | Hallucination mitigation in RAG systems |\n"
-                    f"| **Answer Relevancy** | Quantifies whether output directly addresses user intent without verbosity | Output drift and conversational precision |\n"
-                    f"| **Contextual Precision & Recall** | Evaluates ranking quality and coverage of vector retrieval steps | Retriever optimization and chunking strategy validation |\n"
-                    f"| **Hallucination & Bias** | Detects factual contradictions, toxic tone, and safety policy violations | Enterprise governance and production safety guardrails |\n\n"
-                    f"#### Integration Mechanics & Testing Workflow\n"
-                    f"DeepEval integrates directly into standard Python test harnesses using familiar Pytest conventions. Test cases encapsulate conversational inputs, context chunks, and actual outputs within `LLMTestCase` definitions, validating them against configurable pass/fail thresholds via `assert_test`:\n\n"
-                    f"```python\n"
-                    f"from deepeval import assert_test\n"
-                    f"from deepeval.test_case import LLMTestCase\n"
-                    f"from deepeval.metrics import AnswerRelevancyMetric\n\n"
-                    f"def test_response_relevancy():\n"
-                    f"    test_case = LLMTestCase(\n"
-                    f"        input=\"What are the key features of Adappty?\",\n"
-                    f"        actual_output=\"Adappty provides autonomous pair programming, standing event automations, and disposable sandboxes.\"\n"
-                    f"    )\n"
-                    f"    metric = AnswerRelevancyMetric(threshold=0.7)\n"
-                    f"    assert_test(test_case, [metric])\n"
-                    f"```\n\n"
-                    f"Beyond single-turn scoring, the ecosystem supports synthetic dataset generation to automatically bootstrap evaluation benchmarks from raw documentation, multi-turn agent trajectory evaluation, and CI/CD gating to block regressions prior to production deployments."
-                )
-            elif content and len(content) > 80:
-                clean_text = re.sub(r"<!--.*?-->", "", content, flags=re.DOTALL)
+            # Check for README in workspace if fetch_url had minimal content
+            readme_body = ""
+            if not content or len(content) <= 80:
+                for r_name in ("README.md", "readme.md", "README.rst"):
+                    r_p = ctx.workspace_path / r_name
+                    if r_p.exists():
+                        try:
+                            readme_body = r_p.read_text(errors="ignore")
+                            if len(readme_body.strip()) > 80:
+                                break
+                        except Exception:
+                            pass
+
+            raw_summary_source = content if (content and len(content) > 80) else readme_body
+
+            if raw_summary_source and len(raw_summary_source) > 80:
+                clean_text = re.sub(r"<!--.*?-->", "", raw_summary_source, flags=re.DOTALL)
                 clean_text = re.sub(r"<picture>.*?</picture>", "", clean_text, flags=re.DOTALL | re.IGNORECASE)
                 clean_text = re.sub(r"<[^>]+>", "", clean_text)
                 clean_lines = []
