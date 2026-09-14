@@ -419,12 +419,13 @@ const MainApp: React.FC = () => {
 
     const unsubPRsLoaded = subscribe('TASK_PRS_LOADED', (data: any) => {
       fetchTasks();
-      if (activeTaskId === data.task_id) {
-        setActiveTaskDetails((prev) => (prev ? { ...prev, prs: data.prs } : prev));
-        if (Array.isArray(data.prs) && data.prs.length > 0) {
-          setSelectedPRNumber(data.prs[0].pr_number);
-        }
+      setActiveTaskDetails((prev) => (prev && (prev.id === data.task_id || activeTaskIdRef.current === data.task_id) ? { ...prev, prs: data.prs } : prev));
+      if (Array.isArray(data.prs) && data.prs.length > 0) {
+        setSelectedPRNumber(data.prs[0].pr_number);
       }
+      setTasks((prev) =>
+        prev.map((t) => (t.id === data.task_id ? { ...t, prs: data.prs, repo_name: data.repo_name } : t))
+      );
     });
 
     const unsubPRTest = subscribe('TASK_PR_TEST_COMPLETED', (data: any) => {

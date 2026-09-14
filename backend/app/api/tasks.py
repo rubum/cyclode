@@ -52,7 +52,15 @@ async def list_tasks(
     limit: int = 50,
     db: AsyncSession = Depends(get_db)
 ):
-    stmt = select(TaskModel).order_by(desc(TaskModel.created_at)).limit(limit)
+    stmt = (
+        select(TaskModel)
+        .order_by(desc(TaskModel.created_at))
+        .limit(limit)
+        .options(
+            selectinload(TaskModel.prs),
+            selectinload(TaskModel.approvals)
+        )
+    )
     if status:
         stmt = stmt.where(TaskModel.status == status)
     if persona:
@@ -60,7 +68,50 @@ async def list_tasks(
 
     result = await db.execute(stmt)
     tasks = result.scalars().all()
-    return tasks
+    
+    serialized = []
+    for t in tasks:
+        serialized.append({
+            "id": t.id,
+            "session_key": t.session_key,
+            "title": t.title,
+            "custom_title": getattr(t, "custom_title", False),
+            "description": t.description,
+            "persona": t.persona,
+            "model_name": t.model_name,
+            "status": t.status,
+            "repo_name": t.repo_name,
+            "repo_url": t.repo_url,
+            "target_branch": t.target_branch,
+            "commit_sha": t.commit_sha,
+            "sandbox_status": t.sandbox_status,
+            "workspace_path": t.workspace_path,
+            "git_branch": t.git_branch,
+            "total_tokens": t.total_tokens,
+            "result_summary": t.result_summary,
+            "created_at": t.created_at.isoformat() if t.created_at else None,
+            "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+            "completed_at": t.completed_at.isoformat() if t.completed_at else None,
+            "prs": [
+                {
+                    "id": p.id,
+                    "task_id": p.task_id,
+                    "pr_number": p.pr_number,
+                    "title": p.title,
+                    "author": p.author,
+                    "head_branch": p.head_branch,
+                    "base_branch": p.base_branch,
+                    "html_url": p.html_url,
+                    "status": p.status,
+                    "worktree_path": p.worktree_path,
+                    "diff_stats": p.diff_stats or {},
+                    "review_summary": p.review_summary,
+                    "test_output": p.test_output,
+                }
+                for p in (t.prs or [])
+            ]
+        })
+    return serialized
 
 
 @router.post("")
