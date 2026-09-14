@@ -244,6 +244,9 @@ class GitHubClient:
                 if resp.status_code == 200:
                     return resp.text
                 return ""
+            except Exception:
+                return ""
+
     async def get_pull_request_files(
         self,
         owner: str,
