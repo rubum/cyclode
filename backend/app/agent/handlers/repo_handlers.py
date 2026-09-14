@@ -260,10 +260,10 @@ class URLSummarizeHandler(IntentHandler):
                 except Exception as e:
                     logger.warning(f"Fallback shallow clone for {raw_target_url} failed: {e}")
 
-            # Check for README in workspace if fetch_url had minimal content
+            # Check for README/AGENTS/ARCHITECTURE in workspace if fetch_url had minimal content
             readme_body = ""
             if not content or len(content) <= 80:
-                for r_name in ("README.md", "readme.md", "README.rst"):
+                for r_name in ("AGENTS.md", "agents.md", "ARCHITECTURE.md", "architecture.md", "CLAUDE.md", "README.md", "readme.md", "README.rst"):
                     r_p = ctx.workspace_path / r_name
                     if r_p.exists():
                         try:
@@ -762,7 +762,7 @@ class RepoAnalysisHandler(IntentHandler):
 
         # Check for README description
         def _read_readme():
-            for r_name in ("README.md", "readme.md", "README.rst"):
+            for r_name in ("AGENTS.md", "agents.md", "ARCHITECTURE.md", "architecture.md", "CLAUDE.md", "README.md", "readme.md", "README.rst"):
                 r_p = ctx.workspace_path / r_name
                 if r_p.exists():
                     try:

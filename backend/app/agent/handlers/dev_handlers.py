@@ -696,7 +696,7 @@ class FileInspectorHandler(IntentHandler):
 
         if display_ws and not display_ws.startswith("sandbox-"):
             readme_intro = ""
-            for r_name in ("README.md", "readme.md", "README.rst", "DOCS.md"):
+            for r_name in ("AGENTS.md", "agents.md", "ARCHITECTURE.md", "architecture.md", "CLAUDE.md", "README.md", "readme.md", "README.rst", "DOCS.md"):
                 r_file = ctx.workspace_path / r_name
                 if r_file.exists():
                     try:
@@ -739,48 +739,57 @@ class FileInspectorHandler(IntentHandler):
 def harvest_codebase_dossier(workspace_path: Path) -> Dict[str, Any]:
     """
     Deterministically gathers verifiable ground truth from the workspace:
-    - Documentation excerpts (README.md, ARCHITECTURE.md)
+    - Documentation excerpts (AGENTS.md, ARCHITECTURE.md, CLAUDE.md, README.md, etc.)
     - Build and package manifests (Cargo.toml, go.mod, package.json, pyproject.toml)
     - Discovered executables and code characteristics (strictly excluding tests/fixtures/overlays)
     - AST symbols matching services or endpoints
     """
-    # 1. Project Documentation Excerpt
-    doc_candidates = [
-        workspace_path / "ARCHITECTURE.md",
-        workspace_path / "docs" / "design.md",
-        workspace_path / "docs" / "architecture.md",
-        workspace_path / "README.md",
-        workspace_path / "readme.md",
-        workspace_path / "README.rst",
+    # 1. Project Documentation Excerpts (AGENTS.md, ARCHITECTURE.md, CLAUDE.md, README.md, docs)
+    doc_priority = [
+        ("AGENTS.md", [workspace_path / "AGENTS.md", workspace_path / "agents.md", workspace_path / ".agents" / "AGENTS.md"]),
+        ("ARCHITECTURE.md", [workspace_path / "ARCHITECTURE.md", workspace_path / "architecture.md", workspace_path / "DESIGN.md", workspace_path / "design.md", workspace_path / "docs" / "architecture.md", workspace_path / "docs" / "design.md"]),
+        ("CLAUDE.md", [workspace_path / "CLAUDE.md", workspace_path / "claude.md", workspace_path / ".claude" / "CLAUDE.md"]),
+        ("LLMS.txt", [workspace_path / "llms.txt", workspace_path / "LLMS.txt"]),
+        ("README.md", [workspace_path / "README.md", workspace_path / "readme.md", workspace_path / "README.rst"]),
+        ("CONTRIBUTING.md", [workspace_path / "CONTRIBUTING.md", workspace_path / "contributing.md"]),
     ]
-    doc_text = ""
-    for doc_p in doc_candidates:
-        if doc_p.exists():
-            try:
-                raw = doc_p.read_text(errors="ignore")
-                if len(raw.strip()) > 40:
-                    doc_text = raw
-                    break
-            except Exception:
-                pass
 
-    readme_excerpt = ""
-    if doc_text:
-        clean_doc = re.sub(r"<!--.*?-->", "", doc_text, flags=re.DOTALL)
-        clean_doc = re.sub(r"<picture>.*?</picture>", "", clean_doc, flags=re.DOTALL | re.IGNORECASE)
-        clean_doc = re.sub(r"<[^>]+>", "", clean_doc)
-        paragraphs = [p.strip() for p in clean_doc.split("\n\n") if p.strip()]
-        useful_paragraphs = []
-        for p in paragraphs:
-            if p.startswith("#") and len(p.split("\n")) == 1:
-                continue
-            if any(w in p.lower() for w in ("badge", "shields.io", "trendshift", "github release", "license", "build status", "ci/cd")):
-                continue
-            if len(p) > 40:
-                useful_paragraphs.append(p.replace("\n", " ").strip())
-            if len(useful_paragraphs) >= 3:
-                break
-        readme_excerpt = "\n\n".join(useful_paragraphs)
+    doc_sections = []
+    seen_paths = set()
+    total_chars = 0
+    max_total_chars = 2800
+
+    for doc_label, candidates in doc_priority:
+        for cand in candidates:
+            if cand.exists() and cand not in seen_paths:
+                seen_paths.add(cand)
+                try:
+                    raw = cand.read_text(errors="ignore")
+                    if len(raw.strip()) > 30:
+                        clean_doc = re.sub(r"<!--.*?-->", "", raw, flags=re.DOTALL)
+                        clean_doc = re.sub(r"<picture>.*?</picture>", "", clean_doc, flags=re.DOTALL | re.IGNORECASE)
+                        clean_doc = re.sub(r"<[^>]+>", "", clean_doc)
+                        paragraphs = [p.strip() for p in clean_doc.split("\n\n") if p.strip()]
+                        useful_paragraphs = []
+                        for p in paragraphs:
+                            if p.startswith("#") and len(p.split("\n")) == 1:
+                                continue
+                            if any(w in p.lower() for w in ("badge", "shields.io", "trendshift", "github release", "license", "build status", "ci/cd")):
+                                continue
+                            if len(p) > 30:
+                                useful_paragraphs.append(p.replace("\n", " ").strip())
+                            if len(useful_paragraphs) >= 3:
+                                break
+                        if useful_paragraphs:
+                            chunk = f"**`{cand.name}`**:\n" + "\n\n".join(useful_paragraphs)
+                            if total_chars + len(chunk) <= max_total_chars:
+                                doc_sections.append(chunk)
+                                total_chars += len(chunk)
+                        break
+                except Exception:
+                    pass
+
+    readme_excerpt = "\n\n".join(doc_sections)
 
     # 2. Build & Package Manifests
     manifest_files = [
@@ -840,7 +849,7 @@ def harvest_codebase_dossier(workspace_path: Path) -> Dict[str, Any]:
             lower_code = code_sample.lower()
 
             has_unix_socket = any(w in code_sample for w in ("UnixListener", "UnixStream", "AF_UNIX", "bind_unix", ".socket", "unix_socket"))
-            has_vsock = any(w in code_sample for w in ("Vsock", "vsock", "AF_VSOCK", "virtio-vsock")) or ("vsock" in doc_text.lower())
+            has_vsock = any(w in code_sample for w in ("Vsock", "vsock", "AF_VSOCK", "virtio-vsock")) or ("vsock" in readme_excerpt.lower())
             has_tcp = any(w in code_sample for w in ("TcpListener", "HttpServer", "ListenAndServe", "axum::serve", "FastAPI", "uvicorn", "express()"))
             has_reactor = any(w in code_sample for w in ("epoll", "kqueue", "event_loop", "tokio::select", "Reactor", "Poll::"))
             has_isolation = any(w in lower_code for w in ("chroot", "seccomp", "cgroup", "setuid", "setgid", "unshare", "jail"))
