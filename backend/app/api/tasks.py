@@ -283,7 +283,7 @@ EXTENSION_MAP = {
 
 
 @router.get("/{task_id}/sandbox")
-async def get_task_sandbox_info(task_id: str, db: AsyncSession = Depends(get_db)):
+async def get_task_sandbox_info(task_id: str, depth: int = 7, db: AsyncSession = Depends(get_db)):
     stmt = select(TaskModel).where(TaskModel.id == task_id)
     result = await db.execute(stmt)
     task = result.scalars().first()
@@ -446,22 +446,36 @@ async def get_task_sandbox_info(task_id: str, db: AsyncSession = Depends(get_db)
             except Exception:
                 host_path = f"{host_root.rstrip('/')}/{ws_path.name}"
 
-    def build_tree(current_path: Path, max_depth: int = 4, current_depth: int = 0) -> List[Dict[str, Any]]:
+    max_tree_depth = min(max(depth, 1), 10)
+    IGNORE_TREE_NAMES = {
+        ".git", "__pycache__", ".pytest_cache", "node_modules",
+        "dist", "build", ".gemini", ".next", ".cache", ".idea", ".vscode"
+    }
+
+    def build_tree(current_path: Path, max_depth: int = max_tree_depth, current_depth: int = 0, max_entries: int = 150) -> List[Dict[str, Any]]:
         if not current_path.exists() or current_depth >= max_depth:
             return []
         items = []
         try:
-            for p in sorted(current_path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
-                if p.name in (".git", "__pycache__", ".pytest_cache", "node_modules", "dist", "build", ".gemini", ".next", ".cache"):
-                    continue
+            entries = [
+                p for p in current_path.iterdir()
+                if p.name not in IGNORE_TREE_NAMES
+            ]
+            entries.sort(key=lambda x: (not x.is_dir(), x.name.lower()))
+            for p in entries[:max_entries]:
                 rel = str(p.relative_to(ws_path)) if ws_path else p.name
                 if p.is_dir():
-                    children = build_tree(p, max_depth, current_depth + 1)
+                    try:
+                        direct_count = sum(1 for child in p.iterdir() if child.name not in IGNORE_TREE_NAMES)
+                    except Exception:
+                        direct_count = 0
+                    children = build_tree(p, max_depth, current_depth + 1, max_entries)
                     items.append({
                         "name": p.name,
                         "path": rel,
                         "is_dir": True,
                         "type": "directory",
+                        "child_count": direct_count,
                         "children": children
                     })
                 else:
@@ -476,7 +490,7 @@ async def get_task_sandbox_info(task_id: str, db: AsyncSession = Depends(get_db)
             pass
         return items
 
-    file_tree = build_tree(ws_path) if (exists and ws_path) else []
+    file_tree = build_tree(ws_path, max_depth=max_tree_depth) if (exists and ws_path) else []
 
     cli_command = f'docker exec -it adappty-backend bash -c "cd {container_path} && exec bash"' if container_path else ""
 

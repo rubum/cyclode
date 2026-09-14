@@ -17,6 +17,7 @@ export interface FileNode {
   is_dir: boolean;
   type: string;
   size?: number;
+  child_count?: number;
   children?: FileNode[];
 }
 
@@ -110,7 +111,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
         {nodes.map((node) => {
           const isExpanded = !!expandedFolders[node.path] || !!filter.trim();
           const isSelected = selectedFile === node.path;
-          const childCount = node.children ? node.children.length : 0;
+          const childCount = node.child_count !== undefined ? node.child_count : (node.children ? node.children.length : 0);
 
           return (
             <div key={node.path}>
@@ -135,10 +136,26 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
                     </span>
                   </button>
 
-                  {isExpanded && node.children && node.children.length > 0 && (
-                    <div className="mt-0.5">
-                      {renderNodes(node.children, depth + 1)}
-                    </div>
+                  {isExpanded && (
+                    node.children && node.children.length > 0 ? (
+                      <div className="mt-0.5">
+                        {renderNodes(node.children, depth + 1)}
+                      </div>
+                    ) : childCount > 0 ? (
+                      <div 
+                        style={{ paddingLeft: `${(depth + 1) * 14 + 8}px` }}
+                        className="py-1 text-[10.5px] text-onedark-muted italic select-none"
+                      >
+                        (Subtree depth limit reached)
+                      </div>
+                    ) : (
+                      <div 
+                        style={{ paddingLeft: `${(depth + 1) * 14 + 8}px` }}
+                        className="py-1 text-[10.5px] text-onedark-muted/60 italic select-none"
+                      >
+                        (Empty directory)
+                      </div>
+                    )
                   )}
                 </div>
               ) : (

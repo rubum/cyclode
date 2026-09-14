@@ -607,9 +607,9 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   return (
     <div className="flex flex-col h-full bg-onedark-bg relative font-sans text-onedark-fg">
       {/* Sleek Workstation Title & Control Bar */}
-      <div className="h-10 px-3.5 border-b border-onedark-borderSubtle bg-onedark-darker/95 backdrop-blur-sm flex items-center justify-between gap-3 z-10 select-none flex-shrink-0">
+      <div className="h-10 px-3 border-b border-onedark-borderSubtle bg-onedark-darker/95 backdrop-blur-sm flex items-center justify-between gap-2 z-10 select-none flex-shrink-0 min-w-0">
         {/* Left: Sidebar Toggle, Repo Breadcrumb, Task Title */}
-        <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+        <div className="flex items-center space-x-2 min-w-0 flex-1 overflow-hidden">
           {onToggleSidebar && (
             <button
               onClick={onToggleSidebar}
@@ -621,9 +621,12 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
           )}
 
           {task.repo_name && (
-            <div className="flex items-center space-x-1 px-2 py-0.5 rounded-md bg-onedark-surface/60 border border-onedark-borderSubtle text-[11px] font-mono text-onedark-fgBright flex-shrink-0">
-              <FolderGit2 className="w-3 h-3 text-onedark-folder" />
-              <span>{task.repo_name}</span>
+            <div 
+              className="flex items-center space-x-1 px-2 py-0.5 rounded-md bg-onedark-surface/60 border border-onedark-borderSubtle text-[11px] font-mono text-onedark-fgBright flex-shrink-0 max-w-[120px] sm:max-w-[150px] truncate"
+              title={`Repository: ${task.repo_name}`}
+            >
+              <FolderGit2 className="w-3 h-3 text-onedark-folder flex-shrink-0" />
+              <span className="truncate">{task.repo_name}</span>
             </div>
           )}
 
@@ -661,7 +664,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               </button>
             </div>
           ) : (
-            <div className="flex items-center space-x-1.5 min-w-0 group/title">
+            <div className="flex items-center space-x-1.5 min-w-0 flex-1 group/title overflow-hidden">
               <h1 
                 className="text-xs sm:text-sm font-bold text-onedark-fgBright truncate tracking-tight cursor-pointer hover:text-onedark-accent transition-colors" 
                 title={task.title}
@@ -683,9 +686,9 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
         </div>
 
         {/* Right: Sandbox, Status Badge, Presets, Retry */}
-        <div className="flex items-center space-x-2 flex-shrink-0">
+        <div className="flex items-center space-x-1.5 flex-shrink-0">
           {/* Status Badge */}
-          <div className="flex items-center space-x-1.5">
+          <div className="flex items-center space-x-1 flex-shrink-0">
             <span
               className={`px-2 py-0.5 rounded-full text-[10.5px] font-mono border flex items-center space-x-1 ${
                 task.status === 'RUNNING' || task.status === 'INITIALIZING'
@@ -700,6 +703,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   ? 'bg-onedark-red/10 text-onedark-red border-onedark-red/30'
                   : 'bg-onedark-surface text-onedark-muted border-onedark-borderSubtle'
               }`}
+              title={`Status: ${task.status}`}
             >
               <span
                 className={`w-1.5 h-1.5 rounded-full ${
@@ -714,7 +718,16 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                     : 'bg-onedark-muted'
                 }`}
               />
-              <span>{task.status.replace('_', ' ')}</span>
+              <span>
+                {task.status === 'COMPLETED' ? 'Done' :
+                 task.status === 'RUNNING' ? 'Running' :
+                 task.status === 'INITIALIZING' ? 'Init' :
+                 task.status === 'AWAITING_APPROVAL' ? 'Approval' :
+                 task.status === 'AWAITING_INPUT' ? 'Input' :
+                 task.status === 'FAILED' ? 'Failed' :
+                 task.status === 'IDLE' ? 'Standby' :
+                 task.status.replace('_', ' ')}
+              </span>
             </span>
           </div>
 
@@ -728,7 +741,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   setIsSandboxModalOpen(true);
                 }
               }}
-              className={`px-2 py-0.5 rounded-md text-[11px] font-mono border flex items-center space-x-1.5 transition-all shadow-xs active:scale-95 cursor-pointer ${
+              className={`px-2 py-0.5 rounded-md text-[10.5px] font-mono border flex items-center space-x-1 transition-all shadow-xs active:scale-95 cursor-pointer flex-shrink-0 ${
                 task.sandbox_status === 'ACTIVE'
                   ? 'bg-onedark-green/15 text-onedark-green border-onedark-green/30 hover:bg-onedark-green/25'
                   : task.sandbox_status === 'PROVISIONING'
@@ -739,14 +752,15 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               }`}
               title="Inspect Sandbox Environment & Filesystem"
             >
-              <Box className="w-3 h-3" />
-              <span>Sandbox: {task.sandbox_status === 'DESTROYED' ? 'Destroyed' : task.sandbox_status.toLowerCase()} ↗</span>
+              <Box className="w-3 h-3 flex-shrink-0" />
+              <span className="hidden 2xl:inline">Sandbox: </span>
+              <span>{task.sandbox_status === 'DESTROYED' ? 'Destroyed' : task.sandbox_status.toLowerCase()} ↗</span>
             </button>
           )}
 
           {/* Presets */}
           {onSetPreset && (
-            <div className="hidden sm:flex items-center space-x-0.5 bg-onedark-surface/60 p-0.5 rounded-lg border border-onedark-borderSubtle font-mono text-[10.5px]">
+            <div className="hidden 2xl:flex items-center space-x-0.5 bg-onedark-surface/60 p-0.5 rounded-lg border border-onedark-borderSubtle font-mono text-[10.5px] flex-shrink-0">
               <button
                 onClick={() => onSetPreset('standard')}
                 className={`px-2 py-0.5 rounded-md transition-all ${
@@ -787,10 +801,10 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
           {onRetryTask && !isRunning && (
             <button
               onClick={() => onRetryTask()}
-              className="px-2 py-0.5 rounded-md border border-onedark-border bg-onedark-surface hover:bg-onedark-surface/90 text-onedark-muted hover:text-onedark-fgBright text-[11px] font-mono flex items-center space-x-1 transition-all shadow-xs active:scale-95 cursor-pointer"
+              className="px-2 py-0.5 rounded-md border border-onedark-border bg-onedark-surface hover:bg-onedark-surface/90 text-onedark-muted hover:text-onedark-fgBright text-[11px] font-mono flex items-center space-x-1 transition-all shadow-xs active:scale-95 cursor-pointer flex-shrink-0"
               title="Retry / Regenerate response"
             >
-              <RotateCcw className="w-3 h-3" />
+              <RotateCcw className="w-3 h-3 flex-shrink-0" />
               <span className="hidden md:inline">Retry</span>
             </button>
           )}
