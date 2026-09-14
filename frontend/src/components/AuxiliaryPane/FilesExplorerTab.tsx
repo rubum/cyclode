@@ -37,6 +37,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
   const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const pollTimerRef = useRef<any>(null);
+  const prevTaskIdRef = useRef<string | null>(null);
 
   const fileExistsInTree = (nodes: FileNode[], targetPath: string): boolean => {
     for (const n of nodes) {
@@ -115,12 +116,21 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
   };
 
   useEffect(() => {
-    setSelectedFile(null);
-    setData(null);
-    fetchFilesystem();
+    const isNewTask = prevTaskIdRef.current !== task.id;
+    prevTaskIdRef.current = task.id;
 
-    const isProvisioning = task.status === 'INITIALIZING' || task.sandbox_status === 'PROVISIONING' || (data && data.sandbox_status === 'PROVISIONING');
+    if (isNewTask) {
+      setSelectedFile(null);
+      setData(null);
+      fetchFilesystem(false);
+    } else {
+      // Same task: refresh tree silently in the background without resetting selectedFile or unmounting
+      fetchFilesystem(true);
+    }
+
+    const isProvisioning = task.status === 'INITIALIZING' || task.sandbox_status === 'PROVISIONING';
     if (isProvisioning) {
+      if (pollTimerRef.current) clearInterval(pollTimerRef.current);
       pollTimerRef.current = setInterval(() => {
         fetchFilesystem(true);
       }, 1800);
