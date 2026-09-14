@@ -9,7 +9,7 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 echo -e "${BLUE}====================================================${NC}"
-echo -e "${BLUE}🚀 Starting Adappty (Production Mode) 🚀${NC}"
+echo -e "${BLUE}🚀 Starting Cyclode (Production Mode) 🚀${NC}"
 echo -e "${BLUE}====================================================${NC}"
 
 if ! command -v docker &> /dev/null; then
@@ -32,7 +32,7 @@ echo -e "${CYAN}Waiting for healthcheck on port ${PORT_NUM}...${NC}"
 for i in {1..30}; do
     if curl -s -f "http://localhost:${PORT_NUM}/healthz" > /dev/null 2>&1; then
         echo -e "\n${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-        echo -e "${GREEN}${BOLD}✅ Adappty Production Server is Live!${NC}"
+        echo -e "${GREEN}${BOLD}✅ Cyclode Production Server is Live!${NC}"
         echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
         echo -e "  🌐 ${BOLD}Production Web App:${NC} ${CYAN}http://localhost:${PORT_NUM}${NC}"
         echo -e "  📚 ${BOLD}API Docs:${NC}            ${CYAN}http://localhost:${PORT_NUM}/docs${NC}"

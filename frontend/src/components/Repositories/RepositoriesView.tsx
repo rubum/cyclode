@@ -1140,8 +1140,8 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
         }
         description={
           deleteModalState.type === 'single'
-            ? `Remove '${deleteModalState.repo?.full_name}' configuration and stored credentials from Adappty's local database?`
-            : `Are you sure you want to remove all ${repositories.length} repository configurations and encrypted access tokens from Adappty's local Vault?`
+            ? `Remove '${deleteModalState.repo?.full_name}' configuration and stored credentials from Cyclode's local database?`
+            : `Are you sure you want to remove all ${repositories.length} repository configurations and encrypted access tokens from Cyclode's local Vault?`
         }
         confirmText={
           deleteModalState.type === 'single'

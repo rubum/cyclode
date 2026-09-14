@@ -8,9 +8,9 @@ description: Enables the agent to inspect GitHub issues, create Git branches fol
 When resolving a GitHub issue or reviewing a Pull Request:
 
 ## 1. Branch Naming Conventions
-- Bug fixes: `adappty/fix-issue-<number>`
-- Features: `adappty/feat-<topic>`
-- Refactors: `adappty/refactor-<topic>`
+- Bug fixes: `cyclode/fix-issue-<number>`
+- Features: `cyclode/feat-<topic>`
+- Refactors: `cyclode/refactor-<topic>`
 
 ## 2. Pull Request Format
 Always structure the PR body with:

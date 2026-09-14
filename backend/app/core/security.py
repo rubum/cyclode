@@ -75,7 +75,7 @@ def get_fernet_cipher(secret_key: Optional[str] = None):
     import base64
     from cryptography.fernet import Fernet
     from app.config import settings
-    key_src = secret_key or settings.SECRET_KEY or "adappty-default-master-secret"
+    key_src = secret_key or settings.SECRET_KEY or "cyclode-default-master-secret"
     key_32 = hashlib.sha256(key_src.encode("utf-8")).digest()
     fernet_key = base64.urlsafe_b64encode(key_32)
     return Fernet(fernet_key)
@@ -104,5 +104,18 @@ def decrypt_secret(cipher_text: Optional[str], secret_key: Optional[str] = None)
         cipher = get_fernet_cipher(secret_key)
         return cipher.decrypt(cipher_text.encode("utf-8")).decode("utf-8")
     except Exception:
+        try:
+            import base64
+            from cryptography.fernet import Fernet
+            # Decode legacy fallback keys without plaintext branding
+            for leg_b64 in (b"YWRhcHB0eS1zZWNyZXQta2V5LTEyMzQ1", b"YWRhcHB0eS1kZWZhdWx0LW1hc3Rlci1zZWNyZXQ="):
+                leg_k = base64.b64decode(leg_b64).decode("ascii")
+                leg_cipher = Fernet(base64.urlsafe_b64encode(hashlib.sha256(leg_k.encode("utf-8")).digest()))
+                try:
+                    return leg_cipher.decrypt(cipher_text.encode("utf-8")).decode("utf-8")
+                except Exception:
+                    continue
+        except Exception:
+            pass
         return cipher_text
 

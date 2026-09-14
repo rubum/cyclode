@@ -8,7 +8,7 @@ router = APIRouter(tags=["Health"])
 async def health_check():
     return {
         "status": "healthy",
-        "service": "adappty-backend",
+        "service": "cyclode-backend",
         "environment": settings.ENVIRONMENT,
         "model": settings.ANTIGRAVITY_MODEL
     }

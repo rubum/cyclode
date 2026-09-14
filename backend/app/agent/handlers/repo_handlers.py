@@ -40,37 +40,31 @@ class RepoConnectionHandler(IntentHandler):
     priority_weight = 1.25
 
     def matches_strict(self, ctx: IntentContext) -> bool:
-        """Strict structural match when raw credentials or explicit connect commands with URLs are supplied."""
+        """Strict structural match when raw repository credentials or explicit connect commands are supplied."""
         lower = ctx.lower_prompt
-        # Explanation and inspection queries must NEVER be intercepted by RepoConnectionHandler
-        is_explain_query = any(w in lower for w in (
-            "explain", "thoroughly explain", "what is", "summarize", "summarise", "tell me about",
-            "analyse", "analyze", "audit", "inspect", "overview", "review", "deep dive", "walkthrough", "use case"
-        ))
-        if is_explain_query and not any(w in lower for w in ("connect", "save credentials", "authenticate")):
-            return False
-
-        has_creds = bool(ctx.extra.get("github_token") or ctx.extra.get("slack_token") or ctx.extra.get("gemini_api_key"))
+        has_git_creds = bool(ctx.extra.get("github_token") or ctx.extra.get("slack_token"))
         has_repo_url = bool(re.search(r"https?://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", ctx.prompt, re.I))
-        is_connect_cmd = any(w in lower for w in ("connect", "clone repo", "import repo", "setup repo", "authenticate"))
-        return bool((has_creds and (has_repo_url or is_connect_cmd)) or (has_repo_url and is_connect_cmd))
+        is_connect_cmd = any(w in lower for w in ("connect", "clone repo", "import repo", "setup repo", "save credentials", "save token", "authenticate"))
+
+        # Git credentials supplied with a repository URL or connection intent
+        if has_git_creds and (has_repo_url or is_connect_cmd):
+            return True
+        # Explicit connect commands targeting a URL
+        if is_connect_cmd and has_repo_url:
+            return True
+        # Explicitly passing a raw token to save
+        if has_git_creds and any(k in ctx.prompt for k in ("ghp_", "github_pat_", "xoxb-", "xoxp-")):
+            return True
+        return False
 
     def matches(self, ctx: IntentContext) -> bool:
         lower = ctx.lower_prompt
-        # Explanation and inspection queries must NEVER be intercepted by RepoConnectionHandler
-        is_explain_query = any(w in lower for w in (
-            "explain", "thoroughly explain", "what is", "summarize", "summarise", "tell me about",
-            "analyse", "analyze", "audit", "inspect", "overview", "review", "deep dive", "walkthrough", "use case"
-        ))
-        if is_explain_query and not any(w in lower for w in ("connect", "save credentials", "authenticate")):
-            return False
-
         has_repo_url = bool(re.search(r"https?://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", ctx.prompt, re.I))
         has_named_repo = bool(re.search(r"(?:connect|clone|import|setup)\s+(?:to\s+)?([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)", ctx.prompt, re.I))
-        has_creds = bool(ctx.extra.get("github_token") or ctx.extra.get("slack_token") or ctx.extra.get("gemini_api_key"))
-        
-        is_connect_cmd = any(w in lower for w in ("connect", "clone repo", "import repo", "setup repo", "authenticate"))
-        return (has_creds and (has_repo_url or is_connect_cmd)) or (has_repo_url and is_connect_cmd) or has_named_repo
+        has_git_creds = bool(ctx.extra.get("github_token") or ctx.extra.get("slack_token"))
+        is_connect_cmd = any(w in lower for w in ("connect", "clone repo", "import repo", "setup repo", "save credentials", "save token", "authenticate"))
+
+        return (has_git_creds and (has_repo_url or is_connect_cmd)) or (is_connect_cmd and has_repo_url) or has_named_repo
 
     async def execute(self, ctx: IntentContext) -> Dict[str, Any]:
         configured_items = []
@@ -299,7 +293,7 @@ class URLSummarizeHandler(IntentHandler):
             else:
                 summary_md = (
                     f"### 📦 [{repo_full_name}](https://github.com/{repo_full_name})\n\n"
-                    f"[`{repo_full_name}`](https://github.com/{repo_full_name}) is an open-source project authored by `{owner}`. The codebase is configured for automated review, containerized testing, and architecture analysis within Adappty's ephemeral workspaces."
+                    f"[`{repo_full_name}`](https://github.com/{repo_full_name}) is an open-source project authored by `{owner}`. The codebase is configured for automated review, containerized testing, and architecture analysis within Cyclode's ephemeral workspaces."
                 )
         else:
             summary_md = (
@@ -803,7 +797,7 @@ class RepoAnalysisHandler(IntentHandler):
                                 p_parts = clean_t.split("github.com/")[-1].split("/")
                                 if len(p_parts) >= 2:
                                     arc_url = f"https://codeload.github.com/{p_parts[0]}/{p_parts[1]}/tar.gz/main"
-                                    req = urllib.request.Request(arc_url, headers={"User-Agent": "Adappty-Agent"})
+                                    req = urllib.request.Request(arc_url, headers={"User-Agent": "Cyclode-Agent"})
                                     if token:
                                         req.add_header("Authorization", f"token {token}")
                                     def dl_extract():
@@ -1004,44 +998,24 @@ class RepoAnalysisHandler(IntentHandler):
 
         if is_use_case_query:
             use_case_items = []
-            repo_lower = repo_display.lower()
+            parsed_bullets = []
+            if full_readme:
+                for line in full_readme.splitlines():
+                    s = line.strip()
+                    if s.startswith(("- ", "* ")) and len(s) > 15:
+                        clean_b = re.sub(r"^[*-]\s+", "", s)
+                        clean_b = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", clean_b)
+                        parsed_bullets.append(clean_b)
             
-            # Domain-specific use cases for popular repositories
-            if "sagents" in repo_lower:
-                use_case_items = [
-                    "* **Fault-Tolerant Autonomous Agent Swarms**: Leverages Elixir/OTP supervision trees to orchestrate long-lived, concurrent AI agent processes that isolate tool failures and automatically recover from API rate limits.",
-                    "* **Real-Time Distributed Multi-Agent Coordination**: Employs Phoenix PubSub and WebSockets to enable collaborative communication between specialized agents for multi-step reasoning, data extraction, and planning.",
-                    "* **Stateful Workflow & Memory Management**: Manages persistent conversation history, agent trajectories, and human-in-the-loop approval workflows backed by Ecto/PostgreSQL storage.",
-                    "* **High-Throughput Concurrent Tool Execution**: Dispatches asynchronous tool calls and external API requests across lightweight BEAM processes without blocking the main conversational loop.",
-                    "* **Pluggable LLM Provider Integrations**: Unifies multi-model agent routing (Gemini, Anthropic, OpenAI, local LLMs) under a single Elixir-native runtime."
-                ]
-            elif "deepeval" in repo_lower:
-                use_case_items = [
-                    "* **Production LLM Unit Testing**: Codifies unit testing for LLMs and RAG pipelines using deterministic metrics (Answer Relevancy, Faithfulness, Hallucination scoring).",
-                    "* **Synthetic Benchmark Dataset Generation**: Automatically generates evaluation test cases and golden Q&A datasets directly from raw documentation.",
-                    "* **CI/CD Quality Gating**: Prevents regressions in model prompts and hyperparameters before production deployments.",
-                    "* **Multi-Turn Agent Trajectory Scoring**: Evaluates multi-step agent decision paths and tool selection fidelity."
-                ]
+            if parsed_bullets:
+                for b in parsed_bullets[:6]:
+                    use_case_items.append(f"* **Feature / Application**: {b}")
             else:
-                # Generic README extraction
-                parsed_bullets = []
-                if full_readme:
-                    for line in full_readme.splitlines():
-                        s = line.strip()
-                        if s.startswith(("- ", "* ")) and len(s) > 15:
-                            clean_b = re.sub(r"^[*-]\s+", "", s)
-                            clean_b = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", clean_b)
-                            parsed_bullets.append(clean_b)
-                
-                if parsed_bullets:
-                    for b in parsed_bullets[:5]:
-                        use_case_items.append(f"* **Feature / Application**: {b}")
-                else:
-                    use_case_items = [
-                        f"* **Modular {primary_lang} Application Architecture**: Modular codebase designed for scalable {primary_lang} development leveraging {fw_str}.",
-                        f"* **Automated Testing & Continuous Verification**: Configured for automated test runs via `{test_runner}` and static analysis.",
-                        f"* **Developer Tooling & Package Management**: Standardized project structure managed via {manifest_str}."
-                    ]
+                use_case_items = [
+                    f"* **Modular {primary_lang} Application Architecture**: Modular codebase designed for scalable {primary_lang} development leveraging {fw_str}.",
+                    f"* **Automated Testing & Continuous Verification**: Configured for automated test runs via `{test_runner}` and static analysis.",
+                    f"* **Developer Tooling & Package Management**: Standardized project structure managed via {manifest_str}."
+                ]
 
             use_cases_md = "\n".join(use_case_items)
             readme_block = f"> {readme_summary}\n\n" if readme_summary else ""
@@ -1071,103 +1045,7 @@ class RepoAnalysisHandler(IntentHandler):
 
         repo_lower = repo_display.lower()
 
-        # Deep architectural dive for Oban
-        if is_detailed_explain and ("oban" in repo_lower or ":oban" in all_manifest_content or any("oban" in p.name.lower() for p in all_files)):
-            code_example_block = ""
-            if not no_code_snippets:
-                code_example_block = (
-                    "#### 7. Configuration & Worker Pattern\n\n"
-                    "```elixir\n"
-                    "# Application Supervision Configuration (config/config.exs)\n"
-                    "config :my_app, Oban,\n"
-                    "  engine: Oban.Engines.Basic,\n"
-                    "  repo: MyApp.Repo,\n"
-                    "  plugins: [\n"
-                    "    {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7},\n"
-                    "    {Oban.Plugins.Cron, crontab: [{\"@daily\", MyApp.DailyWorker}]}\n"
-                    "  ],\n"
-                    "  queues: [default: 10, mailers: 20, events: 50]\n\n"
-                    "# Idempotent Worker Definition\n"
-                    "defmodule MyApp.EventsWorker do\n"
-                    "  use Oban.Worker, queue: :events, max_attempts: 5\n\n"
-                    "  @impl Oban.Worker\n"
-                    "  def perform(%Oban.Job{args: %{\"event_id\" => event_id}}) do\n"
-                    "    MyApp.Events.process_event(event_id)\n"
-                    "  end\n"
-                    "end\n"
-                    "```\n\n"
-                )
-
-            oban_report_md = (
-                f"### 🏗️ Deep Repository & Architecture Analysis for {repo_link_str}\n\n"
-                f"{readme_block}"
-                f"**Oban** is an enterprise-grade, transactional background job processing framework for the Elixir/BEAM ecosystem. "
-                f"Rather than relying on separate in-memory brokers (such as Redis or RabbitMQ), Oban maintains job queues directly inside ACID-compliant relational databases (primarily PostgreSQL, with support for SQLite and MySQL), ensuring that job scheduling and business data mutations occur in atomic database transactions.\n\n"
-                f"#### 1. Core Execution Architecture & Supervision Hierarchy\n"
-                f"Oban organizes its runtime around a resilient OTP supervision hierarchy:\n"
-                f"- **Supervised Queue Engines**: Each configured queue runs its own isolated `Oban.Queue.Supervisor` and `Oban.Queue.Engine` worker process. Queue failures or slow worker processes are isolated and cannot crash or starve sibling queues.\n"
-                f"- **Transactional Job Insertion**: Through integration with `Ecto.Multi`, jobs are enqueued as standard table rows (`oban_jobs`) inside the same database transaction as the business operation. If the transaction aborts, no phantom jobs execute; if it commits, job durability is guaranteed.\n"
-                f"- **Controlled Concurrency & Priority Sorting**: Queues partition workloads by priority (0 to 3) with configurable concurrency limits, handling high-volume bursts with configurable backoff strategies (`exponential` and `linear`).\n\n"
-                f"#### 2. Pluggable Storage Engines & Concurrency Control\n"
-                f"Oban abstracts persistence through the `Oban.Engine` behaviour with specialized database adapters:\n"
-                f"- **`Oban.Engines.Basic`**: Standard PostgreSQL engine utilizing `SELECT ... FOR UPDATE SKIP LOCKED` row-level locks, enabling hundreds of distributed BEAM nodes to poll and claim available jobs simultaneously without deadlocks or row contention.\n"
-                f"- **`Oban.Engines.Lite`**: Lightweight engine optimized for SQLite3 utilizing Write-Ahead Logging (WAL) and busy timeout handlers for embedded and edge environments.\n"
-                f"- **`Oban.Engines.PG`**: Optimized PostgreSQL engine leveraging notification channels and batched job insertions.\n\n"
-                f"#### 3. Distributed Coordination & Notifier Subsystem\n"
-                f"Rather than polling databases constantly, Oban features a real-time event bus:\n"
-                f"- **`Oban.Notifier` Layer**: Leverages PostgreSQL's asynchronous `LISTEN` and `NOTIFY` protocol to broadcast cluster state changes across all connected BEAM nodes.\n"
-                f"- **Real-Time Control Signals**: Signals for immediate job execution, queue pausing/resuming, dynamic scaling, and live job cancellation are broadcast and acted upon in sub-millisecond real time.\n\n"
-                f"#### 4. Plugin Ecosystem & Operational Lifecycle\n"
-                f"Oban includes background maintenance and scheduling plugins executed as supervised GenServers:\n"
-                f"- **`Oban.Plugins.Cron`**: Distributed, in-database cron scheduler executing crontab expressions across nodes with automatic leader election to prevent duplicate job dispatch.\n"
-                f"- **`Oban.Plugins.Pruner`**: Periodically purges completed, discarded, and cancelled jobs according to configured age retention policies (`max_age`).\n"
-                f"- **`Oban.Plugins.Lifeline`**: Rescues orphaned or stranded jobs whose worker nodes crashed or suffered network partitions during execution.\n"
-                f"- **`Oban.Plugins.Gossip`**: Node discovery protocol broadcasting heartbeats and queue capacity across cluster nodes.\n"
-                f"- **`Oban.Plugins.Reindexer`**: Periodically rebuilds table indexes to maintain optimal query plans on high-churn job queues.\n\n"
-                f"#### 5. Telemetry & Observability Pipeline\n"
-                f"Oban is deeply instrumented with `:telemetry` spans (`[:oban, :job, :start]`, `[:oban, :job, :stop]`, `[:oban, :job, :exception]`):\n"
-                f"- Reports execution latency, database checkout duration, memory consumption, retry attempts, and detailed error stacktraces.\n"
-                f"- Integrates with Prometheus, StatsD, AppSignal, and OpenTelemetry without custom wrappers.\n\n"
-                f"#### 6. Architectural Component Matrix\n\n"
-                f"| Subsystem / Module | Architectural Role | Isolation & Concurrency Boundary | Key Operational Guarantee |\n"
-                f"| :--- | :--- | :--- | :--- |\n"
-                f"| **`Oban.Queue.Engine`** | Job dequeueing, concurrency enforcement, and execution | Isolated GenServer per queue pool | Zero cross-queue head-of-line blocking |\n"
-                f"| **`Oban.Engines.Basic`** | PostgreSQL persistence and lock acquisition | `FOR UPDATE SKIP LOCKED` row locking | Deadlock-free concurrent job claiming |\n"
-                f"| **`Oban.Notifier`** | PubSub event bus between distributed nodes | PostgreSQL `LISTEN`/`NOTIFY` | Sub-millisecond cluster message propagation |\n"
-                f"| **`Oban.Plugins.Cron`** | In-process crontab evaluation and scheduling | Supervised GenServer with leader election | Single-execution cron guarantees across clusters |\n"
-                f"| **`Oban.Plugins.Lifeline`** | Orphan job recovery from crashed nodes | Periodic scan on heartbeat timeouts | At-least-once execution guarantee |\n"
-                f"| **`Oban.Telemetry`** | Event emitting and performance profiling | `:telemetry` handler attachment | Zero-overhead asynchronous metric collection |\n\n"
-                f"{code_example_block}"
-            )
-            await ctx.emit_message("agent", oban_report_md)
-            return {"status": "COMPLETED", "summary": f"Delivered comprehensive architectural deep dive for {repo_display}."}
-
-        # Deep architectural dive for Sagents
-        if is_detailed_explain and "sagents" in repo_lower:
-            sagents_report_md = (
-                f"### 🏗️ Deep Repository & Architecture Analysis for {repo_link_str}\n\n"
-                f"{readme_block}"
-                f"**Sagents** is a distributed multi-agent execution framework built on Elixir and the BEAM VM. "
-                f"It orchestrates autonomous agent swarms through decentralized message buses and dynamic supervision hierarchies.\n\n"
-                f"#### 1. Concurrency Model & OTP Supervision\n"
-                f"- **Decentralized Coordination**: Uses `Phoenix.PubSub` as a distributed event bus, allowing coordinator processes and worker agents to communicate asynchronously across cluster nodes.\n"
-                f"- **Dynamic Worker Supervision**: Each autonomous agent worker runs under `DynamicSupervisor` with transient restarts, isolating tool failures and API exceptions.\n"
-                f"- **Task Isolation**: Reasoning loops and external API inference execute within linked asynchronous `Task` boundaries, keeping GenServers responsive.\n\n"
-                f"#### 2. Persistence & Streaming Pipeline\n"
-                f"- **Stateful Memory & Trajectories**: Persistent agent states, conversation history, and tool outputs are stored via Ecto with transactional integrity.\n"
-                f"- **Real-Time Client Streaming**: `Phoenix.Channels` broadcast reasoning thoughts, tool start/end spans, and diff updates to connected UI clients in real time.\n\n"
-                f"#### 3. Architectural Component Matrix\n\n"
-                f"| Module / Subsystem | Architectural Role | Concurrency Boundary | Key Guarantees |\n"
-                f"| :--- | :--- | :--- | :--- |\n"
-                f"| **`Sagents.Coordinator`** | Goal partitioning and consensus aggregation | GenServer listening on coordination topic | Distributed task lifecycle orchestration |\n"
-                f"| **`Sagents.AgentWorker`** | Autonomous reasoning and tool execution | Dynamically supervised GenServer + Task | Failure isolation per agent |\n"
-                f"| **`Sagents.DynamicSupervisor`** | Dynamic worker lifecycle management | OTP `DynamicSupervisor` (`:one_for_one`) | High-resilience worker restarts |\n"
-                f"| **`SagentsWeb.AgentChannel`** | Real-time WebSocket event streaming | Phoenix Channel WebSocket process | Sub-millisecond UI telemetry streaming |"
-            )
-            await ctx.emit_message("agent", sagents_report_md)
-            return {"status": "COMPLETED", "summary": f"Delivered comprehensive architectural deep dive for {repo_display}."}
-
-        # Detailed architecture for general repositories
+        # Detailed architecture for all repositories
         if is_detailed_explain:
             if sub_project_details:
                 sorted_subs = sorted(sub_project_details, key=lambda s: (s.get("prio", 50), s.get("path", "")))

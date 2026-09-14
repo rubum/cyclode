@@ -10,7 +10,7 @@ from app.integrations.github_client import github_client
 from app.integrations.slack_client import slack_client
 from app.integrations.appsignal_client import appsignal_client
 
-logger = logging.getLogger("adappty.integrations")
+logger = logging.getLogger("cyclode.integrations")
 
 
 class IntegrationManager:
@@ -91,7 +91,7 @@ class IntegrationManager:
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     resp = await client.get(
                         "https://api.github.com/user",
-                        headers={"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json", "User-Agent": "Adappty"}
+                        headers={"Authorization": f"token {token}", "Accept": "application/vnd.github.v3+json", "User-Agent": "Cyclode"}
                     )
                     if resp.status_code == 200:
                         data = resp.json()

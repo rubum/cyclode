@@ -25,8 +25,8 @@ export const applyThemeColors = (accentHex: string, folderHex: string = '#E5C07B
   // Calculate subtle transparent background
   document.documentElement.style.setProperty('--color-accent-subtle', `${accentHex}26`);
   try {
-    localStorage.setItem('adappty_theme_accent', accentHex);
-    localStorage.setItem('adappty_theme_folder', folderHex);
+    localStorage.setItem('cyclode_theme_accent', accentHex);
+    localStorage.setItem('cyclode_theme_folder', folderHex);
   } catch (e) {
     // localStorage may be disabled
   }
@@ -36,8 +36,8 @@ const LEGACY_BLUE_HEXES = ['#61afef', '#56b6c2', '#818cf8', '#3b82f6', '#2563eb'
 
 export const initThemeColors = () => {
   try {
-    const savedAccent = localStorage.getItem('adappty_theme_accent');
-    const savedFolder = localStorage.getItem('adappty_theme_folder') || '#E5C07B';
+    const savedAccent = localStorage.getItem('cyclode_theme_accent');
+    const savedFolder = localStorage.getItem('cyclode_theme_folder') || '#E5C07B';
     
     // Auto-migrate any legacy blue/cyan accents to default Amber Gold (#E5C07B)
     if (savedAccent && !LEGACY_BLUE_HEXES.includes(savedAccent.toLowerCase())) {

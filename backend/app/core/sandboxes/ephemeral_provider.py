@@ -14,7 +14,7 @@ from app.core.sandboxes.base import (
     CloneFailedException
 )
 
-logger = logging.getLogger("adappty.sandbox")
+logger = logging.getLogger("cyclode.sandbox")
 
 
 class EphemeralSandboxProvider(SandboxProvider):
@@ -136,7 +136,7 @@ class EphemeralSandboxProvider(SandboxProvider):
                             import io
                             import tarfile
                             archive_url = f"https://codeload.github.com/{gh_owner}/{gh_repo}/tar.gz/{target_b}"
-                            req = urllib.request.Request(archive_url, headers={"User-Agent": "Adappty-Agent"})
+                            req = urllib.request.Request(archive_url, headers={"User-Agent": "Cyclode-Agent"})
                             if active_token:
                                 req.add_header("Authorization", f"token {active_token}")
                             
@@ -153,8 +153,8 @@ class EphemeralSandboxProvider(SandboxProvider):
                             await asyncio.to_thread(download_and_extract)
                             
                             subprocess.run(["git", "init", "-b", target_b], cwd=workspace_path, capture_output=True)
-                            subprocess.run(["git", "config", "user.name", "Adappty Agent"], cwd=workspace_path, capture_output=True)
-                            subprocess.run(["git", "config", "user.email", "agent@adappty.ai"], cwd=workspace_path, capture_output=True)
+                            subprocess.run(["git", "config", "user.name", "Cyclode Agent"], cwd=workspace_path, capture_output=True)
+                            subprocess.run(["git", "config", "user.email", "agent@cyclode.ai"], cwd=workspace_path, capture_output=True)
                             subprocess.run(["git", "add", "."], cwd=workspace_path, capture_output=True)
                             subprocess.run(["git", "commit", "-m", "initial commit from archive"], cwd=workspace_path, capture_output=True)
                             
@@ -185,8 +185,8 @@ class EphemeralSandboxProvider(SandboxProvider):
     def _init_sample_repo(self, path: Path, branch_name: str = "main"):
         """Initializes a standalone git repository with sample code for autonomous test execution."""
         subprocess.run(["git", "init", "-b", branch_name], cwd=path, capture_output=True)
-        subprocess.run(["git", "config", "user.name", "Adappty Agent"], cwd=path, capture_output=True)
-        subprocess.run(["git", "config", "user.email", "agent@adappty.ai"], cwd=path, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Cyclode Agent"], cwd=path, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "agent@cyclode.ai"], cwd=path, capture_output=True)
 
         app_dir = path / "app"
         tests_dir = path / "tests"

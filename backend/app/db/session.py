@@ -5,13 +5,27 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, Asyn
 from app.config import settings
 from app.db.models import Base
 
-# Ensure parent directory of sqlite db exists
-if settings.DATABASE_URL.startswith("sqlite+aiosqlite:////"):
-    db_path = settings.DATABASE_URL.replace("sqlite+aiosqlite:////", "/")
-    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-elif settings.DATABASE_URL.startswith("sqlite+aiosqlite:///"):
-    db_path = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "")
-    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+import shutil
+
+# Ensure parent directory of sqlite db exists and migrate legacy database if present
+for prefix in ("sqlite+aiosqlite:////", "sqlite+aiosqlite:///"):
+    if settings.DATABASE_URL.startswith(prefix):
+        db_path = "/" + settings.DATABASE_URL.replace(prefix, "").lstrip("/")
+        p = Path(db_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        if "cyclode.db" in db_path and not p.exists():
+            for old_db in p.parent.glob("*.db"):
+                if old_db.name != "cyclode.db" and old_db.is_file():
+                    try:
+                        shutil.copy2(old_db, p)
+                        for suffix in ("-wal", "-shm"):
+                            old_aux = p.parent / f"{old_db.name}{suffix}"
+                            if old_aux.exists():
+                                shutil.copy2(old_aux, p.parent / f"cyclode.db{suffix}")
+                        break
+                    except Exception:
+                        pass
+        break
 
 connect_args = {}
 if "sqlite" in settings.DATABASE_URL:
@@ -132,7 +146,7 @@ async def ensure_default_repositories():
             await session.commit()
         except Exception as e:
             import logging
-            logging.getLogger("adappty.db").warning(f"Error auto-backfilling repositories: {e}")
+            logging.getLogger("cyclode.db").warning(f"Error auto-backfilling repositories: {e}")
             await session.rollback()
 
 

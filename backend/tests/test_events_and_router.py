@@ -38,7 +38,7 @@ def test_router_param_resolution():
     assert persona == "APMTriage"
 
     # Slack slash command
-    slack_payload = {"text": "/adappty fix memory leak in worker pool"}
+    slack_payload = {"text": "/cyclode fix memory leak in worker pool"}
     title, desc, persona, action = event_router._resolve_task_params("slack", "slash_command", slack_payload)
     assert persona == "IssueResolver"
 

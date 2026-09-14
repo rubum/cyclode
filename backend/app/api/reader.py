@@ -12,7 +12,7 @@ from app.db.session import async_session_factory
 from app.db.models import DocPageCacheModel
 
 
-logger = logging.getLogger("adappty.reader")
+logger = logging.getLogger("cyclode.reader")
 router = APIRouter(prefix="/api/reader", tags=["Reader"])
 
 RESERVED_GITHUB_PATHS = {
@@ -488,7 +488,7 @@ async def _fetch_github_repo_info(owner: str, repo: str) -> Dict[str, Any]:
     Fetches GitHub repository information and README markdown.
     """
     headers = {
-        "User-Agent": "Adappty-Workstation/1.0",
+        "User-Agent": "Cyclode-Workstation/1.0",
         "Accept": "application/vnd.github.v3+json"
     }
     try:
@@ -521,7 +521,7 @@ async def _fetch_github_repo_info(owner: str, repo: str) -> Dict[str, Any]:
         # Fetch README markdown
         for ru in readme_urls:
             try:
-                r = await client.get(ru, headers={"User-Agent": "Adappty-Workstation/1.0"})
+                r = await client.get(ru, headers={"User-Agent": "Cyclode-Workstation/1.0"})
                 if r.status_code == 200 and r.text.strip():
                     readme_md = r.text
                     break

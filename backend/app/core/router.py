@@ -5,7 +5,7 @@ from app.agent.pool import agent_pool
 from app.db.models import EventModel, AutomationRuleModel, TaskModel
 from app.db.session import async_session_factory
 
-logger = logging.getLogger("adappty.router")
+logger = logging.getLogger("cyclode.router")
 
 
 class EventRouter:

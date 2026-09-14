@@ -125,7 +125,7 @@ class IntegrationRegistry:
     @staticmethod
     def get_webhook_endpoints() -> List[Dict[str, Any]]:
         """
-        Returns live inbound webhook endpoints exposed by the Adappty Gateway.
+        Returns live inbound webhook endpoints exposed by the Cyclode Gateway.
         """
         return [
             {

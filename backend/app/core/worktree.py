@@ -29,8 +29,8 @@ class WorktreeManager:
         path.mkdir(parents=True, exist_ok=True)
         if not (path / ".git").exists():
             subprocess.run(["git", "init"], cwd=path, capture_output=True)
-            subprocess.run(["git", "config", "user.name", "Adappty Agent"], cwd=path, capture_output=True)
-            subprocess.run(["git", "config", "user.email", "agent@adappty.ai"], cwd=path, capture_output=True)
+            subprocess.run(["git", "config", "user.name", "Cyclode Agent"], cwd=path, capture_output=True)
+            subprocess.run(["git", "config", "user.email", "agent@cyclode.ai"], cwd=path, capture_output=True)
             
             # Create sample codebase
             src_dir = path / "app"

@@ -492,7 +492,7 @@ async def get_task_sandbox_info(task_id: str, depth: int = 7, db: AsyncSession =
 
     file_tree = build_tree(ws_path, max_depth=max_tree_depth) if (exists and ws_path) else []
 
-    cli_command = f'docker exec -it adappty-backend bash -c "cd {container_path} && exec bash"' if container_path else ""
+    cli_command = f'docker exec -it cyclode-backend bash -c "cd {container_path} && exec bash"' if container_path else ""
 
     return {
         "task_id": task.id,

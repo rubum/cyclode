@@ -12,7 +12,7 @@ from app.db.models import RepositoryConfigModel, get_utc_now
 from app.core.security import encrypt_secret, decrypt_secret
 from app.integrations.manager import integration_manager
 
-logger = logging.getLogger("adappty.repositories")
+logger = logging.getLogger("cyclode.repositories")
 router = APIRouter(prefix="/api/repositories", tags=["Repositories"])
 
 
@@ -172,7 +172,7 @@ async def update_repository(repo_id: str, req: RepositoryUpdateRequest, db: Asyn
 @router.delete("")
 async def clear_all_repositories(db: AsyncSession = Depends(get_db)):
     """
-    Clears all repository configurations and credentials strictly from Adappty's local vault database.
+    Clears all repository configurations and credentials strictly from Cyclode's local vault database.
     Does NOT modify, alter, or touch any remote repositories, GitHub branches, or code.
     """
     stmt = select(RepositoryConfigModel)
@@ -184,11 +184,11 @@ async def clear_all_repositories(db: AsyncSession = Depends(get_db)):
     await db.execute(del_stmt)
     await db.commit()
 
-    logger.info(f"Cleared {count} repository configurations from local Adappty Vault.")
+    logger.info(f"Cleared {count} repository configurations from local Cyclode Vault.")
     return {
         "ok": True,
         "count": count,
-        "message": f"Successfully cleared {count} repository configuration(s) from local Adappty Vault. Remote repositories were not modified."
+        "message": f"Successfully cleared {count} repository configuration(s) from local Cyclode Vault. Remote repositories were not modified."
     }
 
 
@@ -355,7 +355,7 @@ async def simulate_repository_event(
             "head": {"ref": repo.default_branch, "sha": "e9b28a1"},
             "base": {"ref": repo.default_branch}
         },
-        "sender": {"login": "adappty-bot"}
+        "sender": {"login": "cyclode-bot"}
     }
 
     result = await event_router.route_and_dispatch(

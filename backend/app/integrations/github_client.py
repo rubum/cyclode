@@ -17,7 +17,7 @@ class GitHubClient:
     def _get_headers(self) -> Dict[str, str]:
         headers = {
             "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "Adappty-Agentic-Harness"
+            "User-Agent": "Cyclode-Agentic-Harness"
         }
         if self.token:
             headers["Authorization"] = f"token {self.token}"
@@ -82,7 +82,7 @@ class GitHubClient:
 
         headers = {
             "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "Adappty-Agentic-Harness",
+            "User-Agent": "Cyclode-Agentic-Harness",
             "Authorization": f"token {token}"
         }
         async with httpx.AsyncClient() as client:
@@ -107,7 +107,7 @@ class GitHubClient:
 
         headers = {
             "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "Adappty-Agentic-Harness",
+            "User-Agent": "Cyclode-Agentic-Harness",
             "Authorization": f"token {token}"
         }
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -126,7 +126,7 @@ class GitHubClient:
         custom_token: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Installs or verifies a repository webhook for Adappty listener.
+        Installs or verifies a repository webhook for Cyclode listener.
         """
         token = custom_token or self.token
         if not token:
@@ -137,7 +137,7 @@ class GitHubClient:
 
         headers = {
             "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "Adappty-Agentic-Harness",
+            "User-Agent": "Cyclode-Agentic-Harness",
             "Authorization": f"token {token}"
         }
 
@@ -209,7 +209,7 @@ class GitHubClient:
 
         headers = {
             "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "Adappty-Agentic-Harness",
+            "User-Agent": "Cyclode-Agentic-Harness",
             "Authorization": f"token {token}"
         }
         async with httpx.AsyncClient(timeout=10.0) as client:

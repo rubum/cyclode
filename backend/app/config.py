@@ -24,12 +24,12 @@ class Settings(BaseSettings):
     HOST: str = "0.0.0.0"
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
-    SECRET_KEY: str = "adappty-secret-key-12345"
+    SECRET_KEY: str = "cyclode-secret-key-12345"
 
     # Workspace and DB
     WORKSPACE_ROOT: str = "/workspaces"
     HOST_WORKSPACE_ROOT: Optional[str] = None
-    DATABASE_URL: str = "sqlite+aiosqlite:////data/adappty.db"
+    DATABASE_URL: str = "sqlite+aiosqlite:////data/cyclode.db"
     STATIC_DIR: Optional[str] = None
 
     # Antigravity & Gemini configuration
@@ -53,15 +53,15 @@ class Settings(BaseSettings):
     GITHUB_APP_ID: Optional[str] = None
     GITHUB_PRIVATE_KEY_PATH: Optional[str] = None
     GITHUB_INSTALLATION_ID: Optional[str] = None
-    GITHUB_WEBHOOK_SECRET: Optional[str] = "adappty_gh_webhook_secret_123"
+    GITHUB_WEBHOOK_SECRET: Optional[str] = "cyclode_gh_webhook_secret_123"
 
     SLACK_BOT_TOKEN: Optional[str] = None
     SLACK_SIGNING_SECRET: Optional[str] = None
-    SLACK_DEFAULT_CHANNEL: str = "#adappty-agents"
+    SLACK_DEFAULT_CHANNEL: str = "#cyclode-agents"
 
     APPSIGNAL_API_KEY: Optional[str] = None
     APPSIGNAL_APP_ID: Optional[str] = None
-    APPSIGNAL_WEBHOOK_TOKEN: Optional[str] = "adappty_appsignal_token_123"
+    APPSIGNAL_WEBHOOK_TOKEN: Optional[str] = "cyclode_appsignal_token_123"
 
     SENTRY_AUTH_TOKEN: Optional[str] = None
     SENTRY_ORGANIZATION: Optional[str] = None

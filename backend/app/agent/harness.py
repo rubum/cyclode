@@ -242,7 +242,6 @@ class AntigravityHarness:
 
         async def call_tool_end(name: str, output: str, exit_code: int, duration_ms: int, tool_input: Optional[Dict[str, Any]] = None):
             if on_tool_end:
-                import inspect
                 sig = inspect.signature(on_tool_end)
                 param_count = len(sig.parameters)
                 if inspect.iscoroutinefunction(on_tool_end):
@@ -426,7 +425,7 @@ class AntigravityHarness:
         current_year = now.year
 
         system_instruction = (
-            f"You are Adappty, an autonomous AI pair programmer and software engineering assistant powered by the Antigravity agent harness.\n"
+            f"You are Cyclode, an autonomous AI pair programmer and software engineering assistant powered by the Antigravity agent harness.\n"
             f"Persona: {persona_name}.\n"
             f"Workspace: {workspace_path}\n"
             f"CURRENT TEMPORAL BASELINE: {current_date_str} (Current Year: {current_year}, Current Month: {now.strftime('%B')})\n\n"
@@ -471,7 +470,7 @@ class AntigravityHarness:
             for active_model in unique_models:
                 if quota_exhausted:
                     break
-                url = f"https://generativelanguage.googleapis.com/v1beta/models/{active_model}:generateContent?key={api_key}"
+                api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{active_model}:generateContent?key={api_key}"
                 turn = 0
                 max_turns = 4
                 model_succeeded = False
@@ -486,7 +485,7 @@ class AntigravityHarness:
                             "tools": tools_def
                         }
 
-                        resp = await client.post(url, json=payload)
+                        resp = await client.post(api_url, json=payload)
                         if resp.status_code == 404:
                             break
                         if resp.status_code == 429:
@@ -508,7 +507,7 @@ class AntigravityHarness:
                             break
                         if resp.status_code != 200:
                             err_msg = resp.text[:200]
-                            logger.warning(f"API notice ({resp.status_code}): {err_msg}")
+                            logger.warning(f"API notice on turn {turn} model {active_model} ({resp.status_code}): {err_msg}")
                             break
 
                         model_succeeded = True
@@ -657,8 +656,8 @@ class AntigravityHarness:
                                 else:
                                     out_str = f"No results found for '{query}'"
                             elif fn_name == "fetch_url":
-                                url = args.get("url", "")
-                                tool_result = await WorkspaceTools.fetch_url(url)
+                                target_url = args.get("url", "")
+                                tool_result = await WorkspaceTools.fetch_url(target_url)
                                 out_str = tool_result.get("content", tool_result.get("error", "Error fetching URL"))
                             else:
                                 tool_result = {"error": f"Unknown tool: {fn_name}"}
@@ -667,7 +666,6 @@ class AntigravityHarness:
 
                             elapsed_ms = int((asyncio.get_event_loop().time() - start_time) * 1000)
                             if on_tool_end:
-                                import inspect
                                 sig = inspect.signature(on_tool_end)
                                 if inspect.iscoroutinefunction(on_tool_end):
                                     if len(sig.parameters) >= 5:

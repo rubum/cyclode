@@ -3,14 +3,14 @@ import logging
 from typing import Optional
 import httpx
 
-logger = logging.getLogger("adappty.title_generator")
+logger = logging.getLogger("cyclode.title_generator")
 
 # Common filler phrases to strip from start of requests
 FILLER_PREFIXES = [
     r"^(?:please\s+)?(?:can\s+you\s+)?(?:could\s+you\s+)?(?:help\s+(?:me\s+)?(?:to\s+)?)?",
     r"^(?:i\s+(?:want|need|would\s+like)\s+(?:you\s+)?(?:to\s+)?)?",
     r"^(?:how\s+(?:do\s+i|can\s+we|to)\s+)?",
-    r"^(?:hey\s+(?:adappty|agent)?[\s,:-]*)?",
+    r"^(?:hey\s+(?:cyclode|agent)?[\s,:-]*)?",
     r"^(?:look\s+at\s+)?",
 ]
 

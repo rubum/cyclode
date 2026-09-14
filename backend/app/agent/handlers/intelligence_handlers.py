@@ -194,12 +194,12 @@ class AuthGuidanceHandler(IntentHandler):
     async def execute(self, ctx: IntentContext) -> Dict[str, Any]:
         token_help_md = (
             "### 🔑 How to Generate a GitHub Personal Access Token (PAT)\n\n"
-            "To access private repositories with Adappty, you can generate a token in 4 quick steps:\n\n"
+            "To access private repositories with Cyclode, you can generate a token in 4 quick steps:\n\n"
             "1. **Open GitHub Token Settings**:\n"
             "   - Go directly to [https://github.com/settings/tokens](https://github.com/settings/tokens) (or click your profile icon in GitHub → **Settings → Developer settings → Personal access tokens → Tokens (classic)**).\n\n"
             "2. **Create New Token**:\n"
             "   - Click **Generate new token** and choose **Generate new token (classic)**.\n"
-            "   - Add a note/name (e.g. `Adappty Workstation`) and set an expiration (e.g. 30 days).\n\n"
+            "   - Add a note/name (e.g. `Cyclode Workstation`) and set an expiration (e.g. 30 days).\n\n"
             "3. **Select Repository Scope**:\n"
             "   - Check ✅ **`repo`** (Full control of private repositories: `repo:status`, `repo_deployment`, `public_repo`, `repo:invite`, `security_events`).\n\n"
             "4. **Paste Your Token Here in Chat**:\n"

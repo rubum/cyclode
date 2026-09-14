@@ -57,7 +57,7 @@ DEFAULT_RULES = [
         "enabled": True
     },
     {
-        "name": "PR Assistant Chat (@adappty mention)",
+        "name": "PR Assistant Chat (@cyclode mention)",
         "source": "github",
         "event_type": "issue_comment.created",
         "repo_filter": "*",

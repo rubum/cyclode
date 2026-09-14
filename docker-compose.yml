@@ -3,14 +3,14 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile.dev
-    container_name: adappty-backend
+    container_name: cyclode-backend
     restart: unless-stopped
     ports:
       - "${PORT:-8000}:8000"
     volumes:
       - ./backend:/app
       - ./workspaces:/workspaces
-      - adappty_data:/data
+      - cyclode_data:/data
     env_file:
       - .env
     environment:
@@ -20,7 +20,7 @@ services:
       - DEBUG=true
       - WORKSPACE_ROOT=/workspaces
       - HOST_WORKSPACE_ROOT=${HOST_WORKSPACE_ROOT:-${PWD}/workspaces}
-      - DATABASE_URL=sqlite+aiosqlite:////data/adappty.db
+      - DATABASE_URL=sqlite+aiosqlite:////data/cyclode.db
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
       - ANTIGRAVITY_MODEL=${ANTIGRAVITY_MODEL:-gemini-3.7-flash}
@@ -32,24 +32,24 @@ services:
       - POLICY_MERGE_PR=${POLICY_MERGE_PR:-require_approval}
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       - GITHUB_APP_ID=${GITHUB_APP_ID:-}
-      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-adappty_gh_webhook_secret_123}
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-cyclode_gh_webhook_secret_123}
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN:-}
       - SLACK_SIGNING_SECRET=${SLACK_SIGNING_SECRET:-}
       - APPSIGNAL_API_KEY=${APPSIGNAL_API_KEY:-}
-      - APPSIGNAL_WEBHOOK_TOKEN=${APPSIGNAL_WEBHOOK_TOKEN:-adappty_appsignal_token_123}
+      - APPSIGNAL_WEBHOOK_TOKEN=${APPSIGNAL_WEBHOOK_TOKEN:-cyclode_appsignal_token_123}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
       interval: 5s
       timeout: 3s
       retries: 5
     networks:
-      - adappty-net
+      - cyclode-net
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile.dev
-    container_name: adappty-frontend
+    container_name: cyclode-frontend
     restart: unless-stopped
     ports:
       - "${FRONTEND_PORT:-5174}:5173"
@@ -62,13 +62,13 @@ services:
     depends_on:
       - backend
     networks:
-      - adappty-net
+      - cyclode-net
 
 volumes:
-  adappty_data:
-    name: adappty_data
+  cyclode_data:
+    name: cyclode_data
 
 networks:
-  adappty-net:
-    name: adappty-net
+  cyclode-net:
+    name: cyclode-net
     driver: bridge

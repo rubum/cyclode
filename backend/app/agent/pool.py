@@ -17,7 +17,7 @@ from app.integrations.github_client import github_client
 from app.integrations.slack_client import slack_client
 from app.agent.title_generator import generate_heuristic_title, generate_ai_title
 
-logger = logging.getLogger("adappty.pool")
+logger = logging.getLogger("cyclode.pool")
 
 
 def estimate_tokens(text: str) -> int:
@@ -101,7 +101,7 @@ class AgentTaskPool:
                 commit_sha=commit_sha,
                 sandbox_status="PROVISIONING",
                 total_tokens=init_tokens,
-                git_branch=f"adappty/task-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+                git_branch=f"cyclode/task-{datetime.now().strftime('%Y%m%d%H%M%S')}"
             )
             session.add(task)
             await session.commit()
@@ -707,7 +707,7 @@ class AgentTaskPool:
                 repo="repo",
                 title=f"fix: resolve task {task_id[:8]}",
                 body=f"Approved resolution for task {task_id}",
-                head_branch=f"adappty/fix-{task_id[:8]}"
+                head_branch=f"cyclode/fix-{task_id[:8]}"
             )
 
             # Record agent confirmation message

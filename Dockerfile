@@ -36,7 +36,7 @@ RUN mkdir -p /workspaces /data
 ENV PORT=8080
 ENV HOST=0.0.0.0
 ENV WORKSPACE_ROOT=/workspaces
-ENV DATABASE_URL=sqlite+aiosqlite:////data/adappty.db
+ENV DATABASE_URL=sqlite+aiosqlite:////data/cyclode.db
 ENV STATIC_DIR=/app/static
 
 EXPOSE 8080

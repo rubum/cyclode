@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Adappty Platform API",
+    title="Cyclode Platform API",
     description="Event-Driven Autonomous Multi-Agent Orchestrator powered by Antigravity Harness",
     version="1.0.0",
     lifespan=lifespan

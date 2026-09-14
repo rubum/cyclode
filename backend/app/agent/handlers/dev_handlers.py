@@ -51,7 +51,7 @@ class CasualGreetingHandler(IntentHandler):
     name = "CasualGreetingHandler"
     description = "Greets the user and presents quick introductory action suggestions."
     exemplars = [
-        "hello", "hi", "hey there", "greetings", "good morning", "hi adappty", "sup"
+        "hello", "hi", "hey there", "greetings", "good morning", "hi cyclode", "sup"
     ]
     negative_exemplars = [
         "run tests", "fix bug in auth", "search web for news", "analyze repository"
@@ -63,7 +63,7 @@ class CasualGreetingHandler(IntentHandler):
 
     async def execute(self, ctx: IntentContext) -> Dict[str, Any]:
         greeting_reply = (
-            "Hello! I'm **Adappty**, your autonomous AI pair programmer powered by the Antigravity agent harness.\n\n"
+            "Hello! I'm **Cyclode**, your autonomous AI pair programmer powered by the Antigravity agent harness.\n\n"
             "I'm active in your workspace environment (`/workspaces/`). Here are quick things you can ask me to do:\n\n"
             "- **Investigate & Fix Code**: `Investigate auth_service.py and fix the null error`\n"
             "- **Run Tests & Verify**: `Run tests on the workspace`\n"
@@ -78,9 +78,9 @@ class CasualGreetingHandler(IntentHandler):
 
 class IdentityHandler(IntentHandler):
     name = "IdentityHandler"
-    description = "Explains Adappty's identity, system persona, autonomous pair programmer capabilities, and supported integrations."
+    description = "Explains Cyclode's identity, system persona, autonomous pair programmer capabilities, and supported integrations."
     exemplars = [
-        "who are you", "what is adappty", "who created you", "what can you do", "tell me about yourself", "who made you"
+        "who are you", "what is cyclode", "who created you", "what can you do", "tell me about yourself", "who made you"
     ]
     negative_exemplars = [
         "run tests", "explain this repo", "who is the author of this url", "search web for news"
@@ -89,11 +89,11 @@ class IdentityHandler(IntentHandler):
 
     def matches(self, ctx: IntentContext) -> bool:
         lower = ctx.lower_prompt
-        return any(lower.startswith(q) or lower == q for q in ("who are you", "who made you", "what are you", "what is adappty"))
+        return any(lower.startswith(q) or lower == q for q in ("who are you", "who made you", "what are you", "what is cyclode"))
 
     async def execute(self, ctx: IntentContext) -> Dict[str, Any]:
         identity_reply = (
-            f"I am **Adappty** (operating as `{ctx.persona_name}`), your autonomous AI pair programmer powered by the **Antigravity harness** and **Gemini**.\n\n"
+            f"I am **Cyclode** (operating as `{ctx.persona_name}`), your autonomous AI pair programmer powered by the **Antigravity harness** and **Gemini**.\n\n"
             f"I work directly inside your workspace repository (`/workspaces/`). My core capabilities include:\n\n"
             f"- **Deep Codebase Exploration**: Grepping functions, reading file hierarchies, and mapping service architectures.\n"
             f"- **Autonomous Bug Fixing**: Analyzing errors, editing files, and running test runners (`pytest`, `unittest`) until verification passes.\n"
@@ -303,7 +303,7 @@ class CommitVerificationHandler(IntentHandler):
             f"```text\n"
             f"{test_out.strip()}\n"
             f"```\n\n"
-            f"Session returning to **IDLE** state. Ready for future commits or `@adappty` mentions."
+            f"Session returning to **IDLE** state. Ready for future commits or `@cyclode` mentions."
         )
         await ctx.emit_message("agent", awakened_report)
         return {"status": "COMPLETED", "summary": "Incremental commit verification passed."}
@@ -635,10 +635,11 @@ class FileInspectorHandler(IntentHandler):
 
     def matches(self, ctx: IntentContext) -> bool:
         lower = ctx.lower_prompt
-        return any(lower.startswith(q) for q in (
-            "how ", "what ", "why ", "explain ", "help", "where ", "can you ", "which ",
-            "is there ", "who ", "tell me ", "show ", "read ", "inspect ", "view ", "open ", "cat "
-        )) or lower.endswith("?")
+        # Matches when explicitly asking to inspect, read, view, open, or cat a file
+        if any(lower.startswith(q) for q in ("read ", "inspect ", "view ", "open ", "cat ", "show file ", "show me ")):
+            return True
+        # Or references a specific filename with common extension
+        return bool(re.search(r"\b[\w-]+\.(py|ts|tsx|js|jsx|ex|exs|rs|go|json|toml|yaml|yml|md|sql|html|css)\b", lower))
 
     async def execute(self, ctx: IntentContext) -> Dict[str, Any]:
         lower = ctx.lower_prompt
@@ -678,12 +679,8 @@ class FileInspectorHandler(IntentHandler):
             await ctx.emit_message("agent", reply_md)
             return {"status": "COMPLETED", "summary": f"Inspected {matched_file} for question: {ctx.title}"}
 
-        # If the user is asking to explain or analyze the workspace/repo, delegate directly to RepoAnalysisHandler
-        is_explain_query = any(w in lower for w in (
-            "explain", "architecture", "codebase", "how does", "what does", "overview",
-            "audit", "structure", "topology", "detail", "thorough", "deep dive"
-        ))
-        if is_explain_query:
+        # If no specific file matched, delegate directly to RepoAnalysisHandler if workspace has files
+        if ctx.workspace_path.exists() and any(p for p in ctx.workspace_path.iterdir() if p.name != ".git"):
             from app.agent.handlers.repo_handlers import RepoAnalysisHandler
             return await RepoAnalysisHandler().execute(ctx)
 
@@ -1111,7 +1108,7 @@ class CodingActionHandler(IntentHandler):
                 await ctx.on_approval_required("create_pull_request", {
                     "action_type": "create_pull_request",
                     "title": f"fix: resolve {ctx.title}",
-                    "branch": f"adappty/task-{ctx.task_id[:8]}",
+                    "branch": f"cyclode/task-{ctx.task_id[:8]}",
                     "description": f"Autonomously resolved: **{ctx.title}**\n\nVerification: Unit tests passed."
                 })
                 return {"status": "AWAITING_APPROVAL", "summary": "Fix applied and verified. Awaiting PR approval."}

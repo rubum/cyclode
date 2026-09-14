@@ -61,7 +61,7 @@ async def test_emit_streamed_message():
 
     await antigravity_harness._emit_streamed_message(
         sender="agent",
-        content="Hello world! Adappty is ready.",
+        content="Hello world! Cyclode is ready.",
         on_message=on_message,
         on_stream_start=on_stream_start,
         on_stream_chunk=on_stream_chunk,
@@ -72,8 +72,8 @@ async def test_emit_streamed_message():
     assert len(starts) == 1
     assert starts[0] == ("message", "test-msg-1")
     assert len(chunks) > 0
-    assert chunks[-1][2] == "Hello world! Adappty is ready."
+    assert chunks[-1][2] == "Hello world! Cyclode is ready."
     assert len(ends) == 1
-    assert ends[0] == ("message", "test-msg-1", "Hello world! Adappty is ready.")
+    assert ends[0] == ("message", "test-msg-1", "Hello world! Cyclode is ready.")
     assert len(messages) == 1
-    assert messages[0] == ("agent", "Hello world! Adappty is ready.")
+    assert messages[0] == ("agent", "Hello world! Cyclode is ready.")

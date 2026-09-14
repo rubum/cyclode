@@ -7,4 +7,4 @@ description: Enables the agent to post structured progress alerts, ask human que
 
 When posting to Slack:
 1. Keep updates concise, actionable, and formatted with emoji status tags (⚡, ✅, 🚨, 🧠).
-2. For human reviews, present clear choices and links to the Adappty Mission Control dashboard.
+2. For human reviews, present clear choices and links to the Cyclode Mission Control dashboard.

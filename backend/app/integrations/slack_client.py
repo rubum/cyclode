@@ -53,7 +53,7 @@ class SlackClient:
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": "⚡ Adappty: Human Approval Required",
+                    "text": "⚡ Cyclode: Human Approval Required",
                     "emoji": True
                 }
             },
@@ -93,7 +93,7 @@ class SlackClient:
             }
         ]
         return await self.post_message(
-            text=f"Adappty Agent requires approval for task: {title}",
+            text=f"Cyclode Agent requires approval for task: {title}",
             blocks=blocks
         )
 

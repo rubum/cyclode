@@ -85,7 +85,7 @@ Cyclode provides an automated startup script that verifies prerequisites, provis
 
 ```bash
 # 1. Clone repository
-git clone git@github.com:rubum/adappty.git cyclode
+git clone git@github.com:rubum/cyclode.git
 cd cyclode
 
 # 2. Configure API keys (e.g., GEMINI_API_KEY, GITHUB_TOKEN)
@@ -148,7 +148,7 @@ npm run dev
 
 ```bash
 # In Docker
-docker exec -e PYTHONPATH=. adappty-backend pytest -v
+docker exec -e PYTHONPATH=. cyclode-backend pytest -v
 
 # Locally
 cd backend
@@ -159,8 +159,8 @@ PYTHONPATH=. pytest -v
 
 ```bash
 # In Docker
-docker exec adappty-frontend npx tsc --noEmit
-docker exec adappty-frontend npm run build
+docker exec cyclode-frontend npx tsc --noEmit
+docker exec cyclode-frontend npm run build
 
 # Locally
 cd frontend

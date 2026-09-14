@@ -1,15 +1,15 @@
 services:
-  adappty:
+  cyclode:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: adappty-app
+    container_name: cyclode-app
     restart: always
     ports:
       - "${PORT:-8080}:8080"
     volumes:
       - ./workspaces:/workspaces
-      - adappty_prod_data:/data
+      - cyclode_prod_data:/data
     env_file:
       - .env
     environment:
@@ -18,20 +18,20 @@ services:
       - ENVIRONMENT=production
       - DEBUG=false
       - WORKSPACE_ROOT=/workspaces
-      - DATABASE_URL=sqlite+aiosqlite:////data/adappty.db
+      - DATABASE_URL=sqlite+aiosqlite:////data/cyclode.db
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
       interval: 10s
       timeout: 5s
       retries: 3
     networks:
-      - adappty-net
+      - cyclode-net
 
 volumes:
-  adappty_prod_data:
-    name: adappty_prod_data
+  cyclode_prod_data:
+    name: cyclode_prod_data
 
 networks:
-  adappty-net:
-    name: adappty-net
+  cyclode-net:
+    name: cyclode-net
     driver: bridge

@@ -311,7 +311,7 @@ async def test_github_repo_query_does_not_trigger_pat_help(tmp_path: Path):
     assert sender == "agent"
     # Must NOT return the PAT generation tutorial
     assert "How to Generate a GitHub Personal Access Token" not in content
-    assert "To access private repositories with Adappty" not in content
+    assert "To access private repositories with Cyclode" not in content
     # Should identify the repo or web resource
     assert "microsoft/tgrep" in content or "tgrep" in content or "github.com" in content
 

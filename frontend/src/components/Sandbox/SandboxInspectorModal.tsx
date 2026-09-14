@@ -191,7 +191,7 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
   const hostPath = data?.host_path || data?.workspace_path || task.workspace_path || '';
   const containerPath = data?.container_path || (data?.workspace_path?.startsWith('/workspaces') ? data.workspace_path : `/workspaces/sandbox-${task.id}`);
   const wsPath = hostPath || containerPath;
-  const cliCommand = data?.cli_command || (containerPath ? `docker exec -it adappty-backend bash -c "cd ${containerPath} && exec bash"` : '');
+  const cliCommand = data?.cli_command || (containerPath ? `docker exec -it cyclode-backend bash -c "cd ${containerPath} && exec bash"` : '');
   const repoUrl = data?.repo_url || data?.git_status?.repo_url || task.repo_url || '';
   const gitBranch = data?.git_status?.branch || data?.git_branch || task.git_branch || 'main';
 

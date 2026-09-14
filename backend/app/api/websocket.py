@@ -4,7 +4,7 @@ import logging
 from typing import List, Dict, Any, Set
 from fastapi import WebSocket, WebSocketDisconnect
 
-logger = logging.getLogger("adappty.websocket")
+logger = logging.getLogger("cyclode.websocket")
 
 
 class WebSocketManager:
@@ -19,7 +19,7 @@ class WebSocketManager:
         # Send initial welcome & connection confirmation
         await self.send_personal_message({
             "type": "CONNECTION_ESTABLISHED",
-            "message": "Connected to Adappty Real-Time Telemetry Hub",
+            "message": "Connected to Cyclode Real-Time Telemetry Hub",
             "active_clients": len(self.active_connections)
         }, websocket)
 
