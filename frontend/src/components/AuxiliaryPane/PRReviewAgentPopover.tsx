@@ -22,7 +22,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
-import { useWebSocket } from '../../context/WebSocketContext';
+import { useWebSocket } from '../../contexts/WebSocketContext';
 import { Task, TaskMessage } from '../../types';
 
 export interface LineContext {
