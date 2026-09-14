@@ -1,4 +1,5 @@
 import pytest
+import pytest_asyncio
 from app.db.session import init_db
 
 
@@ -7,6 +8,6 @@ def anyio_backend():
     return "asyncio"
 
 
-@pytest.fixture(autouse=True)
+@pytest_asyncio.fixture(autouse=True)
 async def initialize_test_database():
     await init_db()
