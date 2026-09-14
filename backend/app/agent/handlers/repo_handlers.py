@@ -575,7 +575,10 @@ class RepoAnalysisHandler(IntentHandler):
         "find all functions",
         "find all endpoints",
         "search services in codebase",
-        "locate all services in repo"
+        "locate all services in repo",
+        "what is a service in this project",
+        "what is a service",
+        "what are the services in this project"
     ]
     priority_weight = 1.35
 

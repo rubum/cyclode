@@ -197,3 +197,26 @@ async def test_find_all_services_routes_to_coding_action(tmp_path):
     assert "my_service" in content
     assert "Discovered Services" in content
 
+
+@pytest.mark.asyncio
+async def test_what_is_a_service_does_not_trigger_test_runner(tmp_path):
+    cargo_dir = tmp_path / "src" / "my_service" / "src"
+    cargo_dir.mkdir(parents=True)
+    (cargo_dir / "main.rs").write_text("fn main() {}")
+
+    messages = []
+    async def mock_msg(s, c):
+        messages.append((s, c))
+
+    ctx = make_ctx("What is a service in this project")
+    ctx.workspace_path = tmp_path
+    ctx.emit_message = mock_msg
+
+    res = await intent_registry.dispatch(ctx)
+    assert res["status"] == "COMPLETED"
+    assert len(messages) >= 1
+    content = messages[0][1]
+    assert "Test Execution Results" not in content
+    assert "cargo test" not in content
+    assert "my_service" in content
+

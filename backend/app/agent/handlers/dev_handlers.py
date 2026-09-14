@@ -138,10 +138,28 @@ class TestRunnerHandler(IntentHandler):
     name = "TestRunnerHandler"
     description = "Executes the automated test suite (e.g. pytest, npm test, cargo test, mix test, unittest) in the sandbox workspace."
     exemplars = [
-        "run tests", "execute pytest", "run the unit test suite", "verify tests", "run test runner", "test this project", "check test results"
+        "run tests",
+        "execute pytest",
+        "run the unit test suite",
+        "verify tests",
+        "run test runner",
+        "run tests in this project",
+        "run cargo test",
+        "execute test suite",
+        "check test results"
     ]
     negative_exemplars = [
-        "search web for news", "explain architecture", "how to get a token"
+        "search web for news",
+        "explain architecture",
+        "how to get a token",
+        "what is a service in this project",
+        "what is a service",
+        "what are the services in this project",
+        "what is this project",
+        "how does this work",
+        "what does this do",
+        "explain this project",
+        "find all services"
     ]
     priority_weight = 1.1
 
@@ -150,6 +168,11 @@ class TestRunnerHandler(IntentHandler):
         return any(w in lower for w in ("run test", "run tests", "pytest", "unittest", "verify test", "check tests"))
 
     async def execute(self, ctx: IntentContext) -> Dict[str, Any]:
+        lower = ctx.lower_prompt
+        # Guard: if query is a conceptual or informational question without test intent, fallback to CodingActionHandler
+        if not any(w in lower for w in ("test", "pytest", "unittest", "cargo test", "npm test", "mix test", "suite", "verify")):
+            return await CodingActionHandler().execute(ctx)
+
         test_cmd = await resolve_test_cmd(ctx.workspace_path)
         await ctx.emit_thought(f"Executing test suite with `{test_cmd}` in isolated workspace...")
         await ctx.call_tool_start("run_command", {"command": test_cmd})
@@ -720,7 +743,11 @@ class CodingActionHandler(IntentHandler):
         "find all services",
         "locate all services in repo",
         "find all endpoints",
-        "find all functions in the codebase"
+        "find all functions in the codebase",
+        "what is a service in this project",
+        "what is a service",
+        "what are the services in this project",
+        "what services are in this codebase"
     ]
     negative_exemplars = [
         "hello",
