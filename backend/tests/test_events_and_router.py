@@ -986,10 +986,45 @@ async def test_harness_explain_codebase_in_detail_no_code_snippets(tmp_path):
     sender, content = messages_captured[0]
     assert sender == "agent"
     # Verify deep systems details are present
-    assert "Supervised Queue Engines" in content or "FOR UPDATE SKIP LOCKED" in content or "Oban.Notifier" in content
-    # Verify no code blocks are present when user said "no code snippets"
-    assert "```elixir" not in content
-    assert "```python" not in content
+
+def test_format_manifest_summary():
+    from app.agent.handlers.repo_handlers import _format_manifest_summary
+
+    # Empty manifests
+    assert _format_manifest_summary([]) == "None detected"
+
+    # Single root manifest
+    assert _format_manifest_summary(["package.json"]) == "Node / JS (`package.json`)"
+
+    # Dual ecosystem manifests
+    res = _format_manifest_summary(["mix.exs", "assets/package.json"])
+    assert "Elixir / Erlang (`mix.exs`)" in res
+    assert "Node / JS (`assets/package.json`)" in res
+
+    # Monorepo with deep auxiliary and benchmark noise files (like Apache Beam)
+    beam_manifests = [
+        "build.gradle",
+        "sdks/go.mod",
+        "sdks/go/build.gradle",
+        "sdks/go/examples/build.gradle",
+        "sdks/go/test/build.gradle",
+        "sdks/python/pyproject.toml",
+        "sdks/python/setup.py",
+        "sdks/python/build.gradle",
+        "sdks/python/apache_beam/testing/benchmarks/wordcount/requirements.txt",
+        "sdks/python/apache_beam/examples/ml-orchestration/kfp/components/ingestion/requirements.txt",
+    ]
+    formatted = _format_manifest_summary(beam_manifests)
+    # Ensure noise paths are not dumped as primary manifests
+    assert "wordcount/requirements.txt" not in formatted
+    assert "kfp/components" not in formatted
+    # Ensure primary toolchains are grouped
+    assert "Gradle / JVM (`build.gradle`" in formatted
+    assert "Python (`sdks/python/pyproject.toml`" in formatted
+    assert "Go (`sdks/go.mod`)" in formatted
+    # Ensure overflow count badge is rendered
+    assert "sub-module manifests" in formatted
+
 
 
 

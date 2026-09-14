@@ -366,6 +366,7 @@ def _profile_workspace(workspace_path: Path) -> Dict[str, Any]:
     all_files: List[Path] = []
     lang_stats: Dict[str, Dict[str, int]] = {}
     top_level_subdirs = []
+    subdir_file_counts: Dict[str, int] = {}
     detected_manifests: Dict[str, str] = {}
     sub_projects: List[str] = []
 
@@ -399,6 +400,14 @@ def _profile_workspace(workspace_path: Path) -> Dict[str, Any]:
             full_p = Path(root) / f
             total_files += 1
             all_files.append(full_p)
+
+            try:
+                rel = full_p.relative_to(workspace_path)
+                if len(rel.parts) > 1:
+                    top_dir = rel.parts[0]
+                    subdir_file_counts[top_dir] = subdir_file_counts.get(top_dir, 0) + 1
+            except Exception:
+                pass
 
             ext = full_p.suffix.lower()
             lang = ext_to_lang.get(ext)
@@ -436,9 +445,92 @@ def _profile_workspace(workspace_path: Path) -> Dict[str, Any]:
         "all_files": all_files,
         "lang_stats": lang_stats,
         "top_level_subdirs": top_level_subdirs,
+        "subdir_file_counts": subdir_file_counts,
         "detected_manifests": detected_manifests,
         "sub_projects": sub_projects,
     }
+
+
+def _format_manifest_summary(manifest_paths: List[str]) -> str:
+    """
+    Categorizes detected manifest files by build/package ecosystem.
+    Filters out noise from deep benchmark, test fixture, and example directories.
+    """
+    if not manifest_paths:
+        return "None detected"
+
+    aux_noise_dirs = {
+        "test", "tests", "testing", "benchmarks", "benchmark",
+        "examples", "example", "fixtures", "fixture", "samples",
+        "sample", "wasm", "integration", "tools", "ci", ".github",
+        "docs", "documentation", "mock", "mocks", "scratch"
+    }
+
+    def get_ecosystem(name: str) -> str:
+        lower = name.lower()
+        if "gradle" in lower or lower == "pom.xml":
+            return "Gradle / JVM"
+        if lower in ("pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "pipfile"):
+            return "Python"
+        if lower in ("package.json", "pnpm-workspace.yaml"):
+            return "Node / JS"
+        if lower in ("go.mod", "go.sum"):
+            return "Go"
+        if lower == "cargo.toml":
+            return "Rust"
+        if lower in ("mix.exs", "rebar.config"):
+            return "Elixir / Erlang"
+        if lower == "gemfile":
+            return "Ruby"
+        if lower == "composer.json":
+            return "PHP"
+        return "Other"
+
+    primary_manifests_by_eco: Dict[str, List[str]] = {}
+    nested_count = 0
+
+    for path_str in sorted(manifest_paths, key=lambda p: (len(Path(p).parts), p)):
+        p = Path(path_str)
+        parts = p.parts
+        file_name = p.name
+        eco = get_ecosystem(file_name)
+
+        is_noise = any(part.lower() in aux_noise_dirs for part in parts[:-1])
+        is_deep = len(parts) > 3
+
+        if not is_noise and not is_deep:
+            if eco not in primary_manifests_by_eco:
+                primary_manifests_by_eco[eco] = []
+            if len(primary_manifests_by_eco[eco]) < 3:
+                primary_manifests_by_eco[eco].append(path_str)
+            else:
+                nested_count += 1
+        else:
+            nested_count += 1
+
+    if not primary_manifests_by_eco:
+        for path_str in sorted(manifest_paths, key=lambda p: (len(Path(p).parts), p))[:3]:
+            eco = get_ecosystem(Path(path_str).name)
+            primary_manifests_by_eco.setdefault(eco, []).append(path_str)
+        nested_count = max(0, len(manifest_paths) - sum(len(v) for v in primary_manifests_by_eco.values()))
+
+    eco_groups = []
+    eco_order = ["Gradle / JVM", "Python", "Go", "Node / JS", "Rust", "Elixir / Erlang", "Ruby", "PHP", "Other"]
+    for eco in eco_order:
+        if eco in primary_manifests_by_eco:
+            paths = primary_manifests_by_eco[eco]
+            formatted_paths = ", ".join(f"`{p}`" for p in paths)
+            eco_groups.append(f"{eco} ({formatted_paths})")
+    for eco, paths in primary_manifests_by_eco.items():
+        if eco not in eco_order:
+            formatted_paths = ", ".join(f"`{p}`" for p in paths)
+            eco_groups.append(f"{eco} ({formatted_paths})")
+
+    result = "; ".join(eco_groups)
+    if nested_count > 0:
+        result += f" *(+{nested_count} sub-module manifests)*"
+
+    return result
 
 
 class RepoAnalysisHandler(IntentHandler):
@@ -594,6 +686,7 @@ class RepoAnalysisHandler(IntentHandler):
         all_files = profile_data["all_files"]
         lang_stats = profile_data["lang_stats"]
         top_level_subdirs = profile_data["top_level_subdirs"]
+        subdir_file_counts = profile_data.get("subdir_file_counts", {})
         detected_manifests = profile_data["detected_manifests"]
         sub_projects = profile_data["sub_projects"]
 
@@ -717,7 +810,7 @@ class RepoAnalysisHandler(IntentHandler):
         repo_link_str = f"[{repo_display}]({repo_url_link})" if repo_url_link else f"`{repo_display}`"
 
         fw_str = ", ".join(detected_frameworks) if detected_frameworks else "Native standard libraries"
-        manifest_str = ", ".join(f"`{m}`" for m in detected_manifests.keys()) or "None detected"
+        manifest_str = _format_manifest_summary(list(detected_manifests.keys()))
 
         lang_table_rows = []
         for l, stat in sorted_langs[:8]:
@@ -726,8 +819,7 @@ class RepoAnalysisHandler(IntentHandler):
 
         tree_rows = []
         for sd in top_level_subdirs[:12]:
-            sub_p = ctx.workspace_path / sd
-            sub_files = sum(1 for _ in sub_p.rglob("*") if _.is_file())
+            sub_files = subdir_file_counts.get(sd, 0)
             tree_rows.append(f"| `/{sd}` | Directory | {sub_files} files |")
 
         if is_use_case_query:
