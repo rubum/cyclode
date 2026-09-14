@@ -1117,6 +1117,7 @@ const MainApp: React.FC = () => {
         auxiliary={
           <AuxiliaryPane 
             task={activeTaskDetails} 
+            repositories={repositories}
             activeTab={activeAuxTab} 
             onTabChange={setActiveAuxTab}
             previewTarget={activePreviewTarget}

@@ -324,6 +324,57 @@ class GitHubClient:
                 return resp.json()
             return {"error": resp.text, "status_code": resp.status_code}
 
+    async def post_pull_request_line_comment(
+        self,
+        owner: str,
+        repo: str,
+        pr_number: int,
+        body: str,
+        commit_id: str,
+        path: str,
+        line: int,
+        side: str = "RIGHT",
+        custom_token: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Posts an inline diff review comment on a specific line of a pull request.
+        """
+        token = custom_token or self.token
+        if not token:
+            return {
+                "ok": True,
+                "id": 404,
+                "body": body,
+                "path": path,
+                "line": line,
+                "html_url": f"https://github.com/{owner}/{repo}/pull/{pr_number}#discussion_r404",
+                "simulated": True
+            }
+
+        headers = {
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "Cyclode-Agentic-Harness",
+            "Authorization": f"token {token}"
+        }
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            url = f"{self.api_base}/repos/{owner}/{repo}/pulls/{pr_number}/comments"
+            payload = {
+                "body": body,
+                "commit_id": commit_id,
+                "path": path,
+                "line": line,
+                "side": side
+            }
+            try:
+                resp = await client.post(url, headers=headers, json=payload)
+                if resp.status_code in (200, 201):
+                    data = resp.json()
+                    data["ok"] = True
+                    return data
+                return {"ok": False, "error": resp.text, "status_code": resp.status_code, "simulated": False}
+            except Exception as e:
+                return {"ok": False, "error": str(e), "simulated": False}
+
     async def list_webhooks(self, owner: str, repo: str, custom_token: Optional[str] = None) -> Dict[str, Any]:
         """
         Lists all active webhooks on a repository.

@@ -24,9 +24,14 @@ import {
   GitCommit,
   User,
   Clock,
-  Loader2
+  Loader2,
+  MessageSquarePlus,
+  Sparkles,
+  Bot
 } from 'lucide-react';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
+import { PRReviewAgentPopover, LineContext } from './PRReviewAgentPopover';
+import { Task } from '../../types';
 
 export interface DocNavItem {
   title: string;
@@ -106,6 +111,8 @@ interface DocsViewerTabProps {
   onClear?: () => void;
   onAskAboutRepo?: (repoName: string) => void;
   onCloneToSession?: (repoUrl: string, repoName: string) => void;
+  task?: Task | null;
+  repositories?: any[];
 }
 
 interface DocTreeNodeProps {
@@ -204,12 +211,70 @@ const renderHighlightedSnippet = (snippet: string, query: string) => {
   );
 };
 
+interface ParsedDiffLine {
+  oldLine: number | null;
+  newLine: number | null;
+  type: 'header' | 'addition' | 'deletion' | 'context';
+  text: string;
+}
+
+function parseUnifiedPatch(patch: string): ParsedDiffLine[] {
+  if (!patch) return [];
+  const lines = patch.split('\n');
+  const result: ParsedDiffLine[] = [];
+  let oldLineNum = 1;
+  let newLineNum = 1;
+
+  for (const rawLine of lines) {
+    if (rawLine.startsWith('@@')) {
+      const match = rawLine.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+      if (match) {
+        oldLineNum = parseInt(match[1], 10);
+        newLineNum = parseInt(match[2], 10);
+      }
+      result.push({
+        oldLine: null,
+        newLine: null,
+        type: 'header',
+        text: rawLine
+      });
+    } else if (rawLine.startsWith('+') && !rawLine.startsWith('+++')) {
+      result.push({
+        oldLine: null,
+        newLine: newLineNum,
+        type: 'addition',
+        text: rawLine
+      });
+      newLineNum++;
+    } else if (rawLine.startsWith('-') && !rawLine.startsWith('---')) {
+      result.push({
+        oldLine: oldLineNum,
+        newLine: null,
+        type: 'deletion',
+        text: rawLine
+      });
+      oldLineNum++;
+    } else {
+      result.push({
+        oldLine: oldLineNum,
+        newLine: newLineNum,
+        type: 'context',
+        text: rawLine
+      });
+      oldLineNum++;
+      newLineNum++;
+    }
+  }
+  return result;
+}
+
 interface PRDiffSectionProps {
   files: PRFileItem[];
   diffText?: string;
+  onLineComment?: (filename: string, line: number, content: string) => void;
 }
 
-const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText }) => {
+const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, onLineComment }) => {
   const [filterQuery, setFilterQuery] = useState('');
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
   const [copiedFile, setCopiedFile] = useState<string | null>(null);
@@ -246,30 +311,35 @@ const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText }) => {
   const totalDeletions = useMemo(() => files.reduce((acc, f) => acc + (f.deletions || 0), 0), [files]);
 
   if (files.length === 0 && diffText) {
+    const rawParsed = parseUnifiedPatch(diffText);
     return (
       <div className="space-y-3 font-mono text-xs select-text">
         <div className="p-2.5 bg-onedark-surface/40 border border-onedark-borderSubtle rounded-lg flex items-center justify-between">
           <span className="text-onedark-fgBright text-xs font-semibold font-sans">Raw Unified Diff</span>
         </div>
-        <div className="p-3 rounded-lg border border-onedark-border bg-onedark-darker overflow-x-auto text-[11.5px] leading-relaxed">
-          {diffText.split('\n').map((line, idx) => {
-            const isAddition = line.startsWith('+') && !line.startsWith('+++');
-            const isDeletion = line.startsWith('-') && !line.startsWith('---');
-            const isHeader = line.startsWith('@@') || line.startsWith('diff --git');
+        <div className="p-3 rounded-xl border border-onedark-border bg-onedark-darker overflow-x-auto text-[12.5px] leading-relaxed">
+          {rawParsed.map((lineObj, idx) => {
+            const isAddition = lineObj.type === 'addition';
+            const isDeletion = lineObj.type === 'deletion';
+            const isHeader = lineObj.type === 'header';
             return (
               <div
                 key={idx}
-                className={`px-1 py-0.5 rounded-sm ${
+                className={`group/line flex items-center px-1.5 py-0.5 rounded-xs ${
                   isAddition
-                    ? 'diff-addition'
+                    ? 'diff-addition text-[#A6E22E] bg-onedark-green/10'
                     : isDeletion
-                    ? 'diff-deletion'
+                    ? 'diff-deletion text-[#E06C75] bg-onedark-red/10'
                     : isHeader
                     ? 'text-onedark-purple bg-onedark-surface/30 font-semibold'
                     : 'text-onedark-fg'
                 }`}
               >
-                <pre className="font-mono whitespace-pre">{line || ' '}</pre>
+                <div className="w-16 text-[11px] font-mono text-onedark-muted/40 select-none mr-2 flex justify-between border-r border-onedark-borderSubtle/40 pr-1.5 flex-shrink-0">
+                  <span className="w-7 text-right">{lineObj.oldLine ?? ''}</span>
+                  <span className="w-7 text-right">{lineObj.newLine ?? ''}</span>
+                </div>
+                <pre className="font-mono text-[12.5px] whitespace-pre">{lineObj.text || ' '}</pre>
               </div>
             );
           })}
@@ -347,6 +417,7 @@ const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText }) => {
         <div className="space-y-3">
           {filteredFiles.map((f, fileIdx) => {
             const isCollapsed = collapsedFiles.has(f.filename);
+            const parsedLines = parseUnifiedPatch(f.patch || '');
             const statusColor = 
               f.status === 'added' ? 'text-onedark-green bg-onedark-green/15 border-onedark-green/30' :
               f.status === 'deleted' ? 'text-onedark-red bg-onedark-red/15 border-onedark-red/30' :
@@ -393,27 +464,55 @@ const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText }) => {
 
                 {/* File Patch Lines */}
                 {!isCollapsed && (
-                  <div className="p-2.5 overflow-x-auto text-[11.5px] leading-relaxed font-mono bg-onedark-bg/60">
-                    {f.patch ? (
-                      f.patch.split('\n').map((line, lineIdx) => {
-                        const isAddition = line.startsWith('+') && !line.startsWith('+++');
-                        const isDeletion = line.startsWith('-') && !line.startsWith('---');
-                        const isHeader = line.startsWith('@@');
+                  <div className="p-2.5 overflow-x-auto text-[12.5px] leading-relaxed font-mono bg-onedark-bg/60 select-text">
+                    {parsedLines.length > 0 ? (
+                      parsedLines.map((lineObj, lineIdx) => {
+                        const isAddition = lineObj.type === 'addition';
+                        const isDeletion = lineObj.type === 'deletion';
+                        const isHeader = lineObj.type === 'header';
+                        const activeLineNum = lineObj.newLine || lineObj.oldLine || 1;
 
                         return (
                           <div
                             key={lineIdx}
-                            className={`px-1.5 py-0.5 rounded-sm ${
+                            className={`group/line flex items-center px-1 py-0.5 rounded-xs transition-colors relative ${
                               isAddition
-                                ? 'diff-addition'
+                                ? 'bg-onedark-green/10 text-[#A6E22E] hover:bg-onedark-green/15'
                                 : isDeletion
-                                ? 'diff-deletion'
+                                ? 'bg-onedark-red/10 text-[#E06C75] hover:bg-onedark-red/15'
                                 : isHeader
-                                ? 'text-onedark-purple bg-onedark-surface/30 font-semibold'
-                                : 'text-onedark-fg'
+                                ? 'text-onedark-purple bg-onedark-surface/40 font-semibold'
+                                : 'text-onedark-fg hover:bg-onedark-surface/30'
                             }`}
                           >
-                            <pre className="font-mono whitespace-pre">{line || ' '}</pre>
+                            {/* Two-column Line Numbers & Hover Comment Button */}
+                            {!isHeader ? (
+                              <div className="flex items-center flex-shrink-0 w-20 text-[11px] font-mono text-onedark-muted/40 select-none mr-2 border-r border-onedark-borderSubtle/40 pr-1.5 justify-between">
+                                <span className="w-7 text-right">{lineObj.oldLine ?? ''}</span>
+                                <span className="w-7 text-right">{lineObj.newLine ?? ''}</span>
+                                {onLineComment && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onLineComment(f.filename, activeLineNum, lineObj.text);
+                                    }}
+                                    className="opacity-0 group-hover/line:opacity-100 transition-opacity p-0.5 rounded bg-onedark-accent text-white hover:bg-onedark-accent/90 hover:scale-110 shadow-xs cursor-pointer ml-1"
+                                    title={`Comment on line ${activeLineNum} with Reviewer Agent`}
+                                  >
+                                    <MessageSquarePlus className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="w-20 text-[11px] font-mono text-onedark-purple/60 select-none mr-2 border-r border-onedark-borderSubtle/40 pr-1.5 text-center flex-shrink-0">
+                                @@
+                              </div>
+                            )}
+
+                            {/* Diff Text with 12.5px font size */}
+                            <pre className="font-mono text-[12.5px] leading-relaxed whitespace-pre flex-1 overflow-x-visible">
+                              {lineObj.text || ' '}
+                            </pre>
                           </div>
                         );
                       })
@@ -542,6 +641,8 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
   onClear,
   onAskAboutRepo,
   onCloneToSession,
+  task,
+  repositories = [],
 }) => {
   const [data, setData] = useState<ReaderResponse | null>(null);
   const [currentUrl, setCurrentUrl] = useState<string | null>(url);
@@ -554,6 +655,9 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const [prTab, setPrTab] = useState<'overview' | 'diff' | 'commits'>('overview');
 
+  const [isReviewPopoverOpen, setIsReviewPopoverOpen] = useState<boolean>(false);
+  const [activeLineComment, setActiveLineComment] = useState<LineContext | null>(null);
+
   const [isOutlineOpen, setIsOutlineOpen] = useState<boolean>(false);
   const [isSiteTreeOpen, setIsSiteTreeOpen] = useState<boolean>(false);
   const [treeSearchQuery, setTreeSearchQuery] = useState<string>('');
@@ -563,6 +667,20 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
 
   const contentScrollRef = useRef<HTMLDivElement>(null);
   const outlinePopoverRef = useRef<HTMLDivElement>(null);
+
+  const isAlreadyCloned = useMemo(() => {
+    if (!data?.repo_name && !data?.clone_url) return false;
+    const targetName = (data.repo_name || '').toLowerCase();
+    const targetUrl = (data.clone_url || '').toLowerCase();
+
+    if (task?.repo_name && task.repo_name.toLowerCase() === targetName) return true;
+    if (task?.repo_url && task.repo_url.toLowerCase().replace(/\.git$/, '') === targetUrl.replace(/\.git$/, '')) return true;
+
+    return (repositories || []).some((r: any) => 
+      (r.full_name && r.full_name.toLowerCase() === targetName) || 
+      (r.clone_url && r.clone_url.toLowerCase().replace(/\.git$/, '') === targetUrl.replace(/\.git$/, ''))
+    );
+  }, [data, task, repositories]);
 
   // Sync with incoming url prop from parent (e.g. task switch or external link click)
   useEffect(() => {
@@ -1004,18 +1122,20 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
 
             {/* PR Action Buttons */}
             <div className="flex items-center space-x-1.5">
-              {onAskAboutRepo && (
-                <button
-                  onClick={() => onAskAboutRepo(`Review and test pull request ${data.repo_name || ''} #${data.pr_number || ''}: ${data.pr_title || data.title}`)}
-                  className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-onedark-surface hover:bg-onedark-surface/80 border border-onedark-border text-onedark-fgBright text-[11px] font-medium transition-all cursor-pointer shadow-xs"
-                  title="Ask Agent to review and test this pull request"
-                >
-                  <MessageSquare className="w-3.5 h-3.5 text-onedark-accent" />
-                  <span>Review with Agent</span>
-                </button>
-              )}
+              <button
+                onClick={() => setIsReviewPopoverOpen(!isReviewPopoverOpen)}
+                className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-all cursor-pointer shadow-xs ${
+                  isReviewPopoverOpen
+                    ? 'bg-onedark-accent/20 border-onedark-accent/50 text-onedark-accent font-semibold ring-1 ring-onedark-accent/30'
+                    : 'bg-onedark-surface hover:bg-onedark-surface/80 border-onedark-border text-onedark-fgBright'
+                }`}
+                title="Open interactive PR Reviewer Agent popover"
+              >
+                <Bot className="w-3.5 h-3.5 text-onedark-accent" />
+                <span>Review with Agent</span>
+              </button>
 
-              {onCloneToSession && data.clone_url && (
+              {!isAlreadyCloned && onCloneToSession && data.clone_url && (
                 <button
                   onClick={() => onCloneToSession(data.clone_url!, data.repo_name || '')}
                   className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-onedark-accent/20 hover:bg-onedark-accent/30 border border-onedark-accent/40 text-onedark-accent text-[11px] font-semibold transition-all cursor-pointer shadow-xs"
@@ -1306,7 +1426,14 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
                   />
                 </div>
               ) : prTab === 'diff' ? (
-                <PRDiffSection files={data.files || []} diffText={data.diff_text} />
+                <PRDiffSection 
+                  files={data.files || []} 
+                  diffText={data.diff_text} 
+                  onLineComment={(filename, line, content) => {
+                    setActiveLineComment({ filename, line, content });
+                    setIsReviewPopoverOpen(true);
+                  }}
+                />
               ) : (
                 <PRCommitsSection commits={data.commits || []} />
               )
@@ -1338,6 +1465,28 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
           )}
         </div>
       </div>
+
+      {/* Interactive PR Reviewer Agent Popover */}
+      {data?.type === 'github' && data.is_pr && (
+        <PRReviewAgentPopover
+          isOpen={isReviewPopoverOpen}
+          onClose={() => {
+            setIsReviewPopoverOpen(false);
+            setActiveLineComment(null);
+          }}
+          repoName={data.repo_name || ''}
+          prNumber={data.pr_number || 0}
+          prTitle={data.pr_title || data.title || ''}
+          author={data.author}
+          headBranch={data.head_branch}
+          baseBranch={data.base_branch}
+          activeLineComment={activeLineComment}
+          onClearActiveLineComment={() => setActiveLineComment(null)}
+          onNavigateToFileLine={(filename, line) => {
+            setPrTab('diff');
+          }}
+        />
+      )}
     </div>
   );
 };

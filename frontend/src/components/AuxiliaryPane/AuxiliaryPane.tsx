@@ -11,6 +11,7 @@ import { ErrorBoundary } from '../Common/ErrorBoundary';
 
 interface AuxiliaryPaneProps {
   task: Task | null;
+  repositories?: any[];
   activeTab?: 'docs' | 'files' | 'diff' | 'activity' | 'subagents' | 'event';
   onTabChange?: (tab: 'docs' | 'files' | 'diff' | 'activity' | 'subagents' | 'event') => void;
   previewTarget?: { url: string; title?: string } | null;
@@ -21,6 +22,7 @@ interface AuxiliaryPaneProps {
 
 export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({ 
   task, 
+  repositories = [],
   activeTab: controlledTab, 
   onTabChange,
   previewTarget,
@@ -112,6 +114,8 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
               onClear={onClearPreview}
               onAskAboutRepo={onAskAboutRepo}
               onCloneToSession={onCloneToSession}
+              task={task}
+              repositories={repositories}
             />
           )}
           {activeTab === 'files' && task && <FilesExplorerTab task={task} />}
