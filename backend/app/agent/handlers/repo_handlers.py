@@ -9,7 +9,7 @@ import subprocess
 import tarfile
 import urllib.request
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 
 from app.agent.handlers.base import IntentContext, IntentHandler
 from app.agent.tools import WorkspaceTools
@@ -312,6 +312,161 @@ class URLSummarizeHandler(IntentHandler):
         return {"status": "COMPLETED", "summary": f"Summarized {raw_target_url}."}
 
 
+def _extract_subproject_info(rel_root: Path, manifest_name: str, manifest_text: str, workspace_path: Path) -> Optional[Dict[str, Any]]:
+    """
+    Extracts semantic metadata (package name, scope, description, priority) from a subproject manifest.
+    Prunes nested internal fixtures, template directories, and build artifacts.
+    """
+    parts = rel_root.parts
+    if not parts:
+        return None
+
+    # Prune nested fixtures, templates, build targets, or paths nested inside src/lib/internal folders
+    noise_parts = {"src", "lib", "fixtures", "fixture", "mock", "mocks", "template", "templates", "dist", "build", "target", "node_modules", "vendor", "scratch"}
+    if any(p in noise_parts for p in parts[1:]) or (parts[0] in noise_parts and len(parts) > 1):
+        return None
+
+    path_str = str(rel_root)
+    lower_path = path_str.lower()
+
+    pkg_name = rel_root.name
+    pkg_desc = ""
+    is_private = False
+
+    if manifest_name == "package.json":
+        try:
+            pdata = json.loads(manifest_text)
+            if isinstance(pdata, dict):
+                if pdata.get("name"):
+                    pkg_name = pdata["name"]
+                if pdata.get("description"):
+                    pkg_desc = str(pdata["description"]).strip()
+                is_private = bool(pdata.get("private", False))
+        except Exception:
+            pass
+    elif manifest_name == "Cargo.toml":
+        m_n = re.search(r'^\s*name\s*=\s*"([^"]+)"', manifest_text, re.MULTILINE)
+        if m_n:
+            pkg_name = m_n.group(1)
+        m_d = re.search(r'^\s*description\s*=\s*"([^"]+)"', manifest_text, re.MULTILINE)
+        if m_d:
+            pkg_desc = m_d.group(1).strip()
+        is_private = "publish = false" in manifest_text.lower()
+    elif manifest_name in ("pyproject.toml", "setup.py", "setup.cfg"):
+        m_n = re.search(r'^\s*name\s*=\s*"([^"]+)"', manifest_text, re.MULTILINE)
+        if m_n:
+            pkg_name = m_n.group(1)
+        m_d = re.search(r'^\s*description\s*=\s*"([^"]+)"', manifest_text, re.MULTILINE)
+        if m_d:
+            pkg_desc = m_d.group(1).strip()
+    elif manifest_name == "go.mod":
+        m_mod = re.search(r'^\s*module\s+([^\s\n]+)', manifest_text, re.MULTILINE)
+        if m_mod:
+            pkg_name = m_mod.group(1).split("/")[-1]
+    elif manifest_name == "mix.exs":
+        m_app = re.search(r'app:\s*:([a-zA-Z0-9_]+)', manifest_text)
+        if m_app:
+            pkg_name = m_app.group(1)
+
+    # Fallback to local README if manifest description is absent
+    if not pkg_desc:
+        for r_name in ("README.md", "readme.md", "README.rst"):
+            r_p = workspace_path / rel_root / r_name
+            if r_p.exists():
+                try:
+                    r_txt = r_p.read_text(encoding="utf-8", errors="ignore")
+                    clean = re.sub(r"<!--.*?-->", "", r_txt, flags=re.DOTALL)
+                    clean = re.sub(r"<[^>]+>", "", clean)
+                    for line in clean.splitlines():
+                        s = line.strip()
+                        if not s or s.startswith(("#", "!", "[", "-", "*", "`", "=", "|", ">")):
+                            continue
+                        if any(w in s.lower() for w in ("badge", "shields.io", "npm version", "license", "build status", "ci/cd")):
+                            continue
+                        if len(s) > 15:
+                            pkg_desc = s[:140].rstrip(".") + "."
+                            break
+                    if pkg_desc:
+                        break
+                except Exception:
+                    pass
+
+    # Scope & priority classification
+    is_priv = is_private or "private" in lower_path or "internal" in lower_path
+    if is_priv:
+        if any(w in lower_path for w in ("test", "dts", "spec", "bench")):
+            scope = "Test Suite (Private)"
+            prio = 40
+            if not pkg_desc:
+                pkg_desc = f"Internal test suite and type verification harness for {rel_root.name}."
+        elif any(w in lower_path for w in ("playground", "explorer", "debug", "sandbox", "dev", "tool")):
+            scope = "Developer Tooling (Private)"
+            prio = 30
+            if not pkg_desc:
+                pkg_desc = f"Interactive development sandbox and debugging utility."
+        else:
+            scope = "Internal Module"
+            prio = 35
+            if not pkg_desc:
+                pkg_desc = f"Internal support module for {rel_root.name}."
+    else:
+        # Public / Core packages
+        if any(w in lower_path for w in ("compiler", "parser", "ast")):
+            scope = "Core Compiler"
+            prio = 10
+            if not pkg_desc:
+                pkg_desc = "Platform-agnostic AST parsing, transformation, and code generation."
+        elif any(w in lower_path for w in ("runtime", "core", "engine")):
+            scope = "Core Engine"
+            prio = 10
+            if not pkg_desc:
+                pkg_desc = "Fundamental runtime lifecycle, state management, and core primitives."
+        elif any(w in lower_path for w in ("reactivity", "store", "state")):
+            scope = "State & Reactivity"
+            prio = 12
+            if not pkg_desc:
+                pkg_desc = "Reactive state system and dependency tracking primitives."
+        elif any(w in lower_path for w in ("compat", "migration", "legacy")):
+            scope = "Compatibility Layer"
+            prio = 14
+            if not pkg_desc:
+                pkg_desc = "Backwards compatibility and migration adapter layer."
+        elif any(w in lower_path for w in ("server", "service", "daemon", "worker")):
+            scope = "Background Service"
+            prio = 15
+            if not pkg_desc:
+                pkg_desc = "Service daemon or background worker execution engine."
+        elif any(w in lower_path for w in ("web", "ui", "client", "frontend")):
+            scope = "Web Frontend"
+            prio = 15
+            if not pkg_desc:
+                pkg_desc = "Client web application and user interface components."
+        elif any(w in lower_path for w in ("cli", "bin")):
+            scope = "CLI Utility"
+            prio = 18
+            if not pkg_desc:
+                pkg_desc = "Command-line interface and terminal tooling."
+        elif parts[0] in ("packages", "apps", "crates", "libs"):
+            scope = "Workspace Package"
+            prio = 20
+            if not pkg_desc:
+                pkg_desc = f"Modular package providing {rel_root.name} functionality."
+        else:
+            scope = "Sub-Package"
+            prio = 25
+            if not pkg_desc:
+                pkg_desc = f"Sub-project module for {rel_root.name}."
+
+    return {
+        "path": path_str,
+        "name": pkg_name,
+        "description": pkg_desc,
+        "scope": scope,
+        "is_private": is_priv,
+        "prio": prio,
+    }
+
+
 def _profile_workspace(workspace_path: Path) -> Dict[str, Any]:
     ignored_dirs = {
         ".git", "node_modules", "_build", "deps", ".elixir_ls", "vendor",
@@ -355,6 +510,7 @@ def _profile_workspace(workspace_path: Path) -> Dict[str, Any]:
     subdir_file_counts: Dict[str, int] = {}
     detected_manifests: Dict[str, str] = {}
     sub_projects: List[str] = []
+    sub_project_details: List[Dict[str, Any]] = []
 
     if workspace_path.exists():
         for p in workspace_path.iterdir():
@@ -376,7 +532,11 @@ def _profile_workspace(workspace_path: Path) -> Dict[str, Any]:
                     txt = mp.read_text(encoding="utf-8", errors="ignore")
                     detected_manifests[rel_mp] = txt
                     if str(rel_root) != ".":
-                        sub_projects.append(str(rel_root))
+                        sub_info = _extract_subproject_info(rel_root, mf, txt, workspace_path)
+                        if sub_info:
+                            if not any(sp["path"] == sub_info["path"] for sp in sub_project_details):
+                                sub_project_details.append(sub_info)
+                                sub_projects.append(sub_info["path"])
                 except Exception:
                     pass
 
@@ -434,6 +594,7 @@ def _profile_workspace(workspace_path: Path) -> Dict[str, Any]:
         "subdir_file_counts": subdir_file_counts,
         "detected_manifests": detected_manifests,
         "sub_projects": sub_projects,
+        "sub_project_details": sub_project_details,
     }
 
 
@@ -684,6 +845,7 @@ class RepoAnalysisHandler(IntentHandler):
         subdir_file_counts = profile_data.get("subdir_file_counts", {})
         detected_manifests = profile_data["detected_manifests"]
         sub_projects = profile_data["sub_projects"]
+        sub_project_details = profile_data.get("sub_project_details", [])
 
         # Detect tech stacks
         detected_frameworks = []
@@ -812,10 +974,33 @@ class RepoAnalysisHandler(IntentHandler):
             pct = (stat['lines'] / total_loc * 100) if total_loc > 0 else 0
             lang_table_rows.append(f"| {l} | {stat['files']} | {stat['lines']:,} | {pct:.1f}% |")
 
+        def _classify_dir(dir_name: str, count: int) -> Tuple[str, str]:
+            d = dir_name.lower()
+            if d in ("packages", "crates", "libs", "libraries"):
+                return "Monorepo Packages", f"Sub-packages and modular libraries ({count} source files)"
+            if d in ("apps", "applications", "services"):
+                return "Applications / Services", f"Deployable application entrypoints ({count} source files)"
+            if d in ("src", "lib", "app"):
+                return "Core Implementation", f"Primary business logic and domain modules ({count} source files)"
+            if d in ("test", "tests", "spec", "specs"):
+                return "Test Suite", f"Unit, integration, and verification suites ({count} source files)"
+            if d in ("docs", "doc", "documentation"):
+                return "Documentation", f"Technical guides, API specs, and architectural references ({count} files)"
+            if d in ("scripts", "tools", "bin", "tooling"):
+                return "Developer Tooling", f"Build automation, code generation, and CI/CD utilities ({count} files)"
+            if d in ("config", "conf", "configs"):
+                return "Configuration", f"Environment definitions and runtime settings ({count} files)"
+            if d in ("public", "static", "assets"):
+                return "Static Assets", f"Client-side static resources and media ({count} files)"
+            if "private" in d or "internal" in d:
+                return "Internal Tooling", f"Private workspace harnesses and tools ({count} source files)"
+            return "Domain Module", f"Workspace subsystem directory ({count} files)"
+
         tree_rows = []
         for sd in top_level_subdirs[:12]:
             sub_files = subdir_file_counts.get(sd, 0)
-            tree_rows.append(f"| `/{sd}` | Directory | {sub_files} files |")
+            c_type, c_desc = _classify_dir(sd, sub_files)
+            tree_rows.append(f"| `/{sd}` | {c_type} | {c_desc} |")
 
         if is_use_case_query:
             use_case_items = []
@@ -984,6 +1169,23 @@ class RepoAnalysisHandler(IntentHandler):
 
         # Detailed architecture for general repositories
         if is_detailed_explain:
+            if sub_project_details:
+                sorted_subs = sorted(sub_project_details, key=lambda s: (s.get("prio", 50), s.get("path", "")))
+                sub_rows = [f"| {'**`' + s['name'] + '`** (`' + s['path'] + '`)' if s['name'] != s['path'] else '`' + s['path'] + '`'} | {s['scope']} | {s['description']} |" for s in sorted_subs[:10]]
+                topo_block = (
+                    f"#### 2. Monorepo & Sub-Project Topology\n"
+                    f"| Package / Module | Scope / Classification | Primary Role & Responsibility |\n"
+                    f"| :--- | :--- | :--- |\n" +
+                    "\n".join(sub_rows) + "\n\n"
+                )
+            else:
+                topo_block = (
+                    f"#### 2. Component Topology & Modular Organization\n"
+                    f"| Directory / Module | Component Classification | Primary Role |\n"
+                    f"| :--- | :--- | :--- |\n" +
+                    "\n".join(tree_rows[:8]) + "\n\n"
+                )
+
             report_md = (
                 f"### 🏗️ Deep Repository & Architecture Analysis for {repo_link_str}\n\n"
                 f"{readme_block}"
@@ -992,10 +1194,7 @@ class RepoAnalysisHandler(IntentHandler):
                 f"- **Primary Runtime / Language**: Built with {primary_lang}, structured for scalable execution and decoupled domain boundaries.\n"
                 f"- **Frameworks & Core Dependencies**: Integrates with {fw_str} to deliver modular service functionality.\n"
                 f"- **Package & Build Toolchain**: Configured via {manifest_str} for reproducible builds and automated CI pipelines.\n\n"
-                f"#### 2. Component Topology & Modular Organization\n"
-                f"| Directory / Module | Component Classification | Primary Role |\n"
-                f"| :--- | :--- | :--- |\n" +
-                "\n".join(tree_rows[:8]) + "\n\n"
+                f"{topo_block}"
                 f"#### 3. Concurrency, State & Persistence Mechanics\n"
                 f"- **State Boundaries**: Modules maintain clear separation between business logic, data models, and external integrations.\n"
                 f"- **Test Suite & Continuous Verification**: Configured with `{test_runner}`" + (f" ({test_count_str})" if test_count_str else "") + ".\n\n"
@@ -1010,7 +1209,19 @@ class RepoAnalysisHandler(IntentHandler):
         repo_link_header = f" for {repo_link_str}" if repo_link_str else ""
 
         monorepo_section = ""
-        if sub_projects:
+        if sub_project_details:
+            sorted_subs = sorted(sub_project_details, key=lambda s: (s.get("prio", 50), s.get("path", "")))
+            sub_rows = []
+            for s in sorted_subs[:10]:
+                p_display = f"**`{s['name']}`** (`{s['path']}`)" if s['name'] != s['path'] else f"`{s['path']}`"
+                sub_rows.append(f"| {p_display} | {s['scope']} | {s['description']} |")
+            monorepo_section = (
+                f"#### Monorepo & Sub-Project Topology\n\n"
+                f"| Package / Module | Scope / Classification | Primary Role & Responsibility |\n"
+                f"| :--- | :--- | :--- |\n" +
+                "\n".join(sub_rows) + "\n\n"
+            )
+        elif sub_projects:
             sub_rows = [f"| `/{sp}` | Sub-Package | `{sp}` workspace |" for sp in sub_projects[:8]]
             monorepo_section = (
                 f"#### Monorepo & Sub-Project Topology\n\n"

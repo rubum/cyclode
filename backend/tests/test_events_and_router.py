@@ -435,6 +435,89 @@ async def test_monorepo_and_shebang_and_dsl_analysis(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_monorepo_package_metadata_extraction_and_classification(tmp_path):
+    from app.agent.harness import antigravity_harness
+
+    # 1. Public compiler core package
+    comp_dir = tmp_path / "packages" / "compiler-core"
+    comp_dir.mkdir(parents=True, exist_ok=True)
+    (comp_dir / "index.ts").write_text("export const compile = () => {};\n")
+    (comp_dir / "package.json").write_text('{"name": "@vue/compiler-core", "description": "Core compiler logic for Vue SFCs"}')
+
+    # 2. Public compat package
+    compat_dir = tmp_path / "packages" / "vue-compat"
+    compat_dir.mkdir(parents=True, exist_ok=True)
+    (compat_dir / "index.ts").write_text("export const compat = true;\n")
+    (compat_dir / "package.json").write_text('{"name": "@vue/vue-compat", "description": "Vue 2 migration build"}')
+
+    # 3. Private developer playground
+    play_dir = tmp_path / "packages-private" / "sfc-playground"
+    play_dir.mkdir(parents=True, exist_ok=True)
+    (play_dir / "main.ts").write_text("console.log('playground');\n")
+    (play_dir / "package.json").write_text('{"name": "sfc-playground", "private": true, "description": "Interactive SFC playground"}')
+
+    # 4. Nested fixture/template inside playground's src - must be PRUNED from topology
+    tmpl_dir = play_dir / "src" / "download" / "template"
+    tmpl_dir.mkdir(parents=True, exist_ok=True)
+    (tmpl_dir / "package.json").write_text('{"name": "template-fixture"}')
+
+    # 5. Private TypeScript validation suite
+    dts_dir = tmp_path / "packages-private" / "dts-test"
+    dts_dir.mkdir(parents=True, exist_ok=True)
+    (dts_dir / "test.ts").write_text("const x: number = 1;\n")
+    (dts_dir / "package.json").write_text('{"name": "dts-test", "private": true}')
+
+    messages_captured = []
+    async def mock_msg(sender, content):
+        messages_captured.append((sender, content))
+
+    res = await antigravity_harness._execute_local_intent(
+        task_id="task-vue-monorepo",
+        title="Analyze monorepo architecture",
+        prompt="Analyze monorepo architecture",
+        persona_name="PairProgrammer",
+        workspace_path=tmp_path,
+        on_thought=lambda t: None,
+        on_tool_start=lambda n, a: None,
+        on_tool_end=lambda n, o, e, d, a=None: None,
+        on_message=mock_msg,
+        on_approval_required=lambda a, d: None,
+        on_diff_updated=lambda d: None
+    )
+
+    assert res.get("status") == "COMPLETED"
+    assert len(messages_captured) == 1
+    sender, content = messages_captured[0]
+
+    # Verify rich headers
+    assert "Monorepo & Sub-Project Topology" in content
+    assert "Package / Module" in content
+    assert "Scope / Classification" in content
+    assert "Primary Role & Responsibility" in content
+
+    # Verify manifest names and summaries
+    assert "@vue/compiler-core" in content
+    assert "Core compiler logic for Vue SFCs" in content
+    assert "@vue/vue-compat" in content
+    assert "Vue 2 migration build" in content
+    assert "sfc-playground" in content
+    assert "Interactive SFC playground" in content
+
+    # Verify classifications
+    assert "Core Compiler" in content
+    assert "Compatibility Layer" in content
+    assert "Developer Tooling (Private)" in content
+    assert "Test Suite (Private)" in content
+
+    # Verify nested template fixture was pruned
+    assert "download/template" not in content
+
+    # Verify no tautological repeats
+    assert "Sub-Package workspace" not in content
+
+
+
+@pytest.mark.asyncio
 async def test_sandbox_file_content_retrieval_and_security(tmp_path):
     from httpx import AsyncClient, ASGITransport
     from app.main import app
