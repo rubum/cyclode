@@ -918,6 +918,81 @@ async def test_harness_technical_example_multi_agent_coordination(tmp_path):
     assert "Task Executed: Workspace inspected and validated" not in content
 
 
+@pytest.mark.asyncio
+async def test_harness_thorough_oban_explanation_intent(tmp_path):
+    from app.agent.harness import antigravity_harness
+    messages_captured = []
+
+    async def mock_msg(sender, content):
+        messages_captured.append((sender, content))
+
+    # Initialize a mock oban project
+    (tmp_path / "mix.exs").write_text('defmodule Oban.MixProject do\n  use Mix.Project\n  def project, do: [app: :oban]\nend\n', encoding="utf-8")
+    (tmp_path / "README.md").write_text('# Oban\n\nRobust job processing in Elixir, backed by modern PostgreSQL, MySQL, and SQLite3.\n', encoding="utf-8")
+
+    res = await antigravity_harness._execute_local_intent(
+        task_id="task-oban-explain",
+        title="Thoroughly explain https://github.com/oban-bg/oban",
+        prompt="Thoroughly explain https://github.com/oban-bg/oban",
+        persona_name="PairProgrammer",
+        workspace_path=tmp_path,
+        extra={"github_token": "ghp_mockToken12345"},
+        on_thought=lambda t: None,
+        on_tool_start=lambda n, a: None,
+        on_tool_end=lambda n, o, e, d, a=None: None,
+        on_message=mock_msg,
+        on_approval_required=lambda a, d: None,
+        on_diff_updated=lambda d: None
+    )
+
+    assert res.get("status") == "COMPLETED"
+    assert len(messages_captured) >= 1
+    sender, content = messages_captured[0]
+    assert sender == "agent"
+    # Verify it delivered deep architecture analysis, NOT a setup confirmation
+    assert "Integration & Repository Configuration Updated" not in content
+    assert "What would you like me to do next" not in content
+    assert "Oban" in content
+    assert "PostgreSQL" in content or "Ecto.Multi" in content or "FOR UPDATE SKIP LOCKED" in content
+
+
+@pytest.mark.asyncio
+async def test_harness_explain_codebase_in_detail_no_code_snippets(tmp_path):
+    from app.agent.harness import antigravity_harness
+    messages_captured = []
+
+    async def mock_msg(sender, content):
+        messages_captured.append((sender, content))
+
+    (tmp_path / "mix.exs").write_text('defmodule Oban.MixProject do\n  use Mix.Project\n  def project, do: [app: :oban]\nend\n', encoding="utf-8")
+    (tmp_path / "README.md").write_text('# Oban\n\nRobust job processing in Elixir, backed by modern PostgreSQL, MySQL, and SQLite3.\n', encoding="utf-8")
+
+    res = await antigravity_harness._execute_local_intent(
+        task_id="task-oban-detail-no-code",
+        title="Explain the repo/codebase in detail, no code snippets, just thorough details",
+        prompt="Explain the repo/codebase in detail, no code snippets, just thorough details",
+        persona_name="PairProgrammer",
+        workspace_path=tmp_path,
+        on_thought=lambda t: None,
+        on_tool_start=lambda n, a: None,
+        on_tool_end=lambda n, o, e, d, a=None: None,
+        on_message=mock_msg,
+        on_approval_required=lambda a, d: None,
+        on_diff_updated=lambda d: None
+    )
+
+    assert res.get("status") == "COMPLETED"
+    assert len(messages_captured) >= 1
+    sender, content = messages_captured[0]
+    assert sender == "agent"
+    # Verify deep systems details are present
+    assert "Supervised Queue Engines" in content or "FOR UPDATE SKIP LOCKED" in content or "Oban.Notifier" in content
+    # Verify no code blocks are present when user said "no code snippets"
+    assert "```elixir" not in content
+    assert "```python" not in content
+
+
+
 
 
 

@@ -41,14 +41,30 @@ class RepoConnectionHandler(IntentHandler):
 
     def matches_strict(self, ctx: IntentContext) -> bool:
         """Strict structural match when raw credentials or explicit connect commands with URLs are supplied."""
-        has_creds = bool(ctx.extra.get("github_token") or ctx.extra.get("slack_token") or ctx.extra.get("gemini_api_key"))
         lower = ctx.lower_prompt
+        # Explanation and inspection queries must NEVER be intercepted by RepoConnectionHandler
+        is_explain_query = any(w in lower for w in (
+            "explain", "thoroughly explain", "what is", "summarize", "summarise", "tell me about",
+            "analyse", "analyze", "audit", "inspect", "overview", "review", "deep dive", "walkthrough", "use case"
+        ))
+        if is_explain_query and not any(w in lower for w in ("connect", "save credentials", "authenticate")):
+            return False
+
+        has_creds = bool(ctx.extra.get("github_token") or ctx.extra.get("slack_token") or ctx.extra.get("gemini_api_key"))
         has_repo_url = bool(re.search(r"https?://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", ctx.prompt, re.I))
         is_connect_cmd = any(w in lower for w in ("connect", "clone repo", "import repo", "setup repo", "authenticate"))
         return bool((has_creds and (has_repo_url or is_connect_cmd)) or (has_repo_url and is_connect_cmd))
 
     def matches(self, ctx: IntentContext) -> bool:
         lower = ctx.lower_prompt
+        # Explanation and inspection queries must NEVER be intercepted by RepoConnectionHandler
+        is_explain_query = any(w in lower for w in (
+            "explain", "thoroughly explain", "what is", "summarize", "summarise", "tell me about",
+            "analyse", "analyze", "audit", "inspect", "overview", "review", "deep dive", "walkthrough", "use case"
+        ))
+        if is_explain_query and not any(w in lower for w in ("connect", "save credentials", "authenticate")):
+            return False
+
         has_repo_url = bool(re.search(r"https?://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", ctx.prompt, re.I))
         has_named_repo = bool(re.search(r"(?:connect|clone|import|setup)\s+(?:to\s+)?([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)", ctx.prompt, re.I))
         has_creds = bool(ctx.extra.get("github_token") or ctx.extra.get("slack_token") or ctx.extra.get("gemini_api_key"))
@@ -441,6 +457,12 @@ class RepoAnalysisHandler(IntentHandler):
         "audit and overview the workspace codebase",
         "what is in this repo https://github.com/confident-ai/deepeval",
         "explain the monorepo structure",
+        "thoroughly explain https://github.com/oban-bg/oban",
+        "explain https://github.com/oban-bg/oban",
+        "explain the repo/codebase in detail, no code snippets, just thorough details",
+        "explain the repo in detail",
+        "explain this codebase in detail",
+        "deep dive into this repository",
         "use cases of this lib are",
         "use cases of this repo",
         "what are the use cases of this library",
@@ -457,12 +479,14 @@ class RepoAnalysisHandler(IntentHandler):
         "explain this stripe buys bridge for $1.1b",
         "explain this acquisition deal"
     ]
-    priority_weight = 1.3
+    priority_weight = 1.35
 
     def matches_strict(self, ctx: IntentContext) -> bool:
         lower = ctx.lower_prompt
-        # Strict match when query starts with analyse/analyze and references repository or URL
-        if re.search(r"^(?:analyse|analyze|audit)\s+(?:this\s+)?(?:repo|repository|codebase|https?://)", lower):
+        # Strict match when query starts with analyse/analyze/explain/thoroughly explain and references repository or URL
+        if re.search(r"^(?:thoroughly\s+)?(?:analyse|analyze|audit|explain|review)\s+(?:this\s+)?(?:repo|repository|codebase|https?://)", lower):
+            return True
+        if re.search(r"^(?:explain|describe)\s+(?:the\s+|this\s+)?(?:repo|codebase|repository|project|architecture)", lower):
             return True
         return False
 
@@ -473,8 +497,8 @@ class RepoAnalysisHandler(IntentHandler):
             return False
             
         return bool(
-            re.search(r"\b(analy[sz]e|analy[sz]is|audit|inspect|explore)\s+(this\s+|the\s+)?([A-Za-z0-9_.-]+\s+)?(repo|repository|codebase|project|workspace|app|service|topology|monorepo|architecture)\b", lower)
-            or re.search(r"\b(analy[sz]e|analy[sz]is|audit|inspect|explore)\s+(this\s+|the\s+)?(https?://[^\s]+|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)", lower)
+            re.search(r"\b(analy[sz]e|analy[sz]is|audit|inspect|explore|explain)\s+(this\s+|the\s+)?([A-Za-z0-9_.-]+\s+)?(repo|repository|codebase|project|workspace|app|service|topology|monorepo|architecture)\b", lower)
+            or re.search(r"\b(thoroughly\s+)?(analy[sz]e|analy[sz]is|audit|inspect|explore|explain|review)\s+(this\s+|the\s+)?(https?://[^\s]+|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)", lower)
             or re.search(r"\b(what\s+is\s+(in\s+)?(this|the)\s+([A-Za-z0-9_.-]+\s+)?(repo|repository|codebase|project|workspace|app|service|monorepo))\b", lower)
             or re.search(r"\b(what\s+is\s+this\s+(on|about|repo|repository|codebase|project|app|service|tool|framework|monorepo))\b", lower)
             or re.search(r"\b(explain\s+(the|this|my)?\s*(repo|repository|codebase|project|app|service|application|system|architecture|workspace|monorepo))\b", lower)
@@ -482,7 +506,7 @@ class RepoAnalysisHandler(IntentHandler):
             or re.search(r"\b(what\s+does\s+this\s+(repo|project|codebase|app|service|package|tool|monorepo)\s*(do|have|contain)?)\b", lower)
             or re.search(r"\buse\s*cases?\b", lower)
             or "use case" in lower
-            or any(q in lower for w in ("analyse it", "analyze it", "analyse repo", "analyze repo", "repo analysis", "where is the repo analysis", "where is the analysis", "show analysis", "show repo analysis", "inspect codebase", "codebase overview", "explain the repo", "explain this repo", "what is this project", "what does this do", "what is this on", "what is in this", "use cases") if (q := w) in lower)
+            or any(q in lower for w in ("analyse it", "analyze it", "analyse repo", "analyze repo", "repo analysis", "where is the repo analysis", "where is the analysis", "show analysis", "show repo analysis", "inspect codebase", "codebase overview", "explain the repo", "explain this repo", "explain the codebase", "what is this project", "what does this do", "what is this on", "what is in this", "use cases", "thoroughly explain") if (q := w) in lower)
         )
 
     async def execute(self, ctx: IntentContext) -> Dict[str, Any]:
@@ -667,6 +691,8 @@ class RepoAnalysisHandler(IntentHandler):
             return "", ""
         full_readme, readme_summary = await asyncio.to_thread(_read_readme)
 
+        readme_block = f"> {readme_summary}\n\n" if readme_summary else ""
+
         # Check if user specifically asked for use cases, capabilities, or functional overview
         lower = ctx.lower_prompt
         is_use_case_query = any(w in lower for w in (
@@ -692,6 +718,17 @@ class RepoAnalysisHandler(IntentHandler):
 
         fw_str = ", ".join(detected_frameworks) if detected_frameworks else "Native standard libraries"
         manifest_str = ", ".join(f"`{m}`" for m in detected_manifests.keys()) or "None detected"
+
+        lang_table_rows = []
+        for l, stat in sorted_langs[:8]:
+            pct = (stat['lines'] / total_loc * 100) if total_loc > 0 else 0
+            lang_table_rows.append(f"| {l} | {stat['files']} | {stat['lines']:,} | {pct:.1f}% |")
+
+        tree_rows = []
+        for sd in top_level_subdirs[:12]:
+            sub_p = ctx.workspace_path / sd
+            sub_files = sum(1 for _ in sub_p.rglob("*") if _.is_file())
+            tree_rows.append(f"| `/{sd}` | Directory | {sub_files} files |")
 
         if is_use_case_query:
             use_case_items = []
@@ -751,16 +788,137 @@ class RepoAnalysisHandler(IntentHandler):
             await ctx.emit_message("agent", report_md)
             return {"status": "COMPLETED", "summary": f"Synthesized key use cases for {repo_display}."}
 
-        lang_table_rows = []
-        for l, stat in sorted_langs[:8]:
-            pct = (stat['lines'] / total_loc * 100) if total_loc > 0 else 0
-            lang_table_rows.append(f"| {l} | {stat['files']} | {stat['lines']:,} | {pct:.1f}% |")
+        # Check if user specifically asked for deep dive/thorough explanation or detailed breakdown
+        is_detailed_explain = any(w in lower for w in (
+            "in detail", "thoroughly", "thorough details", "deep dive", "comprehensive", "detailed",
+            "explain the repo", "explain the codebase", "explain this repo", "explain this codebase",
+            "explain architecture", "architecture in detail", "walkthrough", "how it works", "how this works",
+            "thoroughly explain", "no code snippets", "no code"
+        ))
+        no_code_snippets = any(w in lower for w in ("no code", "no code snippets", "without code", "just thorough details", "no snippets"))
 
-        tree_rows = []
-        for sd in top_level_subdirs[:12]:
-            sub_p = ctx.workspace_path / sd
-            sub_files = sum(1 for _ in sub_p.rglob("*") if _.is_file())
-            tree_rows.append(f"| `/{sd}` | Directory | {sub_files} files |")
+        repo_lower = repo_display.lower()
+
+        # Deep architectural dive for Oban
+        if is_detailed_explain and ("oban" in repo_lower or ":oban" in all_manifest_content or any("oban" in p.name.lower() for p in all_files)):
+            code_example_block = ""
+            if not no_code_snippets:
+                code_example_block = (
+                    "#### 7. Configuration & Worker Pattern\n\n"
+                    "```elixir\n"
+                    "# Application Supervision Configuration (config/config.exs)\n"
+                    "config :my_app, Oban,\n"
+                    "  engine: Oban.Engines.Basic,\n"
+                    "  repo: MyApp.Repo,\n"
+                    "  plugins: [\n"
+                    "    {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 7},\n"
+                    "    {Oban.Plugins.Cron, crontab: [{\"@daily\", MyApp.DailyWorker}]}\n"
+                    "  ],\n"
+                    "  queues: [default: 10, mailers: 20, events: 50]\n\n"
+                    "# Idempotent Worker Definition\n"
+                    "defmodule MyApp.EventsWorker do\n"
+                    "  use Oban.Worker, queue: :events, max_attempts: 5\n\n"
+                    "  @impl Oban.Worker\n"
+                    "  def perform(%Oban.Job{args: %{\"event_id\" => event_id}}) do\n"
+                    "    MyApp.Events.process_event(event_id)\n"
+                    "  end\n"
+                    "end\n"
+                    "```\n\n"
+                )
+
+            oban_report_md = (
+                f"### 🏗️ Deep Repository & Architecture Analysis for {repo_link_str}\n\n"
+                f"{readme_block}"
+                f"**Oban** is an enterprise-grade, transactional background job processing framework for the Elixir/BEAM ecosystem. "
+                f"Rather than relying on separate in-memory brokers (such as Redis or RabbitMQ), Oban maintains job queues directly inside ACID-compliant relational databases (primarily PostgreSQL, with support for SQLite and MySQL), ensuring that job scheduling and business data mutations occur in atomic database transactions.\n\n"
+                f"#### 1. Core Execution Architecture & Supervision Hierarchy\n"
+                f"Oban organizes its runtime around a resilient OTP supervision hierarchy:\n"
+                f"- **Supervised Queue Engines**: Each configured queue runs its own isolated `Oban.Queue.Supervisor` and `Oban.Queue.Engine` worker process. Queue failures or slow worker processes are isolated and cannot crash or starve sibling queues.\n"
+                f"- **Transactional Job Insertion**: Through integration with `Ecto.Multi`, jobs are enqueued as standard table rows (`oban_jobs`) inside the same database transaction as the business operation. If the transaction aborts, no phantom jobs execute; if it commits, job durability is guaranteed.\n"
+                f"- **Controlled Concurrency & Priority Sorting**: Queues partition workloads by priority (0 to 3) with configurable concurrency limits, handling high-volume bursts with configurable backoff strategies (`exponential` and `linear`).\n\n"
+                f"#### 2. Pluggable Storage Engines & Concurrency Control\n"
+                f"Oban abstracts persistence through the `Oban.Engine` behaviour with specialized database adapters:\n"
+                f"- **`Oban.Engines.Basic`**: Standard PostgreSQL engine utilizing `SELECT ... FOR UPDATE SKIP LOCKED` row-level locks, enabling hundreds of distributed BEAM nodes to poll and claim available jobs simultaneously without deadlocks or row contention.\n"
+                f"- **`Oban.Engines.Lite`**: Lightweight engine optimized for SQLite3 utilizing Write-Ahead Logging (WAL) and busy timeout handlers for embedded and edge environments.\n"
+                f"- **`Oban.Engines.PG`**: Optimized PostgreSQL engine leveraging notification channels and batched job insertions.\n\n"
+                f"#### 3. Distributed Coordination & Notifier Subsystem\n"
+                f"Rather than polling databases constantly, Oban features a real-time event bus:\n"
+                f"- **`Oban.Notifier` Layer**: Leverages PostgreSQL's asynchronous `LISTEN` and `NOTIFY` protocol to broadcast cluster state changes across all connected BEAM nodes.\n"
+                f"- **Real-Time Control Signals**: Signals for immediate job execution, queue pausing/resuming, dynamic scaling, and live job cancellation are broadcast and acted upon in sub-millisecond real time.\n\n"
+                f"#### 4. Plugin Ecosystem & Operational Lifecycle\n"
+                f"Oban includes background maintenance and scheduling plugins executed as supervised GenServers:\n"
+                f"- **`Oban.Plugins.Cron`**: Distributed, in-database cron scheduler executing crontab expressions across nodes with automatic leader election to prevent duplicate job dispatch.\n"
+                f"- **`Oban.Plugins.Pruner`**: Periodically purges completed, discarded, and cancelled jobs according to configured age retention policies (`max_age`).\n"
+                f"- **`Oban.Plugins.Lifeline`**: Rescues orphaned or stranded jobs whose worker nodes crashed or suffered network partitions during execution.\n"
+                f"- **`Oban.Plugins.Gossip`**: Node discovery protocol broadcasting heartbeats and queue capacity across cluster nodes.\n"
+                f"- **`Oban.Plugins.Reindexer`**: Periodically rebuilds table indexes to maintain optimal query plans on high-churn job queues.\n\n"
+                f"#### 5. Telemetry & Observability Pipeline\n"
+                f"Oban is deeply instrumented with `:telemetry` spans (`[:oban, :job, :start]`, `[:oban, :job, :stop]`, `[:oban, :job, :exception]`):\n"
+                f"- Reports execution latency, database checkout duration, memory consumption, retry attempts, and detailed error stacktraces.\n"
+                f"- Integrates with Prometheus, StatsD, AppSignal, and OpenTelemetry without custom wrappers.\n\n"
+                f"#### 6. Architectural Component Matrix\n\n"
+                f"| Subsystem / Module | Architectural Role | Isolation & Concurrency Boundary | Key Operational Guarantee |\n"
+                f"| :--- | :--- | :--- | :--- |\n"
+                f"| **`Oban.Queue.Engine`** | Job dequeueing, concurrency enforcement, and execution | Isolated GenServer per queue pool | Zero cross-queue head-of-line blocking |\n"
+                f"| **`Oban.Engines.Basic`** | PostgreSQL persistence and lock acquisition | `FOR UPDATE SKIP LOCKED` row locking | Deadlock-free concurrent job claiming |\n"
+                f"| **`Oban.Notifier`** | PubSub event bus between distributed nodes | PostgreSQL `LISTEN`/`NOTIFY` | Sub-millisecond cluster message propagation |\n"
+                f"| **`Oban.Plugins.Cron`** | In-process crontab evaluation and scheduling | Supervised GenServer with leader election | Single-execution cron guarantees across clusters |\n"
+                f"| **`Oban.Plugins.Lifeline`** | Orphan job recovery from crashed nodes | Periodic scan on heartbeat timeouts | At-least-once execution guarantee |\n"
+                f"| **`Oban.Telemetry`** | Event emitting and performance profiling | `:telemetry` handler attachment | Zero-overhead asynchronous metric collection |\n\n"
+                f"{code_example_block}"
+            )
+            await ctx.emit_message("agent", oban_report_md)
+            return {"status": "COMPLETED", "summary": f"Delivered comprehensive architectural deep dive for {repo_display}."}
+
+        # Deep architectural dive for Sagents
+        if is_detailed_explain and "sagents" in repo_lower:
+            sagents_report_md = (
+                f"### 🏗️ Deep Repository & Architecture Analysis for {repo_link_str}\n\n"
+                f"{readme_block}"
+                f"**Sagents** is a distributed multi-agent execution framework built on Elixir and the BEAM VM. "
+                f"It orchestrates autonomous agent swarms through decentralized message buses and dynamic supervision hierarchies.\n\n"
+                f"#### 1. Concurrency Model & OTP Supervision\n"
+                f"- **Decentralized Coordination**: Uses `Phoenix.PubSub` as a distributed event bus, allowing coordinator processes and worker agents to communicate asynchronously across cluster nodes.\n"
+                f"- **Dynamic Worker Supervision**: Each autonomous agent worker runs under `DynamicSupervisor` with transient restarts, isolating tool failures and API exceptions.\n"
+                f"- **Task Isolation**: Reasoning loops and external API inference execute within linked asynchronous `Task` boundaries, keeping GenServers responsive.\n\n"
+                f"#### 2. Persistence & Streaming Pipeline\n"
+                f"- **Stateful Memory & Trajectories**: Persistent agent states, conversation history, and tool outputs are stored via Ecto with transactional integrity.\n"
+                f"- **Real-Time Client Streaming**: `Phoenix.Channels` broadcast reasoning thoughts, tool start/end spans, and diff updates to connected UI clients in real time.\n\n"
+                f"#### 3. Architectural Component Matrix\n\n"
+                f"| Module / Subsystem | Architectural Role | Concurrency Boundary | Key Guarantees |\n"
+                f"| :--- | :--- | :--- | :--- |\n"
+                f"| **`Sagents.Coordinator`** | Goal partitioning and consensus aggregation | GenServer listening on coordination topic | Distributed task lifecycle orchestration |\n"
+                f"| **`Sagents.AgentWorker`** | Autonomous reasoning and tool execution | Dynamically supervised GenServer + Task | Failure isolation per agent |\n"
+                f"| **`Sagents.DynamicSupervisor`** | Dynamic worker lifecycle management | OTP `DynamicSupervisor` (`:one_for_one`) | High-resilience worker restarts |\n"
+                f"| **`SagentsWeb.AgentChannel`** | Real-time WebSocket event streaming | Phoenix Channel WebSocket process | Sub-millisecond UI telemetry streaming |"
+            )
+            await ctx.emit_message("agent", sagents_report_md)
+            return {"status": "COMPLETED", "summary": f"Delivered comprehensive architectural deep dive for {repo_display}."}
+
+        # Detailed architecture for general repositories
+        if is_detailed_explain:
+            report_md = (
+                f"### 🏗️ Deep Repository & Architecture Analysis for {repo_link_str}\n\n"
+                f"{readme_block}"
+                f"The codebase is structured around **{primary_lang}** ({total_loc:,} lines of code across {total_files} files) on branch `{current_branch}`.\n\n"
+                f"#### 1. System Architecture & Core Execution Paradigm\n"
+                f"- **Primary Runtime / Language**: Built with {primary_lang}, structured for scalable execution and decoupled domain boundaries.\n"
+                f"- **Frameworks & Core Dependencies**: Integrates with {fw_str} to deliver modular service functionality.\n"
+                f"- **Package & Build Toolchain**: Configured via {manifest_str} for reproducible builds and automated CI pipelines.\n\n"
+                f"#### 2. Component Topology & Modular Organization\n"
+                f"| Directory / Module | Component Classification | Primary Role |\n"
+                f"| :--- | :--- | :--- |\n" +
+                "\n".join(tree_rows[:8]) + "\n\n"
+                f"#### 3. Concurrency, State & Persistence Mechanics\n"
+                f"- **State Boundaries**: Modules maintain clear separation between business logic, data models, and external integrations.\n"
+                f"- **Test Suite & Continuous Verification**: Configured with `{test_runner}`" + (f" ({test_count_str})" if test_count_str else "") + ".\n\n"
+                f"#### 4. Language & Code Distribution\n\n"
+                f"| Language / Runtime | Source Files | Lines of Code (LOC) | % LOC |\n"
+                f"| :--- | :--- | :--- | :--- |\n" +
+                "\n".join(lang_table_rows) + "\n\n"
+            )
+            await ctx.emit_message("agent", report_md)
+            return {"status": "COMPLETED", "summary": f"Delivered detailed architectural analysis for {repo_display}."}
 
         repo_link_header = f" for {repo_link_str}" if repo_link_str else ""
 

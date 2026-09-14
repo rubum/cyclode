@@ -648,6 +648,15 @@ class FileInspectorHandler(IntentHandler):
             await ctx.emit_message("agent", reply_md)
             return {"status": "COMPLETED", "summary": f"Inspected {matched_file} for question: {ctx.title}"}
 
+        # If the user is asking to explain or analyze the workspace/repo, delegate directly to RepoAnalysisHandler
+        is_explain_query = any(w in lower for w in (
+            "explain", "architecture", "codebase", "how does", "what does", "overview",
+            "audit", "structure", "topology", "detail", "thorough", "deep dive"
+        ))
+        if is_explain_query:
+            from app.agent.handlers.repo_handlers import RepoAnalysisHandler
+            return await RepoAnalysisHandler().execute(ctx)
+
         display_ws = ctx.workspace_path.name
         if (ctx.workspace_path / ".git").exists():
             orig_chk = WorkspaceTools.run_command(ctx.workspace_path, "git config --get remote.origin.url")
