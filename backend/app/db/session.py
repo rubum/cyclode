@@ -137,6 +137,39 @@ async def ensure_default_repositories():
                     session.add(new_repo)
                     existing_repos[full_name] = new_repo
 
+            if not existing_repos:
+                starter_repos = [
+                    RepositoryConfigModel(
+                        name="auth-service",
+                        full_name="acme/auth-service",
+                        clone_url="https://github.com/acme/auth-service",
+                        default_branch="main",
+                        encrypted_token=enc_token,
+                        auth_provider="github",
+                        test_command="pytest",
+                        tech_stack=["Python", "FastAPI"],
+                        status="CONNECTED",
+                        created_at=get_utc_now(),
+                        updated_at=get_utc_now(),
+                    ),
+                    RepositoryConfigModel(
+                        name="payments-api",
+                        full_name="acme/payments-api",
+                        clone_url="https://github.com/acme/payments-api",
+                        default_branch="main",
+                        encrypted_token=enc_token,
+                        auth_provider="github",
+                        test_command="npm test",
+                        tech_stack=["TypeScript", "Node.js"],
+                        status="CONNECTED",
+                        created_at=get_utc_now(),
+                        updated_at=get_utc_now(),
+                    ),
+                ]
+                for r in starter_repos:
+                    session.add(r)
+                    existing_repos[r.full_name] = r
+
             # Clean up any legacy default fake values on existing repos
             for full_name, repo in existing_repos.items():
                 if repo.test_command == "pytest" and repo.tech_stack and "Python" in repo.tech_stack and not repo.manifest_cache:

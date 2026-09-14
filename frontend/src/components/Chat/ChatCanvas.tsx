@@ -383,11 +383,37 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     fetchRepos();
   }, [fetchRepos]);
 
+const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
+  {
+    id: 'starter-auth',
+    name: 'auth-service',
+    full_name: 'acme/auth-service',
+    clone_url: 'https://github.com/acme/auth-service',
+    default_branch: 'main',
+    tech_stack: ['Python', 'FastAPI'],
+    test_command: 'pytest',
+    status: 'CONNECTED',
+  },
+  {
+    id: 'starter-payments',
+    name: 'payments-api',
+    full_name: 'acme/payments-api',
+    clone_url: 'https://github.com/acme/payments-api',
+    default_branch: 'main',
+    tech_stack: ['TypeScript', 'Node.js'],
+    test_command: 'npm test',
+    status: 'CONNECTED',
+  },
+];
+
   const effectiveRepos = useMemo(() => {
     if (propRepositories && propRepositories.length > 0) {
       return propRepositories;
     }
-    return localRepos;
+    if (localRepos && localRepos.length > 0) {
+      return localRepos;
+    }
+    return DEFAULT_STARTER_REPOS;
   }, [propRepositories, localRepos]);
 
   const filteredRepos = useMemo(() => {
