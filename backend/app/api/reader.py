@@ -642,7 +642,7 @@ async def _fetch_github_pr_info(owner: str, repo: str, pr_number: int) -> Dict[s
         if head_ref and base_ref:
             meta_parts.append(f"**Branches**: `{head_ref}` ➔ `{base_ref}`")
         if additions or deletions or changed_files:
-            meta_parts.append(f"**Changes**: `+{additions}` / `-{deletions}` ({changed_files} files)")
+            meta_parts.append(f"**Changes**: `+{additions:,}` / `-{deletions:,}` ({changed_files} files)")
 
         md_parts = [
             f"# Pull Request #{pr_number}: {title}\n",

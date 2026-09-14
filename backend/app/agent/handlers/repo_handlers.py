@@ -1242,122 +1242,55 @@ class PRReviewHandler(IntentHandler):
             260
         )
 
-        # 3. Tool Step: Provision Worktrees
-        await ctx.call_tool_start("setup_pr_worktrees", {"workspace": str(ctx.workspace_path), "prs_count": len(prs)})
-        enriched_prs = worktree_manager.setup_pr_worktrees(ctx.workspace_path, clone_url, raw_token, prs)
-        await ctx.call_tool_end(
-            "setup_pr_worktrees",
-            json.dumps({"status": "SUCCESS", "worktrees": [p.get("worktree_path") for p in enriched_prs]}),
-            0,
-            340
-        )
-
-        # 4. Save PRs to DB if available
-        saved_pr_models = []
+        # 3. Update task repository info if DB available
         if has_db:
             try:
                 async with async_session_factory() as session:
-                    # Delete any existing task PRs for idempotency
-                    del_stmt = delete(TaskPRModel).where(TaskPRModel.task_id == ctx.task_id)
-                    await session.execute(del_stmt)
-
-                    for pr_item in enriched_prs:
-                        pr_model = TaskPRModel(
-                            task_id=ctx.task_id,
-                            pr_number=pr_item.get("number", 0),
-                            title=pr_item.get("title", ""),
-                            author=pr_item.get("user", {}).get("login", "") if isinstance(pr_item.get("user"), dict) else str(pr_item.get("user") or ""),
-                            head_branch=pr_item.get("head", {}).get("ref", "") if isinstance(pr_item.get("head"), dict) else str(pr_item.get("head") or ""),
-                            base_branch=pr_item.get("base", {}).get("ref", "main") if isinstance(pr_item.get("base"), dict) else "main",
-                            html_url=pr_item.get("html_url", ""),
-                            status="OPEN",
-                            worktree_path=pr_item.get("worktree_path", ""),
-                            diff_stats=pr_item.get("diff_stats", {}),
-                            review_summary=pr_item.get("body", "")
-                        )
-                        session.add(pr_model)
-                        saved_pr_models.append({
-                            "id": pr_model.id,
-                            "task_id": ctx.task_id,
-                            "pr_number": pr_model.pr_number,
-                            "title": pr_model.title,
-                            "author": pr_model.author,
-                            "head_branch": pr_model.head_branch,
-                            "base_branch": pr_model.base_branch,
-                            "html_url": pr_model.html_url,
-                            "status": pr_model.status,
-                            "worktree_path": pr_model.worktree_path,
-                            "diff_stats": pr_model.diff_stats,
-                            "review_summary": pr_model.review_summary
-                        })
-                    
-                    # Also update task repo info
                     task_stmt = select(TaskModel).where(TaskModel.id == ctx.task_id)
                     task_res = await session.execute(task_stmt)
                     task_obj = task_res.scalars().first()
                     if task_obj:
                         task_obj.repo_name = repo_full_name
                         task_obj.repo_url = clone_url
-                        task_obj.sandbox_status = "ACTIVE"
                     await session.commit()
             except Exception:
-                saved_pr_models = []
+                pass
 
-        if not saved_pr_models:
-            for p in enriched_prs:
-                saved_pr_models.append({
-                    "id": f"pr-{ctx.task_id}-{p.get('number')}",
-                    "task_id": ctx.task_id,
-                    "pr_number": p.get("number", 0),
-                    "title": p.get("title", ""),
-                    "author": p.get("user", {}).get("login", "") if isinstance(p.get("user"), dict) else str(p.get("user") or ""),
-                    "head_branch": p.get("head", {}).get("ref", "") if isinstance(p.get("head"), dict) else str(p.get("head") or ""),
-                    "base_branch": p.get("base", {}).get("ref", "main") if isinstance(p.get("base"), dict) else "main",
-                    "html_url": p.get("html_url", ""),
-                    "status": "OPEN",
-                    "worktree_path": p.get("worktree_path", ""),
-                    "diff_stats": p.get("diff_stats", {}),
-                    "review_summary": p.get("body", "")
-                })
-
-        # 5. Render Analytical Prose Briefing
+        # 4. Render Analytical Prose Briefing
         table_rows = []
-        for p in enriched_prs:
+        for p in prs:
             num = p.get("number")
-            p_title = p.get("title")
-            p_author = p.get("user", {}).get("login", "unknown") if isinstance(p.get("user"), dict) else "unknown"
+            p_title = p.get("title") or "Untitled PR"
+            p_author = p.get("user", {}).get("login", "unknown") if isinstance(p.get("user"), dict) else str(p.get("user") or "unknown")
             p_branch = p.get("head", {}).get("ref", f"pr-{num}") if isinstance(p.get("head"), dict) else f"pr-{num}"
             p_url = p.get("html_url") or f"https://github.com/{repo_full_name}/pull/{num}"
-            p_stats = p.get("diff_stats", {})
-            adds = p_stats.get("additions", 0)
-            dels = p_stats.get("deletions", 0)
-            files_count = p_stats.get("changed_files", 0)
+            p_state = (p.get("state") or "open").upper()
 
             table_rows.append(
-                f"| [#{num}]({p_url}) | **{p_title}** | `@{p_author}` | `{p_branch}` | `+{adds} / -{dels}` ({files_count} files) |"
+                f"| [#{num}]({p_url}) | **{p_title}** | `@{p_author}` | `{p_branch}` | `{p_state}` |"
             )
 
         repo_link = f"[{repo_full_name}](https://github.com/{repo_full_name})"
 
         briefing_md = (
             f"### 🔀 Open Pull Requests for {repo_link}\n\n"
-            f"Retrieved **{len(enriched_prs)} open pull requests** from `{repo_full_name}`. "
-            f"Click any PR link to preview its full description, discussion, and unified diff directly in the **Web & Docs** Reader.\n\n"
-            f"| PR | Title | Author | Branch | Changeset |\n"
+            f"Retrieved **{len(prs)} open pull requests** from `{repo_full_name}`. "
+            f"Click any PR link to view its full discussion, metadata, and accurate unified diff in the **Web & Docs** Reader.\n\n"
+            f"| PR | Title | Author | Branch | Status |\n"
             f"| :--- | :--- | :--- | :--- | :--- |\n" +
             "\n".join(table_rows) + "\n\n"
             f"#### Next Actions\n"
-            f"- **Inspect Unified Diff**: Click on any PR link above to open its diff and metadata in the reader pane.\n"
-            f"- **AI Code Review**: Prompt `Review PR #{enriched_prs[0].get('number', 101)}` to run a deep security and quality audit on a specific PR.\n"
-            f"- **Sandbox Testing**: Prompt `Checkout PR #{enriched_prs[0].get('number', 101)} to run tests` to create a dedicated local worktree."
+            f"- **Inspect Live PR Diff**: Click any PR link above to open its complete description and exact line additions/deletions in the reader pane.\n"
+            f"- **AI Code Review**: Prompt `Review PR #{prs[0].get('number', 101)}` to dispatch the `CodeReviewer` agent for comprehensive security, performance, and architecture audits.\n"
+            f"- **Checkout & Test**: Prompt `Checkout PR #{prs[0].get('number', 101)} to run tests` to create a dedicated local sandbox."
         )
 
         await ctx.emit_message("agent", briefing_md)
         return {
             "status": "COMPLETED",
             "handled": True,
-            "summary": f"Fetched {len(enriched_prs)} open PRs for {repo_full_name}.",
-            "prs_count": len(enriched_prs),
+            "summary": f"Fetched {len(prs)} open PRs for {repo_full_name}.",
+            "prs_count": len(prs),
             "final_output": briefing_md
         }
 
