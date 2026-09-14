@@ -63,9 +63,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [sessionSearchQuery, setSessionSearchQuery] = useState<string>('');
 
   const filteredTasks = useMemo(() => {
-    if (!sessionSearchQuery.trim()) return tasks;
+    const primaryTasks = tasks.filter((t) => !t.is_subsession);
+    if (!sessionSearchQuery.trim()) return primaryTasks;
     const q = sessionSearchQuery.toLowerCase();
-    return tasks.filter((t) =>
+    return primaryTasks.filter((t) =>
       (t.title && t.title.toLowerCase().includes(q)) ||
       (t.repo_name && t.repo_name.toLowerCase().includes(q)) ||
       (t.description && t.description.toLowerCase().includes(q))
@@ -82,10 +83,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
   const [isClearAllOpen, setIsClearAllOpen] = useState(false);
 
+  const primaryTasksCount = useMemo(() => tasks.filter((t) => !t.is_subsession).length, [tasks]);
+
   const toolNavItems = [
     { id: 'repositories', label: 'Repositories & Vault', icon: FolderGit2, iconClass: 'text-onedark-folder' },
     { id: 'automations', label: 'Automations & Rules', icon: Sparkles },
-    { id: 'fleet', label: 'Agent Fleet', icon: Layers, badge: tasks.length > 0 ? tasks.length : undefined },
+    { id: 'fleet', label: 'Agent Fleet', icon: Layers, badge: primaryTasksCount > 0 ? primaryTasksCount : undefined },
     { id: 'events', label: 'Event Inbox', icon: Inbox },
     { id: 'simulator', label: 'Webhook Simulator', icon: FlaskConical },
     { id: 'policies', label: 'Approval Policies', icon: ShieldCheck },

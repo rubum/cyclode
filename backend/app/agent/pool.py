@@ -43,7 +43,9 @@ class AgentTaskPool:
         repo_name: Optional[str] = None,
         repo_url: Optional[str] = None,
         target_branch: Optional[str] = None,
-        commit_sha: Optional[str] = None
+        commit_sha: Optional[str] = None,
+        is_subsession: bool = False,
+        parent_task_id: Optional[str] = None
     ) -> str:
         """
         Creates a new task in the database and dispatches it to an asynchronous worker
@@ -107,6 +109,8 @@ class AgentTaskPool:
                 repo_url=repo_url,
                 target_branch=target_branch,
                 commit_sha=commit_sha,
+                is_subsession=is_subsession,
+                parent_task_id=parent_task_id,
                 sandbox_status="PROVISIONING",
                 total_tokens=init_tokens,
                 git_branch=f"cyclode/task-{datetime.now().strftime('%Y%m%d%H%M%S')}"
@@ -126,6 +130,8 @@ class AgentTaskPool:
             "session_key": session_key,
             "repo_name": repo_name,
             "commit_sha": commit_sha,
+            "is_subsession": is_subsession,
+            "parent_task_id": parent_task_id,
             "sandbox_status": "PROVISIONING",
             "created_at": datetime.now(timezone.utc).isoformat()
         })

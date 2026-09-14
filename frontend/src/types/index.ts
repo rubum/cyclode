@@ -118,8 +118,10 @@ export interface Task {
   sandbox_status?: 'NONE' | 'PROVISIONING' | 'ACTIVE' | 'DESTROYED' | 'AUTH_REQUIRED' | 'CLONE_FAILED';
   workspace_path: string;
   git_branch?: string;
-  total_tokens: number;
+  total_tokens?: number;
   result_summary?: string;
+  is_subsession?: boolean;
+  parent_task_id?: string | null;
   created_at: string;
   updated_at: string;
   completed_at?: string;

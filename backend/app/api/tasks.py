@@ -23,6 +23,11 @@ class CreateTaskRequest(BaseModel):
     description: str = ""
     persona: str = "IssueResolver"
     model_name: Optional[str] = None
+    is_subsession: bool = False
+    parent_task_id: Optional[str] = None
+    session_key: Optional[str] = None
+    repo_name: Optional[str] = None
+    repo_url: Optional[str] = None
 
 
 class UpdateTaskTitleRequest(BaseModel):
@@ -49,6 +54,10 @@ class ApprovalActionRequest(BaseModel):
 async def list_tasks(
     status: Optional[str] = None,
     persona: Optional[str] = None,
+    parent_task_id: Optional[str] = None,
+    session_key: Optional[str] = None,
+    is_subsession: Optional[bool] = None,
+    include_subsessions: bool = False,
     limit: int = 50,
     db: AsyncSession = Depends(get_db)
 ):
@@ -65,6 +74,14 @@ async def list_tasks(
         stmt = stmt.where(TaskModel.status == status)
     if persona:
         stmt = stmt.where(TaskModel.persona == persona)
+    if is_subsession is not None:
+        stmt = stmt.where(TaskModel.is_subsession == is_subsession)
+    elif parent_task_id:
+        stmt = stmt.where(TaskModel.parent_task_id == parent_task_id)
+    elif session_key:
+        stmt = stmt.where(TaskModel.session_key == session_key)
+    elif not include_subsessions:
+        stmt = stmt.where(TaskModel.is_subsession == False)
 
     result = await db.execute(stmt)
     tasks = result.scalars().all()
@@ -84,6 +101,8 @@ async def list_tasks(
             "repo_url": t.repo_url,
             "target_branch": t.target_branch,
             "commit_sha": t.commit_sha,
+            "is_subsession": getattr(t, "is_subsession", False),
+            "parent_task_id": getattr(t, "parent_task_id", None),
             "sandbox_status": t.sandbox_status,
             "workspace_path": t.workspace_path,
             "git_branch": t.git_branch,
@@ -117,25 +136,29 @@ async def list_tasks(
 @router.post("")
 async def create_task(req: CreateTaskRequest):
     import re
-    repo_url = None
-    repo_name = None
-    combined_text = f"{req.title} {req.description}"
-    repo_match = re.search(r"(https?://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?)", combined_text, re.IGNORECASE)
-    if repo_match:
-        raw_url = repo_match.group(1).rstrip("/")
-        if raw_url.endswith(".git"):
-            raw_url = raw_url[:-4]
-        repo_url = raw_url
-        if "github.com/" in repo_url:
-            repo_name = repo_url.split("github.com/")[-1]
+    repo_url = req.repo_url
+    repo_name = req.repo_name
+    if not repo_url:
+        combined_text = f"{req.title} {req.description}"
+        repo_match = re.search(r"(https?://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?)", combined_text, re.IGNORECASE)
+        if repo_match:
+            raw_url = repo_match.group(1).rstrip("/")
+            if raw_url.endswith(".git"):
+                raw_url = raw_url[:-4]
+            repo_url = raw_url
+            if "github.com/" in repo_url and not repo_name:
+                repo_name = repo_url.split("github.com/")[-1]
 
     task_id = await agent_pool.spawn_task(
         title=req.title,
         description=req.description,
         persona=req.persona,
         model_name=req.model_name,
+        session_key=req.session_key,
         repo_name=repo_name,
-        repo_url=repo_url
+        repo_url=repo_url,
+        is_subsession=req.is_subsession,
+        parent_task_id=req.parent_task_id
     )
     return {"ok": True, "task_id": task_id}
 
@@ -172,6 +195,8 @@ async def get_task_details(task_id: str, db: AsyncSession = Depends(get_db)):
         "repo_url": task.repo_url,
         "target_branch": task.target_branch,
         "commit_sha": task.commit_sha,
+        "is_subsession": getattr(task, "is_subsession", False),
+        "parent_task_id": getattr(task, "parent_task_id", None),
         "sandbox_status": task.sandbox_status,
         "workspace_path": task.workspace_path,
         "git_branch": task.git_branch,

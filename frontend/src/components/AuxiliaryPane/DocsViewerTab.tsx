@@ -1480,6 +1480,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
           author={data.author}
           headBranch={data.head_branch}
           baseBranch={data.base_branch}
+          parentTaskId={task?.id}
           activeLineComment={activeLineComment}
           onClearActiveLineComment={() => setActiveLineComment(null)}
           onNavigateToFileLine={(filename, line) => {

@@ -56,6 +56,9 @@ class TaskModel(Base):
     total_tokens: Mapped[int] = mapped_column(Integer, default=0)
     result_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
+    is_subsession: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    parent_task_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=True, index=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now, onupdate=get_utc_now)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
@@ -66,6 +69,19 @@ class TaskModel(Base):
     approvals: Mapped[List["TaskApprovalModel"]] = relationship("TaskApprovalModel", back_populates="task", cascade="all, delete-orphan")
     diffs: Mapped[List["TaskDiffModel"]] = relationship("TaskDiffModel", back_populates="task", cascade="all, delete-orphan")
     prs: Mapped[List["TaskPRModel"]] = relationship("TaskPRModel", back_populates="task", cascade="all, delete-orphan")
+    
+    subsessions: Mapped[List["TaskModel"]] = relationship(
+        "TaskModel",
+        back_populates="parent_task",
+        cascade="all, delete-orphan",
+        foreign_keys=[parent_task_id]
+    )
+    parent_task: Mapped[Optional["TaskModel"]] = relationship(
+        "TaskModel",
+        back_populates="subsessions",
+        remote_side=[id],
+        foreign_keys=[parent_task_id]
+    )
 
 
 class TaskPRModel(Base):

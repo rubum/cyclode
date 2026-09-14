@@ -20,9 +20,11 @@ import {
   CheckCircle2,
   MessageSquarePlus,
   RefreshCw,
+  RotateCcw,
   Maximize2,
   Minimize2,
-  Move
+  Move,
+  Plus
 } from 'lucide-react';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { useWebSocket } from '../../contexts/WebSocketContext';
@@ -43,6 +45,7 @@ interface PRReviewAgentPopoverProps {
   author?: string;
   headBranch?: string;
   baseBranch?: string;
+  parentTaskId?: string | null;
   activeLineComment?: LineContext | null;
   onClearActiveLineComment?: () => void;
   onNavigateToFileLine?: (filename: string, line: number) => void;
@@ -59,6 +62,7 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
   author,
   headBranch,
   baseBranch,
+  parentTaskId,
   activeLineComment,
   onClearActiveLineComment,
   onNavigateToFileLine
@@ -80,6 +84,42 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const { subscribe } = useWebSocket();
+
+  // Auto-resume existing review sub-session for this PR if available
+  useEffect(() => {
+    if (!isOpen || !repoName || !prNumber) return;
+
+    let isMounted = true;
+    const sessionKey = `review:${repoName}:pr:${prNumber}`;
+
+    const fetchExistingReviewSession = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/tasks?session_key=${encodeURIComponent(sessionKey)}&limit=1`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.length > 0 && isMounted) {
+            const existingTask = data[0];
+            setTaskId(existingTask.id);
+            const detailsRes = await fetch(`${API_BASE}/api/tasks/${existingTask.id}`);
+            if (detailsRes.ok && isMounted) {
+              const details = await detailsRes.json();
+              if (details.messages && Array.isArray(details.messages)) {
+                setMessages(details.messages);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load existing review sub-session:', err);
+      }
+    };
+
+    fetchExistingReviewSession();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, repoName, prNumber]);
 
   // Synchronize attached line context from props
   useEffect(() => {
@@ -224,13 +264,18 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
 
     setIsInitializing(true);
     try {
+      const sessionKey = `review:${repoName}:pr:${prNumber}`;
       const res = await fetch(`${API_BASE}/api/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: `Code Review: ${repoName} #${prNumber} - ${prTitle}`,
           description: `Interactive Code Review session for ${repoName} Pull Request #${prNumber} (${prTitle}). Head: ${headBranch || 'unknown'}, Base: ${baseBranch || 'main'}, Author: @${author || 'unknown'}.`,
-          persona: 'CodeReviewer'
+          persona: 'CodeReviewer',
+          session_key: sessionKey,
+          is_subsession: true,
+          parent_task_id: parentTaskId || null,
+          repo_name: repoName
         })
       });
 
@@ -368,6 +413,16 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
         </div>
 
         <div className="flex items-center space-x-1 flex-shrink-0">
+          <button
+            onClick={() => {
+              setTaskId(null);
+              setMessages([]);
+            }}
+            className="p-1 rounded hover:bg-onedark-bg text-onedark-muted hover:text-onedark-fg transition-colors"
+            title="Start new review thread"
+          >
+            <Plus className="w-3.5 h-3.5" />
+          </button>
           <button
             onClick={() => setIsExpanded(!isExpanded)}
             className="p-1 rounded hover:bg-onedark-bg text-onedark-muted hover:text-onedark-fg transition-colors"

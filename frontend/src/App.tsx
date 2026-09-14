@@ -174,8 +174,8 @@ const MainApp: React.FC = () => {
   useEffect(() => {
     const unsubTaskCreated = subscribe('TASK_CREATED', (data: any) => {
       fetchTasks();
-      // Only auto-focus newly created task if no task is currently active or if user was waiting on a temp task
-      if (!activeTaskIdRef.current || activeTaskIdRef.current.startsWith('temp-')) {
+      // Only auto-focus newly created task if not a subsession AND (if no task is currently active or if user was waiting on a temp task)
+      if (!data.is_subsession && (!activeTaskIdRef.current || activeTaskIdRef.current.startsWith('temp-'))) {
         setActiveTaskId(data.id);
         setActiveView('chat');
       }
