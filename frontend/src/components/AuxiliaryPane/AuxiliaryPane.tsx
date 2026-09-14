@@ -7,6 +7,7 @@ import { SubagentsTab } from './SubagentsTab';
 import { EventInspectorTab } from './EventInspectorTab';
 import { FilesExplorerTab } from './FilesExplorerTab';
 import { DocsViewerTab } from './DocsViewerTab';
+import { ErrorBoundary } from '../Common/ErrorBoundary';
 
 interface AuxiliaryPaneProps {
   task: Task | null;
@@ -103,25 +104,27 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
 
       {/* Tab body */}
       <div className="flex-1 overflow-hidden">
-        {activeTab === 'docs' && (
-          <DocsViewerTab
-            url={previewTarget?.url || null}
-            initialTitle={previewTarget?.title}
-            onClear={onClearPreview}
-            onAskAboutRepo={onAskAboutRepo}
-            onCloneToSession={onCloneToSession}
-          />
-        )}
-        {activeTab === 'files' && task && <FilesExplorerTab task={task} />}
-        {activeTab === 'files' && !task && (
-          <div className="h-full flex items-center justify-center text-xs text-onedark-muted font-mono">
-            No active task selected
-          </div>
-        )}
-        {activeTab === 'diff' && <DiffViewerTab diffs={task?.diffs} />}
-        {activeTab === 'activity' && <TerminalTab logs={task?.logs} />}
-        {activeTab === 'subagents' && <SubagentsTab task={task} />}
-        {activeTab === 'event' && <EventInspectorTab task={task} />}
+        <ErrorBoundary key={activeTab} fallbackTitle={`Error Loading ${activeTab.toUpperCase()} Tab`}>
+          {activeTab === 'docs' && (
+            <DocsViewerTab
+              url={previewTarget?.url || null}
+              initialTitle={previewTarget?.title}
+              onClear={onClearPreview}
+              onAskAboutRepo={onAskAboutRepo}
+              onCloneToSession={onCloneToSession}
+            />
+          )}
+          {activeTab === 'files' && task && <FilesExplorerTab task={task} />}
+          {activeTab === 'files' && !task && (
+            <div className="h-full flex items-center justify-center text-xs text-onedark-muted font-mono">
+              No active task selected
+            </div>
+          )}
+          {activeTab === 'diff' && <DiffViewerTab diffs={task?.diffs} />}
+          {activeTab === 'activity' && <TerminalTab logs={task?.logs} />}
+          {activeTab === 'subagents' && <SubagentsTab task={task} />}
+          {activeTab === 'event' && <EventInspectorTab task={task} />}
+        </ErrorBoundary>
       </div>
     </div>
   );

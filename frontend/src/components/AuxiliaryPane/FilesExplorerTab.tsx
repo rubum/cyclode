@@ -24,7 +24,7 @@ interface SandboxInfo {
   repo_url?: string;
   target_branch?: string;
   commit_sha?: string;
-  file_tree: FileNode[];
+  file_tree?: FileNode[];
   file_count: number;
   total_size_bytes: number;
 }
@@ -97,12 +97,12 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
       const json: SandboxInfo = await res.json();
       setData(json);
 
-      if (json.file_tree && json.file_tree.length > 0) {
+      if (json.file_tree && Array.isArray(json.file_tree) && json.file_tree.length > 0) {
         setSelectedFile((prev) => {
-          if (prev && fileExistsInTree(json.file_tree, prev)) {
+          if (prev && fileExistsInTree(json.file_tree!, prev)) {
             return prev;
           }
-          return findPreferredOrFirstFile(json.file_tree);
+          return findPreferredOrFirstFile(json.file_tree!);
         });
       }
     } catch (err: any) {
@@ -145,7 +145,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
   const isCurrentlyProvisioning = 
     task.sandbox_status === 'PROVISIONING' || 
     task.status === 'INITIALIZING' || 
-    (data && data.sandbox_status === 'PROVISIONING' && (!data.file_tree || data.file_tree.length === 0));
+    (data && data.sandbox_status === 'PROVISIONING' && (!data.file_tree || !Array.isArray(data.file_tree) || data.file_tree.length === 0));
 
   if (isCurrentlyProvisioning) {
     return (
@@ -206,7 +206,9 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
     );
   }
 
-  if (!data || data.file_tree.length === 0) {
+  const fileTree = Array.isArray(data?.file_tree) ? data.file_tree : [];
+
+  if (!data || fileTree.length === 0) {
     const isDestroyed = task.sandbox_status === 'DESTROYED' || data?.sandbox_status === 'DESTROYED';
     const isNoRepo = !task.repo_name && !task.repo_url;
     return (
@@ -233,7 +235,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
       {/* Left Tree Explorer */}
       <div className="w-full md:w-72 lg:w-80 h-1/2 md:h-full border-b md:border-b-0 md:border-r border-onedark-borderSubtle flex-shrink-0">
         <FileTreeExplorer
-          tree={data.file_tree}
+          tree={fileTree}
           selectedFile={selectedFile}
           onSelectFile={(path) => setSelectedFile(path)}
           title="Sandbox Files"
@@ -246,7 +248,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
           taskId={task.id}
           filePath={selectedFile}
           onFileNotFound={() => {
-            const fallback = findPreferredOrFirstFile(data.file_tree);
+            const fallback = findPreferredOrFirstFile(fileTree);
             if (fallback) setSelectedFile(fallback);
           }}
         />

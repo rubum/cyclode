@@ -446,6 +446,38 @@ async def get_task_sandbox_info(task_id: str, db: AsyncSession = Depends(get_db)
             except Exception:
                 host_path = f"{host_root.rstrip('/')}/{ws_path.name}"
 
+    def build_tree(current_path: Path, max_depth: int = 4, current_depth: int = 0) -> List[Dict[str, Any]]:
+        if not current_path.exists() or current_depth >= max_depth:
+            return []
+        items = []
+        try:
+            for p in sorted(current_path.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
+                if p.name in (".git", "__pycache__", ".pytest_cache", "node_modules", "dist", "build", ".gemini", ".next", ".cache"):
+                    continue
+                rel = str(p.relative_to(ws_path)) if ws_path else p.name
+                if p.is_dir():
+                    children = build_tree(p, max_depth, current_depth + 1)
+                    items.append({
+                        "name": p.name,
+                        "path": rel,
+                        "is_dir": True,
+                        "type": "directory",
+                        "children": children
+                    })
+                else:
+                    items.append({
+                        "name": p.name,
+                        "path": rel,
+                        "is_dir": False,
+                        "type": "file",
+                        "size": p.stat().st_size
+                    })
+        except Exception:
+            pass
+        return items
+
+    file_tree = build_tree(ws_path) if (exists and ws_path) else []
+
     cli_command = f'docker exec -it adappty-backend bash -c "cd {container_path} && exec bash"' if container_path else ""
 
     return {
@@ -459,6 +491,7 @@ async def get_task_sandbox_info(task_id: str, db: AsyncSession = Depends(get_db)
         "repo_url": task.repo_url,
         "target_branch": task.target_branch,
         "commit_sha": task.commit_sha,
+        "file_tree": file_tree,
         "file_count": total_files,
         "total_size_bytes": total_bytes,
         "top_directories": top_directories[:10],
