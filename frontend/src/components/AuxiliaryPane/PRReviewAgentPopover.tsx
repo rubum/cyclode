@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   Bot, 
   Send, 
@@ -19,7 +19,10 @@ import {
   FileCode2,
   CheckCircle2,
   MessageSquarePlus,
-  RefreshCw
+  RefreshCw,
+  Maximize2,
+  Minimize2,
+  Move
 } from 'lucide-react';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { useWebSocket } from '../../contexts/WebSocketContext';
@@ -45,7 +48,7 @@ interface PRReviewAgentPopoverProps {
   onNavigateToFileLine?: (filename: string, line: number) => void;
 }
 
-const API_BASE = '/api';
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
   isOpen,
@@ -69,6 +72,10 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
   const [isExpanded, setIsExpanded] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [attachedContext, setAttachedContext] = useState<LineContext | null>(null);
+
+  // Resizable dimension state
+  const [size, setSize] = useState<{ width: number; height: number }>({ width: 520, height: 640 });
+  const [isResizing, setIsResizing] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -94,6 +101,43 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
   useEffect(() => {
     scrollToBottom();
   }, [messages, isLoading]);
+
+  // Handle popover drag resizing
+  const startResize = useCallback((e: React.MouseEvent, direction: 'top' | 'left' | 'top-left') => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsResizing(true);
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const startW = size.width;
+    const startH = size.height;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      let newW = startW;
+      let newH = startH;
+
+      if (direction === 'left' || direction === 'top-left') {
+        const dx = startX - moveEvent.clientX;
+        newW = Math.min(Math.max(380, startW + dx), window.innerWidth - 32);
+      }
+      if (direction === 'top' || direction === 'top-left') {
+        const dy = startY - moveEvent.clientY;
+        newH = Math.min(Math.max(380, startH + dy), window.innerHeight - 32);
+      }
+
+      setSize({ width: newW, height: newH });
+    };
+
+    const onMouseUp = () => {
+      setIsResizing(false);
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  }, [size]);
 
   // Subscribe to WebSocket streaming events for active review task
   useEffect(() => {
@@ -180,7 +224,7 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
 
     setIsInitializing(true);
     try {
-      const res = await fetch(`${API_BASE}/tasks`, {
+      const res = await fetch(`${API_BASE}/api/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -232,11 +276,14 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
 
     try {
       const activeId = await ensureReviewTask();
-      await fetch(`${API_BASE}/tasks/${activeId}/message`, {
+      const res = await fetch(`${API_BASE}/api/tasks/${activeId}/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: finalPrompt })
       });
+      if (!res.ok) {
+        throw new Error(`HTTP error ${res.status}`);
+      }
     } catch (err) {
       console.error('Error dispatching reviewer message:', err);
       setIsLoading(false);
@@ -274,12 +321,33 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
 
   return (
     <div 
-      className={`fixed z-50 flex flex-col bg-onedark-darker border border-onedark-border shadow-2xl rounded-2xl overflow-hidden transition-all duration-200 animate-in fade-in slide-in-from-bottom-3 ${
-        isExpanded 
-          ? 'bottom-4 right-4 w-[760px] max-w-[95vw] h-[85vh]' 
-          : 'bottom-4 right-4 w-[480px] max-w-[92vw] h-[640px] max-h-[85vh]'
+      style={{
+        width: isExpanded ? 'min(820px, 95vw)' : `${size.width}px`,
+        height: isExpanded ? 'min(85vh, 900px)' : `${size.height}px`
+      }}
+      className={`fixed z-50 flex flex-col bg-onedark-darker border border-onedark-border shadow-2xl rounded-2xl overflow-hidden bottom-4 right-4 animate-in fade-in slide-in-from-bottom-3 ${
+        isResizing ? 'select-none transition-none' : 'transition-all duration-150'
       }`}
     >
+      {/* Resizing Edge & Corner Handles */}
+      <div
+        onMouseDown={(e) => startResize(e, 'top')}
+        className="absolute top-0 left-0 right-0 h-2.5 cursor-ns-resize z-30 hover:bg-onedark-accent/30 transition-colors"
+        title="Drag to resize height"
+      />
+      <div
+        onMouseDown={(e) => startResize(e, 'left')}
+        className="absolute top-0 left-0 bottom-0 w-2.5 cursor-ew-resize z-30 hover:bg-onedark-accent/30 transition-colors"
+        title="Drag to resize width"
+      />
+      <div
+        onMouseDown={(e) => startResize(e, 'top-left')}
+        className="absolute top-0 left-0 w-5 h-5 cursor-nwse-resize z-40 flex items-center justify-center p-0.5 group/grip"
+        title="Drag corner to resize width & height"
+      >
+        <div className="w-2.5 h-2.5 border-t-2 border-l-2 border-onedark-muted/60 group-hover/grip:border-onedark-accent rounded-tl-sm transition-colors" />
+      </div>
+
       {/* Header Bar */}
       <div className="flex items-center justify-between px-3.5 py-2.5 bg-onedark-surface/90 border-b border-onedark-border select-none flex-shrink-0">
         <div className="flex items-center space-x-2 truncate">
@@ -303,9 +371,9 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
           <button
             onClick={() => setIsExpanded(!isExpanded)}
             className="p-1 rounded hover:bg-onedark-bg text-onedark-muted hover:text-onedark-fg transition-colors"
-            title={isExpanded ? "Collapse to standard size" : "Expand reviewer window"}
+            title={isExpanded ? "Collapse to custom size" : "Expand reviewer window"}
           >
-            {isExpanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
+            {isExpanded ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
           </button>
           <button
             onClick={onClose}
