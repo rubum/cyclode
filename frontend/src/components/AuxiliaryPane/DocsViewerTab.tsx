@@ -20,6 +20,10 @@ import {
   ListTree, 
   Search,
   FileText,
+  FileCode2,
+  GitCommit,
+  User,
+  Clock,
   Loader2
 } from 'lucide-react';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
@@ -37,12 +41,50 @@ export interface DocSearchResult {
   snippet: string;
 }
 
+export interface PRFileItem {
+  filename: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  changes: number;
+  patch?: string;
+  raw_url?: string;
+  blob_url?: string;
+}
+
+export interface PRCommitItem {
+  sha: string;
+  short_sha: string;
+  message: string;
+  full_message?: string;
+  author_name: string;
+  author_login?: string;
+  author_avatar?: string;
+  date?: string;
+  html_url?: string;
+}
+
 interface ReaderResponse {
   type: 'github' | 'web';
+  is_pr?: boolean;
   url: string;
   title: string;
   description?: string;
   content_markdown: string;
+  overview_markdown?: string;
+  diff_text?: string;
+  files?: PRFileItem[];
+  commits?: PRCommitItem[];
+  pr_number?: number;
+  pr_title?: string;
+  state?: string;
+  author?: string;
+  author_avatar?: string;
+  head_branch?: string;
+  base_branch?: string;
+  additions?: number;
+  deletions?: number;
+  changed_files_count?: number;
   navigation?: DocNavItem[];
   repo_name?: string;
   stars?: number;
@@ -162,6 +204,338 @@ const renderHighlightedSnippet = (snippet: string, query: string) => {
   );
 };
 
+interface PRDiffSectionProps {
+  files: PRFileItem[];
+  diffText?: string;
+}
+
+const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText }) => {
+  const [filterQuery, setFilterQuery] = useState('');
+  const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
+  const [copiedFile, setCopiedFile] = useState<string | null>(null);
+
+  const filteredFiles = useMemo(() => {
+    if (!filterQuery.trim()) return files;
+    const q = filterQuery.toLowerCase();
+    return files.filter(f => f.filename.toLowerCase().includes(q));
+  }, [files, filterQuery]);
+
+  const toggleCollapse = (filename: string) => {
+    setCollapsedFiles(prev => {
+      const next = new Set(prev);
+      if (next.has(filename)) {
+        next.delete(filename);
+      } else {
+        next.add(filename);
+      }
+      return next;
+    });
+  };
+
+  const expandAll = () => setCollapsedFiles(new Set());
+  const collapseAll = () => setCollapsedFiles(new Set(files.map(f => f.filename)));
+
+  const handleCopyPath = (filename: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(filename);
+    setCopiedFile(filename);
+    setTimeout(() => setCopiedFile(null), 1500);
+  };
+
+  const totalAdditions = useMemo(() => files.reduce((acc, f) => acc + (f.additions || 0), 0), [files]);
+  const totalDeletions = useMemo(() => files.reduce((acc, f) => acc + (f.deletions || 0), 0), [files]);
+
+  if (files.length === 0 && diffText) {
+    return (
+      <div className="space-y-3 font-mono text-xs select-text">
+        <div className="p-2.5 bg-onedark-surface/40 border border-onedark-borderSubtle rounded-lg flex items-center justify-between">
+          <span className="text-onedark-fgBright text-xs font-semibold font-sans">Raw Unified Diff</span>
+        </div>
+        <div className="p-3 rounded-lg border border-onedark-border bg-onedark-darker overflow-x-auto text-[11.5px] leading-relaxed">
+          {diffText.split('\n').map((line, idx) => {
+            const isAddition = line.startsWith('+') && !line.startsWith('+++');
+            const isDeletion = line.startsWith('-') && !line.startsWith('---');
+            const isHeader = line.startsWith('@@') || line.startsWith('diff --git');
+            return (
+              <div
+                key={idx}
+                className={`px-1 py-0.5 rounded-sm ${
+                  isAddition
+                    ? 'diff-addition'
+                    : isDeletion
+                    ? 'diff-deletion'
+                    : isHeader
+                    ? 'text-onedark-purple bg-onedark-surface/30 font-semibold'
+                    : 'text-onedark-fg'
+                }`}
+              >
+                <pre className="font-mono whitespace-pre">{line || ' '}</pre>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  if (files.length === 0) {
+    return (
+      <div className="p-8 text-center text-xs text-onedark-muted font-sans leading-relaxed select-none">
+        No modified files recorded for this pull request.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 select-text">
+      {/* Diff Toolbar */}
+      <div className="p-2.5 bg-onedark-surface/60 border border-onedark-borderSubtle rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs select-none">
+        {/* Search / Filter input */}
+        <div className="flex items-center space-x-1.5 bg-onedark-bg rounded-lg px-2.5 py-1 border border-onedark-borderSubtle flex-1 min-w-[180px] max-w-sm">
+          <Search className="w-3.5 h-3.5 text-onedark-muted flex-shrink-0" />
+          <input
+            type="text"
+            value={filterQuery}
+            onChange={(e) => setFilterQuery(e.target.value)}
+            placeholder="Filter files by path or extension..."
+            className="w-full bg-transparent border-none text-xs text-onedark-fg focus:outline-none placeholder:text-onedark-muted/60"
+          />
+          {filterQuery && (
+            <button onClick={() => setFilterQuery('')} className="text-onedark-muted hover:text-onedark-fg cursor-pointer">
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+
+        {/* Stats & Actions */}
+        <div className="flex items-center space-x-2 text-[11px]">
+          <div className="flex items-center space-x-1 px-2 py-0.5 rounded-md bg-onedark-bg border border-onedark-borderSubtle font-mono">
+            <span className="text-onedark-green font-semibold">+{totalAdditions.toLocaleString()}</span>
+            <span className="text-onedark-muted">/</span>
+            <span className="text-onedark-red font-semibold">-{totalDeletions.toLocaleString()}</span>
+          </div>
+
+          <span className="text-onedark-muted font-mono">
+            {filteredFiles.length} / {files.length} files
+          </span>
+
+          <div className="flex items-center space-x-1 border-l border-onedark-border pl-2">
+            <button
+              onClick={expandAll}
+              className="px-2 py-1 rounded bg-onedark-surface hover:bg-onedark-surface/80 text-onedark-fg hover:text-onedark-fgBright transition-colors cursor-pointer text-[11px]"
+              title="Expand all file diffs"
+            >
+              Expand All
+            </button>
+            <button
+              onClick={collapseAll}
+              className="px-2 py-1 rounded bg-onedark-surface hover:bg-onedark-surface/80 text-onedark-muted hover:text-onedark-fg transition-colors cursor-pointer text-[11px]"
+              title="Collapse all file diffs"
+            >
+              Collapse All
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Per-File Diff Cards */}
+      {filteredFiles.length === 0 ? (
+        <div className="p-8 text-center text-xs text-onedark-muted font-sans select-none">
+          No changed files match "{filterQuery}"
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filteredFiles.map((f, fileIdx) => {
+            const isCollapsed = collapsedFiles.has(f.filename);
+            const statusColor = 
+              f.status === 'added' ? 'text-onedark-green bg-onedark-green/15 border-onedark-green/30' :
+              f.status === 'deleted' ? 'text-onedark-red bg-onedark-red/15 border-onedark-red/30' :
+              'text-onedark-yellow bg-onedark-yellow/15 border-onedark-yellow/30';
+            const statusLabel = 
+              f.status === 'added' ? 'ADD' :
+              f.status === 'deleted' ? 'DEL' :
+              'MOD';
+
+            return (
+              <div key={`${f.filename}-${fileIdx}`} className="rounded-xl border border-onedark-border bg-onedark-darker overflow-hidden shadow-xs">
+                {/* File Header */}
+                <div 
+                  onClick={() => toggleCollapse(f.filename)}
+                  className="px-3 py-2 bg-onedark-surface/80 border-b border-onedark-border flex items-center justify-between cursor-pointer hover:bg-onedark-surface transition-colors select-none"
+                >
+                  <div className="flex items-center space-x-2 truncate flex-1 min-w-0 pr-2">
+                    <button className="text-onedark-muted hover:text-onedark-fg p-0.5">
+                      <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-150 ${isCollapsed ? '-rotate-90' : ''}`} />
+                    </button>
+                    <span className={`px-1.5 py-0.2 rounded font-mono text-[9.5px] font-bold border uppercase ${statusColor}`}>
+                      {statusLabel}
+                    </span>
+                    <span className="font-mono text-xs font-semibold text-onedark-fgBright truncate" title={f.filename}>
+                      {f.filename}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center space-x-2 text-[11px] flex-shrink-0">
+                    <button
+                      onClick={(e) => handleCopyPath(f.filename, e)}
+                      className="p-1 rounded hover:bg-onedark-bg text-onedark-muted hover:text-onedark-fg transition-colors"
+                      title="Copy file path"
+                    >
+                      {copiedFile === f.filename ? <Check className="w-3 h-3 text-onedark-green" /> : <Copy className="w-3 h-3" />}
+                    </button>
+
+                    <div className="flex items-center space-x-1 font-mono text-[10.5px]">
+                      <span className="text-onedark-green font-semibold">+{f.additions || 0}</span>
+                      <span className="text-onedark-red font-semibold">-{f.deletions || 0}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* File Patch Lines */}
+                {!isCollapsed && (
+                  <div className="p-2.5 overflow-x-auto text-[11.5px] leading-relaxed font-mono bg-onedark-bg/60">
+                    {f.patch ? (
+                      f.patch.split('\n').map((line, lineIdx) => {
+                        const isAddition = line.startsWith('+') && !line.startsWith('+++');
+                        const isDeletion = line.startsWith('-') && !line.startsWith('---');
+                        const isHeader = line.startsWith('@@');
+
+                        return (
+                          <div
+                            key={lineIdx}
+                            className={`px-1.5 py-0.5 rounded-sm ${
+                              isAddition
+                                ? 'diff-addition'
+                                : isDeletion
+                                ? 'diff-deletion'
+                                : isHeader
+                                ? 'text-onedark-purple bg-onedark-surface/30 font-semibold'
+                                : 'text-onedark-fg'
+                            }`}
+                          >
+                            <pre className="font-mono whitespace-pre">{line || ' '}</pre>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="text-onedark-muted italic py-1 px-2 text-xs font-sans">
+                        Binary file change or empty patch
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
+interface PRCommitsSectionProps {
+  commits: PRCommitItem[];
+}
+
+const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ commits }) => {
+  const [copiedSha, setCopiedSha] = useState<string | null>(null);
+
+  const handleCopySha = (sha: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(sha);
+    setCopiedSha(sha);
+    setTimeout(() => setCopiedSha(null), 1500);
+  };
+
+  if (commits.length === 0) {
+    return (
+      <div className="p-8 text-center text-xs text-onedark-muted font-sans leading-relaxed select-none">
+        No individual commit records cached for this pull request.<br />
+        Open the pull request on GitHub to view full commit history.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 select-text">
+      <div className="px-3 py-2 bg-onedark-surface/50 border border-onedark-borderSubtle rounded-xl flex items-center justify-between text-xs select-none">
+        <span className="font-semibold text-onedark-fgBright">
+          Commits in this Pull Request ({commits.length})
+        </span>
+      </div>
+
+      <div className="space-y-2">
+        {commits.map((c, idx) => (
+          <div
+            key={`${c.sha}-${idx}`}
+            className="p-3 rounded-xl border border-onedark-border bg-onedark-darker hover:border-onedark-borderSubtle transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+          >
+            <div className="flex items-start space-x-2.5 min-w-0 flex-1">
+              <div className="w-6 h-6 rounded-full bg-onedark-surface border border-onedark-borderSubtle flex items-center justify-center text-onedark-accent flex-shrink-0 mt-0.5 overflow-hidden">
+                {c.author_avatar ? (
+                  <img src={c.author_avatar} alt={c.author_name} className="w-full h-full object-cover" />
+                ) : (
+                  <User className="w-3.5 h-3.5" />
+                )}
+              </div>
+
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-semibold text-onedark-fgBright leading-snug">
+                  {c.message}
+                </div>
+                {c.full_message && c.full_message !== c.message && (
+                  <div className="text-[11px] text-onedark-muted mt-0.5 line-clamp-2 leading-relaxed">
+                    {c.full_message}
+                  </div>
+                )}
+                <div className="flex items-center space-x-2 text-[11px] text-onedark-muted mt-1 font-sans">
+                  <span>@{c.author_login || c.author_name}</span>
+                  {c.date && (
+                    <>
+                      <span>•</span>
+                      <span className="flex items-center space-x-1">
+                        <Clock className="w-3 h-3" />
+                        <span>{new Date(c.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-1.5 self-end sm:self-center flex-shrink-0">
+              <button
+                onClick={(e) => handleCopySha(c.sha, e)}
+                className="flex items-center space-x-1 px-2 py-1 rounded bg-onedark-surface hover:bg-onedark-surface/80 border border-onedark-border font-mono text-[10.5px] text-onedark-muted hover:text-onedark-fg transition-colors cursor-pointer"
+                title="Copy Full Commit SHA"
+              >
+                {copiedSha === c.sha ? (
+                  <Check className="w-3 h-3 text-onedark-green" />
+                ) : (
+                  <Copy className="w-3 h-3" />
+                )}
+                <span>{c.short_sha || c.sha.slice(0, 7)}</span>
+              </button>
+
+              {c.html_url && (
+                <a
+                  href={c.html_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-accent transition-colors"
+                  title="View commit on GitHub"
+                >
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
   url,
   initialTitle,
@@ -178,6 +552,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'reader' | 'webview'>('reader');
   const [isCopied, setIsCopied] = useState<boolean>(false);
+  const [prTab, setPrTab] = useState<'overview' | 'diff' | 'commits'>('overview');
 
   const [isOutlineOpen, setIsOutlineOpen] = useState<boolean>(false);
   const [isSiteTreeOpen, setIsSiteTreeOpen] = useState<boolean>(false);
@@ -206,6 +581,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
   const fetchDoc = async (targetUrl: string) => {
     setIsLoading(true);
     setError(null);
+    setPrTab('overview');
     try {
       const apiBase = import.meta.env.VITE_API_URL || '';
       const res = await fetch(`${apiBase}/api/reader?url=${encodeURIComponent(targetUrl)}`);
@@ -582,8 +958,129 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
         </div>
       </div>
 
-      {/* GitHub Repository Header Bar */}
-      {data?.type === 'github' && (
+      {/* GitHub PR Specific Hero Header & Sub-Tab Bar */}
+      {data?.type === 'github' && data.is_pr && (
+        <div className="bg-onedark-surface/30 border-b border-onedark-borderSubtle select-none flex-shrink-0">
+          {/* PR Metadata Summary Bar */}
+          <div className="px-3 py-2 flex flex-wrap items-center justify-between gap-2 border-b border-onedark-borderSubtle/60 text-xs">
+            <div className="flex flex-wrap items-center gap-2 min-w-0">
+              {/* Status Badge */}
+              <span className={`px-2 py-0.5 rounded-full font-mono text-[10.5px] font-bold border uppercase ${
+                data.state === 'MERGED'
+                  ? 'bg-onedark-purple/20 text-onedark-purple border-onedark-purple/40'
+                  : data.state === 'CLOSED'
+                  ? 'bg-onedark-red/20 text-onedark-red border-onedark-red/40'
+                  : 'bg-onedark-green/20 text-onedark-green border-onedark-green/40'
+              }`}>
+                {data.state === 'MERGED' ? '● Merged' : data.state === 'CLOSED' ? '● Closed' : '● Open'}
+              </span>
+
+              {/* Author */}
+              {data.author && (
+                <span className="text-onedark-muted flex items-center space-x-1">
+                  <span>by</span>
+                  <span className="font-semibold text-onedark-fgBright">@{data.author}</span>
+                </span>
+              )}
+
+              {/* Branch Flow */}
+              {data.head_branch && data.base_branch && (
+                <div className="flex items-center space-x-1 font-mono text-[11px] bg-onedark-bg/80 px-2 py-0.5 rounded border border-onedark-borderSubtle">
+                  <span className="text-onedark-accent font-semibold">{data.head_branch}</span>
+                  <span className="text-onedark-muted">➔</span>
+                  <span className="text-onedark-muted">{data.base_branch}</span>
+                </div>
+              )}
+
+              {/* Additions / Deletions */}
+              {(data.additions !== undefined || data.deletions !== undefined) && (
+                <div className="flex items-center space-x-1 font-mono text-[11px]">
+                  <span className="text-onedark-green font-semibold">+{data.additions?.toLocaleString() || 0}</span>
+                  <span className="text-onedark-muted">/</span>
+                  <span className="text-onedark-red font-semibold">-{data.deletions?.toLocaleString() || 0}</span>
+                </div>
+              )}
+            </div>
+
+            {/* PR Action Buttons */}
+            <div className="flex items-center space-x-1.5">
+              {onAskAboutRepo && (
+                <button
+                  onClick={() => onAskAboutRepo(`Review and test pull request ${data.repo_name || ''} #${data.pr_number || ''}: ${data.pr_title || data.title}`)}
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-onedark-surface hover:bg-onedark-surface/80 border border-onedark-border text-onedark-fgBright text-[11px] font-medium transition-all cursor-pointer shadow-xs"
+                  title="Ask Agent to review and test this pull request"
+                >
+                  <MessageSquare className="w-3.5 h-3.5 text-onedark-accent" />
+                  <span>Review with Agent</span>
+                </button>
+              )}
+
+              {onCloneToSession && data.clone_url && (
+                <button
+                  onClick={() => onCloneToSession(data.clone_url!, data.repo_name || '')}
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-onedark-accent/20 hover:bg-onedark-accent/30 border border-onedark-accent/40 text-onedark-accent text-[11px] font-semibold transition-all cursor-pointer shadow-xs"
+                  title="Clone PR repository into current session sandbox"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Clone to Session</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Sub-Tab Navigation */}
+          <div className="flex items-center px-3 pt-1 space-x-1">
+            <button
+              onClick={() => setPrTab('overview')}
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-t-md text-xs font-medium border-b-2 transition-all cursor-pointer ${
+                prTab === 'overview'
+                  ? 'border-onedark-accent text-onedark-fgBright bg-onedark-darker font-semibold'
+                  : 'border-transparent text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
+              }`}
+            >
+              <FileText className="w-3.5 h-3.5 text-onedark-accent" />
+              <span>Overview</span>
+            </button>
+
+            <button
+              onClick={() => setPrTab('diff')}
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-t-md text-xs font-medium border-b-2 transition-all cursor-pointer ${
+                prTab === 'diff'
+                  ? 'border-onedark-accent text-onedark-fgBright bg-onedark-darker font-semibold'
+                  : 'border-transparent text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
+              }`}
+            >
+              <FileCode2 className="w-3.5 h-3.5 text-onedark-blue" />
+              <span>Files Changed</span>
+              {(data.files?.length || data.changed_files_count || 0) > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-onedark-surface text-[10px] font-mono text-onedark-fgBright">
+                  {data.files?.length || data.changed_files_count}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setPrTab('commits')}
+              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-t-md text-xs font-medium border-b-2 transition-all cursor-pointer ${
+                prTab === 'commits'
+                  ? 'border-onedark-accent text-onedark-fgBright bg-onedark-darker font-semibold'
+                  : 'border-transparent text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
+              }`}
+            >
+              <GitCommit className="w-3.5 h-3.5 text-onedark-purple" />
+              <span>Commits</span>
+              {(data.commits?.length || 0) > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full bg-onedark-surface text-[10px] font-mono text-onedark-fgBright">
+                  {data.commits?.length}
+                </span>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* GitHub Standard Repository Header Bar */}
+      {data?.type === 'github' && !data.is_pr && (
         <div className="px-3 py-2 bg-onedark-surface/40 border-b border-onedark-borderSubtle flex flex-wrap items-center justify-between gap-2 text-xs flex-shrink-0">
           <div className="flex items-center space-x-2">
             {data.language && (
@@ -800,9 +1297,24 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
           )}
 
           {!isLoading && !error && viewMode === 'reader' && data && (
-            <div className="prose prose-invert max-w-none text-onedark-fg text-[13.5px] leading-relaxed">
-              <MarkdownRenderer content={data.content_markdown} onLinkClick={(nextUrl) => navigateTo(nextUrl)} />
-            </div>
+            data.is_pr ? (
+              prTab === 'overview' ? (
+                <div className="prose prose-invert max-w-none text-onedark-fg text-[13.5px] leading-relaxed">
+                  <MarkdownRenderer
+                    content={data.overview_markdown || data.content_markdown}
+                    onLinkClick={(nextUrl) => navigateTo(nextUrl)}
+                  />
+                </div>
+              ) : prTab === 'diff' ? (
+                <PRDiffSection files={data.files || []} diffText={data.diff_text} />
+              ) : (
+                <PRCommitsSection commits={data.commits || []} />
+              )
+            ) : (
+              <div className="prose prose-invert max-w-none text-onedark-fg text-[13.5px] leading-relaxed">
+                <MarkdownRenderer content={data.content_markdown} onLinkClick={(nextUrl) => navigateTo(nextUrl)} />
+              </div>
+            )
           )}
 
           {!isLoading && !error && viewMode === 'webview' && (

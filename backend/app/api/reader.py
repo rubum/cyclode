@@ -581,9 +581,43 @@ async def _fetch_github_repo_info(owner: str, repo: str) -> Dict[str, Any]:
         }
 
 
+def _parse_diff_to_files(diff_text: str) -> List[Dict[str, Any]]:
+    """Parses unified diff text into structured file change records."""
+    files: List[Dict[str, Any]] = []
+    if not diff_text or not diff_text.strip():
+        return files
+
+    chunks = re.split(r"(^diff --git a/.*? b/.*?$)", diff_text, flags=re.MULTILINE)
+    for i in range(1, len(chunks), 2):
+        header = chunks[i].strip()
+        body = chunks[i + 1] if i + 1 < len(chunks) else ""
+        m = re.search(r"diff --git a/(.*?) b/(.*)$", header)
+        if m:
+            fname = m.group(2).strip()
+            status = "modified"
+            if "new file mode" in body:
+                status = "added"
+            elif "deleted file mode" in body:
+                status = "deleted"
+
+            patch_lines = [l for l in body.split("\n") if l.strip()]
+            adds = sum(1 for l in patch_lines if l.startswith("+") and not l.startswith("+++"))
+            dels = sum(1 for l in patch_lines if l.startswith("-") and not l.startswith("---"))
+
+            files.append({
+                "filename": fname,
+                "status": status,
+                "additions": adds,
+                "deletions": dels,
+                "changes": adds + dels,
+                "patch": body.strip()
+            })
+    return files
+
+
 async def _fetch_github_pr_info(owner: str, repo: str, pr_number: int) -> Dict[str, Any]:
     """
-    Fetches GitHub Pull Request metadata, description, and unified diff.
+    Fetches GitHub Pull Request metadata, description, files list, commits, and unified diff.
     """
     token = await _get_github_auth_token(owner, repo)
     headers = {
@@ -625,8 +659,54 @@ async def _fetch_github_pr_info(owner: str, repo: str, pr_number: int) -> Dict[s
             except Exception:
                 pass
 
+        # Fetch PR modified files list
+        files_list: List[Dict[str, Any]] = []
+        try:
+            r_files = await client.get(f"{pr_url}/files?per_page=100", headers=headers)
+            if r_files.status_code == 200:
+                for f in r_files.json():
+                    files_list.append({
+                        "filename": f.get("filename", ""),
+                        "status": f.get("status", "modified"),
+                        "additions": f.get("additions", 0),
+                        "deletions": f.get("deletions", 0),
+                        "changes": f.get("changes", 0),
+                        "patch": f.get("patch", ""),
+                        "raw_url": f.get("raw_url", ""),
+                        "blob_url": f.get("blob_url", "")
+                    })
+        except Exception as e:
+            logger.debug(f"Failed to fetch PR files via API: {e}")
+
+        # Fallback parse diff_text if files_list is empty
+        if not files_list and diff_text:
+            files_list = _parse_diff_to_files(diff_text)
+
+        # Fetch PR commits list
+        commits_list: List[Dict[str, Any]] = []
+        try:
+            r_commits = await client.get(f"{pr_url}/commits?per_page=50", headers=headers)
+            if r_commits.status_code == 200:
+                for c in r_commits.json():
+                    commit_obj = c.get("commit", {})
+                    author_obj = c.get("author") or {}
+                    commits_list.append({
+                        "sha": c.get("sha", ""),
+                        "short_sha": (c.get("sha") or "")[:7],
+                        "message": commit_obj.get("message", "").split("\n")[0],
+                        "full_message": commit_obj.get("message", ""),
+                        "author_name": commit_obj.get("author", {}).get("name") or author_obj.get("login") or "Unknown",
+                        "author_login": author_obj.get("login", ""),
+                        "author_avatar": author_obj.get("avatar_url", ""),
+                        "date": commit_obj.get("author", {}).get("date", ""),
+                        "html_url": c.get("html_url", "")
+                    })
+        except Exception as e:
+            logger.debug(f"Failed to fetch PR commits via API: {e}")
+
         title = pr_data.get("title") or f"Pull Request #{pr_number}"
         user_login = pr_data.get("user", {}).get("login", "unknown")
+        user_avatar = pr_data.get("user", {}).get("avatar_url", "")
         state = pr_data.get("state", "open")
         merged = pr_data.get("merged", False)
         status_str = "MERGED" if merged else state.upper()
@@ -635,7 +715,7 @@ async def _fetch_github_pr_info(owner: str, repo: str, pr_number: int) -> Dict[s
         body = (pr_data.get("body") or "").strip()
         additions = pr_data.get("additions", 0)
         deletions = pr_data.get("deletions", 0)
-        changed_files = pr_data.get("changed_files", 0)
+        changed_files = pr_data.get("changed_files", len(files_list))
         html_url = pr_data.get("html_url") or f"https://github.com/{owner}/{repo}/pull/{pr_number}"
 
         meta_parts = [f"**Status**: `{status_str}`", f"**Author**: @{user_login}"]
@@ -644,28 +724,45 @@ async def _fetch_github_pr_info(owner: str, repo: str, pr_number: int) -> Dict[s
         if additions or deletions or changed_files:
             meta_parts.append(f"**Changes**: `+{additions:,}` / `-{deletions:,}` ({changed_files} files)")
 
-        md_parts = [
+        overview_parts = [
             f"# Pull Request #{pr_number}: {title}\n",
             f"{' | '.join(meta_parts)}\n",
             "## Description\n",
             f"{body if body else '*No description provided.*'}\n"
         ]
+        overview_md = "\n".join(overview_parts).strip()
 
+        # Build full markdown as fallback for non-tabbed readers
+        full_md_parts = list(overview_parts)
         if diff_text.strip():
-            md_parts.append("## Unified Diff\n")
-            md_parts.append(f"```diff\n{diff_text.strip()}\n```\n")
-
-        full_md = "\n".join(md_parts).strip()
+            full_md_parts.append("\n## Unified Diff\n")
+            full_md_parts.append(f"```diff\n{diff_text.strip()}\n```\n")
+        full_md = "\n".join(full_md_parts).strip()
 
         return {
             "type": "github",
+            "is_pr": True,
             "url": html_url,
             "title": f"{owner}/{repo} #{pr_number}: {title}",
             "repo_name": f"{owner}/{repo}",
+            "pr_number": pr_number,
+            "pr_title": title,
+            "state": status_str,
+            "author": user_login,
+            "author_avatar": user_avatar,
+            "head_branch": head_ref,
+            "base_branch": base_ref,
+            "additions": additions,
+            "deletions": deletions,
+            "changed_files_count": changed_files,
             "description": f"Pull Request #{pr_number} ({status_str}) - {title}",
             "clone_url": f"https://github.com/{owner}/{repo}.git",
             "default_branch": base_ref,
-            "content_markdown": full_md
+            "overview_markdown": overview_md,
+            "content_markdown": overview_md,
+            "diff_text": diff_text,
+            "files": files_list,
+            "commits": commits_list
         }
 
 
