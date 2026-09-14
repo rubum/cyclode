@@ -381,6 +381,56 @@ class WorktreeManager:
         except Exception:
             return []
 
+    def parse_raw_diff(self, raw_diff: str) -> List[Dict[str, Any]]:
+        """
+        Parses a standard unified git diff text into structured file diff records.
+        """
+        if not raw_diff or not raw_diff.strip():
+            return []
+
+        diffs = []
+        file_chunks = re.split(r"(?=^diff --git )", raw_diff, flags=re.MULTILINE)
+        for chunk in file_chunks:
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+
+            # Extract file path
+            path_match = re.search(r"^diff --git a/(.+?) b/(.+?)$", chunk, re.MULTILINE)
+            if path_match:
+                file_path = path_match.group(2)
+            else:
+                header_match = re.search(r"^\+\+\+ b/(.+?)$", chunk, re.MULTILINE)
+                file_path = header_match.group(1) if header_match else "unknown"
+
+            # Determine status
+            status = "M"
+            if "new file mode" in chunk:
+                status = "A"
+            elif "deleted file mode" in chunk:
+                status = "D"
+            elif "similarity index" in chunk or "rename from" in chunk:
+                status = "R"
+
+            # Count additions and deletions
+            adds = 0
+            dels = 0
+            for line in chunk.splitlines():
+                if line.startswith("+") and not line.startswith("+++"):
+                    adds += 1
+                elif line.startswith("-") and not line.startswith("---"):
+                    dels += 1
+
+            diffs.append({
+                "file_path": file_path,
+                "status": status,
+                "diff_content": chunk,
+                "additions": adds,
+                "deletions": dels
+            })
+
+        return diffs
+
     def run_test_in_pr_worktree(
         self,
         workspace_path: Path,

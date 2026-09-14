@@ -689,6 +689,17 @@ async def get_task_pr_diff(task_id: str, pr_number: int, db: AsyncSession = Depe
 
     workspace_path = Path(task.workspace_path)
     diffs = worktree_manager.get_pr_diffs(workspace_path, pr_number)
+
+    # If local worktree has no diffs yet, fallback to live GitHub PR diff via API with Vault token
+    if not diffs and task.repo_name and "/" in task.repo_name:
+        from app.integrations.github_client import github_client
+        from app.integrations.manager import integration_manager
+        owner, repo = task.repo_name.split("/", 1)
+        token = await integration_manager.get_github_token_for_repo(task.repo_url or f"https://github.com/{task.repo_name}")
+        raw_diff = await github_client.get_pull_request_diff(owner, repo, pr_number, custom_token=token)
+        if raw_diff:
+            diffs = worktree_manager.parse_raw_diff(raw_diff)
+
     return {
         "ok": True,
         "task_id": task_id,
