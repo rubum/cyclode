@@ -29,13 +29,14 @@ import {
   FolderGit2,
   ExternalLink
 } from 'lucide-react';
-import { Task, TaskMessage, TaskLog } from '../../types';
+import { Task, TaskMessage, TaskLog, RepositoryConfig, TaskPR } from '../../types';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { FormattedLogView } from '../Common/FormattedLogView';
 import { SandboxInspectorModal } from '../Sandbox/SandboxInspectorModal';
 
 interface ChatCanvasProps {
   task: Task | null;
+  repositories?: RepositoryConfig[];
   onSendMessage: (content: string) => void;
   onApprove: (feedback?: string) => void;
   onReject: (feedback?: string) => void;
@@ -51,6 +52,7 @@ interface ChatCanvasProps {
   onOpenSandboxModal?: () => void;
   onSelectAuxTab?: (tab: 'docs' | 'files' | 'diff' | 'activity' | 'subagents' | 'event') => void;
   onOpenPreview?: (url: string, title?: string) => void;
+  onNavigateToRepos?: () => void;
 }
 
 interface ConversationTurn {
@@ -98,6 +100,7 @@ const maskSecretsInText = (text?: string): string => {
 
 export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   task,
+  repositories: propRepositories,
   onSendMessage,
   onApprove,
   onReject,
@@ -113,6 +116,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   onOpenSandboxModal,
   onSelectAuxTab,
   onOpenPreview,
+  onNavigateToRepos,
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [selectedPersona, setSelectedPersona] = useState('PairProgrammer');
@@ -125,6 +129,11 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState('');
+
+  const [localRepos, setLocalRepos] = useState<RepositoryConfig[]>([]);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionIndex, setMentionIndex] = useState<number>(-1);
+  const [selectedMentionIdx, setSelectedMentionIdx] = useState<number>(0);
 
   const handleStartEditTitle = () => {
     if (!task) return;
@@ -344,8 +353,122 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     }
   }, [task?.id, scrollToBottom]);
 
+  const emptyStateTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const fetchRepos = useCallback(async () => {
+    const apiBase = import.meta.env.VITE_API_URL || '';
+    const endpoints = [
+      apiBase ? `${apiBase}/api/repositories` : null,
+      '/api/repositories',
+      'http://localhost:8000/api/repositories',
+      'http://127.0.0.1:8000/api/repositories'
+    ].filter(Boolean) as string[];
+    for (const url of endpoints) {
+      try {
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            setLocalRepos(data);
+            return;
+          }
+        }
+      } catch {
+        // try next endpoint
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchRepos();
+  }, [fetchRepos]);
+
+  const effectiveRepos = useMemo(() => {
+    if (propRepositories && propRepositories.length > 0) {
+      return propRepositories;
+    }
+    return localRepos;
+  }, [propRepositories, localRepos]);
+
+  const filteredRepos = useMemo(() => {
+    if (mentionQuery === null) return [];
+    if (!mentionQuery) return effectiveRepos;
+    const q = mentionQuery.toLowerCase();
+    return effectiveRepos.filter((r) =>
+      (r.name && r.name.toLowerCase().includes(q)) ||
+      (r.full_name && r.full_name.toLowerCase().includes(q))
+    );
+  }, [effectiveRepos, mentionQuery]);
+
+  const insertMention = (repoName: string) => {
+    if (mentionIndex === -1) return;
+    const activeTextarea = (!task ? emptyStateTextareaRef.current : textareaRef.current) || textareaRef.current;
+    const pos = (activeTextarea?.selectionStart !== null && activeTextarea?.selectionStart !== undefined)
+      ? activeTextarea.selectionStart
+      : inputValue.length;
+
+    const before = inputValue.slice(0, mentionIndex);
+    const after = inputValue.slice(pos);
+    const inserted = `${before}@${repoName} ${after}`;
+    setInputValue(inserted);
+    setMentionQuery(null);
+    setMentionIndex(-1);
+
+    setTimeout(() => {
+      if (activeTextarea) {
+        const nextPos = mentionIndex + repoName.length + 2;
+        activeTextarea.focus();
+        activeTextarea.setSelectionRange(nextPos, nextPos);
+      }
+    }, 10);
+  };
+
+  const updateMentionState = (val: string, pos: number) => {
+    const textBeforeCursor = val.slice(0, pos);
+    const lastAtIndex = textBeforeCursor.lastIndexOf('@');
+
+    if (lastAtIndex !== -1) {
+      const isStartOrWhitespace = lastAtIndex === 0 || /\s/.test(textBeforeCursor[lastAtIndex - 1]);
+      if (isStartOrWhitespace) {
+        const query = textBeforeCursor.slice(lastAtIndex + 1);
+        if (!/\s/.test(query)) {
+          setMentionQuery(query.toLowerCase());
+          setMentionIndex(lastAtIndex);
+          setSelectedMentionIdx(0);
+          if (effectiveRepos.length === 0) {
+            fetchRepos();
+          }
+          return;
+        }
+      }
+    }
+
+    setMentionQuery(null);
+    setMentionIndex(-1);
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    const pos = (typeof e.target.selectionStart === 'number' && e.target.selectionStart > 0)
+      ? e.target.selectionStart
+      : val.length;
+    setInputValue(val);
+    updateMentionState(val, pos);
+  };
+
+  const handleCursorMove = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
+    const target = e.currentTarget;
+    const val = target.value;
+    const pos = (typeof target.selectionStart === 'number' && target.selectionStart > 0)
+      ? target.selectionStart
+      : val.length;
+    updateMentionState(val, pos);
+  };
+
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    setMentionQuery(null);
+    setMentionIndex(-1);
     const trimmed = inputValue.trim();
     if (!trimmed) return;
 
@@ -362,10 +485,103 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionQuery !== null) {
+      if (filteredRepos.length > 0) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          setSelectedMentionIdx((prev) => (prev + 1) % filteredRepos.length);
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setSelectedMentionIdx((prev) => (prev - 1 + filteredRepos.length) % filteredRepos.length);
+          return;
+        }
+        if (e.key === 'Enter' || e.key === 'Tab') {
+          e.preventDefault();
+          const selected = filteredRepos[selectedMentionIdx] || filteredRepos[0];
+          if (selected) {
+            insertMention(selected.full_name || selected.name);
+          }
+          return;
+        }
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setMentionQuery(null);
+        setMentionIndex(-1);
+        return;
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSubmit();
     }
+  };
+
+  const renderMentionMenu = (positionClasses: string) => {
+    if (mentionQuery === null) return null;
+
+    return (
+      <div className={`absolute ${positionClasses} w-full max-w-sm max-h-64 overflow-y-auto bg-onedark-surface border border-onedark-border rounded-xl shadow-2xl z-50 p-1.5 font-sans text-xs`}>
+        <div className="px-2.5 py-1.5 text-[10px] font-semibold text-onedark-muted uppercase tracking-wider flex items-center justify-between border-b border-onedark-borderSubtle/60 mb-1">
+          <span>Registered Repositories</span>
+          {filteredRepos.length > 0 && (
+            <span className="text-onedark-accent font-mono text-[9px]">↑↓ to navigate · ↵ select</span>
+          )}
+        </div>
+        {filteredRepos.length === 0 ? (
+          <div className="p-3 text-center space-y-1.5 text-onedark-muted">
+            <p className="text-[11px]">
+              {effectiveRepos.length === 0 ? 'No repositories registered in Vault' : `No repositories matching "@${mentionQuery}"`}
+            </p>
+            {onNavigateToRepos && (
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  setMentionQuery(null);
+                  setMentionIndex(-1);
+                  onNavigateToRepos();
+                }}
+                className="text-xs text-onedark-accent hover:underline font-semibold cursor-pointer"
+              >
+                + Connect Repository in Vault
+              </button>
+            )}
+          </div>
+        ) : (
+          filteredRepos.map((repo, idx) => (
+            <button
+              key={repo.id || repo.full_name}
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => insertMention(repo.full_name || repo.name)}
+              onMouseEnter={() => setSelectedMentionIdx(idx)}
+              className={`w-full text-left px-2.5 py-2 rounded-lg flex items-center space-x-2.5 transition-colors cursor-pointer ${
+                selectedMentionIdx === idx
+                  ? 'bg-onedark-accent/20 text-onedark-accent font-medium'
+                  : 'text-onedark-fg hover:bg-onedark-darker/60'
+              }`}
+            >
+              <FolderGit2 className="w-3.5 h-3.5 text-onedark-folder flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold truncate flex items-center space-x-1.5">
+                  <span>@{repo.full_name || repo.name}</span>
+                  {repo.tech_stack && repo.tech_stack.length > 0 && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-onedark-darker text-onedark-muted border border-onedark-borderSubtle">
+                      {repo.tech_stack[0]}
+                    </span>
+                  )}
+                </div>
+                <div className="text-[10px] text-onedark-muted truncate">{repo.clone_url || repo.full_name}</div>
+              </div>
+            </button>
+          ))
+        )}
+      </div>
+    );
   };
 
   const handleCopyText = (id: string, text: string) => {
@@ -517,22 +733,29 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
           {/* Prompt Launcher Form */}
           <form
             onSubmit={handleSubmit}
-            className="p-3.5 rounded-2xl bg-onedark-darker border border-onedark-border shadow-xl focus-within:border-onedark-muted/60 transition-all space-y-3"
+            className="p-3.5 rounded-2xl bg-onedark-darker border border-onedark-border shadow-xl focus-within:border-onedark-muted/60 transition-all space-y-3 relative"
           >
-            <textarea
-              ref={textareaRef}
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Ask Cyclode to review a PR, investigate a bug, write tests, or triage an APM incident..."
-              rows={3}
-              className="w-full bg-transparent text-sm text-onedark-fgBright placeholder-onedark-muted focus:outline-none resize-none font-sans leading-relaxed p-1.5"
-            />
+            <div className="relative w-full z-20">
+              <textarea
+                ref={emptyStateTextareaRef}
+                value={inputValue}
+                onChange={handleInputChange}
+                onKeyUp={handleCursorMove}
+                onClick={handleCursorMove}
+                onSelect={handleCursorMove}
+                onKeyDown={handleKeyDown}
+                placeholder="Ask Cyclode to review a PR, investigate a bug, write tests, or type '@' to reference a registered repo..."
+                rows={3}
+                className="w-full bg-transparent text-sm text-onedark-fgBright placeholder-onedark-muted focus:outline-none resize-none font-sans leading-relaxed p-1.5"
+              />
+              {/* Repository Mention Autocomplete Menu for Launcher */}
+              {renderMentionMenu("top-full left-0 mt-1.5")}
+            </div>
 
             <div className="flex items-center justify-between pt-2 border-t border-onedark-borderSubtle">
-              {/* Persona Selector */}
-              <div className="flex items-center space-x-2">
-                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-surface border border-onedark-border text-xs text-onedark-fg font-mono shadow-sm">
+              {/* Persona Selector & Quick Mention Pills */}
+              <div className="flex items-center space-x-2 min-w-0 flex-1">
+                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-surface border border-onedark-border text-xs text-onedark-fg font-mono shadow-sm flex-shrink-0">
                   <Sparkles className="w-3.5 h-3.5 text-onedark-yellow" />
                   <select
                     value={selectedPersona}
@@ -546,6 +769,37 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                     ))}
                   </select>
                 </div>
+
+                {/* Quick Mention Repository Pills */}
+                {effectiveRepos.length > 0 && (
+                  <div className="flex items-center space-x-1.5 overflow-x-auto scrollbar-none py-0.5">
+                    {effectiveRepos.slice(0, 3).map((r) => {
+                      const tag = `@${r.full_name || r.name}`;
+                      const isIncluded = inputValue.includes(tag);
+                      return (
+                        <button
+                          key={r.id || r.full_name}
+                          type="button"
+                          onClick={() => {
+                            if (!isIncluded) {
+                              setInputValue((prev) => prev ? `${prev.trim()} ${tag} ` : `${tag} `);
+                            }
+                            emptyStateTextareaRef.current?.focus();
+                          }}
+                          className={`px-2 py-1 rounded-lg border text-[11px] font-mono transition-all flex items-center space-x-1 cursor-pointer flex-shrink-0 ${
+                            isIncluded
+                              ? 'bg-onedark-accent/20 border-onedark-accent/50 text-onedark-accent font-semibold'
+                              : 'bg-onedark-surface/80 hover:bg-onedark-surface border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fgBright'
+                          }`}
+                          title={`Click to reference ${tag}`}
+                        >
+                          <FolderGit2 className="w-3 h-3 text-onedark-folder" />
+                          <span>{tag}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {/* Submit Button */}
@@ -1190,14 +1444,21 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
       {/* Centralized Bottom Chat Input Bar */}
       <div className="p-4 border-t border-onedark-borderSubtle bg-onedark-darker/90">
         <div className={`w-full ${contentMaxWidth} mx-auto`}>
-          <form onSubmit={handleSubmit} className="flex flex-col space-y-2">
+          <form onSubmit={handleSubmit} className="flex flex-col space-y-2 relative z-20">
+            {/* Repository Mention Autocomplete Menu */}
+            {renderMentionMenu("bottom-full left-0 mb-2")}
+
             <div className="flex items-center space-x-2 bg-onedark-darker border border-onedark-border rounded-xl px-3 py-1.5 focus-within:border-onedark-accent/80 focus-within:ring-1 focus-within:ring-onedark-accent/20 transition-all shadow-inner">
               <textarea
+                ref={textareaRef}
                 rows={1}
                 value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
+                onChange={handleInputChange}
+                onKeyUp={handleCursorMove}
+                onClick={handleCursorMove}
+                onSelect={handleCursorMove}
                 onKeyDown={handleKeyDown}
-                placeholder={isRunning ? "Task is running... Type follow-up instructions or hit Stop..." : "Type instructions, questions, or feedback to the agent..."}
+                placeholder={isRunning ? "Task is running... Type follow-up instructions or hit Stop..." : "Type instructions, or '@' to reference a registered repo (e.g. 'Get pending prs in @myproject')..."}
                 className="flex-1 bg-transparent text-sm text-onedark-fgBright placeholder-onedark-muted focus:outline-none resize-none font-sans leading-relaxed py-1.5 max-h-32 min-h-[32px]"
               />
               {isRunning && onStopTask ? (
@@ -1222,10 +1483,39 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               )}
             </div>
             <div className="flex items-center justify-between px-1 text-[11px] text-onedark-muted font-mono select-none">
-              <div className="flex items-center space-x-3">
-                <span>
+              <div className="flex items-center space-x-3 min-w-0 flex-1">
+                <span className="flex-shrink-0">
                   <kbd className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-border text-onedark-fgBright text-[10px]">Enter ↵</kbd> to send · <kbd className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-border text-onedark-fgBright text-[10px]">Shift + Enter</kbd> for newline
                 </span>
+                {effectiveRepos.length > 0 && (
+                  <div className="hidden sm:flex items-center space-x-1.5 overflow-x-auto scrollbar-none py-0.5 min-w-0">
+                    {effectiveRepos.slice(0, 3).map((r) => {
+                      const tag = `@${r.full_name || r.name}`;
+                      const isIncluded = inputValue.includes(tag);
+                      return (
+                        <button
+                          key={r.id || r.full_name}
+                          type="button"
+                          onClick={() => {
+                            if (!isIncluded) {
+                              setInputValue((prev) => prev ? `${prev.trim()} ${tag} ` : `${tag} `);
+                            }
+                            textareaRef.current?.focus();
+                          }}
+                          className={`px-1.5 py-0.5 rounded border text-[10px] font-mono transition-all flex items-center space-x-1 cursor-pointer flex-shrink-0 ${
+                            isIncluded
+                              ? 'bg-onedark-accent/20 border-onedark-accent/50 text-onedark-accent font-semibold'
+                              : 'bg-onedark-surface/80 hover:bg-onedark-surface border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fgBright'
+                          }`}
+                          title={`Click to reference ${tag}`}
+                        >
+                          <FolderGit2 className="w-2.5 h-2.5 text-onedark-folder" />
+                          <span>{tag}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
                 {showScrollBottomBtn && (
                   <button
                     type="button"
@@ -1234,7 +1524,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                       setShowScrollBottomBtn(false);
                       scrollToBottom(true);
                     }}
-                    className="text-onedark-accent hover:text-onedark-fgBright transition-colors flex items-center space-x-1 cursor-pointer font-medium"
+                    className="text-onedark-accent hover:text-onedark-fgBright transition-colors flex items-center space-x-1 cursor-pointer font-medium flex-shrink-0"
                   >
                     <ChevronDown className="w-3 h-3" />
                     <span>Jump to latest</span>
@@ -1242,7 +1532,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 )}
               </div>
               {isRunning && (
-                <span className="text-onedark-yellow flex items-center space-x-1">
+                <span className="text-onedark-yellow flex items-center space-x-1 flex-shrink-0">
                   <kbd className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-border text-onedark-yellow text-[10px]">Esc</kbd>
                   <span>to stop</span>
                 </span>

@@ -61,6 +61,8 @@ class AgentTaskPool:
         # Auto-resolve repository from database vault if repository name is referenced
         if not repo_url:
             try:
+                from app.db.session import ensure_default_repositories
+                await ensure_default_repositories()
                 from app.db.models import RepositoryConfigModel
                 async with async_session_factory() as session:
                     res = await session.execute(select(RepositoryConfigModel))
@@ -69,7 +71,13 @@ class AgentTaskPool:
                     for r in saved_repos:
                         r_name = (r.name or "").lower()
                         r_full = (r.full_name or "").lower()
-                        if (r_name and r_name in combined_lower.split()) or (r_full and r_full in combined_lower) or f"repo {r_name}" in combined_lower or f"on {r_name}" in combined_lower:
+                        if (
+                            (r_name and (r_name in combined_lower.split() or f"@{r_name}" in combined_lower)) or
+                            (r_full and (r_full in combined_lower or f"@{r_full}" in combined_lower)) or
+                            f"repo {r_name}" in combined_lower or
+                            f"on {r_name}" in combined_lower or
+                            f"in {r_name}" in combined_lower
+                        ):
                             repo_url = r.clone_url
                             repo_name = r.full_name
                             target_branch = target_branch or r.default_branch

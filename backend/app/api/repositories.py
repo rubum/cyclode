@@ -11,6 +11,7 @@ from app.db.session import get_db, async_session_factory
 from app.db.models import RepositoryConfigModel, get_utc_now
 from app.core.security import encrypt_secret, decrypt_secret
 from app.integrations.manager import integration_manager
+from app.integrations.github_client import github_client
 
 logger = logging.getLogger("cyclode.repositories")
 router = APIRouter(prefix="/api/repositories", tags=["Repositories"])
@@ -237,6 +238,33 @@ async def discover_repositories(db: AsyncSession = Depends(get_db)):
     res = await db.execute(stmt)
     repos = res.scalars().all()
     return {"ok": True, "count": len(repos), "repositories": [serialize_repo(r) for r in repos]}
+
+
+@router.get("/{repo_id}/pulls")
+async def list_repository_pulls(
+    repo_id: str,
+    state: str = "open",
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Fetches open pull requests for a registered repository from GitHub.
+    """
+    stmt = select(RepositoryConfigModel).where(RepositoryConfigModel.id == repo_id)
+    res = await db.execute(stmt)
+    repo = res.scalars().first()
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
+    raw_token = decrypt_secret(repo.encrypted_token) if repo.encrypted_token else None
+    owner, repo_name = (repo.full_name.split("/", 1) if "/" in repo.full_name else ("org", repo.full_name))
+    prs = await github_client.list_pull_requests(owner, repo_name, state=state, custom_token=raw_token)
+    return {
+        "ok": True,
+        "repo_id": repo_id,
+        "full_name": repo.full_name,
+        "count": len(prs),
+        "pull_requests": prs
+    }
 
 
 class InstallWebhookRequest(BaseModel):

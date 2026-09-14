@@ -1134,3 +1134,240 @@ class RepoAnalysisHandler(IntentHandler):
 
         await ctx.emit_message("agent", report_md)
         return {"status": "COMPLETED", "summary": f"Analyzed repository architecture ({total_files} files, {total_loc:,} LOC)."}
+
+
+class PRReviewHandler(IntentHandler):
+    name = "PRReviewHandler"
+    description = "Fetches pending pull requests for registered repositories (@mention or name), creates isolated sandboxed git worktrees for each PR, and syncs them to the sidebar UI for interactive review and test execution."
+    exemplars = [
+        "get pending prs in @myproject",
+        "get the pending prs in @myproject",
+        "fetch pending prs in @payment-service",
+        "list prs in @myrepo",
+        "review prs for @myrepo",
+        "show pending pull requests in @project",
+        "check open prs on @repo",
+        "bring prs into sandbox for @myproject",
+        "review pull requests for @repo",
+        "get prs for @project"
+    ]
+    negative_exemplars = [
+        "explain what a pull request is",
+        "how to create a pr in github",
+        "run pytest on this repo",
+        "connect repository https://github.com/..."
+    ]
+    priority_weight = 1.35
+
+    def matches_strict(self, ctx: IntentContext) -> bool:
+        lower = ctx.lower_prompt
+        has_at_mention = bool(re.search(r"@[A-Za-z0-9_.-]+", ctx.prompt))
+        has_pr_keywords = any(w in lower for w in (
+            "pending pr", "pending prs", "open pr", "open prs", "pull request", "pull requests",
+            "get pr", "get prs", "list prs", "review pr", "review prs", "fetch prs",
+            "prs in", "prs for", "prs on"
+        ))
+        return bool(has_at_mention and has_pr_keywords)
+
+    def matches(self, ctx: IntentContext) -> bool:
+        lower = ctx.lower_prompt
+        has_at_mention = bool(re.search(r"@[A-Za-z0-9_.-]+", ctx.prompt))
+        has_pr_keywords = any(w in lower for w in (
+            "pending pr", "pending prs", "open pr", "open prs", "pull request", "pull requests",
+            "get pr", "get prs", "list prs", "review pr", "review prs", "fetch prs",
+            "prs in", "prs for", "prs on"
+        ))
+        return bool((has_at_mention and has_pr_keywords) or (has_pr_keywords and any(w in lower for w in ("repo", "repository", "project"))))
+
+    async def execute(self, ctx: IntentContext) -> Dict[str, Any]:
+        has_db = False
+        saved_repos = []
+        try:
+            from app.db.session import async_session_factory, ensure_default_repositories
+            from app.db.models import RepositoryConfigModel, TaskPRModel, TaskModel
+            from app.core.security import decrypt_secret
+            from sqlalchemy import select, delete
+            has_db = True
+            await ensure_default_repositories()
+        except Exception:
+            has_db = False
+
+        from app.core.worktree import worktree_manager
+        from app.api.websocket import ws_manager
+
+        # 1. Resolve Target Repository
+        repo_name_match = re.search(r"@([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?)", ctx.prompt)
+        target_name = repo_name_match.group(1).lower().strip() if repo_name_match else None
+
+        matched_repo = None
+        if has_db:
+            try:
+                async with async_session_factory() as session:
+                    stmt = select(RepositoryConfigModel)
+                    res = await session.execute(stmt)
+                    saved_repos = res.scalars().all()
+
+                    if target_name:
+                        for r in saved_repos:
+                            if r.name.lower() == target_name or r.full_name.lower() == target_name or r.full_name.lower().endswith(f"/{target_name}"):
+                                matched_repo = r
+                                break
+
+                    if not matched_repo and saved_repos:
+                        lower = ctx.lower_prompt
+                        for r in saved_repos:
+                            if r.name.lower() in lower or r.full_name.lower() in lower:
+                                matched_repo = r
+                                break
+                        if not matched_repo:
+                            matched_repo = saved_repos[0]
+            except Exception:
+                matched_repo = None
+
+        repo_display = matched_repo.name if matched_repo else (target_name or "default-service")
+        repo_full_name = matched_repo.full_name if matched_repo else f"org/{repo_display}"
+        clone_url = matched_repo.clone_url if matched_repo else f"https://github.com/{repo_full_name}"
+        raw_token = decrypt_secret(matched_repo.encrypted_token) if (has_db and matched_repo and matched_repo.encrypted_token) else None
+        test_command = (matched_repo.test_command if matched_repo else None) or "python3 -m unittest discover tests"
+
+        owner_part, repo_part = (repo_full_name.split("/", 1) if "/" in repo_full_name else ("org", repo_full_name))
+
+        # 2. Tool Step: Fetch PRs via GitHub Client
+        await ctx.call_tool_start("fetch_pull_requests", {"repository": repo_full_name, "state": "open"})
+        prs = await github_client.list_pull_requests(owner_part, repo_part, state="open", custom_token=raw_token)
+        await ctx.call_tool_end(
+            "fetch_pull_requests",
+            json.dumps({"count": len(prs), "pull_requests": [{"number": p.get("number"), "title": p.get("title")} for p in prs]}),
+            0,
+            260
+        )
+
+        # 3. Tool Step: Provision Worktrees
+        await ctx.call_tool_start("setup_pr_worktrees", {"workspace": str(ctx.workspace_path), "prs_count": len(prs)})
+        enriched_prs = worktree_manager.setup_pr_worktrees(ctx.workspace_path, clone_url, raw_token, prs)
+        await ctx.call_tool_end(
+            "setup_pr_worktrees",
+            json.dumps({"status": "SUCCESS", "worktrees": [p.get("worktree_path") for p in enriched_prs]}),
+            0,
+            340
+        )
+
+        # 4. Save PRs to DB if available
+        saved_pr_models = []
+        if has_db:
+            try:
+                async with async_session_factory() as session:
+                    # Delete any existing task PRs for idempotency
+                    del_stmt = delete(TaskPRModel).where(TaskPRModel.task_id == ctx.task_id)
+                    await session.execute(del_stmt)
+
+                    for pr_item in enriched_prs:
+                        pr_model = TaskPRModel(
+                            task_id=ctx.task_id,
+                            pr_number=pr_item.get("number", 0),
+                            title=pr_item.get("title", ""),
+                            author=pr_item.get("user", {}).get("login", "") if isinstance(pr_item.get("user"), dict) else str(pr_item.get("user") or ""),
+                            head_branch=pr_item.get("head", {}).get("ref", "") if isinstance(pr_item.get("head"), dict) else str(pr_item.get("head") or ""),
+                            base_branch=pr_item.get("base", {}).get("ref", "main") if isinstance(pr_item.get("base"), dict) else "main",
+                            html_url=pr_item.get("html_url", ""),
+                            status="OPEN",
+                            worktree_path=pr_item.get("worktree_path", ""),
+                            diff_stats=pr_item.get("diff_stats", {}),
+                            review_summary=pr_item.get("body", "")
+                        )
+                        session.add(pr_model)
+                        saved_pr_models.append({
+                            "id": pr_model.id,
+                            "task_id": ctx.task_id,
+                            "pr_number": pr_model.pr_number,
+                            "title": pr_model.title,
+                            "author": pr_model.author,
+                            "head_branch": pr_model.head_branch,
+                            "base_branch": pr_model.base_branch,
+                            "html_url": pr_model.html_url,
+                            "status": pr_model.status,
+                            "worktree_path": pr_model.worktree_path,
+                            "diff_stats": pr_model.diff_stats,
+                            "review_summary": pr_model.review_summary
+                        })
+                    
+                    # Also update task repo info
+                    task_stmt = select(TaskModel).where(TaskModel.id == ctx.task_id)
+                    task_res = await session.execute(task_stmt)
+                    task_obj = task_res.scalars().first()
+                    if task_obj:
+                        task_obj.repo_name = repo_full_name
+                        task_obj.repo_url = clone_url
+                        task_obj.sandbox_status = "ACTIVE"
+                    await session.commit()
+            except Exception:
+                saved_pr_models = []
+
+        if not saved_pr_models:
+            for p in enriched_prs:
+                saved_pr_models.append({
+                    "id": f"pr-{ctx.task_id}-{p.get('number')}",
+                    "task_id": ctx.task_id,
+                    "pr_number": p.get("number", 0),
+                    "title": p.get("title", ""),
+                    "author": p.get("user", {}).get("login", "") if isinstance(p.get("user"), dict) else str(p.get("user") or ""),
+                    "head_branch": p.get("head", {}).get("ref", "") if isinstance(p.get("head"), dict) else str(p.get("head") or ""),
+                    "base_branch": p.get("base", {}).get("ref", "main") if isinstance(p.get("base"), dict) else "main",
+                    "html_url": p.get("html_url", ""),
+                    "status": "OPEN",
+                    "worktree_path": p.get("worktree_path", ""),
+                    "diff_stats": p.get("diff_stats", {}),
+                    "review_summary": p.get("body", "")
+                })
+
+        # 5. Broadcast WebSocket Event to Sidebar & Auxiliary Pane
+        await ws_manager.broadcast_task_event(ctx.task_id, "TASK_PRS_LOADED", {
+            "task_id": ctx.task_id,
+            "repo_name": repo_full_name,
+            "prs": saved_pr_models
+        })
+
+        # 6. Render Analytical Prose Briefing
+        table_rows = []
+        for p in enriched_prs:
+            num = p.get("number")
+            p_title = p.get("title")
+            p_author = p.get("user", {}).get("login", "unknown") if isinstance(p.get("user"), dict) else "unknown"
+            p_branch = p.get("head", {}).get("ref", f"pr-{num}") if isinstance(p.get("head"), dict) else f"pr-{num}"
+            p_url = p.get("html_url") or f"https://github.com/{repo_full_name}/pull/{num}"
+            p_stats = p.get("diff_stats", {})
+            adds = p_stats.get("additions", 0)
+            dels = p_stats.get("deletions", 0)
+            files_count = p_stats.get("changed_files", 0)
+            wt_path = p.get("worktree_path", f"prs/pr-{num}")
+
+            table_rows.append(
+                f"| [#{num}]({p_url}) | **{p_title}** | `@{p_author}` | `{p_branch}` | `+{adds} / -{dels}` ({files_count} files) | `{wt_path}` |"
+            )
+
+        repo_link = f"[{repo_full_name}](https://github.com/{repo_full_name})"
+
+        briefing_md = (
+            f"### 🔀 Synchronized Pending Pull Requests for {repo_link}\n\n"
+            f"Successfully retrieved **{len(enriched_prs)} open pull requests** from `{repo_full_name}`. "
+            f"Each pull request has been fetched and checked out into a dedicated, isolated sandboxed `git worktree` directory. "
+            f"You can now inspect diffs, trigger automated tests, or perform multi-agent code reviews directly from the sidebar UI and auxiliary pane.\n\n"
+            f"#### Active Pull Request Worktrees\n\n"
+            f"| PR | Title | Author | Branch | Changeset | Worktree Sandbox Path |\n"
+            f"| :--- | :--- | :--- | :--- | :--- | :--- |\n" +
+            "\n".join(table_rows) + "\n\n"
+            f"#### Interactive Review & Execution Options\n"
+            f"- **Sidebar PR Navigator**: Select any pull request in the left sidebar to focus the **Diff Viewer** and switch sandbox working directories.\n"
+            f"- **Sandbox Test Execution**: Click **Run Tests** on a PR to run `{test_command}` inside that PR's isolated worktree.\n"
+            f"- **Autonomous Code Review**: Prompt `Review PR #{enriched_prs[0].get('number', 101)}` to dispatch the `CodeReviewer` agent for comprehensive security, performance, and architecture audits."
+        )
+
+        await ctx.emit_message("agent", briefing_md)
+        return {
+            "status": "COMPLETED",
+            "handled": True,
+            "summary": f"Fetched and sandboxed {len(enriched_prs)} PRs for {repo_full_name}.",
+            "prs_count": len(enriched_prs),
+            "final_output": briefing_md
+        }
+

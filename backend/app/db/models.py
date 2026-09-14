@@ -65,6 +65,29 @@ class TaskModel(Base):
     logs: Mapped[List["TaskLogModel"]] = relationship("TaskLogModel", back_populates="task", cascade="all, delete-orphan")
     approvals: Mapped[List["TaskApprovalModel"]] = relationship("TaskApprovalModel", back_populates="task", cascade="all, delete-orphan")
     diffs: Mapped[List["TaskDiffModel"]] = relationship("TaskDiffModel", back_populates="task", cascade="all, delete-orphan")
+    prs: Mapped[List["TaskPRModel"]] = relationship("TaskPRModel", back_populates="task", cascade="all, delete-orphan")
+
+
+class TaskPRModel(Base):
+    __tablename__ = "task_prs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    task_id: Mapped[str] = mapped_column(String(36), ForeignKey("tasks.id"), nullable=False)
+    pr_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(String(300), nullable=False)
+    author: Mapped[str] = mapped_column(String(100), default="")
+    head_branch: Mapped[str] = mapped_column(String(200), default="")
+    base_branch: Mapped[str] = mapped_column(String(200), default="main")
+    html_url: Mapped[str] = mapped_column(String(500), default="")
+    status: Mapped[str] = mapped_column(String(50), default="OPEN")  # OPEN, REVIEWING, TESTS_PASSING, TESTS_FAILED, MERGED, CLOSED
+    worktree_path: Mapped[str] = mapped_column(String(300), default="")  # e.g. "prs/pr-104"
+    diff_stats: Mapped[Dict[str, Any]] = mapped_column(JSON, default=dict)
+    review_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    test_output: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now, onupdate=get_utc_now)
+
+    task: Mapped["TaskModel"] = relationship("TaskModel", back_populates="prs")
 
 
 class TaskMessageModel(Base):

@@ -16,9 +16,15 @@ import {
   Pencil,
   Check,
   X,
-  Search
+  Search,
+  GitPullRequest,
+  Play,
+  FileCode2,
+  CheckCircle2,
+  AlertCircle,
+  ExternalLink
 } from 'lucide-react';
-import { Task } from '../../types';
+import { Task, TaskPR } from '../../types';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { ConfirmModal } from '../Common/ConfirmModal';
 import { CyclodeIcon } from '../Common/CyclodeIcon';
@@ -36,6 +42,9 @@ interface SidebarProps {
   onOpenSettings?: () => void;
   activeAgentsCount?: number;
   onToggleSidebar?: () => void;
+  selectedPRNumber?: number | null;
+  onSelectPR?: (prNumber: number) => void;
+  onSelectAuxTab?: (tab: 'docs' | 'files' | 'diff' | 'activity' | 'subagents' | 'event') => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -51,10 +60,37 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenSettings,
   activeAgentsCount = 0,
   onToggleSidebar,
+  selectedPRNumber,
+  onSelectPR,
+  onSelectAuxTab,
 }) => {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState<string>('');
   const [sessionSearchQuery, setSessionSearchQuery] = useState<string>('');
+  const [testingPRNumber, setTestingPRNumber] = useState<number | null>(null);
+  const [reviewingPRNumber, setReviewingPRNumber] = useState<number | null>(null);
+
+  const handleRunTest = async (taskId: string, prNumber: number) => {
+    try {
+      setTestingPRNumber(prNumber);
+      await fetch(`/api/tasks/${taskId}/prs/${prNumber}/test`, { method: 'POST' });
+    } catch (err) {
+      console.error('Failed to run test for PR:', err);
+    } finally {
+      setTestingPRNumber(null);
+    }
+  };
+
+  const handleReview = async (taskId: string, prNumber: number) => {
+    try {
+      setReviewingPRNumber(prNumber);
+      await fetch(`/api/tasks/${taskId}/prs/${prNumber}/review`, { method: 'POST' });
+    } catch (err) {
+      console.error('Failed to trigger review for PR:', err);
+    } finally {
+      setReviewingPRNumber(null);
+    }
+  };
 
   const filteredTasks = useMemo(() => {
     if (!sessionSearchQuery.trim()) return tasks;
@@ -331,6 +367,107 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <span>{formatStatus(task.status)}</span>
                   </span>
                 </div>
+
+                {/* Nested Sandboxed PRs for this Session */}
+                {isSelected && task.prs && task.prs.length > 0 && (
+                  <div className="mt-2 pt-2 border-t border-onedark-borderSubtle/60 space-y-1.5" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center justify-between text-[10px] font-semibold text-onedark-accent uppercase tracking-wider px-0.5">
+                      <div className="flex items-center space-x-1">
+                        <GitPullRequest className="w-3 h-3 text-onedark-accent" />
+                        <span>Sandboxed PRs ({task.prs.length})</span>
+                      </div>
+                      {task.repo_name && (
+                        <span className="text-[9px] text-onedark-muted font-mono truncate max-w-[80px]">
+                          {task.repo_name.split('/').pop()}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="space-y-1">
+                      {task.prs.map((pr) => {
+                        const isPRSelected = selectedPRNumber === pr.pr_number;
+                        const isTesting = testingPRNumber === pr.pr_number;
+                        const isReviewing = reviewingPRNumber === pr.pr_number;
+
+                        return (
+                          <div
+                            key={pr.pr_number}
+                            onClick={() => {
+                              if (onSelectPR) onSelectPR(pr.pr_number);
+                              if (onSelectAuxTab) onSelectAuxTab('diff');
+                            }}
+                            className={`p-1.5 rounded-md border text-[11px] transition-all cursor-pointer ${
+                              isPRSelected
+                                ? 'bg-onedark-accent/15 border-onedark-accent/40 text-onedark-fgBright shadow-xs'
+                                : 'bg-onedark-darker/70 border-onedark-borderSubtle/70 hover:bg-onedark-surface/60 text-onedark-fg'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center space-x-1.5 font-medium truncate flex-1 min-w-0">
+                                <span className="font-mono text-onedark-accent font-semibold">#{pr.pr_number}</span>
+                                <span className="truncate text-[10.5px]">{pr.title}</span>
+                              </div>
+                              <span
+                                className={`text-[8.5px] font-mono px-1 py-0.2 rounded border ml-1 flex-shrink-0 leading-none ${
+                                  pr.status === 'TESTS_PASSING'
+                                    ? 'bg-onedark-green/10 text-onedark-green border-onedark-green/30'
+                                    : pr.status === 'TESTS_FAILED'
+                                    ? 'bg-onedark-red/10 text-onedark-red border-onedark-red/30'
+                                    : pr.status === 'REVIEWING'
+                                    ? 'bg-onedark-yellow/10 text-onedark-yellow border-onedark-yellow/30'
+                                    : 'bg-onedark-purple/10 text-onedark-purple border-onedark-purple/30'
+                                }`}
+                              >
+                                {pr.status.replace('_', ' ')}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center justify-between mt-1 text-[10px] text-onedark-muted">
+                              <div className="flex items-center space-x-1 font-mono">
+                                <span>@{pr.author || 'dev'}</span>
+                                {pr.diff_stats && (
+                                  <span className="text-onedark-green text-[9px]">
+                                    +{pr.diff_stats.additions || 0}
+                                    <span className="text-onedark-red"> -{pr.diff_stats.deletions || 0}</span>
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex items-center space-x-1">
+                                <button
+                                  type="button"
+                                  disabled={isTesting}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRunTest(task.id, pr.pr_number);
+                                  }}
+                                  className="px-1.5 py-0.5 rounded bg-onedark-surface hover:bg-onedark-accent/20 hover:text-onedark-accent border border-onedark-borderSubtle text-[9px] flex items-center space-x-0.5 transition-colors disabled:opacity-50 cursor-pointer"
+                                  title="Run unit tests in PR sandbox"
+                                >
+                                  <Play className="w-2.5 h-2.5" />
+                                  <span>{isTesting ? 'Testing...' : 'Test'}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isReviewing}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleReview(task.id, pr.pr_number);
+                                  }}
+                                  className="px-1.5 py-0.5 rounded bg-onedark-surface hover:bg-onedark-purple/20 hover:text-onedark-purple border border-onedark-borderSubtle text-[9px] flex items-center space-x-0.5 transition-colors disabled:opacity-50 cursor-pointer"
+                                  title="AI Code Review"
+                                >
+                                  <Sparkles className="w-2.5 h-2.5" />
+                                  <span>{isReviewing ? 'Reviewing...' : 'Review'}</span>
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })

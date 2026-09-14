@@ -6,7 +6,8 @@ from app.agent.handlers.vault_interceptor import VaultInterceptor
 from app.agent.handlers.repo_handlers import (
     RepoConnectionHandler,
     URLSummarizeHandler,
-    RepoAnalysisHandler
+    RepoAnalysisHandler,
+    PRReviewHandler
 )
 from app.agent.handlers.intelligence_handlers import (
     WebIntelligenceHandler,
@@ -38,6 +39,7 @@ class IntentRegistry:
     def __init__(self):
         self._handlers: List[IntentHandler] = [
             RepoConnectionHandler(),
+            PRReviewHandler(),
             AuthGuidanceHandler(),
             RepoAnalysisHandler(),
             URLSummarizeHandler(),

@@ -12,7 +12,7 @@ import { PolicySettings } from './components/Policies/PolicySettings';
 import { IntegrationsView } from './components/Integrations/IntegrationsView';
 import { RepositoriesView } from './components/Repositories/RepositoriesView';
 import { SandboxInspectorModal } from './components/Sandbox/SandboxInspectorModal';
-import { Task, TaskMessage, EventItem, PolicyMap, Integration, AutomationRule, SkillCatalogItem, WebhookEndpoint } from './types';
+import { Task, TaskMessage, EventItem, PolicyMap, Integration, AutomationRule, SkillCatalogItem, WebhookEndpoint, RepositoryConfig } from './types';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -20,6 +20,7 @@ const MainApp: React.FC = () => {
   const { subscribe } = useWebSocket();
   const [activeView, setActiveView] = useState<string>('chat');
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [repositories, setRepositories] = useState<RepositoryConfig[]>([]);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [activeTaskDetails, setActiveTaskDetails] = useState<Task | null>(null);
   const [events, setEvents] = useState<EventItem[]>([]);
@@ -33,6 +34,7 @@ const MainApp: React.FC = () => {
   const [currentPreset, setCurrentPreset] = useState<'standard' | 'wide' | 'fullscreen'>('standard');
   const [activeAuxTab, setActiveAuxTab] = useState<'files' | 'diff' | 'activity' | 'subagents' | 'event' | 'docs'>('activity');
   const [sessionPreviews, setSessionPreviews] = useState<Record<string, { url: string; title?: string } | null>>({});
+  const [selectedPRNumber, setSelectedPRNumber] = useState<number | null>(null);
 
   const activePreviewTarget = activeTaskId ? (sessionPreviews[activeTaskId] || null) : null;
 
@@ -129,6 +131,29 @@ const MainApp: React.FC = () => {
     }
   }, []);
 
+  // Fetch repositories
+  const fetchRepositories = useCallback(async () => {
+    const endpoints = [
+      `${API_BASE}/api/repositories`,
+      '/api/repositories',
+      'http://localhost:8000/api/repositories',
+      'http://127.0.0.1:8000/api/repositories'
+    ];
+    for (const url of endpoints) {
+      try {
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            setRepositories(data);
+            return;
+          }
+        }
+      } catch {
+        // try next endpoint
+      }
+    }
+  }, []);
 
   useEffect(() => {
     fetchTasks();
@@ -136,7 +161,8 @@ const MainApp: React.FC = () => {
     fetchEvents();
     fetchPolicies();
     fetchIntegrations();
-  }, [fetchTasks, fetchAutomations, fetchEvents, fetchPolicies, fetchIntegrations]);
+    fetchRepositories();
+  }, [fetchTasks, fetchAutomations, fetchEvents, fetchPolicies, fetchIntegrations, fetchRepositories]);
 
   useEffect(() => {
     if (activeTaskId) {
@@ -391,6 +417,28 @@ const MainApp: React.FC = () => {
       fetchTasks();
     });
 
+    const unsubPRsLoaded = subscribe('TASK_PRS_LOADED', (data: any) => {
+      fetchTasks();
+      if (activeTaskId === data.task_id) {
+        setActiveTaskDetails((prev) => (prev ? { ...prev, prs: data.prs } : prev));
+        if (Array.isArray(data.prs) && data.prs.length > 0) {
+          setSelectedPRNumber(data.prs[0].pr_number);
+        }
+      }
+    });
+
+    const unsubPRTest = subscribe('TASK_PR_TEST_COMPLETED', (data: any) => {
+      if (activeTaskId === data.task_id) {
+        fetchTaskDetails(data.task_id);
+      }
+    });
+
+    const unsubPRReviewed = subscribe('TASK_PR_REVIEWED', (data: any) => {
+      if (activeTaskId === data.task_id) {
+        fetchTaskDetails(data.task_id);
+      }
+    });
+
     return () => {
       if (streamRafRef.current) {
         cancelAnimationFrame(streamRafRef.current);
@@ -409,6 +457,9 @@ const MainApp: React.FC = () => {
       unsubApproval();
       unsubChat();
       unsubEventReceived();
+      unsubPRsLoaded();
+      unsubPRTest();
+      unsubPRReviewed();
     };
   }, [subscribe, activeTaskId, fetchTasks, fetchTaskDetails, fetchEvents]);
 
@@ -920,6 +971,7 @@ const MainApp: React.FC = () => {
         return (
           <ChatCanvas
             task={activeTaskDetails}
+            repositories={repositories}
             onSendMessage={handleSendMessage}
             onApprove={handleApprove}
             onReject={handleReject}
@@ -935,6 +987,7 @@ const MainApp: React.FC = () => {
             onOpenSandboxModal={() => setIsSandboxModalOpen(true)}
             onSelectAuxTab={handleSelectAuxTab}
             onOpenPreview={handleOpenPreview}
+            onNavigateToRepos={() => setActiveView('repositories')}
           />
         );
       case 'automations':
@@ -1003,8 +1056,13 @@ const MainApp: React.FC = () => {
         return (
           <RepositoriesView
             onNavigateToInbox={() => setActiveView('events')}
-            onBackToChat={() => setActiveView('chat')}
+            onBackToChat={() => {
+              fetchRepositories();
+              setActiveView('chat');
+            }}
+            onRepositoriesChanged={fetchRepositories}
             onSelectRepoForChat={(repoFullName) => {
+              fetchRepositories();
               setActiveView('chat');
               handleNewChatWithPrompt(`Connect and analyze repository https://github.com/${repoFullName}`);
             }}
@@ -1080,6 +1138,9 @@ const MainApp: React.FC = () => {
             onOpenSettings={() => setActiveView('policies')}
             activeAgentsCount={tasks.filter((t) => t.status === 'RUNNING').length}
             onToggleSidebar={handleToggleSidebar}
+            selectedPRNumber={selectedPRNumber}
+            onSelectPR={setSelectedPRNumber}
+            onSelectAuxTab={handleSelectAuxTab}
           />
         }
         center={renderCenterView()}
@@ -1090,6 +1151,8 @@ const MainApp: React.FC = () => {
             onTabChange={setActiveAuxTab}
             previewTarget={activePreviewTarget}
             onClearPreview={handleClearPreview}
+            selectedPRNumber={selectedPRNumber}
+            onSelectPR={setSelectedPRNumber}
             onAskAboutRepo={(repoName) => {
               setActiveView('chat');
               handleSendMessage(`Can you analyze the architecture and features of the ${repoName} repository?`);

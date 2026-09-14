@@ -35,12 +35,14 @@ interface RepositoriesViewProps {
   onSelectRepoForChat?: (repoFullName: string) => void;
   onNavigateToInbox?: () => void;
   onBackToChat?: () => void;
+  onRepositoriesChanged?: () => void;
 }
 
 export const RepositoriesView: React.FC<RepositoriesViewProps> = ({ 
   onSelectRepoForChat, 
   onNavigateToInbox,
-  onBackToChat 
+  onBackToChat,
+  onRepositoriesChanged
 }) => {
   const [repositories, setRepositories] = useState<RepositoryConfig[]>([]);
   const [loading, setLoading] = useState(true);
@@ -113,6 +115,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
       const data = await res.json();
       if (res.ok && data.repositories) {
         setRepositories(data.repositories);
+        onRepositoriesChanged?.();
       }
     } catch (err) {
       console.error('Error discovering repositories:', err);
@@ -173,6 +176,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
         if (res.ok && data.ok) {
           setFeedback({ success: true, message: 'Repository updated and connectivity verified.' });
           await fetchRepositories();
+          onRepositoriesChanged?.();
           setTimeout(() => setIsAddModalOpen(false), 800);
         } else {
           setFeedback({ success: false, message: data.detail || 'Failed to update repository.' });
@@ -198,6 +202,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
             message: data.validation?.message || 'Repository connected and saved to vault successfully.',
           });
           await fetchRepositories();
+          onRepositoriesChanged?.();
           setTimeout(() => setIsAddModalOpen(false), 900);
         } else {
           setFeedback({
@@ -222,6 +227,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
       const data = await res.json();
       if (res.ok) {
         await fetchRepositories();
+        onRepositoriesChanged?.();
       }
     } catch (err) {
       console.error('Error testing connection:', err);
@@ -257,6 +263,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
         });
         if (res.ok) {
           setRepositories((prev) => prev.filter((r) => r.id !== repoId));
+          onRepositoriesChanged?.();
         }
       } else if (deleteModalState.type === 'all') {
         const res = await fetch(`${API_BASE}/api/repositories`, {
@@ -264,6 +271,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
         });
         if (res.ok) {
           setRepositories([]);
+          onRepositoriesChanged?.();
         }
       }
     } catch (err) {

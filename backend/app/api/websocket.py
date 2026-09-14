@@ -57,4 +57,13 @@ class WebSocketManager:
             self.active_connections.discard(dead)
 
 
+    async def broadcast_task_event(self, task_id: str, event_type: str, data: Dict[str, Any]):
+        """
+        Broadcasts a task-specific event to all connected frontend clients.
+        """
+        payload_data = dict(data)
+        payload_data["task_id"] = task_id
+        await self.broadcast(event_type, payload_data)
+
+
 ws_manager = WebSocketManager()

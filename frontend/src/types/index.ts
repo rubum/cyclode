@@ -78,6 +78,29 @@ export interface TaskDiff {
   created_at: string;
 }
 
+export interface TaskPR {
+  id?: string;
+  task_id: string;
+  pr_number: number;
+  title: string;
+  author: string;
+  head_branch: string;
+  base_branch: string;
+  html_url: string;
+  status: 'OPEN' | 'REVIEWING' | 'TESTS_PASSING' | 'TESTS_FAILED' | 'MERGED' | 'CLOSED';
+  worktree_path: string;
+  diff_stats?: {
+    changed_files?: number;
+    additions?: number;
+    deletions?: number;
+    files?: string[];
+  };
+  review_summary?: string;
+  test_output?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface Task {
   id: string;
   session_key?: string;
@@ -104,6 +127,7 @@ export interface Task {
   logs?: TaskLog[];
   approvals?: TaskApproval[];
   diffs?: TaskDiff[];
+  prs?: TaskPR[];
 }
 
 export interface AutomationRule {

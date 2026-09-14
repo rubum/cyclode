@@ -6,7 +6,7 @@ services:
     container_name: cyclode-app
     restart: always
     ports:
-      - "${PORT:-8080}:8080"
+      - "${PROD_PORT:-8080}:8080"
     volumes:
       - ./workspaces:/workspaces
       - cyclode_prod_data:/data

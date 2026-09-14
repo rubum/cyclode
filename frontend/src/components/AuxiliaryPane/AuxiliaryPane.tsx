@@ -17,6 +17,8 @@ interface AuxiliaryPaneProps {
   onClearPreview?: () => void;
   onAskAboutRepo?: (repoName: string) => void;
   onCloneToSession?: (repoUrl: string, repoName: string) => void;
+  selectedPRNumber?: number | null;
+  onSelectPR?: (prNumber: number | null) => void;
 }
 
 export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({ 
@@ -27,6 +29,8 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
   onClearPreview,
   onAskAboutRepo,
   onCloneToSession,
+  selectedPRNumber,
+  onSelectPR,
 }) => {
   const [internalTab, setInternalTab] = useState<'docs' | 'files' | 'diff' | 'activity' | 'subagents' | 'event'>(() => {
     if (previewTarget?.url) return 'docs';
@@ -120,7 +124,15 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
               No active task selected
             </div>
           )}
-          {activeTab === 'diff' && <DiffViewerTab diffs={task?.diffs} />}
+          {activeTab === 'diff' && (
+            <DiffViewerTab
+              diffs={task?.diffs}
+              prs={task?.prs}
+              selectedPRNumber={selectedPRNumber}
+              onSelectPR={onSelectPR}
+              taskId={task?.id}
+            />
+          )}
           {activeTab === 'activity' && <TerminalTab logs={task?.logs} />}
           {activeTab === 'subagents' && <SubagentsTab task={task} />}
           {activeTab === 'event' && <EventInspectorTab task={task} />}

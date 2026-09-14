@@ -24,7 +24,7 @@ fi
 
 mkdir -p workspaces data
 
-PORT_NUM=${PORT:-8080}
+PORT_NUM=${PROD_PORT:-8080}
 echo -e "${CYAN}Building production container...${NC}"
 docker compose -f docker-compose.prod.yml up --build -d
 

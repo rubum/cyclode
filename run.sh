@@ -37,7 +37,7 @@ BACK_PORT=${PORT:-8000}
 mkdir -p workspaces data
 
 echo -e "${CYAN}[1/3] 🔨 Building and starting container services...${NC}"
-docker compose up --build -d
+docker compose up --build --force-recreate -d
 
 echo -e "${CYAN}[2/3] ⏳ Waiting for backend and frontend services to be ready...${NC}"
 
