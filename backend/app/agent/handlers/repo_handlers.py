@@ -1320,14 +1320,7 @@ class PRReviewHandler(IntentHandler):
                     "review_summary": p.get("body", "")
                 })
 
-        # 5. Broadcast WebSocket Event to Sidebar & Auxiliary Pane
-        await ws_manager.broadcast_task_event(ctx.task_id, "TASK_PRS_LOADED", {
-            "task_id": ctx.task_id,
-            "repo_name": repo_full_name,
-            "prs": saved_pr_models
-        })
-
-        # 6. Render Analytical Prose Briefing
+        # 5. Render Analytical Prose Briefing
         table_rows = []
         for p in enriched_prs:
             num = p.get("number")
@@ -1339,34 +1332,31 @@ class PRReviewHandler(IntentHandler):
             adds = p_stats.get("additions", 0)
             dels = p_stats.get("deletions", 0)
             files_count = p_stats.get("changed_files", 0)
-            wt_path = p.get("worktree_path", f"prs/pr-{num}")
 
             table_rows.append(
-                f"| [#{num}]({p_url}) | **{p_title}** | `@{p_author}` | `{p_branch}` | `+{adds} / -{dels}` ({files_count} files) | `{wt_path}` |"
+                f"| [#{num}]({p_url}) | **{p_title}** | `@{p_author}` | `{p_branch}` | `+{adds} / -{dels}` ({files_count} files) |"
             )
 
         repo_link = f"[{repo_full_name}](https://github.com/{repo_full_name})"
 
         briefing_md = (
-            f"### 🔀 Synchronized Pending Pull Requests for {repo_link}\n\n"
-            f"Successfully retrieved **{len(enriched_prs)} open pull requests** from `{repo_full_name}`. "
-            f"Each pull request has been fetched and checked out into a dedicated, isolated sandboxed `git worktree` directory. "
-            f"You can now inspect diffs, trigger automated tests, or perform multi-agent code reviews directly from the sidebar UI and auxiliary pane.\n\n"
-            f"#### Active Pull Request Worktrees\n\n"
-            f"| PR | Title | Author | Branch | Changeset | Worktree Sandbox Path |\n"
-            f"| :--- | :--- | :--- | :--- | :--- | :--- |\n" +
+            f"### 🔀 Open Pull Requests for {repo_link}\n\n"
+            f"Retrieved **{len(enriched_prs)} open pull requests** from `{repo_full_name}`. "
+            f"Click any PR link to preview its full description, discussion, and unified diff directly in the **Web & Docs** Reader.\n\n"
+            f"| PR | Title | Author | Branch | Changeset |\n"
+            f"| :--- | :--- | :--- | :--- | :--- |\n" +
             "\n".join(table_rows) + "\n\n"
-            f"#### Interactive Review & Execution Options\n"
-            f"- **Sidebar PR Navigator**: Select any pull request in the left sidebar to focus the **Diff Viewer** and switch sandbox working directories.\n"
-            f"- **Sandbox Test Execution**: Click **Run Tests** on a PR to run `{test_command}` inside that PR's isolated worktree.\n"
-            f"- **Autonomous Code Review**: Prompt `Review PR #{enriched_prs[0].get('number', 101)}` to dispatch the `CodeReviewer` agent for comprehensive security, performance, and architecture audits."
+            f"#### Next Actions\n"
+            f"- **Inspect Unified Diff**: Click on any PR link above to open its diff and metadata in the reader pane.\n"
+            f"- **AI Code Review**: Prompt `Review PR #{enriched_prs[0].get('number', 101)}` to run a deep security and quality audit on a specific PR.\n"
+            f"- **Sandbox Testing**: Prompt `Checkout PR #{enriched_prs[0].get('number', 101)} to run tests` to create a dedicated local worktree."
         )
 
         await ctx.emit_message("agent", briefing_md)
         return {
             "status": "COMPLETED",
             "handled": True,
-            "summary": f"Fetched and sandboxed {len(enriched_prs)} PRs for {repo_full_name}.",
+            "summary": f"Fetched {len(enriched_prs)} open PRs for {repo_full_name}.",
             "prs_count": len(enriched_prs),
             "final_output": briefing_md
         }

@@ -34,8 +34,6 @@ const MainApp: React.FC = () => {
   const [currentPreset, setCurrentPreset] = useState<'standard' | 'wide' | 'fullscreen'>('standard');
   const [activeAuxTab, setActiveAuxTab] = useState<'files' | 'diff' | 'activity' | 'subagents' | 'event' | 'docs'>('activity');
   const [sessionPreviews, setSessionPreviews] = useState<Record<string, { url: string; title?: string } | null>>({});
-  const [selectedPRNumber, setSelectedPRNumber] = useState<number | null>(null);
-
   const activePreviewTarget = activeTaskId ? (sessionPreviews[activeTaskId] || null) : null;
 
   const [isSandboxModalOpen, setIsSandboxModalOpen] = useState<boolean>(false);
@@ -417,29 +415,6 @@ const MainApp: React.FC = () => {
       fetchTasks();
     });
 
-    const unsubPRsLoaded = subscribe('TASK_PRS_LOADED', (data: any) => {
-      fetchTasks();
-      setActiveTaskDetails((prev) => (prev && (prev.id === data.task_id || activeTaskIdRef.current === data.task_id) ? { ...prev, prs: data.prs } : prev));
-      if (Array.isArray(data.prs) && data.prs.length > 0) {
-        setSelectedPRNumber(data.prs[0].pr_number);
-      }
-      setTasks((prev) =>
-        prev.map((t) => (t.id === data.task_id ? { ...t, prs: data.prs, repo_name: data.repo_name } : t))
-      );
-    });
-
-    const unsubPRTest = subscribe('TASK_PR_TEST_COMPLETED', (data: any) => {
-      if (activeTaskId === data.task_id) {
-        fetchTaskDetails(data.task_id);
-      }
-    });
-
-    const unsubPRReviewed = subscribe('TASK_PR_REVIEWED', (data: any) => {
-      if (activeTaskId === data.task_id) {
-        fetchTaskDetails(data.task_id);
-      }
-    });
-
     return () => {
       if (streamRafRef.current) {
         cancelAnimationFrame(streamRafRef.current);
@@ -458,9 +433,6 @@ const MainApp: React.FC = () => {
       unsubApproval();
       unsubChat();
       unsubEventReceived();
-      unsubPRsLoaded();
-      unsubPRTest();
-      unsubPRReviewed();
     };
   }, [subscribe, activeTaskId, fetchTasks, fetchTaskDetails, fetchEvents]);
 
@@ -1139,9 +1111,6 @@ const MainApp: React.FC = () => {
             onOpenSettings={() => setActiveView('policies')}
             activeAgentsCount={tasks.filter((t) => t.status === 'RUNNING').length}
             onToggleSidebar={handleToggleSidebar}
-            selectedPRNumber={selectedPRNumber}
-            onSelectPR={setSelectedPRNumber}
-            onSelectAuxTab={handleSelectAuxTab}
           />
         }
         center={renderCenterView()}
@@ -1152,8 +1121,6 @@ const MainApp: React.FC = () => {
             onTabChange={setActiveAuxTab}
             previewTarget={activePreviewTarget}
             onClearPreview={handleClearPreview}
-            selectedPRNumber={selectedPRNumber}
-            onSelectPR={setSelectedPRNumber}
             onAskAboutRepo={(repoName) => {
               setActiveView('chat');
               handleSendMessage(`Can you analyze the architecture and features of the ${repoName} repository?`);
