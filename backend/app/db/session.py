@@ -168,10 +168,16 @@ async def ensure_default_repositories():
                 ]
                 for r in starter_repos:
                     session.add(r)
-                    existing_repos[r.full_name] = r
+            # If user has real repositories, purge dummy starter fixtures
+            real_repos = [k for k in existing_repos.keys() if not k.startswith("acme/")]
+            if real_repos:
+                for dummy_name in ["acme/auth-service", "acme/payments-api"]:
+                    if dummy_name in existing_repos:
+                        dummy_obj = existing_repos.pop(dummy_name)
+                        await session.delete(dummy_obj)
 
             # Clean up any legacy default fake values on existing repos
-            for full_name, repo in existing_repos.items():
+            for full_name, repo in list(existing_repos.items()):
                 if repo.test_command == "pytest" and repo.tech_stack and "Python" in repo.tech_stack and not repo.manifest_cache:
                     repo.tech_stack = []
                     repo.test_command = ""

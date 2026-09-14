@@ -109,7 +109,7 @@ const renderHighlightedInputText = (text: string) => {
           return (
             <span
               key={i}
-              className="font-bold text-onedark-yellow bg-onedark-yellow/20 px-1 py-0.5 rounded border border-onedark-yellow/40 font-mono text-[13px] shadow-xs"
+              className="font-bold text-onedark-yellow font-mono"
             >
               {part}
             </span>
@@ -132,10 +132,9 @@ const renderStyledMessageContent = (text?: string) => {
       return (
         <span
           key={i}
-          className="inline-flex items-center space-x-1 font-bold text-onedark-yellow bg-onedark-yellow/20 px-1.5 py-0.5 rounded-md border border-onedark-yellow/40 font-mono text-[12px] shadow-xs my-0.5 align-baseline"
+          className="font-bold text-onedark-yellow font-mono hover:underline cursor-pointer"
         >
-          <FolderGit2 className="w-3 h-3 text-onedark-folder flex-shrink-0" />
-          <span>{part}</span>
+          {part}
         </span>
       );
     }
@@ -454,11 +453,10 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
 ];
 
   const effectiveRepos = useMemo(() => {
-    if (propRepositories && propRepositories.length > 0) {
-      return propRepositories;
-    }
-    if (localRepos && localRepos.length > 0) {
-      return localRepos;
+    const repos = (propRepositories && propRepositories.length > 0) ? propRepositories : localRepos;
+    if (repos && repos.length > 0) {
+      const userRepos = repos.filter(r => !r.id?.startsWith('starter-') && !r.full_name?.startsWith('acme/'));
+      return userRepos.length > 0 ? userRepos : repos;
     }
     return DEFAULT_STARTER_REPOS;
   }, [propRepositories, localRepos]);
@@ -844,9 +842,9 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
               {renderMentionMenu("top-full left-0 mt-1.5")}
             </div>
 
-            <div className="flex items-center justify-between pt-2 border-t border-onedark-borderSubtle">
+            <div className="flex items-center justify-between pt-2 border-t border-onedark-borderSubtle gap-2">
               {/* Persona Selector & Quick Mention Pills */}
-              <div className="flex items-center space-x-2 min-w-0 flex-1">
+              <div className="flex items-center space-x-2 min-w-0 flex-1 overflow-hidden">
                 <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-surface border border-onedark-border text-xs text-onedark-fg font-mono shadow-sm flex-shrink-0">
                   <Sparkles className="w-3.5 h-3.5 text-onedark-yellow" />
                   <select
@@ -864,7 +862,7 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
 
                 {/* Quick Mention Repository Pills */}
                 {effectiveRepos.length > 0 && (
-                  <div className="flex items-center space-x-1.5 overflow-x-auto scrollbar-none py-0.5">
+                  <div className="flex items-center space-x-1.5 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden py-0.5 min-w-0 flex-1">
                     {effectiveRepos.slice(0, 3).map((r) => {
                       const tag = `@${r.full_name || r.name}`;
                       const isIncluded = inputValue.includes(tag);
@@ -878,15 +876,15 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                             }
                             emptyStateTextareaRef.current?.focus();
                           }}
-                          className={`px-2 py-1 rounded-lg border text-[11px] font-mono transition-all flex items-center space-x-1 cursor-pointer flex-shrink-0 ${
+                          className={`px-2 py-1 rounded-lg border text-[11px] font-mono transition-all flex items-center space-x-1 cursor-pointer flex-shrink-0 max-w-[170px] ${
                             isIncluded
                               ? 'bg-onedark-accent/20 border-onedark-accent/50 text-onedark-accent font-semibold'
                               : 'bg-onedark-surface/80 hover:bg-onedark-surface border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fgBright'
                           }`}
                           title={`Click to reference ${tag}`}
                         >
-                          <FolderGit2 className="w-3 h-3 text-onedark-folder" />
-                          <span>{tag}</span>
+                          <FolderGit2 className="w-3 h-3 text-onedark-folder flex-shrink-0" />
+                          <span className="truncate">{tag}</span>
                         </button>
                       );
                     })}
@@ -898,7 +896,7 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
               <button
                 type="submit"
                 disabled={!inputValue.trim()}
-                className="px-4 py-2 rounded-xl bg-onedark-fgBright hover:bg-white text-onedark-darker text-xs font-bold flex items-center space-x-1.5 transition-all duration-150 disabled:opacity-35 disabled:cursor-not-allowed shadow-sm active:scale-95 cursor-pointer"
+                className="px-4 py-2 rounded-xl bg-onedark-fgBright hover:bg-white text-onedark-darker text-xs font-bold flex items-center space-x-1.5 transition-all duration-150 disabled:opacity-35 disabled:cursor-not-allowed shadow-sm active:scale-95 cursor-pointer flex-shrink-0 ml-2"
               >
                 <span>Run Task</span>
                 <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
@@ -1600,7 +1598,7 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                   <kbd className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-border text-onedark-fgBright text-[10px]">Enter ↵</kbd> to send · <kbd className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-border text-onedark-fgBright text-[10px]">Shift + Enter</kbd> for newline
                 </span>
                 {effectiveRepos.length > 0 && (
-                  <div className="hidden sm:flex items-center space-x-1.5 overflow-x-auto scrollbar-none py-0.5 min-w-0">
+                  <div className="hidden sm:flex items-center space-x-1.5 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden py-0.5 min-w-0">
                     {effectiveRepos.slice(0, 3).map((r) => {
                       const tag = `@${r.full_name || r.name}`;
                       const isIncluded = inputValue.includes(tag);
@@ -1614,15 +1612,15 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                             }
                             textareaRef.current?.focus();
                           }}
-                          className={`px-1.5 py-0.5 rounded border text-[10px] font-mono transition-all flex items-center space-x-1 cursor-pointer flex-shrink-0 ${
+                          className={`px-1.5 py-0.5 rounded border text-[10px] font-mono transition-all flex items-center space-x-1 cursor-pointer flex-shrink-0 max-w-[150px] ${
                             isIncluded
                               ? 'bg-onedark-accent/20 border-onedark-accent/50 text-onedark-accent font-semibold'
                               : 'bg-onedark-surface/80 hover:bg-onedark-surface border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fgBright'
                           }`}
                           title={`Click to reference ${tag}`}
                         >
-                          <FolderGit2 className="w-2.5 h-2.5 text-onedark-folder" />
-                          <span>{tag}</span>
+                          <FolderGit2 className="w-2.5 h-2.5 text-onedark-folder flex-shrink-0" />
+                          <span className="truncate">{tag}</span>
                         </button>
                       );
                     })}
