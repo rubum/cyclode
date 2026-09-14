@@ -72,7 +72,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
     setEditingTaskId(null);
   };
-  const { isConnected } = useWebSocket();
+  const { isConnected, isConnecting, reconnect } = useWebSocket();
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
   const [isClearAllOpen, setIsClearAllOpen] = useState(false);
 
@@ -380,17 +380,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           {/* Realtime Connection Badge & Settings */}
           <div className="flex items-center space-x-1.5">
-            <div 
-              className={`flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10.5px] font-mono border ${
+            <button 
+              onClick={isConnected ? undefined : reconnect}
+              disabled={isConnected}
+              className={`flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10.5px] font-mono border transition-all ${
                 isConnected 
-                  ? 'bg-onedark-green/10 text-onedark-green border-onedark-green/30' 
-                  : 'bg-onedark-red/10 text-onedark-red border-onedark-red/30'
+                  ? 'bg-onedark-green/10 text-onedark-green border-onedark-green/30 cursor-default' 
+                  : isConnecting
+                  ? 'bg-onedark-yellow/10 text-onedark-yellow border-onedark-yellow/30 cursor-wait'
+                  : 'bg-onedark-red/10 text-onedark-red border-onedark-red/30 hover:bg-onedark-red/20 cursor-pointer active:scale-95'
               }`}
-              title={isConnected ? "Realtime WebSocket stream connected" : "WebSocket disconnected"}
+              title={
+                isConnected 
+                  ? "Realtime WebSocket stream connected" 
+                  : isConnecting
+                  ? "Connecting to backend WebSocket..."
+                  : "WebSocket disconnected. Click to reconnect."
+              }
             >
-              <span className={`w-1.5 h-1.5 rounded-full ${isConnected ? 'bg-onedark-green animate-pulse' : 'bg-onedark-red'}`} />
-              <span>{isConnected ? 'Live' : 'Offline'}</span>
-            </div>
+              <span className={`w-1.5 h-1.5 rounded-full ${
+                isConnected 
+                  ? 'bg-onedark-green animate-pulse' 
+                  : isConnecting
+                  ? 'bg-onedark-yellow animate-ping'
+                  : 'bg-onedark-red'
+              }`} />
+              <span>{isConnected ? 'Live' : isConnecting ? 'Connecting' : 'Offline'}</span>
+            </button>
 
             {onOpenSettings && (
               <button
