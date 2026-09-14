@@ -485,26 +485,29 @@ def _clean_github_markdown(markdown_text: str, owner: str, repo: str, default_br
 
 async def _fetch_github_repo_info(owner: str, repo: str) -> Dict[str, Any]:
     """
-    Fetches GitHub repository information and README markdown.
+    Fetches GitHub repository information and README markdown with Vault token support.
     """
+    full_name = f"{owner}/{repo}"
+    token = None
+    try:
+        from app.config import settings
+        token = getattr(settings, "GITHUB_TOKEN", None)
+        from app.integrations.manager import integration_manager
+        vault_token = await integration_manager.get_github_token_for_repo(f"https://github.com/{full_name}")
+        if vault_token:
+            token = vault_token
+    except Exception:
+        pass
+
     headers = {
         "User-Agent": "Cyclode-Workstation/1.0",
         "Accept": "application/vnd.github.v3+json"
     }
-    try:
-        from app.config import settings
-        if getattr(settings, "GITHUB_TOKEN", None):
-            headers["Authorization"] = f"Bearer {settings.GITHUB_TOKEN}"
-    except Exception:
-        pass
+    if token:
+        headers["Authorization"] = f"token {token}"
 
     repo_url = f"https://api.github.com/repos/{owner}/{repo}"
-    readme_urls = [
-        f"https://raw.githubusercontent.com/{owner}/{repo}/HEAD/README.md",
-        f"https://raw.githubusercontent.com/{owner}/{repo}/main/README.md",
-        f"https://raw.githubusercontent.com/{owner}/{repo}/master/README.md",
-        f"https://raw.githubusercontent.com/{owner}/{repo}/HEAD/readme.md",
-    ]
+    readme_api_url = f"https://api.github.com/repos/{owner}/{repo}/readme"
 
     async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
         repo_data: Dict[str, Any] = {}
@@ -518,15 +521,32 @@ async def _fetch_github_repo_info(owner: str, repo: str) -> Dict[str, Any]:
         except Exception as e:
             logger.debug(f"GitHub API metadata notice: {e}")
 
-        # Fetch README markdown
-        for ru in readme_urls:
-            try:
-                r = await client.get(ru, headers={"User-Agent": "Cyclode-Workstation/1.0"})
-                if r.status_code == 200 and r.text.strip():
-                    readme_md = r.text
-                    break
-            except Exception:
-                continue
+        # Fetch README via official GitHub API with raw accept header
+        try:
+            readme_headers = dict(headers)
+            readme_headers["Accept"] = "application/vnd.github.raw+json"
+            r = await client.get(readme_api_url, headers=readme_headers)
+            if r.status_code == 200 and r.text.strip():
+                readme_md = r.text
+        except Exception:
+            pass
+
+        # Fallback to public raw URLs if API didn't return
+        if not readme_md:
+            readme_urls = [
+                f"https://raw.githubusercontent.com/{owner}/{repo}/HEAD/README.md",
+                f"https://raw.githubusercontent.com/{owner}/{repo}/main/README.md",
+                f"https://raw.githubusercontent.com/{owner}/{repo}/master/README.md",
+                f"https://raw.githubusercontent.com/{owner}/{repo}/HEAD/readme.md",
+            ]
+            for ru in readme_urls:
+                try:
+                    r = await client.get(ru, headers=headers)
+                    if r.status_code == 200 and r.text.strip():
+                        readme_md = r.text
+                        break
+                except Exception:
+                    continue
 
         title = repo_data.get("full_name") or f"{owner}/{repo}"
         description = repo_data.get("description") or "GitHub Repository"
@@ -548,7 +568,7 @@ async def _fetch_github_repo_info(owner: str, repo: str) -> Dict[str, Any]:
             "language": repo_data.get("language") or "Code",
             "license": repo_data.get("license", {}).get("spdx_id") if repo_data.get("license") else None,
             "clone_url": repo_data.get("clone_url") or f"https://github.com/{owner}/{repo}.git",
-            "default_branch": repo_data.get("default_branch", "main"),
+            "default_branch": default_branch,
             "content_markdown": readme_md
         }
 
