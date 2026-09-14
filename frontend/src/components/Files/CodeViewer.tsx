@@ -140,24 +140,24 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath, onFile
   if (!data) return null;
 
   return (
-    <div className="h-full flex flex-col bg-onedark-bg font-mono text-xs overflow-hidden">
+    <div className="h-full flex flex-col bg-onedark-bg font-mono text-[12.5px] overflow-hidden">
       {/* File Header Bar */}
       <div className="px-3.5 py-2 bg-onedark-darker border-b border-onedark-borderSubtle flex items-center justify-between flex-shrink-0 select-none">
         <div className="flex items-center space-x-2 truncate">
           <FileCode className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
-          <span className="font-semibold text-onedark-fgBright truncate text-[11.5px]">
+          <span className="font-semibold text-onedark-fgBright truncate text-[12.5px]">
             {data.name}
           </span>
-          <span className="text-[10px] text-onedark-muted truncate hidden sm:inline">
+          <span className="text-[11px] text-onedark-muted truncate hidden sm:inline">
             ({data.path})
           </span>
         </div>
 
         <div className="flex items-center space-x-2 flex-shrink-0">
-          <span className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-borderSubtle text-[10px] text-onedark-muted uppercase font-semibold">
+          <span className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-borderSubtle text-[10.5px] text-onedark-muted uppercase font-semibold">
             {resolvedLang}
           </span>
-          <span className="text-[10.5px] text-onedark-muted">
+          <span className="text-[11px] text-onedark-muted">
             {lineCount} lines · {formatBytes(data.size)}
           </span>
           <button
@@ -186,9 +186,9 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath, onFile
       </div>
 
       {/* Syntax Highlighted Code with Line Numbers */}
-      <div className="flex-1 overflow-auto p-2 font-mono text-[11.5px] leading-relaxed select-text flex min-w-0">
+      <div className="flex-1 overflow-auto p-2 font-mono text-[12.5px] leading-[20px] select-text flex min-w-0">
         {/* Line Numbers Gutter */}
-        <div className="select-none pr-3 pl-1 text-right text-onedark-muted/40 border-r border-onedark-borderSubtle/60 flex flex-col font-mono text-[11px] leading-relaxed flex-shrink-0 sticky left-0 bg-onedark-bg z-10">
+        <div className="select-none pr-3 pl-1 text-right text-onedark-muted/40 border-r border-onedark-borderSubtle/60 flex flex-col font-mono text-[12px] leading-[20px] flex-shrink-0 sticky left-0 bg-onedark-bg z-10">
           {Array.from({ length: lineCount }, (_, i) => (
             <span key={i} className="hover:text-onedark-muted cursor-default min-w-[2rem]">
               {i + 1}
@@ -198,7 +198,7 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath, onFile
 
         {/* Code Block with One Dark Syntax Highlight */}
         <pre
-          className={`flex-1 pl-3.5 m-0 overflow-visible font-mono text-[11.5px] leading-relaxed bg-transparent select-text ${
+          className={`flex-1 pl-3.5 m-0 overflow-visible font-mono text-[12.5px] leading-[20px] bg-transparent select-text ${
             wrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'
           }`}
         >

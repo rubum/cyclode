@@ -121,7 +121,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
                     type="button"
                     onClick={() => toggleFolder(node.path)}
                     style={{ paddingLeft: `${depth * 14 + 8}px` }}
-                    className="w-full flex items-center space-x-1.5 py-1 pr-2 rounded-md hover:bg-onedark-surface/60 text-xs font-mono text-onedark-fg hover:text-onedark-fgBright transition-colors text-left group cursor-pointer"
+                    className="w-full flex items-center space-x-1.5 py-1 pr-2 rounded-md hover:bg-onedark-surface/60 text-[12.5px] font-mono text-onedark-fg hover:text-onedark-fgBright transition-colors text-left group cursor-pointer"
                   >
                     {isExpanded ? (
                       <FolderOpen className="w-4 h-4 text-onedark-folder flex-shrink-0" />
@@ -131,7 +131,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
                     <span className="font-semibold text-onedark-fg group-hover:text-onedark-fgBright truncate">
                       {node.name}
                     </span>
-                    <span className="text-[10px] text-onedark-muted font-normal ml-1">
+                    <span className="text-[10.5px] text-onedark-muted font-normal ml-1">
                       ({childCount})
                     </span>
                   </button>
@@ -144,14 +144,14 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
                     ) : childCount > 0 ? (
                       <div 
                         style={{ paddingLeft: `${(depth + 1) * 14 + 8}px` }}
-                        className="py-1 text-[10.5px] text-onedark-muted italic select-none"
+                        className="py-1 text-[11px] text-onedark-muted italic select-none"
                       >
                         (Subtree depth limit reached)
                       </div>
                     ) : (
                       <div 
                         style={{ paddingLeft: `${(depth + 1) * 14 + 8}px` }}
-                        className="py-1 text-[10.5px] text-onedark-muted/60 italic select-none"
+                        className="py-1 text-[11px] text-onedark-muted/60 italic select-none"
                       >
                         (Empty directory)
                       </div>
@@ -163,7 +163,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
                   type="button"
                   onClick={() => onSelectFile(node.path)}
                   style={{ paddingLeft: `${depth * 14 + 8}px` }}
-                  className={`w-full flex items-center space-x-1.5 py-1 pr-2.5 rounded-md text-xs font-mono transition-all text-left cursor-pointer ${
+                  className={`w-full flex items-center space-x-1.5 py-1 pr-2.5 rounded-md text-[12.5px] font-mono transition-all text-left cursor-pointer ${
                     isSelected
                       ? 'bg-onedark-accent/20 text-onedark-accent font-semibold border border-onedark-accent/40 shadow-xs'
                       : 'hover:bg-onedark-surface text-onedark-fg/90 hover:text-onedark-fgBright'
@@ -172,9 +172,9 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
                   <FileCode className={`w-3.5 h-3.5 flex-shrink-0 ${
                     isSelected ? 'text-onedark-accent' : 'text-onedark-fg/70'
                   }`} />
-                  <span className="truncate flex-1 text-[11.5px]">{node.name}</span>
+                  <span className="truncate flex-1 text-[12.5px]">{node.name}</span>
                   {node.size !== undefined && (
-                    <span className="text-[10px] text-onedark-muted font-mono flex-shrink-0 ml-2">
+                    <span className="text-[10.5px] text-onedark-muted font-mono flex-shrink-0 ml-2">
                       {formatBytes(node.size)}
                     </span>
                   )}
@@ -188,13 +188,13 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
   };
 
   return (
-    <div className="h-full flex flex-col bg-onedark-darker/60 font-mono text-xs overflow-hidden">
+    <div className="h-full flex flex-col bg-onedark-darker/60 font-mono text-[12.5px] overflow-hidden">
       {/* Explorer Header */}
       <div className="p-3 border-b border-onedark-borderSubtle bg-onedark-darker flex-shrink-0 space-y-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
             <Folder className="w-4 h-4 text-onedark-folder flex-shrink-0" />
-            <span className="font-semibold text-onedark-fgBright text-xs truncate">
+            <span className="font-semibold text-onedark-fgBright text-[12.5px] truncate">
               {title}
             </span>
           </div>
@@ -202,7 +202,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
           <div className="flex items-center space-x-1">
             <button
               onClick={expandAll}
-              className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg text-[10px]"
+              className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg text-[10.5px]"
               title="Expand all folders"
             >
               Expand
@@ -210,7 +210,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
             <span className="text-onedark-border">·</span>
             <button
               onClick={collapseAll}
-              className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg text-[10px]"
+              className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg text-[10.5px]"
               title="Collapse all folders"
             >
               Collapse
@@ -226,7 +226,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Filter files..."
-            className="w-full bg-onedark-bg border border-onedark-borderSubtle focus:border-onedark-accent rounded-md pl-7 pr-2.5 py-1 text-[11px] text-onedark-fg focus:outline-none placeholder:text-onedark-muted"
+            className="w-full bg-onedark-bg border border-onedark-borderSubtle focus:border-onedark-accent rounded-md pl-7 pr-2.5 py-1 text-[12px] text-onedark-fg focus:outline-none placeholder:text-onedark-muted"
           />
         </div>
       </div>
@@ -234,7 +234,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
       {/* Tree Content */}
       <div className="flex-1 overflow-y-auto p-2">
         {filteredTree.length === 0 ? (
-          <div className="py-8 text-center text-onedark-muted text-[11px]">
+          <div className="py-8 text-center text-onedark-muted text-[11.5px]">
             {filter ? 'No files match your filter.' : 'No files in workspace.'}
           </div>
         ) : (
