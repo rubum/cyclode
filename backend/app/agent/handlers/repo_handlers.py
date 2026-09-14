@@ -1164,8 +1164,8 @@ class PRReviewHandler(IntentHandler):
         has_at_mention = bool(re.search(r"@[A-Za-z0-9_.-]+", ctx.prompt))
         has_pr_keywords = any(w in lower for w in (
             "pending pr", "pending prs", "open pr", "open prs", "pull request", "pull requests",
-            "get pr", "get prs", "list prs", "review pr", "review prs", "fetch prs",
-            "prs in", "prs for", "prs on"
+            "get pr", "get prs", "list prs", "review pr", "review prs", "fetch prs", "show prs",
+            "prs by", "prs from", "prs in", "prs for", "prs on", "prs into", "prs about"
         ))
         return bool(has_at_mention and has_pr_keywords)
 
@@ -1174,26 +1174,105 @@ class PRReviewHandler(IntentHandler):
         has_at_mention = bool(re.search(r"@[A-Za-z0-9_.-]+", ctx.prompt))
         has_pr_keywords = any(w in lower for w in (
             "pending pr", "pending prs", "open pr", "open prs", "pull request", "pull requests",
-            "get pr", "get prs", "list prs", "review pr", "review prs", "fetch prs",
-            "prs in", "prs for", "prs on"
+            "get pr", "get prs", "list prs", "review pr", "review prs", "fetch prs", "show prs",
+            "prs by", "prs from", "prs in", "prs for", "prs on", "prs into", "prs about"
         ))
         return bool((has_at_mention and has_pr_keywords) or (has_pr_keywords and any(w in lower for w in ("repo", "repository", "project"))))
+
+    @staticmethod
+    def _extract_pr_filters(prompt: str) -> Dict[str, Any]:
+        lower = prompt.lower()
+
+        # 1. State filter: "merged", "closed", "all", "open" (default: "open")
+        state = "open"
+        if "merged" in lower:
+            state = "merged"
+        elif "closed" in lower:
+            state = "closed"
+        elif "all prs" in lower or "all pull requests" in lower:
+            state = "all"
+
+        # 2. Author filter: "by <author>", "from <author>", "author:<author>", "created by <author>", "authored by <author>"
+        author = None
+        author_match = re.search(
+            r"(?:by|from|author:|created\s+by|authored\s+by)\s+@?([A-Za-z0-9_-]+)(?:\b|$)",
+            prompt,
+            re.IGNORECASE
+        )
+        if author_match:
+            candidate = author_match.group(1).strip()
+            if candidate.lower() not in {"open", "closed", "merged", "all", "the", "a", "an", "this", "pr", "prs", "pull", "pulls"}:
+                author = candidate
+
+        # 3. Topic / Keyword filter
+        keyword = None
+        kw_match = re.search(
+            r"(?:about|related\s+to|matching|mentioning|with\s+keyword)\s+[\"']?([^\"',@\n]+?)[\"']?(?:\s+(?:in|for|by|from|into|on|targeting)|$)",
+            prompt,
+            re.IGNORECASE
+        )
+        if kw_match:
+            candidate = kw_match.group(1).strip()
+            if candidate.lower() not in {"open", "closed", "merged", "prs", "pr", "pull requests", "pulls"}:
+                keyword = candidate
+
+        # 4. Target (base) branch filter
+        base_branch = None
+        base_match = re.search(
+            r"(?:into|targeting|to\s+branch|target\s+branch|base:)\s+([A-Za-z0-9_./-]+)",
+            prompt,
+            re.IGNORECASE
+        )
+        if base_match:
+            candidate = base_match.group(1).strip()
+            if candidate.lower() not in {"the", "a", "an", "this"}:
+                base_branch = candidate
+
+        # 5. Head branch filter
+        head_branch = None
+        head_match = re.search(
+            r"(?:from\s+branch|on\s+branch|head:)\s+([A-Za-z0-9_./-]+)",
+            prompt,
+            re.IGNORECASE
+        )
+        if head_match:
+            head_branch = head_match.group(1).strip()
+
+        # 6. Draft status filter
+        is_draft = None
+        if re.search(r"\b(?:draft\s+prs?|only\s+drafts?)\b", lower):
+            is_draft = True
+        elif re.search(r"\b(?:exclude\s+drafts?|no\s+drafts?|ready\s+for\s+review|non-draft)\b", lower):
+            is_draft = False
+
+        # 7. Volume limit
+        limit = None
+        limit_match = re.search(r"\b(?:latest|top|first|recent|limit:?)\s*(\d+)\b", lower)
+        if limit_match:
+            limit = int(limit_match.group(1))
+
+        return {
+            "state": state,
+            "author": author,
+            "keyword": keyword,
+            "base_branch": base_branch,
+            "head_branch": head_branch,
+            "is_draft": is_draft,
+            "limit": limit
+        }
 
     async def execute(self, ctx: IntentContext) -> Dict[str, Any]:
         has_db = False
         saved_repos = []
         try:
             from app.db.session import async_session_factory, ensure_default_repositories
-            from app.db.models import RepositoryConfigModel, TaskPRModel, TaskModel
+            from app.db.models import RepositoryConfigModel, TaskModel
             from app.core.security import decrypt_secret
-            from sqlalchemy import select, delete
+            from sqlalchemy import select
             has_db = True
             await ensure_default_repositories()
         except Exception:
             has_db = False
-
-        from app.core.worktree import worktree_manager
-        from app.api.websocket import ws_manager
 
         # 1. Resolve Target Repository
         repo_name_match = re.search(r"@([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?)", ctx.prompt)
@@ -1228,21 +1307,91 @@ class PRReviewHandler(IntentHandler):
         repo_full_name = matched_repo.full_name if matched_repo else f"org/{repo_display}"
         clone_url = matched_repo.clone_url if matched_repo else f"https://github.com/{repo_full_name}"
         raw_token = decrypt_secret(matched_repo.encrypted_token) if (has_db and matched_repo and matched_repo.encrypted_token) else None
-        test_command = (matched_repo.test_command if matched_repo else None) or "python3 -m unittest discover tests"
 
         owner_part, repo_part = (repo_full_name.split("/", 1) if "/" in repo_full_name else ("org", repo_full_name))
 
-        # 2. Tool Step: Fetch PRs via GitHub Client
-        await ctx.call_tool_start("fetch_pull_requests", {"repository": repo_full_name, "state": "open"})
-        prs = await github_client.list_pull_requests(owner_part, repo_part, state="open", custom_token=raw_token)
+        # 2. Extract Multi-Dimensional Filters
+        filters = self._extract_pr_filters(ctx.prompt)
+        github_state = "closed" if filters["state"] in ("merged", "closed") else ("all" if filters["state"] == "all" else "open")
+
+        tool_params = {"repository": repo_full_name, "state": github_state}
+        if filters["author"]:
+            tool_params["author"] = filters["author"]
+        if filters["keyword"]:
+            tool_params["keyword"] = filters["keyword"]
+        if filters["base_branch"]:
+            tool_params["base_branch"] = filters["base_branch"]
+        if filters["limit"]:
+            tool_params["limit"] = filters["limit"]
+
+        # 3. Tool Step: Fetch PRs via GitHub Client
+        await ctx.call_tool_start("fetch_pull_requests", tool_params)
+        prs = await github_client.list_pull_requests(owner_part, repo_part, state=github_state, custom_token=raw_token)
+
+        # 4. Apply In-Memory Multi-Filter Matching
+        filtered_prs = []
+        all_authors = set()
+
+        for p in prs:
+            p_author = (p.get("user", {}).get("login") if isinstance(p.get("user"), dict) else str(p.get("user") or "")).strip()
+            if p_author:
+                all_authors.add(p_author)
+
+            # State check
+            p_state = (p.get("state") or "open").lower()
+            is_merged = bool(p.get("merged_at"))
+            if filters["state"] == "merged" and not is_merged:
+                continue
+            elif filters["state"] == "closed" and (p_state != "closed" or is_merged):
+                continue
+            elif filters["state"] == "open" and p_state != "open":
+                continue
+
+            # Author check (exact or substring/fuzzy)
+            if filters["author"]:
+                req_author = filters["author"].lower()
+                if req_author not in p_author.lower() and p_author.lower() not in req_author:
+                    continue
+
+            # Keyword check (title or body)
+            if filters["keyword"]:
+                kw = filters["keyword"].lower()
+                title_txt = (p.get("title") or "").lower()
+                body_txt = (p.get("body") or "").lower()
+                if kw not in title_txt and kw not in body_txt:
+                    continue
+
+            # Target branch check
+            if filters["base_branch"]:
+                b_ref = (p.get("base", {}).get("ref") if isinstance(p.get("base"), dict) else str(p.get("base") or "")).lower()
+                if filters["base_branch"].lower() not in b_ref:
+                    continue
+
+            # Head branch check
+            if filters["head_branch"]:
+                h_ref = (p.get("head", {}).get("ref") if isinstance(p.get("head"), dict) else str(p.get("head") or "")).lower()
+                if filters["head_branch"].lower() not in h_ref:
+                    continue
+
+            # Draft status check
+            if filters["is_draft"] is not None:
+                p_draft = bool(p.get("draft", False))
+                if p_draft != filters["is_draft"]:
+                    continue
+
+            filtered_prs.append(p)
+
+        if filters["limit"] and filters["limit"] > 0:
+            filtered_prs = filtered_prs[:filters["limit"]]
+
         await ctx.call_tool_end(
             "fetch_pull_requests",
-            json.dumps({"count": len(prs), "pull_requests": [{"number": p.get("number"), "title": p.get("title")} for p in prs]}),
+            json.dumps({"total_fetched": len(prs), "matched_count": len(filtered_prs), "filters": tool_params}),
             0,
             260
         )
 
-        # 3. Update task repository info if DB available
+        # 5. Update task repository info if DB available
         if has_db:
             try:
                 async with async_session_factory() as session:
@@ -1256,41 +1405,91 @@ class PRReviewHandler(IntentHandler):
             except Exception:
                 pass
 
-        # 4. Render Analytical Prose Briefing
-        table_rows = []
-        for p in prs:
-            num = p.get("number")
-            p_title = p.get("title") or "Untitled PR"
-            p_author = p.get("user", {}).get("login", "unknown") if isinstance(p.get("user"), dict) else str(p.get("user") or "unknown")
-            p_branch = p.get("head", {}).get("ref", f"pr-{num}") if isinstance(p.get("head"), dict) else f"pr-{num}"
-            p_url = p.get("html_url") or f"https://github.com/{repo_full_name}/pull/{num}"
-            p_state = (p.get("state") or "open").upper()
+        # 6. Build Human-Readable Filter Description
+        filter_criteria = []
+        if filters["author"]:
+            filter_criteria.append(f"authored by `@{filters['author']}`")
+        if filters["keyword"]:
+            filter_criteria.append(f"matching keyword `\"{filters['keyword']}\"`")
+        if filters["state"] != "open":
+            filter_criteria.append(f"status `{filters['state'].upper()}`")
+        if filters["base_branch"]:
+            filter_criteria.append(f"targeting `{filters['base_branch']}`")
+        if filters["head_branch"]:
+            filter_criteria.append(f"branch `{filters['head_branch']}`")
+        if filters["is_draft"] is True:
+            filter_criteria.append("draft status")
+        elif filters["is_draft"] is False:
+            filter_criteria.append("ready for review (non-draft)")
+        if filters["limit"]:
+            filter_criteria.append(f"limit {filters['limit']}")
 
-            table_rows.append(
-                f"| [#{num}]({p_url}) | **{p_title}** | `@{p_author}` | `{p_branch}` | `{p_state}` |"
-            )
-
+        filter_desc = ", ".join(filter_criteria) if filter_criteria else "open status"
         repo_link = f"[{repo_full_name}](https://github.com/{repo_full_name})"
 
-        briefing_md = (
-            f"### 🔀 Open Pull Requests for {repo_link}\n\n"
-            f"Retrieved **{len(prs)} open pull requests** from `{repo_full_name}`. "
-            f"Click any PR link to view its full discussion, metadata, and accurate unified diff in the **Web & Docs** Reader.\n\n"
-            f"| PR | Title | Author | Branch | Status |\n"
-            f"| :--- | :--- | :--- | :--- | :--- |\n" +
-            "\n".join(table_rows) + "\n\n"
-            f"#### Next Actions\n"
-            f"- **Inspect Live PR Diff**: Click any PR link above to open its complete description and exact line additions/deletions in the reader pane.\n"
-            f"- **AI Code Review**: Prompt `Review PR #{prs[0].get('number', 101)}` to dispatch the `CodeReviewer` agent for comprehensive security, performance, and architecture audits.\n"
-            f"- **Checkout & Test**: Prompt `Checkout PR #{prs[0].get('number', 101)} to run tests` to create a dedicated local sandbox."
-        )
+        # 7. Render Analytical Response
+        if not filtered_prs:
+            sorted_authors = sorted(list(all_authors))
+            author_list_str = ", ".join(f"`@{a}`" for a in sorted_authors[:8]) if sorted_authors else "None"
+            if len(sorted_authors) > 8:
+                author_list_str += f", and {len(sorted_authors) - 8} more"
+
+            briefing_md = (
+                f"### 🔀 No Matching Pull Requests in {repo_link}\n\n"
+                f"No pull requests matching **{filter_desc}** were found out of the **{len(prs)} total pull requests** retrieved from `{repo_full_name}`.\n\n"
+                f"**Active PR Contributors in this Repository:**\n{author_list_str}\n\n"
+                f"#### Suggested Queries\n"
+                f"- `Get open prs in @{repo_full_name}`\n"
+            )
+            if sorted_authors:
+                briefing_md += f"- `Get open prs by @{sorted_authors[0]} in @{repo_full_name}`\n"
+        else:
+            table_rows = []
+            for p in filtered_prs:
+                num = p.get("number")
+                p_title = p.get("title") or "Untitled PR"
+                p_author = p.get("user", {}).get("login", "unknown") if isinstance(p.get("user"), dict) else str(p.get("user") or "unknown")
+                p_branch = p.get("head", {}).get("ref", f"pr-{num}") if isinstance(p.get("head"), dict) else f"pr-{num}"
+                p_url = p.get("html_url") or f"https://github.com/{repo_full_name}/pull/{num}"
+                p_state = "MERGED" if p.get("merged_at") else (p.get("state") or "open").upper()
+                if p.get("draft"):
+                    p_state = f"{p_state} (DRAFT)"
+
+                table_rows.append(
+                    f"| [#{num}]({p_url}) | **{p_title}** | `@{p_author}` | `{p_branch}` | `{p_state}` |"
+                )
+
+            heading_title = "Open Pull Requests"
+            if filters["state"] == "merged":
+                heading_title = "Merged Pull Requests"
+            elif filters["state"] == "closed":
+                heading_title = "Closed Pull Requests"
+            elif filters["state"] == "all":
+                heading_title = "All Pull Requests"
+
+            if filters["author"]:
+                heading_title += f" by @{filters['author']}"
+
+            briefing_md = (
+                f"### 🔀 {heading_title} in {repo_link}\n\n"
+                f"Found **{len(filtered_prs)} pull request{'s' if len(filtered_prs) != 1 else ''}** ({filter_desc}) in `{repo_full_name}`. "
+                f"Click any PR link to view its full discussion, metadata, and accurate unified diff in the **Web & Docs** Reader.\n\n"
+                f"| PR | Title | Author | Branch | Status |\n"
+                f"| :--- | :--- | :--- | :--- | :--- |\n" +
+                "\n".join(table_rows) + "\n\n"
+                f"#### Next Actions\n"
+                f"- **Inspect Live PR Diff**: Click any PR link above to open its complete description and exact line additions/deletions in the reader pane.\n"
+                f"- **AI Code Review**: Prompt `Review PR #{filtered_prs[0].get('number', 101)}` to dispatch the `CodeReviewer` agent for comprehensive security, performance, and architecture audits.\n"
+                f"- **Checkout & Test**: Prompt `Checkout PR #{filtered_prs[0].get('number', 101)} to run tests` to create a dedicated local sandbox."
+            )
 
         await ctx.emit_message("agent", briefing_md)
         return {
             "status": "COMPLETED",
             "handled": True,
-            "summary": f"Fetched {len(prs)} open PRs for {repo_full_name}.",
-            "prs_count": len(prs),
+            "summary": f"Fetched {len(filtered_prs)} filtered PRs for {repo_full_name}.",
+            "prs_count": len(filtered_prs),
+            "filters": tool_params,
             "final_output": briefing_md
         }
 

@@ -123,7 +123,7 @@ class GitHubClient:
             "Authorization": f"token {token}"
         }
         async with httpx.AsyncClient(timeout=15.0) as client:
-            url = f"{self.api_base}/repos/{owner}/{repo}/pulls?state={state}&per_page=30"
+            url = f"{self.api_base}/repos/{owner}/{repo}/pulls?state={state}&per_page=100"
             try:
                 resp = await client.get(url, headers=headers)
                 if resp.status_code == 200:
@@ -140,6 +140,7 @@ class GitHubClient:
                             "html_url": pr.get("html_url"),
                             "created_at": pr.get("created_at"),
                             "updated_at": pr.get("updated_at"),
+                            "merged_at": pr.get("merged_at"),
                             "draft": pr.get("draft", False),
                             "additions": pr.get("additions", 0),
                             "deletions": pr.get("deletions", 0),
