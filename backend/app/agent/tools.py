@@ -849,9 +849,9 @@ class WorkspaceTools:
         res = await github_client.post_pull_request_line_comment(
             owner=owner,
             repo=repo,
-            pull_number=pr_number,
+            pr_number=pr_number,
             body=body,
-            commit_sha=commit_sha,
+            commit_id=commit_sha,
             path=path,
             line=line,
             side=side,
