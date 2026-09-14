@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Copy, Check, Info, AlertTriangle, AlertCircle, Sparkles, Flame, ExternalLink } from 'lucide-react';
+import { Copy, Check, Info, AlertTriangle, AlertCircle, Sparkles, Flame, ExternalLink, ChevronRight } from 'lucide-react';
 import katex from 'katex';
 import { highlightCode, resolveLanguage, escapeHtml } from '../../utils/syntaxHighlighter';
 
@@ -107,14 +107,18 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
     );
   };
 
-  // Normalize unclosed code blocks during active streaming so they render smoothly as code blocks from line 1
+  // Strip raw HTML comments and normalize unclosed code blocks during active streaming
   const normalizedContent = (() => {
-    if (!isStreaming) return content;
-    const codeBlockCount = (content.match(/```/g) || []).length;
+    let text = content || '';
+    // Strip HTML comments (e.g. <!-- CURSOR_AGENT_PR_BODY_END -->, <!-- release notes by coderabbit.ai -->)
+    text = text.replace(/<!--[\s\S]*?-->/g, '');
+
+    if (!isStreaming) return text;
+    const codeBlockCount = (text.match(/```/g) || []).length;
     if (codeBlockCount % 2 !== 0) {
-      return content + '\n```';
+      return text + '\n```';
     }
-    return content;
+    return text;
   })();
 
   // Split by code blocks and display math blocks ($$...$$ or \[...\])
@@ -252,6 +256,25 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                 );
               }
 
+              if (block.type === 'details') {
+                return (
+                  <details
+                    key={bIdx}
+                    className="my-2.5 rounded-xl border border-onedark-border bg-onedark-darker/60 overflow-hidden shadow-xs group"
+                  >
+                    <summary className="px-3.5 py-2 bg-onedark-surface/60 hover:bg-onedark-surface cursor-pointer text-xs font-semibold text-onedark-fgBright select-none transition-colors flex items-center space-x-1.5 list-none">
+                      <ChevronRight className="w-3.5 h-3.5 text-onedark-accent transition-transform group-open:rotate-90 flex-shrink-0" />
+                      <span>{inline(block.summary || 'Details')}</span>
+                    </summary>
+                    {block.content && (
+                      <div className="p-3 border-t border-onedark-borderSubtle text-xs space-y-2">
+                        <MarkdownRenderer content={block.content} onLinkClick={onLinkClick} />
+                      </div>
+                    )}
+                  </details>
+                );
+              }
+
               if (block.type === 'hr') {
                 return <hr key={bIdx} className="border-t border-onedark-borderSubtle/60 my-3.5" />;
               }
@@ -383,13 +406,14 @@ function getAlertStyle(type: string) {
 }
 
 interface BlockItem {
-  type: 'p' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'ul' | 'ol' | 'blockquote' | 'alert' | 'table' | 'hr';
+  type: 'p' | 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6' | 'ul' | 'ol' | 'blockquote' | 'alert' | 'table' | 'hr' | 'details';
   content?: string;
   items?: NestedListItem[];
   startNumber?: number;
   alertType?: string;
   tableHeaders?: string[];
   tableRows?: string[][];
+  summary?: string;
 }
 
 function parseTask(content: string): { isTask: boolean; isTaskChecked: boolean; cleanContent: string } {
@@ -441,8 +465,44 @@ function parseBlocks(text: string): BlockItem[] {
       continue;
     }
 
+    // Ignore lines that are isolated HTML comments
+    if (/^<!--[\s\S]*?-->$/i.test(trimmed) || trimmed.startsWith('<!--') || trimmed.endsWith('-->')) {
+      continue;
+    }
+
     // Ignore lines that only contain HTML wrapper tags
-    if (/^<\/?(?:p|div|center|picture|source|span|details|summary)[^>]*>$/i.test(trimmed)) {
+    if (/^<\/?(?:p|div|center|picture|source|span)[^>]*>$/i.test(trimmed)) {
+      continue;
+    }
+
+    // Details / Summary Accordion Block
+    if (/^<details\b[^>]*>/i.test(trimmed)) {
+      flushParagraph();
+      flushList();
+      flushTable();
+      let summaryText = 'Details';
+      const detailsLines: string[] = [];
+
+      for (let j = i + 1; j < lines.length; j++) {
+        const dTrimmed = lines[j].trim();
+        if (/^<\/details>/i.test(dTrimmed)) {
+          i = j;
+          break;
+        }
+        const sMatch = dTrimmed.match(/^<summary[^>]*>([\s\S]*?)<\/summary>/i);
+        if (sMatch) {
+          summaryText = sMatch[1].replace(/<[^>]+>/g, '').trim() || summaryText;
+        } else if (!/^<\/?summary[^>]*>/i.test(dTrimmed)) {
+          detailsLines.push(lines[j]);
+        }
+      }
+
+      const innerContent = detailsLines.join('\n').trim();
+      blocks.push({
+        type: 'details',
+        summary: summaryText,
+        content: innerContent
+      });
       continue;
     }
 
@@ -619,6 +679,18 @@ function parseBlocks(text: string): BlockItem[] {
 
 function normalizeSpecialSymbols(text: string): string {
   return text
+    // Decode common HTML entities
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&bull;/gi, '•')
+    .replace(/&mdash;/gi, '—')
+    .replace(/&ndash;/gi, '–')
+    // Strip stray HTML comments
+    .replace(/<!--[\s\S]*?-->/g, '')
     // Strip stray HTML wrapper tags
     .replace(/<\/?(?:p|div|center|picture|source|span|details|summary)[^>]*>/gi, '')
     // Convert <br> or <br/> to newline
@@ -632,9 +704,20 @@ function normalizeSpecialSymbols(text: string): string {
 }
 
 function renderInline(rawText: string, onLinkClick?: (url: string, text: string) => void): React.ReactNode {
-  // Match display math ($$...$$ or \[...\]), inline math ($...$ or \(...\)), inline code (`...`), bold, strikethrough, italic, linked images, images, links, and HTML img/a tags
-  const tokens = rawText.split(
-    /(\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|\$(?!\s)(?:\\\$|[^\$\n])+?(?<!\s)\$|`+[^`]+`+|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\*[^*]+\*|(?<!\w)_[^_]+_(?!\w)|\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|!\[[^\]]*\]\([^)]+\)|\[[^\]]+\]\([^)]+\)|<img\s+[^>]*src=["'][^"']+["'][^>]*\/?>|<a\s+[^>]*href=["'][^"']+["'][^>]*>[\s\S]*?<\/a>)/gi
+  // Pre-normalize HTML entities and strip inline HTML comments
+  const decodedText = rawText
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&bull;/gi, '•')
+    .replace(/<!--[\s\S]*?-->/g, '');
+
+  // Match display math, inline math, inline code, bold, strikethrough, italic, linked images, images, links, HTML tags, and raw URLs
+  const tokens = decodedText.split(
+    /(\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|\$(?!\s)(?:\\\$|[^\$\n])+?(?<!\s)\$|`+[^`]+`+|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\*[^*]+\*|(?<!\w)_[^_]+_(?!\w)|\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|!\[[^\]]*\]\([^)]+\)|\[[^\]]+\]\([^)]+\)|<img\s+[^>]*src=["'][^"']+["'][^>]*\/?>|<a\s+[^>]*href=["'][^"']+["'][^>]*>[\s\S]*?<\/a>|https?:\/\/[^\s<>()"']+)/gi
   );
 
   return tokens.map((token, i) => {
@@ -881,6 +964,54 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
             <ExternalLink className="w-2.5 h-2.5 inline" />
           </a>
         </span>
+      );
+    }
+
+    // Autolink Raw URLs: https://... or http://...
+    if (/^https?:\/\/[^\s<>()"']+$/i.test(token)) {
+      const cleanUrl = token.replace(/[.,;:!)]+$/, '');
+      const trailingPunct = token.slice(cleanUrl.length);
+
+      let displayText = cleanUrl;
+      try {
+        const u = new URL(cleanUrl);
+        if (cleanUrl.length > 55) {
+          displayText = `${u.hostname}${u.pathname.length > 25 ? u.pathname.slice(0, 25) + '…' : u.pathname}`;
+        }
+      } catch {}
+
+      return (
+        <React.Fragment key={i}>
+          <span className="inline-flex items-center space-x-0.5 group/link align-baseline">
+            <a
+              href={cleanUrl}
+              onClick={(e) => {
+                if (e.metaKey || e.ctrlKey || !onLinkClick) {
+                  return;
+                }
+                e.preventDefault();
+                onLinkClick(cleanUrl, displayText);
+              }}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-onedark-accent underline underline-offset-2 hover:text-onedark-accent/80 transition-colors font-mono text-[12.5px] cursor-pointer break-all"
+              title={`Preview ${cleanUrl} in sidebar`}
+            >
+              {displayText}
+            </a>
+            <a
+              href={cleanUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="opacity-0 group-hover/link:opacity-100 text-onedark-muted hover:text-onedark-accent transition-all p-0.5"
+              title="Open in external browser tab"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <ExternalLink className="w-2.5 h-2.5 inline" />
+            </a>
+          </span>
+          {trailingPunct}
+        </React.Fragment>
       );
     }
 

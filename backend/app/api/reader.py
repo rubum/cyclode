@@ -440,6 +440,12 @@ def _clean_github_markdown(markdown_text: str, owner: str, repo: str, default_br
 
         text = re.sub(r"<a\s+[^>]*href=['\"]([^'\"]+)['\"][^>]*>([\s\S]*?)<\/a>", _replace_a, text, flags=re.I)
 
+        # Strip HTML comments
+        text = re.sub(r"<!--[\s\S]*?-->", "", text)
+
+        # Replace non-breaking spaces and common encoded entities
+        text = text.replace("&nbsp;", " ")
+
         # Convert HTML headings <h1-h6>
         for h in range(6, 0, -1):
             def _repl_h(m, lvl=h):
@@ -452,8 +458,8 @@ def _clean_github_markdown(markdown_text: str, owner: str, repo: str, default_br
         text = re.sub(r"<br\s*\/?>", "\n", text, flags=re.I)
         text = re.sub(r"<hr\s*\/?>", "\n\n---\n\n", text, flags=re.I)
 
-        # Strip layout container tags
-        text = re.sub(r"<\/?(?:p|div|center|span|details|summary|picture|source)[^>]*>", " ", text, flags=re.I)
+        # Strip layout container tags but preserve semantic elements like details and summary
+        text = re.sub(r"<\/?(?:p|div|center|span|picture|source)[^>]*>", " ", text, flags=re.I)
 
         # Rebase relative URLs in existing markdown links and images
         def _replace_md_link(m):
@@ -712,7 +718,8 @@ async def _fetch_github_pr_info(owner: str, repo: str, pr_number: int) -> Dict[s
         status_str = "MERGED" if merged else state.upper()
         head_ref = pr_data.get("head", {}).get("ref", "")
         base_ref = pr_data.get("base", {}).get("ref", "main")
-        body = (pr_data.get("body") or "").strip()
+        raw_body = (pr_data.get("body") or "").strip()
+        body = _clean_github_markdown(raw_body, owner, repo, default_branch=base_ref) if raw_body else ""
         additions = pr_data.get("additions", 0)
         deletions = pr_data.get("deletions", 0)
         changed_files = pr_data.get("changed_files", len(files_list))
@@ -803,7 +810,8 @@ async def _fetch_github_issue_info(owner: str, repo: str, issue_number: int) -> 
         title = issue_data.get("title") or f"Issue #{issue_number}"
         user_login = issue_data.get("user", {}).get("login", "unknown")
         state = issue_data.get("state", "open").upper()
-        body = (issue_data.get("body") or "").strip()
+        raw_body = (issue_data.get("body") or "").strip()
+        body = _clean_github_markdown(raw_body, owner, repo) if raw_body else ""
         html_url = issue_data.get("html_url") or f"https://github.com/{owner}/{repo}/issues/{issue_number}"
         labels = [l.get("name") for l in issue_data.get("labels", []) if isinstance(l, dict) and l.get("name")]
 
@@ -822,7 +830,8 @@ async def _fetch_github_issue_info(owner: str, repo: str, issue_number: int) -> 
             md_parts.append(f"## Discussion ({len(comments)})\n")
             for c in comments:
                 c_user = c.get("user", {}).get("login", "unknown")
-                c_body = (c.get("body") or "").strip()
+                c_raw_body = (c.get("body") or "").strip()
+                c_body = _clean_github_markdown(c_raw_body, owner, repo) if c_raw_body else ""
                 c_date = (c.get("created_at") or "")[:10]
                 md_parts.append(f"### @{c_user} ({c_date})\n\n{c_body}\n")
 
