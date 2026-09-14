@@ -39,6 +39,11 @@ const MainApp: React.FC = () => {
   const [isSandboxModalOpen, setIsSandboxModalOpen] = useState<boolean>(false);
   const streamBufferRef = useRef<Map<string, any>>(new Map());
   const streamRafRef = useRef<number | null>(null);
+  const activeTaskIdRef = useRef<string | null>(activeTaskId);
+
+  useEffect(() => {
+    activeTaskIdRef.current = activeTaskId;
+  }, [activeTaskId]);
 
   // Fetch tasks
   const fetchTasks = useCallback(async () => {
@@ -59,7 +64,10 @@ const MainApp: React.FC = () => {
       const res = await fetch(`${API_BASE}/api/tasks/${taskId}`);
       if (res.ok) {
         const data = await res.json();
-        setActiveTaskDetails(data);
+        // Guard against race conditions: only update if user is still viewing this task
+        if (activeTaskIdRef.current === taskId) {
+          setActiveTaskDetails(data);
+        }
       }
     } catch (err) {
       console.error('Error fetching task details:', err);
@@ -142,8 +150,11 @@ const MainApp: React.FC = () => {
   useEffect(() => {
     const unsubTaskCreated = subscribe('TASK_CREATED', (data: any) => {
       fetchTasks();
-      setActiveTaskId(data.id);
-      setActiveView('chat');
+      // Only auto-focus newly created task if no task is currently active or if user was waiting on a temp task
+      if (!activeTaskIdRef.current || activeTaskIdRef.current.startsWith('temp-')) {
+        setActiveTaskId(data.id);
+        setActiveView('chat');
+      }
     });
 
     const unsubStatus = subscribe('TASK_STATUS_CHANGE', (data: any) => {
@@ -402,8 +413,18 @@ const MainApp: React.FC = () => {
   }, [subscribe, activeTaskId, fetchTasks, fetchTaskDetails, fetchEvents]);
 
   const handleSelectTask = (taskId: string) => {
+    if (taskId === activeTaskId) return;
     setActiveTaskId(taskId);
     setActiveView('chat');
+    const existing = tasks.find((t) => t.id === taskId);
+    if (existing) {
+      setActiveTaskDetails({
+        ...existing,
+        messages: existing.messages || [],
+      });
+    } else {
+      setActiveTaskDetails(null);
+    }
   };
 
   const handleNewChat = () => {
@@ -512,9 +533,11 @@ const MainApp: React.FC = () => {
       });
       if (res.ok) {
         const data = await res.json();
-        setActiveTaskId(data.task_id);
+        if (activeTaskIdRef.current === tempId) {
+          setActiveTaskId(data.task_id);
+          fetchTaskDetails(data.task_id);
+        }
         fetchTasks();
-        fetchTaskDetails(data.task_id);
       }
     } catch (err) {
       console.error('Error creating task:', err);

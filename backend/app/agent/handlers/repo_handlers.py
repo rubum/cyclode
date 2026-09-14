@@ -310,6 +310,121 @@ class URLSummarizeHandler(IntentHandler):
         return {"status": "COMPLETED", "summary": f"Summarized {raw_target_url}."}
 
 
+def _profile_workspace(workspace_path: Path) -> Dict[str, Any]:
+    ignored_dirs = {
+        ".git", "node_modules", "_build", "deps", ".elixir_ls", "vendor",
+        "__pycache__", ".pytest_cache", ".venv", "venv", "target", "dist",
+        "build", ".terraform", "coverage", ".next", ".nuxt", ".turbo",
+        ".gradle", ".idea", ".vscode", "third_party", "testdata", "fixtures",
+        "out", "bin", ".tox", "wheels", "site-packages", "Pods", ".cargo"
+    }
+
+    ext_to_lang = {
+        ".ex": "Elixir", ".exs": "Elixir", ".heex": "Elixir (HEEx)", ".eex": "Elixir (EEx)", ".leex": "Elixir (LiveView)",
+        ".erl": "Erlang", ".hrl": "Erlang",
+        ".ts": "TypeScript", ".tsx": "TypeScript (React)",
+        ".js": "JavaScript", ".jsx": "JavaScript (React)", ".mjs": "JavaScript", ".cjs": "JavaScript",
+        ".vue": "Vue (SFC)", ".svelte": "Svelte", ".astro": "Astro",
+        ".py": "Python", ".pyi": "Python Interface",
+        ".rs": "Rust", ".go": "Go",
+        ".c": "C", ".cpp": "C++", ".cc": "C++", ".cxx": "C++", ".h": "C/C++", ".hpp": "C/C++",
+        ".zig": "Zig", ".nim": "Nim",
+        ".java": "Java", ".kt": "Kotlin", ".kts": "Kotlin", ".scala": "Scala",
+        ".cs": "C#", ".fs": "F#",
+        ".rb": "Ruby", ".erb": "Ruby (ERB)",
+        ".php": "PHP", ".swift": "Swift", ".dart": "Dart",
+        ".sh": "Shell (Bash/Zsh)", ".bash": "Bash", ".zsh": "Zsh", ".fish": "Fish",
+        ".sql": "SQL", ".prisma": "Prisma Schema",
+        ".graphql": "GraphQL", ".proto": "Protocol Buffers",
+        ".html": "HTML", ".css": "CSS", ".scss": "SCSS",
+        ".json": "JSON", ".yaml": "YAML", ".yml": "YAML", ".toml": "TOML",
+        ".md": "Markdown", ".tf": "Terraform"
+    }
+
+    manifest_names = [
+        "mix.exs", "Cargo.toml", "pyproject.toml", "setup.py", "requirements.txt",
+        "package.json", "go.mod", "pom.xml", "build.gradle", "Gemfile", "composer.json"
+    ]
+
+    total_files = 0
+    all_files: List[Path] = []
+    lang_stats: Dict[str, Dict[str, int]] = {}
+    top_level_subdirs = []
+    detected_manifests: Dict[str, str] = {}
+    sub_projects: List[str] = []
+
+    if workspace_path.exists():
+        for p in workspace_path.iterdir():
+            if p.is_dir() and p.name not in ignored_dirs and not p.name.startswith("."):
+                top_level_subdirs.append(p.name)
+
+    max_loc_files = 5000
+    counted_loc_files = 0
+
+    for root, dirs, files in os.walk(workspace_path):
+        dirs[:] = [d for d in dirs if d not in ignored_dirs and not d.startswith(".")]
+        rel_root = Path(root).relative_to(workspace_path)
+
+        for mf in manifest_names:
+            if mf in files:
+                mp = Path(root) / mf
+                rel_mp = str(mp.relative_to(workspace_path))
+                try:
+                    txt = mp.read_text(encoding="utf-8", errors="ignore")
+                    detected_manifests[rel_mp] = txt
+                    if str(rel_root) != ".":
+                        sub_projects.append(str(rel_root))
+                except Exception:
+                    pass
+
+        for f in files:
+            if f.startswith("."):
+                continue
+            full_p = Path(root) / f
+            total_files += 1
+            all_files.append(full_p)
+
+            ext = full_p.suffix.lower()
+            lang = ext_to_lang.get(ext)
+            if not lang and ext in ("", ".txt") and counted_loc_files < max_loc_files:
+                try:
+                    with open(full_p, "rb") as fh:
+                        line1 = fh.readline(100).decode("utf-8", errors="ignore")
+                        if line1.startswith("#!"):
+                            if "python" in line1: lang = "Python (Script)"
+                            elif "node" in line1: lang = "JavaScript (Node)"
+                            elif "bash" in line1 or "sh" in line1: lang = "Shell"
+                            elif "elixir" in line1: lang = "Elixir (Script)"
+                except Exception:
+                    pass
+
+            if not lang:
+                lang = "Plaintext/Data" if ext in (".txt", ".csv", ".tsv", ".log") else "Other"
+
+            if lang not in lang_stats:
+                lang_stats[lang] = {"files": 0, "lines": 0}
+            lang_stats[lang]["files"] += 1
+
+            if counted_loc_files < max_loc_files:
+                try:
+                    if full_p.stat().st_size <= 2 * 1024 * 1024:
+                        with open(full_p, "r", encoding="utf-8", errors="ignore") as fh:
+                            lines_cnt = sum(1 for _ in fh)
+                            lang_stats[lang]["lines"] += lines_cnt
+                            counted_loc_files += 1
+                except Exception:
+                    pass
+
+    return {
+        "total_files": total_files,
+        "all_files": all_files,
+        "lang_stats": lang_stats,
+        "top_level_subdirs": top_level_subdirs,
+        "detected_manifests": detected_manifests,
+        "sub_projects": sub_projects,
+    }
+
+
 class RepoAnalysisHandler(IntentHandler):
     name = "RepoAnalysisHandler"
     description = "Analyzes repository topology, profiles code languages and lines of code (LOC), identifies monorepo subprojects, manifests, and framework architecture."
@@ -373,8 +488,10 @@ class RepoAnalysisHandler(IntentHandler):
     async def execute(self, ctx: IntentContext) -> Dict[str, Any]:
         curr_origin = ""
         if (ctx.workspace_path / ".git").exists():
-            orig_res = subprocess.run(["git", "config", "--get", "remote.origin.url"], cwd=ctx.workspace_path, capture_output=True, text=True)
-            curr_origin = orig_res.stdout.strip()
+            def _get_origin():
+                orig_res = subprocess.run(["git", "config", "--get", "remote.origin.url"], cwd=ctx.workspace_path, capture_output=True, text=True)
+                return orig_res.stdout.strip()
+            curr_origin = await asyncio.to_thread(_get_origin)
 
         # Step 0: Ensure target repo from prompt is cloned if specified
         repo_match = re.search(r"(https?://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?)", f"{ctx.title} {ctx.prompt}", re.IGNORECASE)
@@ -426,10 +543,11 @@ class RepoAnalysisHandler(IntentHandler):
                                                     m.name = "/".join(m.name.split("/")[1:])
                                                     if m.name:
                                                         tar.extract(m, path=str(ctx.workspace_path))
-                                    await asyncio.to_thread(dl_extract)
-                                    subprocess.run(["git", "init"], cwd=ctx.workspace_path, capture_output=True)
-                                    subprocess.run(["git", "add", "."], cwd=ctx.workspace_path, capture_output=True)
-                                    subprocess.run(["git", "commit", "-m", "initial commit from archive"], cwd=ctx.workspace_path, capture_output=True)
+                                    def _init_git():
+                                        subprocess.run(["git", "init"], cwd=ctx.workspace_path, capture_output=True)
+                                        subprocess.run(["git", "add", "."], cwd=ctx.workspace_path, capture_output=True)
+                                        subprocess.run(["git", "commit", "-m", "initial commit from archive"], cwd=ctx.workspace_path, capture_output=True)
+                                    await asyncio.to_thread(_init_git)
                             except Exception as e:
                                 logger.warning(f"Archive fallback failed: {e}")
                         await ctx.call_tool_end("git_clone", proc.stdout or proc.stderr or "OK", 0 if any(ctx.workspace_path.iterdir()) else proc.returncode, 500)
@@ -446,98 +564,14 @@ class RepoAnalysisHandler(IntentHandler):
         root_names = [i["name"] for i in root_items]
         await ctx.call_tool_end("list_dir", f"Found {len(root_items)} root items: {', '.join(root_names)}", 0, 180)
 
-        ignored_dirs = {
-            ".git", "node_modules", "_build", "deps", ".elixir_ls", "vendor",
-            "__pycache__", ".pytest_cache", ".venv", "venv", "target", "dist",
-            "build", ".terraform", "coverage", ".next", ".nuxt", ".turbo"
-        }
-
-        ext_to_lang = {
-            ".ex": "Elixir", ".exs": "Elixir", ".heex": "Elixir (HEEx)", ".eex": "Elixir (EEx)", ".leex": "Elixir (LiveView)",
-            ".erl": "Erlang", ".hrl": "Erlang",
-            ".ts": "TypeScript", ".tsx": "TypeScript (React)",
-            ".js": "JavaScript", ".jsx": "JavaScript (React)", ".mjs": "JavaScript", ".cjs": "JavaScript",
-            ".vue": "Vue (SFC)", ".svelte": "Svelte", ".astro": "Astro",
-            ".py": "Python", ".pyi": "Python Interface",
-            ".rs": "Rust", ".go": "Go",
-            ".c": "C", ".cpp": "C++", ".cc": "C++", ".cxx": "C++", ".h": "C/C++", ".hpp": "C/C++",
-            ".zig": "Zig", ".nim": "Nim",
-            ".java": "Java", ".kt": "Kotlin", ".kts": "Kotlin", ".scala": "Scala",
-            ".cs": "C#", ".fs": "F#",
-            ".rb": "Ruby", ".erb": "Ruby (ERB)",
-            ".php": "PHP", ".swift": "Swift", ".dart": "Dart",
-            ".sh": "Shell (Bash/Zsh)", ".bash": "Bash", ".zsh": "Zsh", ".fish": "Fish",
-            ".sql": "SQL", ".prisma": "Prisma Schema",
-            ".graphql": "GraphQL", ".proto": "Protocol Buffers",
-            ".html": "HTML", ".css": "CSS", ".scss": "SCSS",
-            ".json": "JSON", ".yaml": "YAML", ".yml": "YAML", ".toml": "TOML",
-            ".md": "Markdown", ".tf": "Terraform"
-        }
-
-        all_files: List[Path] = []
-        lang_stats: Dict[str, Dict[str, int]] = {}
-        top_level_subdirs = []
-
-        for p in ctx.workspace_path.iterdir():
-            if p.is_dir() and p.name not in ignored_dirs:
-                top_level_subdirs.append(p.name)
-
-        for root, dirs, files in os.walk(ctx.workspace_path):
-            dirs[:] = [d for d in dirs if d not in ignored_dirs and not d.startswith(".")]
-            for f in files:
-                if f.startswith("."):
-                    continue
-                full_p = Path(root) / f
-                all_files.append(full_p)
-                ext = full_p.suffix.lower()
-                lang = ext_to_lang.get(ext)
-                if not lang and ext in ("", ".txt"):
-                    try:
-                        with open(full_p, "rb") as fh:
-                            line1 = fh.readline(100).decode("utf-8", errors="ignore")
-                            if line1.startswith("#!"):
-                                if "python" in line1: lang = "Python (Script)"
-                                elif "node" in line1: lang = "JavaScript (Node)"
-                                elif "bash" in line1 or "sh" in line1: lang = "Shell"
-                                elif "elixir" in line1: lang = "Elixir (Script)"
-                    except Exception:
-                        pass
-                
-                if not lang:
-                    lang = "Plaintext/Data" if ext in (".txt", ".csv", ".tsv", ".log") else "Other"
-
-                if lang not in lang_stats:
-                    lang_stats[lang] = {"files": 0, "lines": 0}
-                lang_stats[lang]["files"] += 1
-                try:
-                    with open(full_p, "r", encoding="utf-8", errors="ignore") as fh:
-                        lines_cnt = sum(1 for _ in fh)
-                        lang_stats[lang]["lines"] += lines_cnt
-                except Exception:
-                    pass
-
-        # Step 2: Read Manifests (including subdirectories for Monorepos)
-        manifest_names = [
-            "mix.exs", "Cargo.toml", "pyproject.toml", "setup.py", "requirements.txt",
-            "package.json", "go.mod", "pom.xml", "build.gradle", "Gemfile", "composer.json"
-        ]
-        detected_manifests = {}
-        sub_projects = []
-
-        for root, dirs, files in os.walk(ctx.workspace_path):
-            dirs[:] = [d for d in dirs if d not in ignored_dirs and not d.startswith(".")]
-            rel_root = Path(root).relative_to(ctx.workspace_path)
-            for mf in manifest_names:
-                if mf in files:
-                    mp = Path(root) / mf
-                    rel_mp = str(mp.relative_to(ctx.workspace_path))
-                    try:
-                        txt = mp.read_text(encoding="utf-8", errors="ignore")
-                        detected_manifests[rel_mp] = txt
-                        if str(rel_root) != ".":
-                            sub_projects.append(str(rel_root))
-                    except Exception:
-                        pass
+        # Profile workspace asynchronously in a worker thread to never block FastAPI's event loop
+        profile_data = await asyncio.to_thread(_profile_workspace, ctx.workspace_path)
+        total_files = profile_data["total_files"]
+        all_files = profile_data["all_files"]
+        lang_stats = profile_data["lang_stats"]
+        top_level_subdirs = profile_data["top_level_subdirs"]
+        detected_manifests = profile_data["detected_manifests"]
+        sub_projects = profile_data["sub_projects"]
 
         # Detect tech stacks
         detected_frameworks = []
@@ -585,11 +619,15 @@ class RepoAnalysisHandler(IntentHandler):
         tests_dir_p = ctx.workspace_path / "tests"
         test_count_str = ""
         if test_dir_p.exists():
-            t_files = list(test_dir_p.rglob("*.*"))
-            test_count_str = f"{len(t_files)} test files in `test/`"
+            def _count_tests(p: Path) -> int:
+                return len(list(p.rglob("*.*")))
+            t_cnt = await asyncio.to_thread(_count_tests, test_dir_p)
+            test_count_str = f"{t_cnt} test files in `test/`"
         elif tests_dir_p.exists():
-            t_files = list(tests_dir_p.rglob("*.*"))
-            test_count_str = f"{len(t_files)} test files in `tests/`"
+            def _count_tests(p: Path) -> int:
+                return len(list(p.rglob("*.*")))
+            t_cnt = await asyncio.to_thread(_count_tests, tests_dir_p)
+            test_count_str = f"{t_cnt} test files in `tests/`"
 
         test_runner = "mix test" if any(f.suffix in (".ex", ".exs") for f in all_files) else (
             "vitest" if "vitest" in all_manifest_content.lower() else (
@@ -600,31 +638,34 @@ class RepoAnalysisHandler(IntentHandler):
         )
 
         # Step 3: Git Status & Branch Info
-        git_res = subprocess.run(["git", "branch", "--show-current"], cwd=ctx.workspace_path, capture_output=True, text=True)
-        current_branch = git_res.stdout.strip() or "main"
+        def _get_branch():
+            res = subprocess.run(["git", "branch", "--show-current"], cwd=ctx.workspace_path, capture_output=True, text=True)
+            return res.stdout.strip() or "main"
+        current_branch = await asyncio.to_thread(_get_branch)
         
         # Step 4: Synthesize Report
-        total_files = len(all_files)
         total_loc = sum(v["lines"] for v in lang_stats.values())
         sorted_langs = sorted(lang_stats.items(), key=lambda x: x[1]["lines"], reverse=True)
         primary_lang = sorted_langs[0][0] if sorted_langs else "Unknown"
 
         # Check for README description
-        readme_summary = ""
-        full_readme = ""
-        for r_name in ("README.md", "readme.md", "README.rst"):
-            r_p = ctx.workspace_path / r_name
-            if r_p.exists():
-                try:
-                    full_readme = r_p.read_text(encoding="utf-8", errors="ignore")
-                    for line in full_readme.splitlines():
-                        s = line.strip()
-                        if s and not s.startswith(("#", "<", "!", "[", "-")):
-                            readme_summary = s
-                            break
-                    break
-                except Exception:
-                    pass
+        def _read_readme():
+            for r_name in ("README.md", "readme.md", "README.rst"):
+                r_p = ctx.workspace_path / r_name
+                if r_p.exists():
+                    try:
+                        txt = r_p.read_text(encoding="utf-8", errors="ignore")
+                        summary = ""
+                        for line in txt.splitlines():
+                            s = line.strip()
+                            if s and not s.startswith(("#", "<", "!", "[", "-")):
+                                summary = s
+                                break
+                        return txt, summary
+                    except Exception:
+                        pass
+            return "", ""
+        full_readme, readme_summary = await asyncio.to_thread(_read_readme)
 
         # Check if user specifically asked for use cases, capabilities, or functional overview
         lower = ctx.lower_prompt
