@@ -86,15 +86,15 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath, onFile
     return resolveLanguage(data.language, data.name);
   }, [data]);
 
-  const highlightedHtml = useMemo(() => {
-    if (!data?.content) return '';
-    return highlightCode(data.content, data.language, data.name);
+  const highlightedLines = useMemo(() => {
+    if (!data?.content) return [];
+    const html = highlightCode(data.content, data.language, data.name);
+    return html.split('\n');
   }, [data]);
 
   const lineCount = useMemo(() => {
-    if (!data?.content) return 0;
-    return data.content.split('\n').length;
-  }, [data]);
+    return highlightedLines.length;
+  }, [highlightedLines]);
 
   if (!filePath) {
     return (
@@ -185,28 +185,25 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath, onFile
         </div>
       </div>
 
-      {/* Syntax Highlighted Code with Line Numbers */}
-      <div className="flex-1 overflow-auto p-2 font-mono text-[12.5px] leading-[20px] select-text flex min-w-0">
-        {/* Line Numbers Gutter */}
-        <div className="select-none pr-3 pl-1 text-right text-onedark-muted/40 border-r border-onedark-borderSubtle/60 flex flex-col font-mono text-[12px] leading-[20px] flex-shrink-0 sticky left-0 bg-onedark-bg z-10">
-          {Array.from({ length: lineCount }, (_, i) => (
-            <span key={i} className="hover:text-onedark-muted cursor-default min-w-[2rem]">
-              {i + 1}
-            </span>
-          ))}
-        </div>
-
-        {/* Code Block with One Dark Syntax Highlight */}
-        <pre
-          className={`flex-1 pl-3.5 m-0 overflow-visible font-mono text-[12.5px] leading-[20px] bg-transparent select-text ${
-            wrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'
-          }`}
-        >
-          <code
-            className={`language-${resolvedLang} font-mono`}
-            dangerouslySetInnerHTML={{ __html: highlightedHtml }}
-          />
-        </pre>
+      {/* Syntax Highlighted Code Table (Line-synchronized, GitHub style) */}
+      <div className="flex-1 overflow-auto font-mono text-[12.5px] select-text">
+        <table className={`border-collapse font-mono text-[12.5px] ${wrapLines ? 'min-w-full w-full table-fixed' : 'min-w-full w-max'}`}>
+          <tbody>
+            {highlightedLines.map((lineHtml, i) => (
+              <tr key={i} className="hover:bg-onedark-surface/40 group/line transition-colors">
+                <td className="select-none pr-3 pl-3 text-right text-onedark-muted/40 group-hover/line:text-onedark-muted border-r border-onedark-borderSubtle/60 font-mono text-[11px] leading-[20px] align-top w-12 min-w-[3rem] sticky left-0 bg-onedark-bg group-hover/line:bg-onedark-surface/40 z-10">
+                  {i + 1}
+                </td>
+                <td
+                  className={`pl-3.5 pr-4 font-mono text-[12.5px] leading-[20px] align-top text-onedark-fg ${
+                    wrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'
+                  }`}
+                  dangerouslySetInnerHTML={{ __html: lineHtml || ' ' }}
+                />
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );

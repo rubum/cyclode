@@ -65,6 +65,15 @@
 }
 
 /* One Dark Pro Syntax Highlighting */
+.token,
+.token.table,
+.token.inline,
+.token.block,
+pre code span.token,
+table td span.token {
+  display: inline !important;
+}
+
 .token.comment,
 .token.prolog,
 .token.doctype,
