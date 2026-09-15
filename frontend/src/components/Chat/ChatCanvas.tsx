@@ -29,7 +29,8 @@ import {
   FolderGit2,
   ExternalLink,
   Loader2,
-  Play
+  Play,
+  LayoutGrid
 } from 'lucide-react';
 import { Task, TaskMessage, TaskLog, RepositoryConfig, TaskPR, WorkspacePreviewInfo } from '../../types';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
@@ -728,6 +729,14 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
 
   const starterTemplates = [
     {
+      title: 'Build Fullstack App',
+      persona: 'AppBuilder',
+      prompt: 'Build a fullstack e-commerce app with customer storefront, merchant admin portal, and live preview.',
+      icon: LayoutGrid,
+      color: 'text-onedark-accent',
+      bgColor: 'bg-onedark-accent/10',
+    },
+    {
       title: 'Auto Code Review',
       persona: 'CodeReviewer',
       prompt: 'Review PR #42 for acme/auth-service: check edge cases, null safety, and verify unit test passes.',
@@ -751,17 +760,10 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
       color: 'text-onedark-yellow',
       bgColor: 'bg-onedark-yellow/10',
     },
-    {
-      title: 'Test Verification',
-      persona: 'PairProgrammer',
-      prompt: 'Run automated test suite in disposable sandbox and check for coverage regressions.',
-      icon: FileCode2,
-      color: 'text-onedark-purple',
-      bgColor: 'bg-onedark-purple/10',
-    },
   ];
 
   const personas = [
+    { id: 'AppBuilder', label: 'App Builder (Fullstack & UI)' },
     { id: 'PairProgrammer', label: 'Pair Programmer (Default)' },
     { id: 'CodeReviewer', label: 'Code Reviewer (PRs & Diffs)' },
     { id: 'IssueResolver', label: 'Issue Resolver (Bugfixer)' },
