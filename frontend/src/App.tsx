@@ -1032,6 +1032,7 @@ const MainApp: React.FC = () => {
             policies={policies}
             onUpdatePolicies={handleUpdatePolicies}
             onBackToChat={() => setActiveView('chat')}
+            onNavigateToIntegrations={() => setActiveView('integrations')}
           />
         );
       case 'integrations':
@@ -1043,6 +1044,7 @@ const MainApp: React.FC = () => {
             webhookEndpoints={webhookEndpoints}
             onRefreshIntegrations={fetchIntegrations}
             onBackToChat={() => setActiveView('chat')}
+            onNavigateToPolicies={() => setActiveView('policies')}
           />
         );
 

@@ -16,7 +16,8 @@ import {
   GitBranch,
   MessageSquare,
   Terminal,
-  Layers
+  Layers,
+  PlugZap
 } from 'lucide-react';
 import { PolicyMap } from '../../types';
 
@@ -24,12 +25,14 @@ interface PolicySettingsProps {
   policies: PolicyMap;
   onUpdatePolicies: (newPolicies: PolicyMap) => Promise<any>;
   onBackToChat?: () => void;
+  onNavigateToIntegrations?: () => void;
 }
 
 export const PolicySettings: React.FC<PolicySettingsProps> = ({ 
   policies, 
   onUpdatePolicies,
-  onBackToChat 
+  onBackToChat,
+  onNavigateToIntegrations
 }) => {
   const [localPolicies, setLocalPolicies] = useState<PolicyMap>(policies);
   const [isSaving, setIsSaving] = useState(false);
@@ -184,23 +187,36 @@ export const PolicySettings: React.FC<PolicySettingsProps> = ({
             </div>
           </div>
 
-          <button
-            onClick={handleSave}
-            disabled={isSaving}
-            className="inline-flex items-center space-x-1.5 px-4 py-1.5 bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 disabled:opacity-50"
-          >
-            {saveSuccess ? (
-              <>
-                <Check className="w-3.5 h-3.5 stroke-[2.5]" />
-                <span>Policies Saved!</span>
-              </>
-            ) : (
-              <>
-                <Save className="w-3.5 h-3.5" />
-                <span>{isSaving ? 'Saving...' : 'Save Changes'}</span>
-              </>
+          <div className="flex items-center space-x-2">
+            {onNavigateToIntegrations && (
+              <button
+                onClick={onNavigateToIntegrations}
+                className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright text-xs font-mono border border-onedark-borderSubtle transition-all cursor-pointer shadow-xs"
+                title="Manage API keys, external providers, and webhook gateways"
+              >
+                <PlugZap className="w-3.5 h-3.5 text-onedark-accent" />
+                <span>Integrations & API Keys →</span>
+              </button>
             )}
-          </button>
+
+            <button
+              onClick={handleSave}
+              disabled={isSaving}
+              className="inline-flex items-center space-x-1.5 px-4 py-1.5 bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 disabled:opacity-50"
+            >
+              {saveSuccess ? (
+                <>
+                  <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                  <span>Policies Saved!</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{isSaving ? 'Saving...' : 'Save Changes'}</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Sticky Search & Category Filter Toolbar */}
@@ -387,6 +403,40 @@ export const PolicySettings: React.FC<PolicySettingsProps> = ({
             </div>
           );
         })}
+
+        {filteredEntries.length === 0 && (
+          <div className="p-8 text-center border border-dashed border-onedark-borderSubtle rounded-2xl bg-onedark-darker space-y-3">
+            <ShieldCheck className="w-8 h-8 text-onedark-muted mx-auto opacity-50" />
+            <h3 className="text-sm font-semibold text-onedark-fgBright">No matching policies found</h3>
+            <p className="text-xs text-onedark-muted max-w-md mx-auto">
+              No action approval policy matches &ldquo;{searchQuery}&rdquo;.
+            </p>
+            {/gem|api|key|token|auth|slack|github|sentry|appsignal/i.test(searchQuery) && (
+              <div className="pt-2">
+                <p className="text-xs text-onedark-accent font-medium mb-3">
+                  Looking to configure API keys or external services?
+                </p>
+                {onNavigateToIntegrations && (
+                  <button
+                    onClick={onNavigateToIntegrations}
+                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-onedark-accent/15 text-onedark-accent border border-onedark-accent/30 text-xs font-mono font-medium hover:bg-onedark-accent/25 transition-all cursor-pointer"
+                  >
+                    <PlugZap className="w-3.5 h-3.5" />
+                    <span>Go to Integrations & Skills Hub →</span>
+                  </button>
+                )}
+              </div>
+            )}
+            <div>
+              <button
+                onClick={() => { setSearchQuery(''); setCategoryFilter('all'); }}
+                className="px-3 py-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fg text-xs font-mono font-medium transition-colors cursor-pointer mt-2"
+              >
+                Reset Search
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

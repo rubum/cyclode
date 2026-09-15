@@ -32,6 +32,7 @@ interface IntegrationsViewProps {
   webhookEndpoints?: WebhookEndpoint[];
   onRefreshIntegrations?: () => void;
   onBackToChat?: () => void;
+  onNavigateToPolicies?: () => void;
 }
 
 export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
@@ -41,6 +42,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
   webhookEndpoints = [],
   onRefreshIntegrations,
   onBackToChat,
+  onNavigateToPolicies,
 }) => {
   const [selectedIntegration, setSelectedIntegration] = useState<Integration | null>(null);
   const [tokenInput, setTokenInput] = useState('');
@@ -219,6 +221,17 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
           </div>
 
           <div className="flex items-center space-x-2">
+            {onNavigateToPolicies && (
+              <button
+                onClick={onNavigateToPolicies}
+                className="px-2.5 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright text-xs font-mono flex items-center space-x-1.5 border border-onedark-borderSubtle transition-colors cursor-pointer"
+                title="Manage action approval policies and execution permissions"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-onedark-accent" />
+                <span>Approval Policies →</span>
+              </button>
+            )}
+
             {onRefreshIntegrations && (
               <button
                 onClick={onRefreshIntegrations}
