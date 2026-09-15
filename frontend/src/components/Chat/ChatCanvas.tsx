@@ -28,12 +28,15 @@ import {
   Coins,
   FolderGit2,
   ExternalLink,
-  Loader2
+  Loader2,
+  Play
 } from 'lucide-react';
-import { Task, TaskMessage, TaskLog, RepositoryConfig, TaskPR } from '../../types';
+import { Task, TaskMessage, TaskLog, RepositoryConfig, TaskPR, WorkspacePreviewInfo } from '../../types';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { FormattedLogView } from '../Common/FormattedLogView';
 import { SandboxInspectorModal } from '../Sandbox/SandboxInspectorModal';
+
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 interface ChatCanvasProps {
   task: Task | null;
@@ -51,7 +54,7 @@ interface ChatCanvasProps {
   currentPreset?: 'standard' | 'wide' | 'fullscreen';
   onSetPreset?: (preset: 'standard' | 'wide' | 'fullscreen') => void;
   onOpenSandboxModal?: () => void;
-  onSelectAuxTab?: (tab: 'docs' | 'files' | 'prs' | 'activity' | 'subagents' | 'event') => void;
+  onSelectAuxTab?: (tab: 'docs' | 'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'preview') => void;
   onOpenPreview?: (url: string, title?: string) => void;
   onNavigateToRepos?: () => void;
 }
@@ -179,6 +182,30 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState<number>(-1);
   const [selectedMentionIdx, setSelectedMentionIdx] = useState<number>(0);
+
+  const [previewInfo, setPreviewInfo] = useState<WorkspacePreviewInfo | null>(null);
+
+  const checkPreviewStatus = useCallback(async () => {
+    if (!task?.id) {
+      setPreviewInfo(null);
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/api/tasks/${task.id}/preview/inspect`);
+      if (res.ok) {
+        const data = await res.json();
+        setPreviewInfo(data);
+      }
+    } catch {
+      // ignore
+    }
+  }, [task?.id]);
+
+  useEffect(() => {
+    checkPreviewStatus();
+    const interval = setInterval(checkPreviewStatus, 5000);
+    return () => clearInterval(interval);
+  }, [checkPreviewStatus]);
 
   const handleStartEditTitle = () => {
     if (!task) return;
@@ -1101,6 +1128,18 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
               </span>
             </span>
           </div>
+
+          {/* Live App Preview Button */}
+          {previewInfo?.has_preview && onSelectAuxTab && (
+            <button
+              onClick={() => onSelectAuxTab('preview')}
+              className="px-2.5 py-0.5 rounded-md text-[11px] font-mono border border-onedark-green/40 bg-onedark-green/15 text-onedark-green hover:bg-onedark-green/25 flex items-center space-x-1.5 transition-all shadow-xs active:scale-95 cursor-pointer flex-shrink-0"
+              title={`Preview application (${previewInfo.title || previewInfo.entry_point || 'Web App'})`}
+            >
+              <Play className="w-3 h-3 fill-current" />
+              <span className="font-semibold">Live Preview</span>
+            </button>
+          )}
 
           {/* Sandbox Inspector Button */}
           {task.sandbox_status && task.sandbox_status !== 'NONE' && (

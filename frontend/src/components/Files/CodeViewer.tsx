@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { FileCode, Copy, Check, RefreshCw, AlertCircle, Code2, WrapText } from 'lucide-react';
+import { FileCode, Copy, Check, RefreshCw, AlertCircle, Code2, WrapText, Play, ExternalLink } from 'lucide-react';
 import { highlightCode, resolveLanguage } from '../../utils/syntaxHighlighter';
 
 interface CodeViewerProps {
@@ -26,6 +26,8 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath, onFile
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [wrapLines, setWrapLines] = useState(false);
+  const [viewMode, setViewMode] = useState<'code' | 'preview'>('code');
+  const [previewReloadKey, setPreviewReloadKey] = useState<number>(0);
 
   useEffect(() => {
     if (!taskId || !filePath) {
@@ -139,11 +141,14 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath, onFile
 
   if (!data) return null;
 
+  const isHtml = data?.name.toLowerCase().endsWith('.html') || data?.name.toLowerCase().endsWith('.htm');
+  const previewUrl = taskId && filePath ? `${API_BASE}/api/tasks/${taskId}/preview/${filePath}` : '';
+
   return (
     <div className="h-full flex flex-col bg-onedark-bg font-mono text-[12.5px] overflow-hidden">
       {/* File Header Bar */}
-      <div className="px-3.5 py-2 bg-onedark-darker border-b border-onedark-borderSubtle flex items-center justify-between flex-shrink-0 select-none">
-        <div className="flex items-center space-x-2 truncate">
+      <div className="px-3.5 py-2 bg-onedark-darker border-b border-onedark-borderSubtle flex items-center justify-between flex-shrink-0 select-none gap-2">
+        <div className="flex items-center space-x-2 truncate min-w-0">
           <FileCode className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
           <span className="font-semibold text-onedark-fgBright truncate text-[12.5px]">
             {data.name}
@@ -153,58 +158,120 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath, onFile
           </span>
         </div>
 
+        {/* Mode Toggle (when viewing HTML) */}
+        {isHtml && (
+          <div className="flex items-center space-x-0.5 bg-onedark-surface p-0.5 rounded-lg border border-onedark-borderSubtle font-mono text-[11px] flex-shrink-0">
+            <button
+              onClick={() => setViewMode('code')}
+              className={`px-2 py-0.5 rounded-md transition-all cursor-pointer ${
+                viewMode === 'code'
+                  ? 'bg-onedark-darker text-onedark-fgBright font-semibold shadow-xs'
+                  : 'text-onedark-muted hover:text-onedark-fg'
+              }`}
+            >
+              Code
+            </button>
+            <button
+              onClick={() => setViewMode('preview')}
+              className={`px-2 py-0.5 rounded-md transition-all cursor-pointer flex items-center space-x-1 ${
+                viewMode === 'preview'
+                  ? 'bg-onedark-darker text-onedark-green font-semibold shadow-xs'
+                  : 'text-onedark-muted hover:text-onedark-fg'
+              }`}
+            >
+              <Play className="w-3 h-3 fill-current" />
+              <span>Live Preview</span>
+            </button>
+          </div>
+        )}
+
         <div className="flex items-center space-x-2 flex-shrink-0">
           <span className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-borderSubtle text-[10.5px] text-onedark-muted uppercase font-semibold">
             {resolvedLang}
           </span>
-          <span className="text-[11px] text-onedark-muted">
+          <span className="text-[11px] text-onedark-muted hidden md:inline">
             {lineCount} lines · {formatBytes(data.size)}
           </span>
-          <button
-            onClick={() => setWrapLines(!wrapLines)}
-            className={`p-1 rounded transition-colors ${
-              wrapLines
-                ? 'bg-onedark-surface text-onedark-accent'
-                : 'hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright'
-            }`}
-            title={wrapLines ? 'Disable line wrap' : 'Enable line wrap'}
-          >
-            <WrapText className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={handleCopy}
-            className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright transition-colors"
-            title="Copy file content"
-          >
-            {copied ? (
-              <Check className="w-3.5 h-3.5 text-onedark-green" />
-            ) : (
-              <Copy className="w-3.5 h-3.5" />
-            )}
-          </button>
+
+          {viewMode === 'code' ? (
+            <>
+              <button
+                onClick={() => setWrapLines(!wrapLines)}
+                className={`p-1 rounded transition-colors ${
+                  wrapLines
+                    ? 'bg-onedark-surface text-onedark-accent'
+                    : 'hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright'
+                }`}
+                title={wrapLines ? 'Disable line wrap' : 'Enable line wrap'}
+              >
+                <WrapText className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={handleCopy}
+                className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright transition-colors cursor-pointer"
+                title="Copy file content"
+              >
+                {copied ? (
+                  <Check className="w-3.5 h-3.5 text-onedark-green" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5" />
+                )}
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => setPreviewReloadKey((k) => k + 1)}
+                className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright transition-colors cursor-pointer"
+                title="Reload preview frame"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => window.open(previewUrl, '_blank', 'noopener,noreferrer')}
+                className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright transition-colors cursor-pointer"
+                title="Open in new window"
+              >
+                <ExternalLink className="w-3.5 h-3.5" />
+              </button>
+            </>
+          )}
         </div>
       </div>
 
-      {/* Syntax Highlighted Code Table (Line-synchronized, GitHub style) */}
-      <div className="flex-1 overflow-auto font-mono text-[12.5px] select-text">
-        <table className={`border-collapse font-mono text-[12.5px] ${wrapLines ? 'min-w-full w-full table-fixed' : 'min-w-full w-max'}`}>
-          <tbody>
-            {highlightedLines.map((lineHtml, i) => (
-              <tr key={i} className="hover:bg-onedark-surface/40 group/line transition-colors">
-                <td className="select-none pr-3 pl-3 text-right text-onedark-muted/40 group-hover/line:text-onedark-muted border-r border-onedark-borderSubtle/60 font-mono text-[11px] leading-[20px] align-top w-12 min-w-[3rem] sticky left-0 bg-onedark-bg group-hover/line:bg-onedark-surface/40 z-10">
-                  {i + 1}
-                </td>
-                <td
-                  className={`pl-3.5 pr-4 font-mono text-[12.5px] leading-[20px] align-top text-onedark-fg ${
-                    wrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'
-                  }`}
-                  dangerouslySetInnerHTML={{ __html: lineHtml || ' ' }}
-                />
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {/* Main Body: Code or Live Preview */}
+      {viewMode === 'preview' && isHtml ? (
+        <div className="flex-1 overflow-hidden bg-white relative">
+          <iframe
+            key={previewReloadKey}
+            src={previewUrl}
+            title={data.name}
+            sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals allow-downloads"
+            className="w-full h-full border-none"
+          />
+        </div>
+      ) : (
+        /* Syntax Highlighted Code Table (Line-synchronized, GitHub style) */
+        <div className="flex-1 overflow-auto font-mono text-[12.5px] select-text">
+          <table className={`border-collapse font-mono text-[12.5px] ${wrapLines ? 'min-w-full w-full table-fixed' : 'min-w-full w-max'}`}>
+            <tbody>
+              {highlightedLines.map((lineHtml, i) => (
+                <tr key={i} className="hover:bg-onedark-surface/40 group/line transition-colors">
+                  <td className="select-none pr-3 pl-3 text-right text-onedark-muted/40 group-hover/line:text-onedark-muted border-r border-onedark-borderSubtle/60 font-mono text-[11px] leading-[20px] align-top w-12 min-w-[3rem] sticky left-0 bg-onedark-bg group-hover/line:bg-onedark-surface/40 z-10">
+                    {i + 1}
+                  </td>
+                  <td
+                    className={`pl-3.5 pr-4 font-mono text-[12.5px] leading-[20px] align-top text-onedark-fg ${
+                      wrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'
+                    }`}
+                    dangerouslySetInnerHTML={{ __html: lineHtml || ' ' }}
+                  />
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 };

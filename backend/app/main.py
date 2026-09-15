@@ -19,6 +19,7 @@ from app.api.repositories import router as repositories_router
 from app.api.health import router as health_router
 from app.api.reader import router as reader_router
 from app.api.linear import router as linear_router
+from app.api.preview import router as preview_router
 
 
 @asynccontextmanager
@@ -58,6 +59,7 @@ app.include_router(automations_router)
 app.include_router(repositories_router)
 app.include_router(reader_router)
 app.include_router(linear_router)
+app.include_router(preview_router)
 
 
 # WebSocket Gateway

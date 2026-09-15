@@ -1,16 +1,19 @@
-import React from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   PanelLeft, 
   PanelLeftClose, 
   GitPullRequest, 
   Box, 
   RotateCcw, 
-  Settings 
+  Settings,
+  Play
 } from 'lucide-react';
 import { useWebSocket } from '../../contexts/WebSocketContext';
-import { Task } from '../../types';
+import { Task, WorkspacePreviewInfo } from '../../types';
 import { ThemeColorPicker } from '../Theme/ThemeColorPicker';
 import { CyclodeIcon } from '../Common/CyclodeIcon';
+
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 interface HeaderProps {
   activeTask: Task | null;
@@ -18,6 +21,7 @@ interface HeaderProps {
   currentPreset?: 'standard' | 'wide' | 'fullscreen';
   onSetPreset?: (preset: 'standard' | 'wide' | 'fullscreen') => void;
   onOpenSandboxModal?: () => void;
+  onOpenPreview?: () => void;
   onRetryTask?: () => void;
   isSidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
@@ -30,6 +34,7 @@ export const Header: React.FC<HeaderProps> = ({
   currentPreset = 'standard',
   onSetPreset,
   onOpenSandboxModal,
+  onOpenPreview,
   onRetryTask,
   isSidebarCollapsed = false,
   onToggleSidebar,
@@ -37,6 +42,30 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const { isConnected } = useWebSocket();
   const isRunning = activeTask?.status === 'RUNNING' || activeTask?.status === 'INITIALIZING';
+
+  const [previewInfo, setPreviewInfo] = useState<WorkspacePreviewInfo | null>(null);
+
+  const checkPreviewStatus = useCallback(async () => {
+    if (!activeTask?.id) {
+      setPreviewInfo(null);
+      return;
+    }
+    try {
+      const res = await fetch(`${API_BASE}/api/tasks/${activeTask.id}/preview/inspect`);
+      if (res.ok) {
+        const data = await res.json();
+        setPreviewInfo(data);
+      }
+    } catch {
+      // ignore
+    }
+  }, [activeTask?.id]);
+
+  useEffect(() => {
+    checkPreviewStatus();
+    const interval = setInterval(checkPreviewStatus, 5000);
+    return () => clearInterval(interval);
+  }, [checkPreviewStatus]);
 
   return (
     <header className="h-11 border-b border-onedark-borderSubtle bg-onedark-darker px-3.5 flex items-center justify-between select-none z-20 text-onedark-fg text-xs font-sans">
@@ -112,6 +141,18 @@ export const Header: React.FC<HeaderProps> = ({
               Zen ⛶
             </button>
           </div>
+        )}
+
+        {/* Live App Preview Action */}
+        {previewInfo?.has_preview && onOpenPreview && (
+          <button
+            onClick={onOpenPreview}
+            className="px-2.5 py-0.5 rounded-md text-[11px] font-mono border border-onedark-green/40 bg-onedark-green/15 text-onedark-green hover:bg-onedark-green/25 flex items-center space-x-1.5 transition-all shadow-xs active:scale-95 cursor-pointer flex-shrink-0"
+            title={`Preview app (${previewInfo.title || previewInfo.entry_point})`}
+          >
+            <Play className="w-3 h-3 fill-current" />
+            <span className="font-semibold">Preview App</span>
+          </button>
         )}
 
         {/* Sandbox Inspector Button */}

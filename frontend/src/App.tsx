@@ -32,7 +32,7 @@ const MainApp: React.FC = () => {
   const [webhookEndpoints, setWebhookEndpoints] = useState<WebhookEndpoint[]>([]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [currentPreset, setCurrentPreset] = useState<'standard' | 'wide' | 'fullscreen'>('standard');
-  const [activeAuxTab, setActiveAuxTab] = useState<'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'docs'>('activity');
+  const [activeAuxTab, setActiveAuxTab] = useState<'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'docs' | 'preview'>('activity');
   const [sessionPreviews, setSessionPreviews] = useState<Record<string, { url: string; title?: string } | null>>({});
   const activePreviewTarget = activeTaskId ? (sessionPreviews[activeTaskId] || null) : null;
 
@@ -1071,7 +1071,7 @@ const MainApp: React.FC = () => {
 
   const activeTask = tasks.find((t) => t.id === activeTaskId);
 
-  const handleSelectAuxTab = (tab: 'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'docs') => {
+  const handleSelectAuxTab = (tab: 'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'docs' | 'preview') => {
     setActiveAuxTab(tab);
     if (currentPreset === 'fullscreen') {
       handleSetPreset('standard');

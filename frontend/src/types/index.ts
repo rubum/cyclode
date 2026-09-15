@@ -294,3 +294,13 @@ export interface LinearIssue {
   comments?: { nodes: LinearComment[] } | LinearComment[];
 }
 
+export interface WorkspacePreviewInfo {
+  has_preview: boolean;
+  type?: 'static' | 'dev_server' | null;
+  entry_point?: string | null;
+  title?: string | null;
+  assets_count?: number;
+  available_entry_points?: string[];
+  preview_url?: string | null;
+}
+
