@@ -78,11 +78,6 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
       prevTaskIdRef.current = task?.id || null;
       setSelectedPr(null);
       setPrs([]);
-      setPrDiffsData({});
-      setExpandedDiffs({});
-      setExpandedOverview({});
-      setExpandedTests({});
-      setExpandedReviews({});
       setActivePopoverPR(null);
       setActiveLineComment(null);
       setSearchQuery('');
@@ -107,14 +102,6 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
   const [authorFilter, setAuthorFilter] = useState<string>('ALL');
   const [scopeFilter, setScopeFilter] = useState<'SESSION' | 'ALL_REPO'>('SESSION');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  
-  // Expanded panels
-  const [expandedOverview, setExpandedOverview] = useState<Record<number, boolean>>({});
-  const [expandedDiffs, setExpandedDiffs] = useState<Record<number, boolean>>({});
-  const [expandedTests, setExpandedTests] = useState<Record<number, boolean>>({});
-  const [expandedReviews, setExpandedReviews] = useState<Record<number, boolean>>({});
-  const [prDiffsData, setPrDiffsData] = useState<Record<number, PRDiffFile[]>>({});
-  const [diffsLoading, setDiffsLoading] = useState<Record<number, boolean>>({});
 
   // Review Agent Popover state
   const [activePopoverPR, setActivePopoverPR] = useState<TaskPR | null>(null);
@@ -234,46 +221,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
     };
   }, [subscribe, task?.id, fetchPRs]);
 
-  // Fetch diffs for a specific PR
-  const fetchPRDiffs = async (prNumber: number) => {
-    if (!task?.id) return;
-    setDiffsLoading((prev) => ({ ...prev, [prNumber]: true }));
-    try {
-      const res = await fetch(`${API_BASE}/api/tasks/${task.id}/prs/${prNumber}/diff`);
-      if (res.ok) {
-        const data = await res.json();
-        setPrDiffsData((prev) => ({ ...prev, [prNumber]: data.diffs || [] }));
-      }
-    } catch (err) {
-      console.error(`Failed to fetch diffs for PR #${prNumber}:`, err);
-    } finally {
-      setDiffsLoading((prev) => ({ ...prev, [prNumber]: false }));
-    }
-  };
-
-  const toggleOverview = (prNumber: number) => {
-    setExpandedOverview((prev) => ({ ...prev, [prNumber]: !prev[prNumber] }));
-  };
-
-  const toggleDiffView = (prNumber: number) => {
-    setExpandedDiffs((prev) => {
-      const next = !prev[prNumber];
-      if (next && !prDiffsData[prNumber]) {
-        fetchPRDiffs(prNumber);
-      }
-      return { ...prev, [prNumber]: next };
-    });
-  };
-
-  const toggleTestView = (prNumber: number) => {
-    setExpandedTests((prev) => ({ ...prev, [prNumber]: !prev[prNumber] }));
-  };
-
-  const toggleReviewView = (prNumber: number) => {
-    setExpandedReviews((prev) => ({ ...prev, [prNumber]: !prev[prNumber] }));
-  };
-
-  // Trigger agent actions on a PR
+  // Trigger agent actions on a PR (e.g. sync)
   const handleTriggerAction = async (pr: TaskPR, action: 'run_tests' | 'post_review' | 'sync') => {
     if (!task?.id) return;
     const prIdentifier = pr.id || String(pr.pr_number);
@@ -287,11 +235,6 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
       });
       if (res.ok) {
         await fetchPRs();
-        if (action === 'run_tests') {
-          setExpandedTests((prev) => ({ ...prev, [pr.pr_number]: true }));
-        } else if (action === 'post_review') {
-          setExpandedReviews((prev) => ({ ...prev, [pr.pr_number]: true }));
-        }
       }
     } catch (err) {
       console.error(`Failed to execute PR action '${action}':`, err);
@@ -627,52 +570,65 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
             const prIdentifier = pr.id || String(pr.pr_number);
             const isActionRunning = actionLoading[prIdentifier] !== null && actionLoading[prIdentifier] !== undefined;
             const currentAction = actionLoading[prIdentifier];
-            const isOverviewExpanded = !!expandedOverview[pr.pr_number];
-            const isDiffExpanded = !!expandedDiffs[pr.pr_number];
-            const isTestExpanded = !!expandedTests[pr.pr_number];
-            const isReviewExpanded = !!expandedReviews[pr.pr_number];
-            const diffs = prDiffsData[pr.pr_number] || [];
-            const isDiffLoading = !!diffsLoading[pr.pr_number];
 
-            const adds = pr.diff_stats?.additions ?? (diffs.reduce((acc, d) => acc + (d.additions || 0), 0));
-            const dels = pr.diff_stats?.deletions ?? (diffs.reduce((acc, d) => acc + (d.deletions || 0), 0));
-            const fileCount = pr.diff_stats?.changed_files ?? diffs.length;
+            const adds = pr.diff_stats?.additions ?? 0;
+            const dels = pr.diff_stats?.deletions ?? 0;
+            const fileCount = pr.diff_stats?.changed_files ?? 0;
+
+            const prUrl = pr.html_url || (task.repo_name ? `https://github.com/${task.repo_name}/pull/${pr.pr_number}` : undefined);
 
             return (
               <div 
                 key={pr.id || pr.pr_number}
-                className={`rounded-lg border bg-onedark-surface/30 overflow-hidden shadow-sm transition-all ${
+                onClick={() => setSelectedPr({ url: prUrl, number: pr.pr_number, record: pr })}
+                className={`group rounded-xl border p-3 transition-all cursor-pointer shadow-xs hover:shadow-md select-none ${
                   pr.is_session_scoped 
-                    ? 'border-onedark-border/80 ring-1 ring-onedark-accent/20' 
-                    : 'border-onedark-border hover:border-onedark-borderSubtle'
+                    ? 'border-onedark-accent/40 bg-onedark-surface/50 hover:bg-onedark-surface/70 ring-1 ring-onedark-accent/20' 
+                    : 'border-onedark-border bg-onedark-surface/30 hover:bg-onedark-surface/60 hover:border-onedark-borderSubtle'
                 }`}
               >
-                {/* PR Header Row */}
-                <div className="p-3 bg-onedark-surface/60 border-b border-onedark-border/60">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap mb-1">
-                        <button
-                          onClick={() => setSelectedPr({ url: pr.html_url || (task.repo_name ? `https://github.com/${task.repo_name}/pull/${pr.pr_number}` : undefined), number: pr.pr_number, record: pr })}
-                          className="font-mono text-xs font-bold text-onedark-accent hover:underline cursor-pointer"
-                          title="Open PR Inspector"
-                        >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start space-x-2.5 min-w-0 flex-1">
+                    {/* PR State Icon */}
+                    <div className="mt-0.5 flex-shrink-0">
+                      <GitPullRequest className={`w-4 h-4 ${
+                        pr.status === 'MERGED' 
+                          ? 'text-onedark-purple' 
+                          : pr.status === 'CLOSED' 
+                          ? 'text-onedark-red' 
+                          : 'text-onedark-green'
+                      }`} />
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      {/* Top Row: #PR Number, Title, Status Badge */}
+                      <div className="flex items-center gap-2 flex-wrap leading-snug mb-1.5">
+                        <span className="font-mono text-xs font-bold text-onedark-accent group-hover:underline">
                           #{pr.pr_number}
-                        </button>
+                        </span>
                         <h4 
-                          onClick={() => setSelectedPr({ url: pr.html_url || (task.repo_name ? `https://github.com/${task.repo_name}/pull/${pr.pr_number}` : undefined), number: pr.pr_number, record: pr })}
-                          className="font-semibold text-onedark-fgBright text-xs truncate cursor-pointer hover:text-onedark-accent transition-colors"
-                          title="Open PR Inspector"
+                          className="font-semibold text-onedark-fgBright text-xs truncate group-hover:text-onedark-accent transition-colors"
+                          title={pr.title}
                         >
                           {pr.title}
                         </h4>
                         {getStatusBadge(pr.status)}
+                        {pr.is_session_scoped && (
+                          <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-medium bg-onedark-accent/15 text-onedark-accent border border-onedark-accent/30">
+                            Session
+                          </span>
+                        )}
                       </div>
 
-                      <div className="flex items-center gap-3 text-[11px] text-onedark-muted flex-wrap">
+                      {/* Metadata Row: Author, Branch flow, Diff stats, Date */}
+                      <div className="flex items-center gap-2.5 text-[11px] text-onedark-muted flex-wrap">
                         {pr.author && (
                           <button
-                            onClick={() => setAuthorFilter(pr.author)}
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAuthorFilter(pr.author);
+                            }}
                             className="flex items-center gap-1 font-mono hover:text-onedark-fg transition-colors cursor-pointer"
                             title={`Filter by @${pr.author}`}
                           >
@@ -681,324 +637,70 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
                           </button>
                         )}
 
-                        <span className="flex items-center gap-1 font-mono text-onedark-purple">
-                          <GitBranch className="w-3 h-3" />
+                        <span className="flex items-center gap-1 font-mono text-[10.5px] text-onedark-purple bg-onedark-surface/60 px-1.5 py-0.5 rounded border border-onedark-borderSubtle">
+                          <GitBranch className="w-3 h-3 text-onedark-purple flex-shrink-0" />
                           <span className="text-onedark-fgBright">{pr.head_branch || 'feature'}</span>
                           <span className="text-onedark-muted">➔</span>
-                          <span>{pr.base_branch || 'main'}</span>
+                          <span className="text-onedark-muted">{pr.base_branch || 'main'}</span>
                         </span>
 
                         <span className="flex items-center gap-1.5 font-mono text-[10px]">
                           {(adds > 0 || dels > 0) ? (
                             <>
-                              <span className="text-onedark-green font-semibold">+{adds}</span>
-                              <span className="text-onedark-red font-semibold">-{dels}</span>
+                              <span className="text-onedark-green font-semibold">+{adds.toLocaleString()}</span>
+                              <span className="text-onedark-red font-semibold">-{dels.toLocaleString()}</span>
                             </>
                           ) : (
                             <span className="text-onedark-muted">diff pending</span>
                           )}
-                          {fileCount > 0 && <span className="text-onedark-muted">({fileCount} files)</span>}
+                          {fileCount > 0 && <span className="text-onedark-muted/80">({fileCount} files)</span>}
                         </span>
+
+                        {pr.created_at && (
+                          <span className="flex items-center gap-1 text-[10.5px] text-onedark-muted/70">
+                            <Clock className="w-3 h-3" />
+                            <span>{new Date(pr.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                          </span>
+                        )}
                       </div>
-                    </div>
-
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <button
-                        onClick={() => setSelectedPr({ url: pr.html_url || (task.repo_name ? `https://github.com/${task.repo_name}/pull/${pr.pr_number}` : undefined), number: pr.pr_number, record: pr })}
-                        className="px-2 py-1 rounded bg-onedark-surface hover:bg-onedark-surface/80 border border-onedark-border text-[11px] text-onedark-accent font-semibold transition-colors cursor-pointer flex items-center gap-1"
-                        title="Open full-screen PR Inspector with unified diffs, overview & review agent"
-                      >
-                        <FileText className="w-3 h-3" />
-                        <span>Inspect</span>
-                      </button>
-
-                      {pr.html_url && (
-                        <a
-                          href={pr.html_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="p-1 rounded text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface transition-colors"
-                          title="Open on GitHub"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </a>
-                      )}
                     </div>
                   </div>
 
-                  {/* Quick Action Button Toolbar */}
-                  <div className="mt-3 pt-2 border-t border-onedark-border/40 flex items-center gap-1.5 flex-wrap">
-                    {/* Run Tests Button */}
+                  {/* Right Actions: Inspect, Sync, External Link */}
+                  <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                     <button
-                      onClick={() => handleTriggerAction(pr, 'run_tests')}
-                      disabled={isActionRunning}
-                      className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium bg-onedark-surface hover:bg-onedark-borderSubtle text-onedark-fg border border-onedark-border transition-colors disabled:opacity-50 cursor-pointer"
-                      title="Run tests in sandbox worktree"
+                      type="button"
+                      onClick={() => setSelectedPr({ url: prUrl, number: pr.pr_number, record: pr })}
+                      className="px-2.5 py-1 rounded-lg bg-onedark-surface hover:bg-onedark-accent/15 border border-onedark-border hover:border-onedark-accent/40 text-[11px] text-onedark-accent font-semibold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                      title="Open full-screen PR Inspector with diffs, commits, comments & review agent"
                     >
-                      {currentAction === 'run_tests' ? (
-                        <Loader2 className="w-3 h-3 animate-spin text-onedark-accent" />
-                      ) : (
-                        <Play className="w-3 h-3 text-onedark-green fill-onedark-green/30" />
-                      )}
-                      <span>Run Tests</span>
+                      <FileText className="w-3 h-3" />
+                      <span>Inspect</span>
                     </button>
 
-                    {/* AI Review Button */}
                     <button
-                      onClick={() => handleTriggerAction(pr, 'post_review')}
-                      disabled={isActionRunning}
-                      className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-medium bg-onedark-surface hover:bg-onedark-borderSubtle text-onedark-fg border border-onedark-border transition-colors disabled:opacity-50 cursor-pointer"
-                      title="Trigger AI Code Review"
-                    >
-                      {currentAction === 'post_review' ? (
-                        <Loader2 className="w-3 h-3 animate-spin text-onedark-accent" />
-                      ) : (
-                        <ShieldCheck className="w-3 h-3 text-onedark-purple" />
-                      )}
-                      <span>AI Review</span>
-                    </button>
-
-                    {/* Review Agent Sub-Session Popover Button */}
-                    <button
-                      onClick={() => handleOpenReviewAgent(pr)}
-                      className="flex items-center gap-1.5 px-2.5 py-1 rounded text-[11px] font-semibold bg-onedark-accent/15 hover:bg-onedark-accent/25 text-onedark-accent border border-onedark-accent/30 transition-colors cursor-pointer"
-                      title="Launch interactive PR review sub-session agent"
-                    >
-                      <Bot className="w-3 h-3" />
-                      <span>Review Agent</span>
-                    </button>
-
-                    {/* Sync Metadata Button */}
-                    <button
+                      type="button"
                       onClick={() => handleTriggerAction(pr, 'sync')}
                       disabled={isActionRunning}
-                      className="p-1 rounded text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface transition-colors disabled:opacity-50 ml-auto"
+                      className="p-1 rounded-lg text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface border border-transparent hover:border-onedark-borderSubtle transition-colors disabled:opacity-50 cursor-pointer"
                       title="Sync PR from GitHub"
                     >
-                      <RefreshCw className={`w-3 h-3 ${currentAction === 'sync' ? 'animate-spin text-onedark-accent' : ''}`} />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Sub-panel Toggles Bar */}
-                <div className="px-3 py-1.5 bg-onedark-darker/60 flex items-center justify-between text-[11px] border-b border-onedark-border/30">
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => toggleOverview(pr.pr_number)}
-                      className={`flex items-center gap-1 px-2 py-0.5 rounded transition-colors cursor-pointer ${
-                        isOverviewExpanded
-                          ? 'bg-onedark-surface text-onedark-fgBright font-medium'
-                          : 'text-onedark-muted hover:text-onedark-fg'
-                      }`}
-                    >
-                      <FileText className="w-3 h-3 text-onedark-accent" />
-                      <span>Overview</span>
-                      {isOverviewExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                      <RefreshCw className={`w-3.5 h-3.5 ${currentAction === 'sync' ? 'animate-spin text-onedark-accent' : ''}`} />
                     </button>
 
-                    <button
-                      onClick={() => toggleDiffView(pr.pr_number)}
-                      className={`flex items-center gap-1 px-2 py-0.5 rounded transition-colors cursor-pointer ${
-                        isDiffExpanded
-                          ? 'bg-onedark-surface text-onedark-fgBright font-medium'
-                          : 'text-onedark-muted hover:text-onedark-fg'
-                      }`}
-                    >
-                      <FileCode2 className="w-3 h-3 text-onedark-accent" />
-                      <span>Diffs</span>
-                      {isDiffExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                    </button>
-
-                    {pr.test_output && (
-                      <button
-                        onClick={() => toggleTestView(pr.pr_number)}
-                        className={`flex items-center gap-1 px-2 py-0.5 rounded transition-colors cursor-pointer ${
-                          isTestExpanded
-                            ? 'bg-onedark-surface text-onedark-fgBright font-medium'
-                            : 'text-onedark-muted hover:text-onedark-fg'
-                        }`}
+                    {pr.html_url && (
+                      <a
+                        href={pr.html_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="p-1 rounded-lg text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface border border-transparent hover:border-onedark-borderSubtle transition-colors"
+                        title="Open on GitHub"
                       >
-                        <Terminal className="w-3 h-3 text-onedark-green" />
-                        <span>Test Output</span>
-                        {isTestExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                      </button>
-                    )}
-
-                    {pr.review_summary && (
-                      <button
-                        onClick={() => toggleReviewView(pr.pr_number)}
-                        className={`flex items-center gap-1 px-2 py-0.5 rounded transition-colors cursor-pointer ${
-                          isReviewExpanded
-                            ? 'bg-onedark-surface text-onedark-fgBright font-medium'
-                            : 'text-onedark-muted hover:text-onedark-fg'
-                        }`}
-                      >
-                        <ShieldCheck className="w-3 h-3 text-onedark-purple" />
-                        <span>Review Notes</span>
-                        {isReviewExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                      </button>
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
                     )}
                   </div>
                 </div>
-
-                {/* PR Overview Accordion */}
-                {isOverviewExpanded && (
-                  <div className="p-3 bg-onedark-darker border-b border-onedark-border/40 text-xs">
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-[11px] text-onedark-muted">
-                        <span className="font-semibold text-onedark-fgBright">Pull Request Overview</span>
-                        {pr.html_url && (
-                          <a
-                            href={pr.html_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-onedark-accent hover:underline flex items-center gap-1"
-                          >
-                            <span>Open on GitHub</span>
-                            <ExternalLink className="w-3 h-3" />
-                          </a>
-                        )}
-                      </div>
-
-                      <div className="p-3 rounded bg-onedark-surface/40 border border-onedark-border leading-relaxed text-onedark-fg space-y-2">
-                        <div className="font-semibold text-onedark-fgBright text-xs">{pr.title}</div>
-                        <div className="text-[11px] text-onedark-muted font-mono space-y-1">
-                          <div>Author: <span className="text-onedark-fgBright">@{pr.author || 'unknown'}</span></div>
-                          <div>Branches: <span className="text-onedark-purple font-semibold">{pr.head_branch || 'feature'}</span> ➔ <span className="text-onedark-muted">{pr.base_branch || 'main'}</span></div>
-                          <div>Changeset: {(adds > 0 || dels > 0) ? <><span className="text-onedark-green font-semibold">+{adds}</span> / <span className="text-onedark-red font-semibold">-{dels}</span></> : 'diff pending'} across {fileCount} file(s)</div>
-                          {pr.created_at && <div>Created: <span className="text-onedark-fg">{new Date(pr.created_at).toLocaleString()}</span></div>}
-                        </div>
-
-                        {pr.body && (
-                          <div className="pt-2 border-t border-onedark-border/40">
-                            <div className="text-[11px] font-semibold text-onedark-muted mb-1">Description</div>
-                            <div className="p-2.5 rounded bg-black/20 text-[11px] leading-relaxed">
-                              <MarkdownRenderer content={pr.body} />
-                            </div>
-                          </div>
-                        )}
-
-                        <div className="pt-2 border-t border-onedark-border/50 flex items-center gap-2">
-                          <button
-                            onClick={() => toggleDiffView(pr.pr_number)}
-                            className="flex items-center gap-1 px-2 py-1 rounded bg-onedark-surface text-[11px] font-medium text-onedark-fg hover:bg-onedark-borderSubtle border border-onedark-border transition-colors cursor-pointer"
-                          >
-                            <FileCode2 className="w-3 h-3 text-onedark-accent" />
-                            <span>{isDiffExpanded ? 'Collapse Diffs' : 'View Code Diffs'}</span>
-                          </button>
-
-                          <button
-                            onClick={() => handleOpenReviewAgent(pr)}
-                            className="flex items-center gap-1 px-2 py-1 rounded bg-onedark-accent/15 text-[11px] font-medium text-onedark-accent hover:bg-onedark-accent/25 border border-onedark-accent/30 transition-colors cursor-pointer"
-                          >
-                            <Bot className="w-3 h-3" />
-                            <span>Launch Review Agent</span>
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Test Output Accordion */}
-                {isTestExpanded && pr.test_output && (
-                  <div className="p-3 bg-onedark-darker border-b border-onedark-border/40 font-mono text-[11px]">
-                    <div className="flex items-center justify-between text-onedark-muted mb-1.5">
-                      <span className="font-semibold text-onedark-fgBright">Sandbox Test Execution Log:</span>
-                    </div>
-                    <pre className="p-2.5 rounded bg-black/40 border border-onedark-border text-onedark-fg whitespace-pre-wrap overflow-x-auto max-h-60 leading-relaxed">
-                      {pr.test_output}
-                    </pre>
-                  </div>
-                )}
-
-                {/* Review Notes Accordion */}
-                {isReviewExpanded && pr.review_summary && (
-                  <div className="p-3 bg-onedark-surface/20 border-b border-onedark-border/40">
-                    <div className="p-3 rounded bg-onedark-surface/40 border border-onedark-border">
-                      <MarkdownRenderer content={pr.review_summary} />
-                    </div>
-                  </div>
-                )}
-
-                {/* Diffs Accordion View */}
-                {isDiffExpanded && (
-                  <div className="p-3 bg-onedark-darker space-y-3">
-                    {isDiffLoading ? (
-                      <div className="flex items-center justify-center py-6 text-onedark-muted gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin text-onedark-accent" />
-                        <span className="font-mono text-xs">Loading diffs...</span>
-                      </div>
-                    ) : diffs.length === 0 ? (
-                      <div className="py-4 text-center text-onedark-muted text-[11px]">
-                        No unified diffs available for this pull request.
-                      </div>
-                    ) : (
-                      diffs.map((d) => (
-                        <div 
-                          key={d.file_path}
-                          className="rounded border border-onedark-border bg-onedark-darker overflow-hidden shadow-xs"
-                        >
-                          {/* File Header */}
-                          <div className="px-3 py-1.5 bg-onedark-surface border-b border-onedark-border flex items-center justify-between text-onedark-fgBright">
-                            <div className="flex items-center space-x-2 text-[11px] font-mono truncate flex-1 min-w-0">
-                              <FileCode2 className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
-                              <span className="truncate">{d.file_path}</span>
-                            </div>
-
-                            <div className="flex items-center space-x-2 text-[10px] ml-2 flex-shrink-0 font-mono">
-                              <span className="text-onedark-green font-semibold">+{d.additions || 0}</span>
-                              <span className="text-onedark-red font-semibold">-{d.deletions || 0}</span>
-                            </div>
-                          </div>
-
-                          {/* Diff Lines (12.5px font-size requirement) */}
-                          <div className="p-2 overflow-x-auto text-[12.5px] leading-relaxed font-mono">
-                            {d.diff_content ? (
-                              d.diff_content.split('\n').map((line, idx) => {
-                                const isAddition = line.startsWith('+') && !line.startsWith('+++');
-                                const isDeletion = line.startsWith('-') && !line.startsWith('---');
-                                const isHeader = line.startsWith('@@');
-
-                                return (
-                                  <div
-                                    key={idx}
-                                    className={`group flex items-center px-1 py-0.5 rounded-sm hover:bg-onedark-surface/40 transition-colors ${
-                                      isAddition
-                                        ? 'diff-addition'
-                                        : isDeletion
-                                        ? 'diff-deletion'
-                                        : isHeader
-                                        ? 'text-onedark-purple bg-onedark-surface/30 font-semibold'
-                                        : 'text-onedark-fg'
-                                    }`}
-                                  >
-                                    {/* Line comment trigger */}
-                                    <button
-                                      onClick={() => handleOpenReviewAgent(pr, {
-                                        filename: d.file_path,
-                                        line: idx + 1,
-                                        content: line
-                                      })}
-                                      className="opacity-0 group-hover:opacity-100 p-0.5 mr-1 text-onedark-accent hover:text-onedark-fgBright hover:bg-onedark-surface rounded transition-opacity cursor-pointer flex-shrink-0"
-                                      title="Review this line with Agent"
-                                    >
-                                      <MessageSquarePlus className="w-3 h-3" />
-                                    </button>
-
-                                    <pre className="font-mono whitespace-pre flex-1 text-[12.5px]">{line || ' '}</pre>
-                                  </div>
-                                );
-                              })
-                            ) : (
-                              <div className="text-onedark-muted italic py-1 px-2 text-[11px]">Binary or empty diff</div>
-                            )}
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
               </div>
             );
           })
