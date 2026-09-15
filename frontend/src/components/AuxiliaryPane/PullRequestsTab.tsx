@@ -23,7 +23,8 @@ import {
   User,
   Sparkles,
   Search,
-  Filter
+  Filter,
+  Zap
 } from 'lucide-react';
 import { Task, TaskPR } from '../../types';
 import { useWebSocket } from '../../contexts/WebSocketContext';
@@ -618,6 +619,20 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
                             Session
                           </span>
                         )}
+                        {(() => {
+                          const matches = `${pr.title} ${pr.head_branch || ''}`.match(/\b([A-Z]{2,10}-\d+)\b/gi);
+                          if (!matches) return null;
+                          const uniqueKeys = Array.from(new Set(matches.map(m => m.toUpperCase())));
+                          return uniqueKeys.map(k => (
+                            <span
+                              key={k}
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.2 rounded-full font-mono text-[9.5px] font-bold bg-indigo-500/15 text-indigo-400 border border-indigo-500/30"
+                            >
+                              <Zap className="w-2.5 h-2.5" />
+                              <span>{k}</span>
+                            </span>
+                          ));
+                        })()}
                       </div>
 
                       {/* Metadata Row: Author, Branch flow, Diff stats, Date */}

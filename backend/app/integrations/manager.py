@@ -9,6 +9,7 @@ from app.config import settings
 from app.integrations.github_client import github_client
 from app.integrations.slack_client import slack_client
 from app.integrations.appsignal_client import appsignal_client
+from app.integrations.linear_client import linear_client
 
 logger = logging.getLogger("cyclode.integrations")
 
@@ -63,6 +64,11 @@ class IntegrationManager:
                     appsignal_client.api_key = credentials["api_key"]
                 if "webhook_token" in credentials:
                     appsignal_client.webhook_token = credentials["webhook_token"]
+            elif provider == "linear":
+                if "token" in credentials:
+                    linear_client.token = credentials["token"]
+                elif "api_key" in credentials:
+                    linear_client.token = credentials["api_key"]
             elif provider == "gemini":
                 if "api_key" in credentials:
                     os.environ["GEMINI_API_KEY"] = credentials["api_key"]
@@ -119,6 +125,27 @@ class IntegrationManager:
                 if not key:
                     return {"valid": False, "message": "AppSignal API key is empty"}
                 return {"valid": True, "message": "AppSignal credentials registered"}
+
+            elif provider == "linear":
+                token = credentials.get("token") or credentials.get("api_key") or linear_client.token
+                if not token:
+                    return {"valid": False, "message": "Linear API token is empty"}
+                clean_auth = token if token.startswith("Bearer ") else f"Bearer {token}"
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.post(
+                        "https://api.linear.app/graphql",
+                        json={"query": "query { viewer { id name email } }"},
+                        headers={"Authorization": clean_auth}
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        viewer = data.get("data", {}).get("viewer", {})
+                        if viewer and viewer.get("name"):
+                            return {"valid": True, "message": f"Authenticated to Linear as '{viewer.get('name')}' ({viewer.get('email')})", "user": viewer.get("name")}
+                        return {"valid": True, "message": "Linear API key registered successfully"}
+                    elif resp.status_code == 401:
+                        return {"valid": False, "message": "Invalid or expired Linear API key (401 Unauthorized)"}
+                    return {"valid": True, "message": f"Linear API returned status {resp.status_code}"}
 
             elif provider == "gemini":
                 key = credentials.get("api_key") or settings.GEMINI_API_KEY

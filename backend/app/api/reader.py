@@ -937,6 +937,61 @@ async def _fetch_github_issue_info(owner: str, repo: str, issue_number: int) -> 
         }
 
 
+async def _fetch_linear_issue_info(issue_key: str, original_url: str) -> Dict[str, Any]:
+    from app.integrations.linear_client import linear_client
+    issue = await linear_client.get_issue(issue_key)
+    if not issue:
+        raise HTTPException(status_code=404, detail=f"Linear issue {issue_key} not found")
+
+    identifier = issue.get("identifier") or issue_key
+    title_text = issue.get("title") or "Linear Ticket"
+    title = f"{identifier}: {title_text}"
+    state = issue.get("state", {}).get("name", "Todo")
+    priority = issue.get("priorityLabel") or "Medium"
+    assignee = issue.get("assignee", {}).get("name") or "Unassigned"
+    desc = issue.get("description") or "*No description provided.*"
+
+    comments_nodes = issue.get("comments", {})
+    if isinstance(comments_nodes, dict):
+        comments_list = comments_nodes.get("nodes", [])
+    elif isinstance(comments_nodes, list):
+        comments_list = comments_nodes
+    else:
+        comments_list = []
+
+    comments_md = ""
+    if comments_list:
+        comments_md = "\n\n## Discussion & Comments\n\n" + "\n\n---\n\n".join([
+            f"**{c.get('user', {}).get('name', 'Commenter')}** ({str(c.get('createdAt', ''))[:10]}):\n\n{c.get('body', '')}"
+            for c in comments_list
+        ])
+
+    content_markdown = f"""# {title}
+
+**Status:** `{state}` | **Priority:** `{priority}` | **Assignee:** @{assignee}
+**Linear URL:** [{issue.get('url', original_url)}]({issue.get('url', original_url)})
+
+## Description
+
+{desc}
+{comments_md}
+"""
+
+    return {
+        "type": "linear",
+        "url": issue.get("url", original_url),
+        "title": title,
+        "domain": "linear.app",
+        "description": f"Linear Issue {identifier} ({state}) - {title_text}",
+        "content_markdown": content_markdown,
+        "headings": [{"level": 1, "text": title}, {"level": 2, "text": "Description"}],
+        "is_linear": True,
+        "linear_issue": issue,
+        "read_time_minutes": max(1, len(content_markdown.split()) // 200),
+        "cached": False
+    }
+
+
 def _extract_snippet(text: str, query: str, max_chars: int = 220) -> str:
     if not text or not query:
         return ""
@@ -1023,6 +1078,40 @@ async def get_url_reader(url: str = Query(..., description="Target URL to read")
 
     parsed = urlparse(clean_url)
     hostname = (parsed.hostname or "").lower()
+
+    # Check for Linear issue URL: https://linear.app/<org>/issue/PD-1236/... or ticket key
+    if "linear.app" in hostname:
+        ticket_match = re.search(r"([a-zA-Z]{2,10}-\d+)", parsed.path)
+        if ticket_match:
+            issue_key = ticket_match.group(1).upper()
+            try:
+                linear_info = await _fetch_linear_issue_info(issue_key, clean_url)
+                try:
+                    page_id = hashlib.sha256(clean_url.encode("utf-8")).hexdigest()[:32]
+                    async with async_session_factory() as session:
+                        stmt = select(DocPageCacheModel).where(DocPageCacheModel.id == page_id)
+                        res = await session.execute(stmt)
+                        existing = res.scalars().first()
+                        if existing:
+                            existing.title = linear_info.get("title", f"Linear: {issue_key}")
+                            existing.content_markdown = linear_info.get("content_markdown", "")
+                            existing.domain = "linear.app"
+                        else:
+                            new_page = DocPageCacheModel(
+                                id=page_id,
+                                url=clean_url,
+                                domain="linear.app",
+                                title=linear_info.get("title", f"Linear: {issue_key}"),
+                                content_markdown=linear_info.get("content_markdown", ""),
+                                headings_json=json.dumps(linear_info.get("headings", []))
+                            )
+                            session.add(new_page)
+                        await session.commit()
+                except Exception as e:
+                    logger.debug(f"Linear doc caching notice: {e}")
+                return linear_info
+            except Exception as e:
+                logger.warning(f"Error resolving Linear ticket {issue_key}: {e}")
 
     # Check for GitHub repository, PR, or Issue URL
     if "github.com" in hostname:

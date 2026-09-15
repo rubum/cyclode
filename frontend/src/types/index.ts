@@ -239,3 +239,58 @@ export interface PRCommentItem {
   review_state?: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED';
 }
 
+export interface LinearState {
+  id: string;
+  name: string;
+  color: string;
+  type?: string;
+}
+
+export interface LinearUser {
+  id: string;
+  name: string;
+  displayName?: string;
+  avatarUrl?: string;
+  email?: string;
+}
+
+export interface LinearLabel {
+  id: string;
+  name: string;
+  color: string;
+}
+
+export interface LinearComment {
+  id: string;
+  body: string;
+  createdAt: string;
+  user?: LinearUser;
+}
+
+export interface LinearIssue {
+  id: string;
+  identifier: string;
+  title: string;
+  description?: string;
+  priority: number;
+  priorityLabel?: string;
+  url: string;
+  createdAt: string;
+  updatedAt?: string;
+  state: LinearState;
+  assignee?: LinearUser;
+  creator?: LinearUser;
+  team?: {
+    id: string;
+    name: string;
+    key: string;
+    states?: { nodes: LinearState[] };
+  };
+  project?: {
+    id: string;
+    name: string;
+  };
+  labels?: { nodes: LinearLabel[] } | LinearLabel[];
+  comments?: { nodes: LinearComment[] } | LinearComment[];
+}
+

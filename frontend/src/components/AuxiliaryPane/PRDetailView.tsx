@@ -46,6 +46,7 @@ import {
 } from 'lucide-react';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { PRReviewAgentPopover, LineContext } from './PRReviewAgentPopover';
+import { LinearIssueDetailView } from './LinearIssueDetailView';
 import { Task, TaskPR, PRCommentItem } from '../../types';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 
@@ -855,14 +856,20 @@ export function parseBotReviewComment(rawBody?: string): ParsedBotComment {
   let effort: ParsedBotComment['effort'] = undefined;
   let aiPrompt: string | undefined = undefined;
 
+  let bodyText = rawBody;
+
   // Extract AI prompt block if available: <details><summary>...Prompt for AI Agents...</summary>...
-  const promptMatch = rawBody.match(/(?:<details>\s*<summary>[\s\S]*?Prompt for AI Agents[\s\S]*?<\/summary>([\s\S]*?)<\/details>|>\s*🤖\s*Prompt for AI Agents[\r\n]+(?:```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)```|([\s\S]*?)(?=\n\n|\n[#<]|$)))/i);
+  const promptMatch = bodyText.match(/(?:<details>\s*<summary>[\s\S]*?Prompt for AI Agents[\s\S]*?<\/summary>([\s\S]*?)<\/details>|>\s*🤖\s*Prompt for AI Agents[\r\n]+(?:```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)```|([\s\S]*?)(?=\n\n|\n[#<]|$)))/i);
   if (promptMatch) {
     aiPrompt = (promptMatch[1] || promptMatch[2] || promptMatch[3] || '').trim();
     aiPrompt = aiPrompt.replace(/^```[a-zA-Z0-9_-]*\s*/, '').replace(/\s*```$/, '').trim();
+    bodyText = bodyText.replace(promptMatch[0], '').trim();
   }
 
-  const lines = rawBody.split('\n');
+  // Strip coderabbit raw image URLs at top
+  bodyText = bodyText.replace(/^https?:\/\/[^\s\n]+#gh-(?:light|dark)-mode-only\s*$/gim, '');
+
+  const lines = bodyText.split('\n');
   const cleanLines: string[] = [];
 
   for (let i = 0; i < lines.length; i++) {
@@ -1915,9 +1922,17 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
   const [isReviewDecisionModalOpen, setIsReviewDecisionModalOpen] = useState<boolean>(false);
   const [initialReviewEvent, setInitialReviewEvent] = useState<'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT'>('APPROVE');
   const [isMergeModalOpen, setIsMergeModalOpen] = useState<boolean>(false);
+  const [selectedLinearTicket, setSelectedLinearTicket] = useState<string | null>(null);
 
   const contentScrollRef = useRef<HTMLDivElement>(null);
   const outlinePopoverRef = useRef<HTMLDivElement>(null);
+
+  const detectedLinearTickets = useMemo(() => {
+    const textToScan = `${data?.title || prRecord?.title || ''} ${data?.head_branch || prRecord?.head_branch || ''} ${data?.overview_markdown || ''} ${data?.content_markdown || ''}`;
+    const matches = textToScan.match(/\b([A-Z]{2,10}-\d+)\b/gi);
+    if (!matches) return [];
+    return Array.from(new Set(matches.map(m => m.toUpperCase())));
+  }, [data?.title, prRecord?.title, data?.head_branch, prRecord?.head_branch, data?.overview_markdown, data?.content_markdown]);
 
   // Determine effective target URL
   const targetUrl = useMemo(() => {
@@ -2344,6 +2359,19 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
                 <span className="text-onedark-red font-semibold">-{effectiveDeletions?.toLocaleString() || 0}</span>
               </div>
             )}
+
+            {/* Detected Linear Ticket Chips */}
+            {detectedLinearTickets.map((ticket) => (
+              <button
+                key={ticket}
+                onClick={() => setSelectedLinearTicket(ticket)}
+                className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-400 text-[10.5px] font-mono font-bold transition-all cursor-pointer whitespace-nowrap flex-shrink-0 active:scale-95 shadow-xs"
+                title={`Open and inspect Linear issue ${ticket}`}
+              >
+                <Zap className="w-3 h-3 text-indigo-400" />
+                <span>Linear: {ticket}</span>
+              </button>
+            ))}
           </div>
 
           {/* Action Toolbar */}
@@ -2698,6 +2726,26 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
         onConfirmMerge={handleConfirmMerge}
         isLoading={actionLoading === 'merge'}
       />
+
+      {/* Linear Issue Detail Modal */}
+      {selectedLinearTicket && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fadeIn"
+          onClick={() => setSelectedLinearTicket(null)}
+        >
+          <div 
+            className="w-full max-w-4xl h-[85vh] bg-onedark-darker border border-onedark-border rounded-xl shadow-2xl overflow-hidden flex flex-col animate-slideUp"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <LinearIssueDetailView
+              issueKey={selectedLinearTicket}
+              onClose={() => setSelectedLinearTicket(null)}
+              onImplementWithAgent={onAskAboutComment}
+              task={task}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { PRReviewAgentPopover, LineContext } from './PRReviewAgentPopover';
+import { LinearIssueDetailView } from './LinearIssueDetailView';
 import { Task } from '../../types';
 
 export interface DocNavItem {
@@ -1251,8 +1252,20 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
         </div>
       </div>
 
-      {/* GitHub PR Specific Hero Header & Sub-Tab Bar */}
-      {data?.type === 'github' && data.is_pr && (
+      {/* Linear Issue Direct View */}
+      {((data as any)?.type === 'linear' || (data as any)?.is_linear || (currentUrl && /linear\.app/i.test(currentUrl)) || (url && /linear\.app/i.test(url)) || url?.startsWith('linear://')) ? (
+        <div className="flex-1 h-full overflow-hidden">
+          <LinearIssueDetailView
+            issueKey={(data as any)?.linear_issue?.identifier || (currentUrl || url || '').match(/([a-zA-Z]{2,10}-\d+)/)?.[1] || 'PD-1236'}
+            onClose={onClear}
+            onImplementWithAgent={onAskAboutRepo}
+            task={task}
+          />
+        </div>
+      ) : (
+        <>
+          {/* GitHub PR Specific Hero Header & Sub-Tab Bar */}
+          {data?.type === 'github' && data.is_pr && (
         <div className="bg-onedark-surface/30 border-b border-onedark-borderSubtle select-none flex-shrink-0">
           {/* PR Metadata Summary Bar */}
           <div className="px-3 py-2 flex flex-wrap items-center justify-between gap-2 border-b border-onedark-borderSubtle/60 text-xs">
@@ -1641,27 +1654,29 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
         </div>
       </div>
 
-      {/* Interactive PR Reviewer Agent Popover */}
-      {data?.type === 'github' && data.is_pr && (
-        <PRReviewAgentPopover
-          isOpen={isReviewPopoverOpen}
-          onClose={() => {
-            setIsReviewPopoverOpen(false);
-            setActiveLineComment(null);
-          }}
-          repoName={data.repo_name || ''}
-          prNumber={data.pr_number || 0}
-          prTitle={data.pr_title || data.title || ''}
-          author={data.author}
-          headBranch={data.head_branch}
-          baseBranch={data.base_branch}
-          parentTaskId={task?.id}
-          activeLineComment={activeLineComment}
-          onClearActiveLineComment={() => setActiveLineComment(null)}
-          onNavigateToFileLine={(filename, line) => {
-            setPrTab('diff');
-          }}
-        />
+          {/* Interactive PR Reviewer Agent Popover */}
+          {data?.type === 'github' && data.is_pr && (
+            <PRReviewAgentPopover
+              isOpen={isReviewPopoverOpen}
+              onClose={() => {
+                setIsReviewPopoverOpen(false);
+                setActiveLineComment(null);
+              }}
+              repoName={data.repo_name || ''}
+              prNumber={data.pr_number || 0}
+              prTitle={data.pr_title || data.title || ''}
+              author={data.author}
+              headBranch={data.head_branch}
+              baseBranch={data.base_branch}
+              parentTaskId={task?.id}
+              activeLineComment={activeLineComment}
+              onClearActiveLineComment={() => setActiveLineComment(null)}
+              onNavigateToFileLine={(filename, line) => {
+                setPrTab('diff');
+              }}
+            />
+          )}
+        </>
       )}
     </div>
   );

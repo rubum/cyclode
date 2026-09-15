@@ -67,6 +67,8 @@ class Settings(BaseSettings):
     SENTRY_ORGANIZATION: Optional[str] = None
     SENTRY_PROJECT: Optional[str] = None
 
+    LINEAR_API_KEY: Optional[str] = None
+
     def get_api_key(self) -> Optional[str]:
         return self.GEMINI_API_KEY or self.GOOGLE_API_KEY
 

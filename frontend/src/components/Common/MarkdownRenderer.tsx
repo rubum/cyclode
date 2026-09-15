@@ -113,6 +113,11 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
     // Strip HTML comments (e.g. <!-- CURSOR_AGENT_PR_BODY_END -->, <!-- release notes by coderabbit.ai -->)
     text = text.replace(/<!--[\s\S]*?-->/g, '');
 
+    // Strip standalone tracking / light-mode image badge links (e.g. https://app.coderabbit.ai/...#gh-light-mode-only)
+    text = text.replace(/^https?:\/\/[^\s\n]+#gh-(?:light|dark)-mode-only\s*$/gim, '');
+    text = text.replace(/\[!\[[^\]]*\]\([^)]*#gh-light-mode-only\s*\)\]\([^)]+\)/gi, '');
+    text = text.replace(/!\[[^\]]*\]\([^)]*#gh-light-mode-only\s*\)/gi, '');
+
     if (!isStreaming) return text;
     const codeBlockCount = (text.match(/```/g) || []).length;
     if (codeBlockCount % 2 !== 0) {
@@ -260,14 +265,14 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                 return (
                   <details
                     key={bIdx}
-                    className="my-2.5 rounded-xl border border-onedark-border bg-onedark-darker/60 overflow-hidden shadow-xs group"
+                    className="my-2 rounded-lg bg-onedark-surface/30 overflow-hidden group"
                   >
-                    <summary className="px-3.5 py-2 bg-onedark-surface/60 hover:bg-onedark-surface cursor-pointer text-xs font-semibold text-onedark-fgBright select-none transition-colors flex items-center space-x-1.5 list-none">
+                    <summary className="px-3.5 py-2 bg-onedark-surface/50 hover:bg-onedark-surface/80 cursor-pointer text-xs font-semibold text-onedark-fgBright select-none transition-colors flex items-center space-x-1.5 list-none">
                       <ChevronRight className="w-3.5 h-3.5 text-onedark-accent transition-transform group-open:rotate-90 flex-shrink-0" />
                       <span>{inline(block.summary || 'Details')}</span>
                     </summary>
                     {block.content && (
-                      <div className="p-3 border-t border-onedark-borderSubtle text-xs space-y-2">
+                      <div className="p-3 text-xs space-y-2">
                         <MarkdownRenderer content={block.content} onLinkClick={onLinkClick} />
                       </div>
                     )}
@@ -470,30 +475,54 @@ function parseBlocks(text: string): BlockItem[] {
       continue;
     }
 
-    // Ignore lines that only contain HTML wrapper tags
-    if (/^<\/?(?:p|div|center|picture|source|span)[^>]*>$/i.test(trimmed)) {
+    // Ignore lines that only contain HTML wrapper tags or stray summary/details tags
+    if (/^<\/?(?:p|div|center|picture|source|span|summary|details)[^>]*>$/i.test(trimmed)) {
+      continue;
+    }
+
+    // Ignore standalone summary lines outside details (e.g. <summary>📝 Walkthrough</summary>)
+    if (/^<summary[^>]*>[\s\S]*?<\/summary>$/i.test(trimmed)) {
       continue;
     }
 
     // Details / Summary Accordion Block
-    if (/^<details\b[^>]*>/i.test(trimmed)) {
+    if (/<details\b[^>]*>/i.test(trimmed)) {
       flushParagraph();
       flushList();
       flushTable();
       let summaryText = 'Details';
       const detailsLines: string[] = [];
 
-      for (let j = i + 1; j < lines.length; j++) {
-        const dTrimmed = lines[j].trim();
-        if (/^<\/details>/i.test(dTrimmed)) {
-          i = j;
-          break;
+      // Check if <summary> is on the same line as <details>
+      const inlineSummaryMatch = trimmed.match(/<summary[^>]*>([\s\S]*?)<\/summary>/i);
+      if (inlineSummaryMatch) {
+        summaryText = inlineSummaryMatch[1].replace(/<[^>]+>/g, '').trim() || summaryText;
+      }
+
+      // Check if closing </details> is on the same line
+      if (/<\/details>/i.test(trimmed)) {
+        const afterSummary = trimmed
+          .replace(/<details\b[^>]*>/i, '')
+          .replace(/<summary[^>]*>[\s\S]*?<\/summary>/i, '')
+          .replace(/<\/details>/i, '')
+          .trim();
+        if (afterSummary) {
+          detailsLines.push(afterSummary);
         }
-        const sMatch = dTrimmed.match(/^<summary[^>]*>([\s\S]*?)<\/summary>/i);
-        if (sMatch) {
-          summaryText = sMatch[1].replace(/<[^>]+>/g, '').trim() || summaryText;
-        } else if (!/^<\/?summary[^>]*>/i.test(dTrimmed)) {
-          detailsLines.push(lines[j]);
+      } else {
+        for (let j = i + 1; j < lines.length; j++) {
+          const dTrimmed = lines[j].trim();
+          if (/<\/details>/i.test(dTrimmed)) {
+            i = j;
+            break;
+          }
+          const sMatch = dTrimmed.match(/^<summary[^>]*>([\s\S]*?)<\/summary>/i);
+          if (sMatch) {
+            summaryText = sMatch[1].replace(/<[^>]+>/g, '').trim() || summaryText;
+          } else if (!/^<\/?summary[^>]*>/i.test(dTrimmed)) {
+            detailsLines.push(lines[j]);
+          }
+          i = j;
         }
       }
 

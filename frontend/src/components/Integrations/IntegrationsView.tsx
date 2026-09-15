@@ -20,6 +20,7 @@ import {
   MessageSquare,
   Activity,
   AlertTriangle,
+  Zap,
   Lock
 } from 'lucide-react';
 import { Integration, SkillCatalogItem, WebhookEndpoint } from '../../types';
@@ -96,6 +97,8 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
       payload.api_key = tokenInput.trim();
     } else if (selectedIntegration.id === 'gemini') {
       payload.api_key = tokenInput.trim();
+    } else if (selectedIntegration.id === 'linear') {
+      payload.token = tokenInput.trim();
     } else if (selectedIntegration.id === 'sentry') {
       payload.token = tokenInput.trim();
     } else {
@@ -202,6 +205,8 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
         return <Sparkles className="w-5 h-5 text-cyan-400" />;
       case 'github':
         return <FolderGit2 className="w-5 h-5 text-purple-400" />;
+      case 'linear':
+        return <Zap className="w-5 h-5 text-indigo-400" />;
       case 'slack':
         return <MessageSquare className="w-5 h-5 text-emerald-400" />;
       case 'appsignal':
@@ -219,6 +224,8 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
         return 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400';
       case 'github':
         return 'bg-purple-500/10 border-purple-500/30 text-purple-400';
+      case 'linear':
+        return 'bg-indigo-500/10 border-indigo-500/30 text-indigo-400';
       case 'slack':
         return 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400';
       case 'appsignal':
@@ -643,6 +650,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                      selectedIntegration.id === 'slack' ? 'Slack Bot User OAuth Token (xoxb-)' :
                      selectedIntegration.id === 'appsignal' ? 'AppSignal Push API Key' :
                      selectedIntegration.id === 'gemini' ? 'Google AI Studio / Gemini API Key' :
+                     selectedIntegration.id === 'linear' ? 'Linear API Key / Personal API Key (lin_api_...)' :
                      selectedIntegration.id === 'sentry' ? 'Sentry Auth Token' : 'API Token'}
                   </span>
                   <span className="text-[10.5px] font-mono text-onedark-accent">Required</span>
@@ -655,6 +663,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                     selectedIntegration.id === 'github' ? 'ghp_xxxxxxxxxxxxxxxxxxxx' :
                     selectedIntegration.id === 'slack' ? 'xoxb-xxxxxxxxxxxxxxxxxxxx' :
                     selectedIntegration.id === 'gemini' ? 'AIzaSyxxxxxxxxxxxxxxxxxxxx' :
+                    selectedIntegration.id === 'linear' ? 'lin_api_xxxxxxxxxxxxxxxxxxxx' :
                     selectedIntegration.id === 'sentry' ? 'sntrys_xxxxxxxxxxxxxxxxxxxx' : 'Enter secret key...'
                   }
                   className="w-full px-3.5 py-2.5 rounded-lg bg-onedark-bg border border-onedark-border text-xs text-onedark-fgBright font-mono focus:outline-none focus:border-onedark-accent shadow-xs"

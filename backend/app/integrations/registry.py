@@ -4,6 +4,7 @@ from app.config import settings
 from app.integrations.github_client import github_client
 from app.integrations.slack_client import slack_client
 from app.integrations.appsignal_client import appsignal_client
+from app.integrations.linear_client import linear_client
 
 
 class IntegrationRegistry:
@@ -30,6 +31,15 @@ class IntegrationRegistry:
                 "auth_type": "App ID / Personal Access Token",
                 "skills": ["github.create_pr", "github.post_comment", "github.view_issue"],
                 "icon": "github"
+            },
+            {
+                "id": "linear",
+                "name": "Linear Issue Tracking",
+                "description": "Native issue inspection, status updates, team sync, and agent ticket execution.",
+                "configured": linear_client.is_configured(),
+                "auth_type": "API Key / Personal Token",
+                "skills": ["linear.get_issue", "linear.update_status", "linear.post_comment"],
+                "icon": "zap"
             },
             {
                 "id": "slack",
@@ -93,6 +103,15 @@ class IntegrationRegistry:
                 "tools": ["appsignal.inspect_exception", "appsignal.correlate_trace"],
                 "status": "ACTIVE" if appsignal_client.is_configured() else "AUTH_REQUIRED",
                 "category": "Observability"
+            },
+            {
+                "id": "linear",
+                "name": "Linear Issue Triage & Action Sync",
+                "path": ".agents/skills/linear/SKILL.md",
+                "description": "Enables the agent to inspect Linear tickets, post progress comments, and update issue states.",
+                "tools": ["linear.get_issue", "linear.update_status", "linear.post_comment"],
+                "status": "ACTIVE" if linear_client.is_configured() else "AUTH_REQUIRED",
+                "category": "Project Management"
             },
             {
                 "id": "sentry",
