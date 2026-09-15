@@ -655,7 +655,7 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
         )}
 
         {/* Textarea Input */}
-        <div className="relative flex items-end bg-onedark-bg rounded-xl border border-onedark-borderSubtle focus-within:border-onedark-accent transition-colors p-1.5">
+        <div className="relative flex items-end bg-onedark-bg rounded-xl border border-onedark-borderSubtle focus-within:border-onedark-accent transition-colors p-2">
           <textarea
             ref={inputRef}
             value={inputPrompt}
@@ -663,23 +663,23 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
             onKeyDown={handleKeyDown}
             placeholder={attachedContext ? `Ask agent about ${attachedContext.filename} (line ${attachedContext.line})...` : "Ask reviewer agent or discuss diffs..."}
             rows={2}
-            className="w-full bg-transparent border-none text-xs text-onedark-fg focus:outline-none resize-none px-2 py-1 placeholder:text-onedark-muted/60 leading-relaxed font-sans"
+            className="w-full bg-transparent border-none text-[14px] text-onedark-fg focus:outline-none resize-none px-2.5 py-1.5 placeholder:text-onedark-muted/60 leading-relaxed font-sans"
           />
 
           <button
             onClick={() => handleSendMessage()}
             disabled={(!inputPrompt.trim() && !attachedContext) || isInitializing}
-            className={`p-2 rounded-lg transition-all flex-shrink-0 cursor-pointer ${
+            className={`p-2.5 rounded-lg transition-all flex-shrink-0 cursor-pointer ${
               (inputPrompt.trim() || attachedContext) && !isInitializing
-                ? 'bg-onedark-accent hover:bg-onedark-accent/90 text-white shadow-xs'
+                ? 'bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker shadow-xs'
                 : 'bg-onedark-surface text-onedark-muted/40 cursor-not-allowed'
             }`}
             title="Send to Reviewer Agent (Enter)"
           >
             {isInitializing ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <Loader2 className="w-4 h-4 animate-spin stroke-[2.5]" />
             ) : (
-              <Send className="w-3.5 h-3.5" />
+              <Send className="w-4 h-4 stroke-[2.5]" />
             )}
           </button>
         </div>

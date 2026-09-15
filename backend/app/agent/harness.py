@@ -552,7 +552,7 @@ class AntigravityHarness:
                     break
                 api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{active_model}:generateContent?key={api_key}"
                 turn = 0
-                max_turns = 10
+                max_turns = 12
                 model_succeeded = False
                 final_agent_text = ""
 
@@ -845,13 +845,21 @@ class AntigravityHarness:
                         })
 
                     if model_succeeded:
-                        # Perform a guaranteed synthesis turn without tools to deliver a full analytical response
+                        # Perform a guaranteed synthesis turn without further tool executions.
+                        # Supply tools_def so prior functionResponse entries pass schema validation,
+                        # and configure function_calling_config mode="NONE" to instruct the model to produce final text.
                         synthesis_payload = {
                             "contents": contents,
                             "system_instruction": {
                                 "parts": [{
-                                    "text": system_instruction + "\n\nCRITICAL DIRECTIVE: You have completed tool invocations. Deliver your comprehensive, fluid analytical synthesis answering the user prompt directly in rich markdown with clickable citations. Do not call any further tools."
+                                    "text": system_instruction + "\n\nCRITICAL DIRECTIVE: You have completed all tool executions. Synthesize your comprehensive, fluid analytical response answering the user directly in rich markdown format with clickable citations. Do not call any further tools."
                                 }]
+                            },
+                            "tools": tools_def,
+                            "tool_config": {
+                                "function_calling_config": {
+                                    "mode": "NONE"
+                                }
                             }
                         }
                         try:
@@ -868,8 +876,62 @@ class AntigravityHarness:
                                             "agent", final_synth_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
                                         )
                                         return {"status": "COMPLETED", "summary": final_synth_text[:120]}
+                            else:
+                                logger.warning(f"Synthesis turn status {synth_resp.status_code}: {synth_resp.text[:200]}")
                         except Exception as synth_err:
                             logger.error(f"Synthesis turn error: {synth_err}")
+
+                        # Fallback synthesis: convert function calls/responses into a clean text transcript
+                        # and request pure text generation to ensure 100% synthesis completion.
+                        try:
+                            text_contents = []
+                            for c in contents:
+                                role = c.get("role", "user")
+                                parts = c.get("parts", [])
+                                text_chunks = []
+                                for p in parts:
+                                    if "text" in p:
+                                        text_chunks.append(p["text"])
+                                    elif "functionCall" in p:
+                                        fc = p["functionCall"]
+                                        text_chunks.append(f"[Executed Tool: {fc.get('name')}({json.dumps(fc.get('args', {}))})]")
+                                    elif "functionResponse" in p:
+                                        fr = p["functionResponse"]
+                                        resp_val = fr.get("response", {})
+                                        resp_str = json.dumps(resp_val) if isinstance(resp_val, (dict, list)) else str(resp_val)
+                                        text_chunks.append(f"[Tool Result for {fr.get('name')}:\n{resp_str[:1500]}\n]")
+                                if text_chunks:
+                                    text_contents.append({
+                                        "role": role,
+                                        "parts": [{"text": "\n\n".join(text_chunks)}]
+                                    })
+                            text_contents.append({
+                                "role": "user",
+                                "parts": [{
+                                    "text": "Please provide your complete, detailed analytical final answer synthesizing all findings from the tools above. Use rich markdown with clickable links."
+                                }]
+                            })
+                            flat_payload = {
+                                "contents": text_contents,
+                                "system_instruction": {
+                                    "parts": [{"text": system_instruction}]
+                                }
+                            }
+                            flat_resp = await client.post(api_url, json=flat_payload)
+                            if flat_resp.status_code == 200:
+                                flat_data = flat_resp.json()
+                                flat_cands = flat_data.get("candidates", [])
+                                if flat_cands:
+                                    f_parts = flat_cands[0].get("content", {}).get("parts", [])
+                                    f_texts = [p["text"] for p in f_parts if "text" in p]
+                                    if f_texts:
+                                        flat_synth_text = "\n".join(f_texts).strip()
+                                        await self._emit_streamed_message(
+                                            "agent", flat_synth_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
+                                        )
+                                        return {"status": "COMPLETED", "summary": flat_synth_text[:120]}
+                        except Exception as flat_err:
+                            logger.error(f"Flat text synthesis error: {flat_err}")
 
                     if model_succeeded and final_agent_text:
                         await self._emit_streamed_message(

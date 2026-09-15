@@ -27,7 +27,8 @@ import {
   Box,
   Coins,
   FolderGit2,
-  ExternalLink
+  ExternalLink,
+  Loader2
 } from 'lucide-react';
 import { Task, TaskMessage, TaskLog, RepositoryConfig, TaskPR } from '../../types';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
@@ -199,6 +200,13 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const scrollRafRef = useRef<number | null>(null);
 
   const isRunning = task?.status === 'RUNNING' || task?.status === 'INITIALIZING';
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (task?.status === 'RUNNING' || task?.status === 'IDLE' || task?.status === 'COMPLETED' || task?.status === 'FAILED') {
+      setIsSubmitting(false);
+    }
+  }, [task?.status]);
 
   // Group task messages and logs into sequential conversational turns
   const turns = useMemo(() => {
@@ -540,23 +548,29 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
     updateMentionState(val, pos);
   };
 
-  const handleSubmit = (e?: React.FormEvent) => {
+  const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setMentionQuery(null);
     setMentionIndex(-1);
     const trimmed = inputValue.trim();
-    if (!trimmed) return;
+    if (!trimmed || isSubmitting) return;
 
     isAutoScrollEnabledRef.current = true;
     setShowScrollBottomBtn(false);
     scrollToBottom(true);
+    setIsSubmitting(true);
 
-    if (task) {
-      onSendMessage(trimmed);
-    } else if (onNewChatWithPrompt) {
-      onNewChatWithPrompt(trimmed, selectedPersona);
+    try {
+      if (task) {
+        await onSendMessage(trimmed);
+      } else if (onNewChatWithPrompt) {
+        await onNewChatWithPrompt(trimmed, selectedPersona);
+      }
+      setInputValue('');
+    } catch (err) {
+      console.error('Error submitting message:', err);
+      setIsSubmitting(false);
     }
-    setInputValue('');
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -816,7 +830,7 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                 <div
                   ref={emptyStateBackdropRef}
                   aria-hidden="true"
-                  className="pointer-events-none absolute inset-0 w-full bg-transparent text-sm font-sans leading-relaxed p-1.5 whitespace-pre-wrap break-words overflow-y-auto select-none"
+                  className="pointer-events-none absolute inset-0 w-full bg-transparent text-[15px] font-sans leading-relaxed p-2.5 whitespace-pre-wrap break-words overflow-y-auto select-none"
                 >
                   {renderHighlightedInputText(inputValue)}
                 </div>
@@ -838,7 +852,7 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                 }}
                 placeholder="Ask Cyclode to review a PR, investigate a bug, write tests, or type '@' to reference a registered repo..."
                 rows={3}
-                className={`w-full bg-transparent text-sm placeholder-onedark-muted focus:outline-none resize-none font-sans leading-relaxed p-1.5 caret-onedark-yellow ${
+                className={`w-full bg-transparent text-[15px] placeholder-onedark-muted/60 focus:outline-none resize-none font-sans leading-relaxed p-2.5 caret-onedark-yellow ${
                   inputValue ? 'text-transparent' : 'text-onedark-fgBright'
                 }`}
               />
@@ -899,11 +913,20 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
               {/* Submit Button */}
               <button
                 type="submit"
-                disabled={!inputValue.trim()}
+                disabled={!inputValue.trim() || isSubmitting}
                 className="px-4 py-2 rounded-xl bg-onedark-fgBright hover:bg-white text-onedark-darker text-xs font-bold flex items-center space-x-1.5 transition-all duration-150 disabled:opacity-35 disabled:cursor-not-allowed shadow-sm active:scale-95 cursor-pointer flex-shrink-0 ml-2"
               >
-                <span>Run Task</span>
-                <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Launching...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Run Task</span>
+                    <ArrowRight className="w-3.5 h-3.5 stroke-[2.5]" />
+                  </>
+                )}
               </button>
             </div>
           </form>
@@ -1542,14 +1565,14 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
             {/* Repository Mention Autocomplete Menu */}
             {renderMentionMenu("bottom-full left-0 mb-2")}
 
-            <div className="flex items-center space-x-2 bg-onedark-darker border border-onedark-border rounded-xl px-3 py-1.5 focus-within:border-onedark-accent/80 focus-within:ring-1 focus-within:ring-onedark-accent/20 transition-all shadow-inner">
-              <div className="relative flex-1 min-h-[32px] max-h-32 flex items-center">
+            <div className="flex items-center space-x-2 bg-onedark-darker border border-onedark-border rounded-xl px-3.5 py-2 focus-within:border-onedark-accent/80 focus-within:ring-1 focus-within:ring-onedark-accent/20 transition-all shadow-inner min-h-[46px]">
+              <div className="relative flex-1 min-h-[36px] max-h-36 flex items-center">
                 {/* Highlight backdrop overlay */}
                 {inputValue && (
                   <div
                     ref={chatBackdropRef}
                     aria-hidden="true"
-                    className="pointer-events-none absolute inset-0 w-full bg-transparent text-sm font-sans leading-relaxed py-1.5 whitespace-pre-wrap break-words overflow-y-auto select-none"
+                    className="pointer-events-none absolute inset-0 w-full bg-transparent text-[15px] font-sans leading-relaxed py-1.5 whitespace-pre-wrap break-words overflow-y-auto select-none"
                   >
                     {renderHighlightedInputText(inputValue)}
                   </div>
@@ -1570,26 +1593,35 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                     }
                   }}
                   placeholder={isRunning ? "Task is running... Type follow-up instructions or hit Stop..." : "Type instructions, or '@' to reference a registered repo (e.g. 'Get pending prs in @myproject')..."}
-                  className={`w-full bg-transparent text-sm placeholder-onedark-muted focus:outline-none resize-none font-sans leading-relaxed py-1.5 max-h-32 min-h-[32px] caret-onedark-yellow ${
+                  className={`w-full bg-transparent text-[15px] placeholder-onedark-muted/60 focus:outline-none resize-none font-sans leading-relaxed py-1.5 max-h-36 min-h-[36px] caret-onedark-yellow ${
                     inputValue ? 'text-transparent' : 'text-onedark-fgBright'
                   }`}
                 />
               </div>
-              {isRunning && onStopTask ? (
+              {isRunning ? (
                 <button
                   type="button"
-                  onClick={() => onStopTask()}
-                  className="px-3 py-1.5 rounded-xl bg-onedark-red hover:bg-onedark-red/90 text-white text-xs font-bold flex items-center space-x-1.5 transition-all shadow-sm flex-shrink-0 active:scale-95 animate-pulse"
+                  onClick={() => onStopTask && onStopTask()}
+                  className="h-9 px-3.5 rounded-xl bg-onedark-red hover:bg-onedark-red/90 text-white text-xs font-bold flex items-center space-x-1.5 transition-all shadow-sm flex-shrink-0 active:scale-95 animate-pulse cursor-pointer"
                   title="Stop execution (Esc)"
                 >
                   <Square className="w-3.5 h-3.5 fill-current" />
                   <span>Stop</span>
                 </button>
+              ) : isSubmitting ? (
+                <button
+                  type="button"
+                  disabled
+                  className="h-9 w-9 rounded-xl bg-onedark-accent/70 text-onedark-darker flex items-center justify-center transition-all shadow-sm flex-shrink-0 cursor-wait"
+                  title="Processing request..."
+                >
+                  <Loader2 className="w-4 h-4 animate-spin stroke-[2.5]" />
+                </button>
               ) : (
                 <button
                   type="submit"
                   disabled={!inputValue.trim()}
-                  className="p-2 rounded-xl bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-sm flex-shrink-0 active:scale-95"
+                  className="h-9 w-9 rounded-xl bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-sm flex items-center justify-center flex-shrink-0 active:scale-95 cursor-pointer"
                   title="Send message (Enter ↵)"
                 >
                   <Send className="w-4 h-4 stroke-[2.5]" />
