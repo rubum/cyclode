@@ -25,6 +25,15 @@ const isPrUrl = (targetUrl?: string | null): boolean => {
   return /github\.com\/[^/]+\/[^/]+\/pull\/\d+/i.test(targetUrl);
 };
 
+const isPrForTask = (targetUrl?: string | null, task?: Task | null): boolean => {
+  if (!targetUrl || !isPrUrl(targetUrl)) return false;
+  if (!task || (!task.repo_name && !task.repo_url)) return true;
+  const repoName = task.repo_name?.toLowerCase();
+  const urlLower = targetUrl.toLowerCase();
+  if (repoName && urlLower.includes(repoName)) return true;
+  return false;
+};
+
 export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({ 
   task, 
   repositories = [],
@@ -36,7 +45,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
   onCloneToSession,
 }) => {
   const [internalTab, setInternalTab] = useState<'docs' | 'files' | 'prs' | 'activity' | 'subagents' | 'event'>(() => {
-    if (previewTarget?.url) return isPrUrl(previewTarget.url) ? 'prs' : 'docs';
+    if (previewTarget?.url) return isPrForTask(previewTarget.url, task) ? 'prs' : 'docs';
     if (task?.prs && task.prs.length > 0) return 'prs';
     if (task?.repo_name || task?.repo_url) return 'files';
     return 'activity';
@@ -50,17 +59,26 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
   };
 
   const lastUrlRef = React.useRef(previewTarget?.url);
+  const prevTaskIdRef = React.useRef(task?.id);
+
+  // Reset lastUrlRef when task ID switches so that a new session's target is re-evaluated
+  useEffect(() => {
+    if (prevTaskIdRef.current !== task?.id) {
+      prevTaskIdRef.current = task?.id;
+      lastUrlRef.current = previewTarget?.url;
+    }
+  }, [task?.id, previewTarget?.url]);
 
   useEffect(() => {
     if (previewTarget?.url && previewTarget.url !== lastUrlRef.current) {
-      if (isPrUrl(previewTarget.url)) {
+      if (isPrForTask(previewTarget.url, task)) {
         handleTabClick('prs');
       } else {
         handleTabClick('docs');
       }
     }
     lastUrlRef.current = previewTarget?.url;
-  }, [previewTarget?.url]);
+  }, [previewTarget?.url, task]);
 
   useEffect(() => {
     if (!task) return;
@@ -76,9 +94,9 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
   }, [task?.id, previewTarget?.url]);
 
   const tabs = [
-    { id: 'docs', label: 'Web & Docs', icon: Compass, badge: (previewTarget?.url && !isPrUrl(previewTarget.url)) ? '●' : undefined },
+    { id: 'docs', label: 'Web & Docs', icon: Compass, badge: (previewTarget?.url && !isPrForTask(previewTarget.url, task)) ? '●' : undefined },
     { id: 'files', label: 'Files', icon: Folder, iconClass: 'text-onedark-folder' },
-    { id: 'prs', label: 'PRs', icon: GitPullRequest, count: task?.prs?.length || 0, badge: (previewTarget?.url && isPrUrl(previewTarget.url)) ? '●' : undefined },
+    { id: 'prs', label: 'PRs', icon: GitPullRequest, count: task?.prs?.length || 0, badge: (previewTarget?.url && isPrForTask(previewTarget.url, task)) ? '●' : undefined },
     { id: 'activity', label: 'Tool Activity', icon: Activity, count: task?.logs?.length || 0 },
     { id: 'subagents', label: 'Subagents', icon: Cpu },
     { id: 'event', label: 'Event', icon: Inbox },
@@ -115,7 +133,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
 
       {/* Tab body */}
       <div className="flex-1 overflow-hidden">
-        <ErrorBoundary key={activeTab} fallbackTitle={`Error Loading ${activeTab.toUpperCase()} Tab`}>
+        <ErrorBoundary key={`${activeTab}-${task?.id || 'none'}`} fallbackTitle={`Error Loading ${activeTab.toUpperCase()} Tab`}>
           {activeTab === 'docs' && (
             <DocsViewerTab
               url={previewTarget?.url || null}
@@ -136,7 +154,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
           {activeTab === 'prs' && (
             <PullRequestsTab
               task={task}
-              selectedPrUrl={isPrUrl(previewTarget?.url) ? previewTarget?.url : undefined}
+              selectedPrUrl={isPrForTask(previewTarget?.url, task) ? previewTarget?.url : undefined}
               onClearSelectedPr={onClearPreview}
               onCloneToSession={onCloneToSession}
             />

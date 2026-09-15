@@ -59,15 +59,45 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
 }) => {
   const [prs, setPrs] = useState<TaskPR[]>([]);
   const [selectedPr, setSelectedPr] = useState<{ url?: string; number?: number; record?: TaskPR } | null>(() => {
-    if (selectedPrUrl) return { url: selectedPrUrl };
+    if (selectedPrUrl) {
+      if (task?.repo_name && !selectedPrUrl.toLowerCase().includes(task.repo_name.toLowerCase())) {
+        return null;
+      }
+      return { url: selectedPrUrl };
+    }
     return null;
   });
 
+  const prevTaskIdRef = useRef<string | null>(task?.id || null);
+
+  // Full state purge whenever the active session/task ID changes
+  useEffect(() => {
+    if (prevTaskIdRef.current !== (task?.id || null)) {
+      prevTaskIdRef.current = task?.id || null;
+      setSelectedPr(null);
+      setPrs([]);
+      setPrDiffsData({});
+      setExpandedDiffs({});
+      setExpandedOverview({});
+      setExpandedTests({});
+      setExpandedReviews({});
+      setActivePopoverPR(null);
+      setActiveLineComment(null);
+      setSearchQuery('');
+    }
+  }, [task?.id]);
+
   useEffect(() => {
     if (selectedPrUrl) {
+      if (task?.repo_name && !selectedPrUrl.toLowerCase().includes(task.repo_name.toLowerCase())) {
+        setSelectedPr(null);
+        return;
+      }
       setSelectedPr({ url: selectedPrUrl });
+    } else {
+      setSelectedPr((prev) => (prev?.url && !prev.record ? null : prev));
     }
-  }, [selectedPrUrl]);
+  }, [selectedPrUrl, task?.repo_name]);
 
   const [loading, setLoading] = useState<boolean>(false);
   const [actionLoading, setActionLoading] = useState<Record<string, string | null>>({});
@@ -382,11 +412,27 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
     );
   }
 
+  // Check whether selectedPr actually belongs to the current task
+  const isSelectedPrValidForTask = useMemo(() => {
+    if (!selectedPr && !selectedPrUrl) return false;
+    if (!task) return false;
+    const prRecord = selectedPr?.record;
+    if (prRecord && prRecord.task_id && prRecord.task_id !== task.id) return false;
+    const effectiveUrl = selectedPr?.url || selectedPrUrl || prRecord?.html_url;
+    if (effectiveUrl && task.repo_name) {
+      if (!effectiveUrl.toLowerCase().includes(task.repo_name.toLowerCase())) {
+        return false;
+      }
+    }
+    return true;
+  }, [selectedPr, selectedPrUrl, task]);
+
   // If a PR is selected or opened via previewTarget, render full-fidelity PR Inspector
-  if (selectedPr || selectedPrUrl) {
+  if ((selectedPr || selectedPrUrl) && isSelectedPrValidForTask) {
     const effectiveUrl = selectedPr?.url || selectedPrUrl;
     return (
       <PRDetailView
+        key={`${effectiveUrl || selectedPr?.number || 'detail'}-${task.id}`}
         url={effectiveUrl}
         prNumber={selectedPr?.number}
         prRecord={selectedPr?.record}
