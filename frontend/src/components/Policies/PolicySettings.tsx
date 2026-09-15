@@ -68,7 +68,7 @@ export const PolicySettings: React.FC<PolicySettingsProps> = ({
   const actionDescriptions: Record<string, { label: string; desc: string; category: string; icon: any }> = {
     git_push: {
       label: 'Push Branch to Git Remote',
-      desc: 'Allows the agent to push new branches (e.g. cyclode/fix-*) to upstream.',
+      desc: 'Allows the agent to push new branches (e.g. cyclode/fix-*) to upstream repository.',
       category: 'Git Operations',
       icon: GitBranch,
     },
@@ -98,7 +98,7 @@ export const PolicySettings: React.FC<PolicySettingsProps> = ({
     },
     execute_shell: {
       label: 'Execute Local Shell Commands',
-      desc: 'Allows the agent to run test runners (pytest, npm test) and git in the sandbox.',
+      desc: 'Allows the agent to run test runners (pytest, npm test) and git inside the sandbox.',
       category: 'Sandbox Execution',
       icon: Terminal,
     },
@@ -148,53 +148,55 @@ export const PolicySettings: React.FC<PolicySettingsProps> = ({
   }, [entries, categoryFilter, searchQuery]);
 
   return (
-    <div className="h-full w-full flex flex-col min-h-0 overflow-y-auto px-6 pb-8 bg-onedark-bg font-sans text-onedark-fg">
+    <div className="h-full w-full flex flex-col min-h-0 overflow-y-auto px-6 lg:px-10 pb-12 bg-onedark-bg font-sans text-onedark-fg">
       {/* Sticky Header with Navigation & Primary Action */}
-      <div className="sticky top-0 z-20 bg-onedark-bg/95 backdrop-blur-md pt-5 pb-4 border-b border-onedark-borderSubtle -mx-6 px-6 mb-5 space-y-3">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          <div className="flex items-center space-x-3">
+      <div className="sticky top-0 z-20 bg-onedark-bg/95 backdrop-blur-md pt-6 pb-4 border-b border-onedark-borderSubtle mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center space-x-3.5">
             {onBackToChat && (
               <button
                 onClick={onBackToChat}
-                className="inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright text-xs font-medium border border-onedark-border transition-all active:scale-95 shadow-xs"
+                className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-fgBright hover:text-onedark-accent text-xs font-mono font-semibold border border-onedark-border transition-all active:scale-95 shadow-xs cursor-pointer"
                 title="Return to Workstation / Chat"
               >
-                <ArrowLeft className="w-3.5 h-3.5 text-onedark-accent" />
+                <ArrowLeft className="w-4 h-4 text-onedark-accent" />
                 <span>Workstation</span>
               </button>
             )}
 
             <div className="p-2 rounded-xl bg-onedark-darker border border-onedark-border text-onedark-accent shadow-xs">
-              <ShieldCheck className="w-4 h-4" />
+              <ShieldCheck className="w-5 h-5" />
             </div>
 
             <div>
-              <h1 className="text-base font-bold text-onedark-fgBright flex items-center space-x-2">
-                <span>Action Approval Policies</span>
-                <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-onedark-surface text-onedark-fgBright border border-onedark-border">
+              <div className="flex items-center space-x-2">
+                <h1 className="text-lg font-bold text-onedark-fgBright tracking-tight">
+                  Action Approval Policies
+                </h1>
+                <span className="text-xs font-mono px-2.5 py-0.5 rounded-full bg-onedark-surface text-onedark-fgBright border border-onedark-border font-bold">
                   {entries.length} Policies
                 </span>
                 {saveSuccess && (
-                  <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-onedark-green/15 text-onedark-green border border-onedark-green/30 animate-in fade-in">
-                    <Check className="w-3 h-3 text-onedark-green" />
+                  <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-onedark-green/15 text-onedark-green border border-onedark-green/30 animate-in fade-in">
+                    <Check className="w-3.5 h-3.5 text-onedark-green" />
                     <span>SAVED</span>
                   </span>
                 )}
-              </h1>
-              <p className="text-xs text-onedark-fg/70 mt-0.5">
-                Granular permission guardrails governing autonomous actions vs. human approvals.
+              </div>
+              <p className="text-xs text-onedark-fg/75 mt-0.5">
+                Granular permission guardrails governing autonomous agent actions vs. human approvals.
               </p>
             </div>
           </div>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2.5">
             {onNavigateToIntegrations && (
               <button
                 onClick={onNavigateToIntegrations}
-                className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright text-xs font-mono border border-onedark-borderSubtle transition-all cursor-pointer shadow-xs"
+                className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-fgBright hover:text-onedark-accent text-xs font-mono font-medium border border-onedark-border transition-all cursor-pointer shadow-xs"
                 title="Manage API keys, external providers, and webhook gateways"
               >
-                <PlugZap className="w-3.5 h-3.5 text-onedark-accent" />
+                <PlugZap className="w-4 h-4 text-onedark-accent" />
                 <span>Integrations & API Keys →</span>
               </button>
             )}
@@ -202,16 +204,16 @@ export const PolicySettings: React.FC<PolicySettingsProps> = ({
             <button
               onClick={handleSave}
               disabled={isSaving}
-              className="inline-flex items-center space-x-1.5 px-4 py-1.5 bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 disabled:opacity-50"
+              className="inline-flex items-center space-x-1.5 px-4 py-1.5 bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker rounded-lg text-xs font-mono font-bold transition-all shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer"
             >
               {saveSuccess ? (
                 <>
-                  <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                  <Check className="w-4 h-4 stroke-[2.5]" />
                   <span>Policies Saved!</span>
                 </>
               ) : (
                 <>
-                  <Save className="w-3.5 h-3.5" />
+                  <Save className="w-4 h-4" />
                   <span>{isSaving ? 'Saving...' : 'Save Changes'}</span>
                 </>
               )}
@@ -220,22 +222,22 @@ export const PolicySettings: React.FC<PolicySettingsProps> = ({
         </div>
 
         {/* Sticky Search & Category Filter Toolbar */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1">
+        <div className="mt-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3.5 border-t border-onedark-borderSubtle">
           <div className="relative flex-1 max-w-md">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-onedark-muted" />
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-onedark-muted" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search policy actions (e.g. git_push, comment, shell)..."
-              className="w-full bg-onedark-darker border border-onedark-border rounded-lg pl-9 pr-8 py-1.5 text-xs text-onedark-fgBright placeholder:text-onedark-muted font-sans focus:outline-none focus:border-onedark-accent transition-colors"
+              className="w-full bg-onedark-darker border border-onedark-border rounded-lg pl-9 pr-8 py-2 text-xs text-onedark-fgBright placeholder:text-onedark-muted font-sans focus:outline-none focus:border-onedark-accent transition-colors shadow-xs"
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-onedark-muted hover:text-onedark-fgBright p-0.5"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-onedark-muted hover:text-onedark-fgBright p-1"
               >
-                <X className="w-3 h-3" />
+                <X className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
@@ -245,10 +247,10 @@ export const PolicySettings: React.FC<PolicySettingsProps> = ({
               <button
                 key={cat}
                 onClick={() => setCategoryFilter(cat)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap border ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all whitespace-nowrap border cursor-pointer ${
                   categoryFilter === cat
-                    ? 'bg-onedark-surface text-onedark-fgBright border-onedark-border shadow-xs'
-                    : 'bg-onedark-darker/60 text-onedark-muted hover:text-onedark-fg border-transparent'
+                    ? 'bg-onedark-accent text-onedark-darker border-onedark-accent shadow-xs'
+                    : 'bg-onedark-darker text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface border-onedark-borderSubtle'
                 }`}
               >
                 {cat === 'all' ? 'All Policies' : cat}
@@ -259,52 +261,52 @@ export const PolicySettings: React.FC<PolicySettingsProps> = ({
       </div>
 
       {/* Collapsible Overview Guardrails Banner */}
-      <div className="mb-5 rounded-xl bg-onedark-darker border border-onedark-borderSubtle overflow-hidden transition-all shadow-xs">
+      <div className="mb-6 rounded-xl bg-onedark-darker/90 border border-onedark-border overflow-hidden transition-all shadow-sm">
         <div 
           onClick={() => setIsBannerCollapsed(!isBannerCollapsed)}
-          className="flex items-center justify-between p-3.5 cursor-pointer hover:bg-onedark-surface/40 transition-colors"
+          className="flex items-center justify-between p-4 cursor-pointer hover:bg-onedark-surface/40 transition-colors"
         >
-          <div className="flex items-center space-x-2.5">
-            <ShieldCheck className="w-4 h-4 text-onedark-accent" />
-            <span className="text-xs font-bold text-onedark-fgBright">Active Policy Guardrails & Governance</span>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-onedark-green/10 text-onedark-green border border-onedark-green/20">
+          <div className="flex items-center space-x-3">
+            <ShieldCheck className="w-5 h-5 text-onedark-accent" />
+            <span className="text-sm font-bold text-onedark-fgBright">Active Policy Guardrails & Governance</span>
+            <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded bg-onedark-green/10 text-onedark-green border border-onedark-green/20">
               Enforced at Tool Execution
             </span>
           </div>
-          <div className="flex items-center space-x-2 text-xs text-onedark-fg/70">
-            <span className="text-[11px] font-medium hidden sm:inline">{isBannerCollapsed ? 'Show Details' : 'Hide Details'}</span>
+          <div className="flex items-center space-x-2 text-xs text-onedark-muted">
+            <span className="text-xs font-medium hidden sm:inline">{isBannerCollapsed ? 'Show Details' : 'Hide Details'}</span>
             {isBannerCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
           </div>
         </div>
 
         {!isBannerCollapsed && (
-          <div className="p-4 pt-0 border-t border-onedark-borderSubtle/60 grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3">
-            <div className="p-3 rounded-lg bg-onedark-bg border border-onedark-borderSubtle">
-              <div className="text-[10px] font-semibold text-onedark-fg/60 uppercase">Auto-Allow (Autonomous)</div>
-              <div className="text-base font-bold text-onedark-green mt-0.5">{counts.auto} Actions</div>
+          <div className="p-4 pt-0 border-t border-onedark-borderSubtle/60 grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-3.5">
+            <div className="p-3.5 rounded-lg bg-onedark-bg border border-onedark-borderSubtle">
+              <div className="text-xs font-bold text-onedark-muted uppercase font-mono">Auto-Allow (Autonomous)</div>
+              <div className="text-lg font-bold text-onedark-green mt-1">{counts.auto} Actions</div>
             </div>
 
-            <div className="p-3 rounded-lg bg-onedark-bg border border-onedark-borderSubtle">
-              <div className="text-[10px] font-semibold text-onedark-fg/60 uppercase">Require Human Approval</div>
-              <div className="text-base font-bold text-onedark-purple mt-0.5">{counts.approval} Actions</div>
+            <div className="p-3.5 rounded-lg bg-onedark-bg border border-onedark-borderSubtle">
+              <div className="text-xs font-bold text-onedark-muted uppercase font-mono">Require Human Approval</div>
+              <div className="text-lg font-bold text-onedark-purple mt-1">{counts.approval} Actions</div>
             </div>
 
-            <div className="p-3 rounded-lg bg-onedark-bg border border-onedark-borderSubtle">
-              <div className="text-[10px] font-semibold text-onedark-fg/60 uppercase">Forbidden (Disabled)</div>
-              <div className="text-base font-bold text-onedark-red mt-0.5">{counts.disabled} Actions</div>
+            <div className="p-3.5 rounded-lg bg-onedark-bg border border-onedark-borderSubtle">
+              <div className="text-xs font-bold text-onedark-muted uppercase font-mono">Forbidden (Disabled)</div>
+              <div className="text-lg font-bold text-onedark-red mt-1">{counts.disabled} Actions</div>
             </div>
           </div>
         )}
       </div>
 
-      {/* Policy Cards Grid */}
-      <div className="space-y-3.5">
-        <div className="flex items-center justify-between text-xs text-onedark-fg/70">
-          <span className="font-semibold uppercase tracking-wider text-[11px] text-onedark-fg/80">
+      {/* Policy Cards Stack */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between text-xs text-onedark-muted font-mono">
+          <span className="font-bold uppercase tracking-wider">
             Policy Definitions ({filteredEntries.length} of {entries.length})
           </span>
           {searchQuery && (
-            <span className="text-onedark-accent">Filtered by: &ldquo;{searchQuery}&rdquo;</span>
+            <span className="text-onedark-accent font-semibold">Filtered by: &ldquo;{searchQuery}&rdquo;</span>
           )}
         </div>
 
@@ -318,30 +320,34 @@ export const PolicySettings: React.FC<PolicySettingsProps> = ({
           const ActionIcon = info.icon || ShieldCheck;
 
           return (
-            <div key={action} className="p-4 rounded-xl bg-onedark-darker border border-onedark-borderSubtle hover:border-onedark-border transition-all space-y-3 shadow-xs">
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-start space-x-3">
-                  <div className="p-2 rounded-lg bg-onedark-surface text-onedark-accent border border-onedark-border shrink-0 mt-0.5">
-                    <ActionIcon className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-onedark-fgBright font-mono">{info.label}</div>
-                    <div className="text-xs text-onedark-fg/70 mt-0.5">{info.desc}</div>
-                  </div>
+            <div
+              key={action}
+              className="p-5 rounded-xl bg-onedark-darker/90 hover:bg-onedark-surface/30 border border-onedark-border hover:border-onedark-borderSubtle/80 flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all shadow-sm"
+            >
+              <div className="flex items-start space-x-3.5 max-w-xl">
+                <div className="p-2.5 rounded-xl bg-onedark-surface text-onedark-fgBright border border-onedark-borderSubtle mt-0.5">
+                  <ActionIcon className="w-5 h-5 text-onedark-accent" />
                 </div>
-
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-onedark-surface text-onedark-fgBright border border-onedark-border shrink-0">
-                  {info.category}
-                </span>
+                <div className="space-y-1">
+                  <div className="flex items-center space-x-2.5">
+                    <h3 className="text-sm font-bold text-onedark-fgBright">{info.label}</h3>
+                    <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-onedark-surface text-onedark-muted border border-onedark-borderSubtle">
+                      {info.category}
+                    </span>
+                  </div>
+                  <p className="text-xs text-onedark-fg/90 leading-relaxed font-normal">
+                    {info.desc}
+                  </p>
+                </div>
               </div>
 
-              {/* Selector Pills */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-2 border-t border-onedark-borderSubtle/60 text-xs font-sans">
+              {/* Action Controls with High Contrast States */}
+              <div className="grid grid-cols-3 gap-2 shrink-0 sm:w-80">
                 <label
-                  className={`p-2.5 rounded-lg border flex items-center space-x-2.5 cursor-pointer transition-all ${
+                  className={`p-3 rounded-xl border flex items-center space-x-2.5 cursor-pointer transition-all ${
                     level === 'auto'
-                      ? 'bg-onedark-green/15 border-onedark-green/40 text-onedark-fgBright font-bold shadow-xs'
-                      : 'bg-onedark-bg border-onedark-borderSubtle text-onedark-fg/70 hover:text-onedark-fgBright hover:bg-onedark-surface/40'
+                      ? 'bg-onedark-green/15 border-onedark-green/50 text-onedark-fgBright font-bold shadow-xs'
+                      : 'bg-onedark-bg border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface/40'
                   }`}
                 >
                   <input
@@ -351,18 +357,18 @@ export const PolicySettings: React.FC<PolicySettingsProps> = ({
                     onChange={() => handleChange(action, 'auto')}
                     className="hidden"
                   />
-                  <Unlock className={`w-3.5 h-3.5 shrink-0 ${level === 'auto' ? 'text-onedark-green' : 'text-onedark-muted'}`} />
+                  <Unlock className={`w-4 h-4 shrink-0 ${level === 'auto' ? 'text-onedark-green' : 'text-onedark-muted'}`} />
                   <div>
-                    <div className="text-xs font-bold">Auto-Allow</div>
-                    <div className="text-[10px] opacity-75 font-normal">Autonomous execution</div>
+                    <div className="text-xs font-bold leading-tight">Auto-Allow</div>
+                    <div className="text-[10px] opacity-75 font-normal">Autonomous</div>
                   </div>
                 </label>
 
                 <label
-                  className={`p-2.5 rounded-lg border flex items-center space-x-2.5 cursor-pointer transition-all ${
+                  className={`p-3 rounded-xl border flex items-center space-x-2.5 cursor-pointer transition-all ${
                     level === 'require_approval'
-                      ? 'bg-onedark-purple/15 border-onedark-purple/40 text-onedark-fgBright font-bold shadow-xs'
-                      : 'bg-onedark-bg border-onedark-borderSubtle text-onedark-fg/70 hover:text-onedark-fgBright hover:bg-onedark-surface/40'
+                      ? 'bg-onedark-purple/15 border-onedark-purple/50 text-onedark-fgBright font-bold shadow-xs'
+                      : 'bg-onedark-bg border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface/40'
                   }`}
                 >
                   <input
@@ -372,18 +378,18 @@ export const PolicySettings: React.FC<PolicySettingsProps> = ({
                     onChange={() => handleChange(action, 'require_approval')}
                     className="hidden"
                   />
-                  <Lock className={`w-3.5 h-3.5 shrink-0 ${level === 'require_approval' ? 'text-onedark-purple' : 'text-onedark-muted'}`} />
+                  <Lock className={`w-4 h-4 shrink-0 ${level === 'require_approval' ? 'text-onedark-purple' : 'text-onedark-muted'}`} />
                   <div>
-                    <div className="text-xs font-bold">Require Approval</div>
-                    <div className="text-[10px] opacity-75 font-normal">Human verification</div>
+                    <div className="text-xs font-bold leading-tight">Approval</div>
+                    <div className="text-[10px] opacity-75 font-normal">Human Verify</div>
                   </div>
                 </label>
 
                 <label
-                  className={`p-2.5 rounded-lg border flex items-center space-x-2.5 cursor-pointer transition-all ${
+                  className={`p-3 rounded-xl border flex items-center space-x-2.5 cursor-pointer transition-all ${
                     level === 'disabled'
-                      ? 'bg-onedark-red/15 border-onedark-red/40 text-onedark-fgBright font-bold shadow-xs'
-                      : 'bg-onedark-bg border-onedark-borderSubtle text-onedark-fg/70 hover:text-onedark-fgBright hover:bg-onedark-surface/40'
+                      ? 'bg-onedark-red/15 border-onedark-red/50 text-onedark-fgBright font-bold shadow-xs'
+                      : 'bg-onedark-bg border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface/40'
                   }`}
                 >
                   <input
@@ -393,10 +399,10 @@ export const PolicySettings: React.FC<PolicySettingsProps> = ({
                     onChange={() => handleChange(action, 'disabled')}
                     className="hidden"
                   />
-                  <Ban className={`w-3.5 h-3.5 shrink-0 ${level === 'disabled' ? 'text-onedark-red' : 'text-onedark-muted'}`} />
+                  <Ban className={`w-4 h-4 shrink-0 ${level === 'disabled' ? 'text-onedark-red' : 'text-onedark-muted'}`} />
                   <div>
-                    <div className="text-xs font-bold">Disabled</div>
-                    <div className="text-[10px] opacity-75 font-normal">Action forbidden</div>
+                    <div className="text-xs font-bold leading-tight">Disabled</div>
+                    <div className="text-[10px] opacity-75 font-normal">Forbidden</div>
                   </div>
                 </label>
               </div>
@@ -405,23 +411,23 @@ export const PolicySettings: React.FC<PolicySettingsProps> = ({
         })}
 
         {filteredEntries.length === 0 && (
-          <div className="p-8 text-center border border-dashed border-onedark-borderSubtle rounded-2xl bg-onedark-darker space-y-3">
-            <ShieldCheck className="w-8 h-8 text-onedark-muted mx-auto opacity-50" />
-            <h3 className="text-sm font-semibold text-onedark-fgBright">No matching policies found</h3>
+          <div className="p-12 text-center border border-dashed border-onedark-border rounded-2xl bg-onedark-darker/90 space-y-3.5">
+            <ShieldCheck className="w-10 h-10 text-onedark-muted mx-auto opacity-50" />
+            <h3 className="text-sm font-bold text-onedark-fgBright">No matching policies found</h3>
             <p className="text-xs text-onedark-muted max-w-md mx-auto">
               No action approval policy matches &ldquo;{searchQuery}&rdquo;.
             </p>
             {/gem|api|key|token|auth|slack|github|sentry|appsignal/i.test(searchQuery) && (
               <div className="pt-2">
                 <p className="text-xs text-onedark-accent font-medium mb-3">
-                  Looking to configure API keys or external services?
+                  Looking to configure API keys or external developer services?
                 </p>
                 {onNavigateToIntegrations && (
                   <button
                     onClick={onNavigateToIntegrations}
-                    className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-onedark-accent/15 text-onedark-accent border border-onedark-accent/30 text-xs font-mono font-medium hover:bg-onedark-accent/25 transition-all cursor-pointer"
+                    className="inline-flex items-center space-x-1.5 px-4 py-2 rounded-lg bg-onedark-accent/15 text-onedark-accent border border-onedark-accent/30 text-xs font-mono font-bold hover:bg-onedark-accent/25 transition-all cursor-pointer shadow-xs"
                   >
-                    <PlugZap className="w-3.5 h-3.5" />
+                    <PlugZap className="w-4 h-4" />
                     <span>Go to Integrations & Skills Hub →</span>
                   </button>
                 )}
@@ -430,7 +436,7 @@ export const PolicySettings: React.FC<PolicySettingsProps> = ({
             <div>
               <button
                 onClick={() => { setSearchQuery(''); setCategoryFilter('all'); }}
-                className="px-3 py-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fg text-xs font-mono font-medium transition-colors cursor-pointer mt-2"
+                className="px-3.5 py-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fg text-xs font-mono font-medium transition-colors cursor-pointer mt-2 border border-onedark-border"
               >
                 Reset Search
               </button>
