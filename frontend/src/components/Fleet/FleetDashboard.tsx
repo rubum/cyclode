@@ -110,206 +110,210 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
   };
 
   return (
-    <div className="h-full w-full flex flex-col min-h-0 overflow-y-auto px-6 pb-8 bg-onedark-bg font-sans text-onedark-fg">
+    <div className="h-full w-full flex flex-col min-h-0 overflow-y-auto bg-onedark-bg font-sans text-onedark-fg">
       {/* Sticky Header with Navigation & Actions */}
-      <div className="sticky top-0 z-20 bg-onedark-bg/95 backdrop-blur-md pt-5 pb-4 border-b border-onedark-borderSubtle -mx-6 px-6 mb-5 space-y-3">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-          <div className="flex items-center space-x-3">
-            {onBackToChat && (
-              <button
-                onClick={onBackToChat}
-                className="inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright text-xs font-medium border border-onedark-border transition-all active:scale-95 shadow-xs"
-                title="Return to Workstation / Chat"
-              >
-                <ArrowLeft className="w-3.5 h-3.5 text-onedark-accent" />
-                <span>Workstation</span>
-              </button>
-            )}
+      <div className="sticky top-0 z-20 bg-onedark-bg/95 backdrop-blur-md border-b border-onedark-borderSubtle">
+        <div className="max-w-6xl mx-auto px-6 lg:px-8 py-5 space-y-3">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div className="flex items-center space-x-3">
+              {onBackToChat && (
+                <button
+                  onClick={onBackToChat}
+                  className="inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright text-xs font-medium border border-onedark-border transition-all active:scale-95 shadow-xs cursor-pointer"
+                  title="Return to Workstation / Chat"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5 text-onedark-accent" />
+                  <span>Workstation</span>
+                </button>
+              )}
 
-            <div className="p-2 rounded-xl bg-onedark-darker border border-onedark-border text-onedark-accent shadow-xs">
-              <Layers className="w-4 h-4" />
-            </div>
+              <div className="p-2 rounded-xl bg-onedark-darker border border-onedark-border text-onedark-accent shadow-xs">
+                <Layers className="w-4 h-4" />
+              </div>
 
-            <div>
-              <h1 className="text-base font-bold text-onedark-fgBright flex items-center space-x-2">
-                <span>Agent Fleet & Worker Orchestration</span>
-                <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-onedark-surface text-onedark-fgBright border border-onedark-border">
-                  {tasks.length} Sessions
-                </span>
-                {counts.running > 0 && (
-                  <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-onedark-yellow/15 text-onedark-yellow border border-onedark-yellow/30">
-                    <span className="w-1.5 h-1.5 rounded-full bg-onedark-yellow animate-pulse" />
-                    <span>{counts.running} RUNNING</span>
+              <div>
+                <h1 className="text-base font-bold text-onedark-fgBright flex items-center space-x-2">
+                  <span>Agent Fleet & Worker Orchestration</span>
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-onedark-surface text-onedark-fgBright border border-onedark-border">
+                    {tasks.length} Sessions
                   </span>
-                )}
-              </h1>
-              <p className="text-xs text-onedark-fg/70 mt-0.5">
-                Active and historic autonomous Antigravity workers, subagents, and ephemeral task sessions.
-              </p>
-            </div>
-          </div>
-
-          {/* Top Actions */}
-          <div className="flex items-center space-x-2">
-            <div className="flex items-center bg-onedark-darker p-0.5 rounded-lg border border-onedark-border">
-              <button
-                onClick={() => setViewMode('grid')}
-                className={`p-1.5 rounded-md text-xs transition-colors ${
-                  viewMode === 'grid'
-                    ? 'bg-onedark-surface text-onedark-accent shadow-xs'
-                    : 'text-onedark-muted hover:text-onedark-fgBright'
-                }`}
-                title="Grid View (Cards)"
-              >
-                <LayoutGrid className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={() => setViewMode('table')}
-                className={`p-1.5 rounded-md text-xs transition-colors ${
-                  viewMode === 'table'
-                    ? 'bg-onedark-surface text-onedark-accent shadow-xs'
-                    : 'text-onedark-muted hover:text-onedark-fgBright'
-                }`}
-                title="Compact List View"
-              >
-                <List className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            <button
-              onClick={onNewChat}
-              className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker text-xs font-bold transition-all shadow-sm active:scale-95"
-            >
-              <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-              <span>New Session</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Sticky Search & Filter Toolbar */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1">
-          <div className="relative flex-1 max-w-md">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-onedark-muted" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search tasks by title, persona, repository, or summary..."
-              className="w-full bg-onedark-darker border border-onedark-border rounded-lg pl-9 pr-8 py-1.5 text-xs text-onedark-fgBright placeholder:text-onedark-muted font-sans focus:outline-none focus:border-onedark-accent transition-colors"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-onedark-muted hover:text-onedark-fgBright p-0.5"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
-          </div>
-
-          {/* Status Filter Chips */}
-          <div className="flex items-center space-x-1.5 overflow-x-auto pb-0.5">
-            <button
-              onClick={() => setStatusFilter('all')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap border ${
-                statusFilter === 'all'
-                  ? 'bg-onedark-surface text-onedark-fgBright border-onedark-border shadow-xs'
-                  : 'bg-onedark-darker/60 text-onedark-muted hover:text-onedark-fg border-transparent'
-              }`}
-            >
-              All <span className="font-mono text-[10px] ml-1 opacity-70">({counts.total})</span>
-            </button>
-
-            <button
-              onClick={() => setStatusFilter('RUNNING')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap border flex items-center space-x-1 ${
-                statusFilter === 'RUNNING'
-                  ? 'bg-onedark-yellow/15 text-onedark-yellow border-onedark-yellow/30 shadow-xs'
-                  : 'bg-onedark-darker/60 text-onedark-muted hover:text-onedark-yellow border-transparent'
-              }`}
-            >
-              <Activity className="w-3 h-3" />
-              <span>Running</span>
-              <span className="font-mono text-[10px] ml-1 opacity-80">({counts.running})</span>
-            </button>
-
-            <button
-              onClick={() => setStatusFilter('AWAITING_APPROVAL')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap border flex items-center space-x-1 ${
-                statusFilter === 'AWAITING_APPROVAL'
-                  ? 'bg-onedark-purple/15 text-onedark-purple border-onedark-purple/30 shadow-xs'
-                  : 'bg-onedark-darker/60 text-onedark-muted hover:text-onedark-purple border-transparent'
-              }`}
-            >
-              <Clock className="w-3 h-3" />
-              <span>Review Needed</span>
-              <span className="font-mono text-[10px] ml-1 opacity-80">({counts.awaiting})</span>
-            </button>
-
-            <button
-              onClick={() => setStatusFilter('COMPLETED')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap border flex items-center space-x-1 ${
-                statusFilter === 'COMPLETED'
-                  ? 'bg-onedark-green/15 text-onedark-green border-onedark-green/30 shadow-xs'
-                  : 'bg-onedark-darker/60 text-onedark-muted hover:text-onedark-green border-transparent'
-              }`}
-            >
-              <CheckCircle2 className="w-3 h-3" />
-              <span>Completed</span>
-              <span className="font-mono text-[10px] ml-1 opacity-80">({counts.completed})</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Collapsible Overview Metrics Banner */}
-      <div className="mb-5 rounded-xl bg-onedark-darker border border-onedark-borderSubtle overflow-hidden transition-all shadow-xs">
-        <div 
-          onClick={() => setIsBannerCollapsed(!isBannerCollapsed)}
-          className="flex items-center justify-between p-3.5 cursor-pointer hover:bg-onedark-surface/40 transition-colors"
-        >
-          <div className="flex items-center space-x-2.5">
-            <Activity className="w-4 h-4 text-onedark-accent" />
-            <span className="text-xs font-bold text-onedark-fgBright">Fleet Concurrency & Worker Metrics</span>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-onedark-green/10 text-onedark-green border border-onedark-green/20">
-              Antigravity Harness 2.0
-            </span>
-          </div>
-          <div className="flex items-center space-x-2 text-xs text-onedark-fg/70">
-            <span className="text-[11px] font-medium hidden sm:inline">{isBannerCollapsed ? 'Show Details' : 'Hide Details'}</span>
-            {isBannerCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
-          </div>
-        </div>
-
-        {!isBannerCollapsed && (
-          <div className="p-4 pt-0 border-t border-onedark-borderSubtle/60 grid grid-cols-2 md:grid-cols-4 gap-3 pt-3">
-            <div className="p-3 rounded-lg bg-onedark-bg border border-onedark-borderSubtle">
-              <div className="text-[10px] font-semibold text-onedark-fg/60 uppercase">Active Workers</div>
-              <div className="text-base font-bold text-onedark-yellow mt-0.5">{counts.running} Active</div>
-            </div>
-
-            <div className="p-3 rounded-lg bg-onedark-bg border border-onedark-borderSubtle">
-              <div className="text-[10px] font-semibold text-onedark-fg/60 uppercase">Awaiting Approval</div>
-              <div className="text-base font-bold text-onedark-purple mt-0.5">{counts.awaiting} Pending</div>
-            </div>
-
-            <div className="p-3 rounded-lg bg-onedark-bg border border-onedark-borderSubtle">
-              <div className="text-[10px] font-semibold text-onedark-fg/60 uppercase">Completed Fixes</div>
-              <div className="text-base font-bold text-onedark-green mt-0.5">{counts.completed} Done</div>
-            </div>
-
-            <div className="p-3 rounded-lg bg-onedark-bg border border-onedark-borderSubtle">
-              <div className="text-[10px] font-semibold text-onedark-fg/60 uppercase">Fleet Health</div>
-              <div className="text-xs font-mono text-onedark-green pt-1 flex items-center space-x-1.5 font-bold">
-                <span className="w-2 h-2 rounded-full bg-onedark-green animate-pulse" />
-                <span>Ready & Responsive</span>
+                  {counts.running > 0 && (
+                    <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-onedark-yellow/15 text-onedark-yellow border border-onedark-yellow/30">
+                      <span className="w-1.5 h-1.5 rounded-full bg-onedark-yellow animate-pulse" />
+                      <span>{counts.running} RUNNING</span>
+                    </span>
+                  )}
+                </h1>
+                <p className="text-xs text-onedark-fg/70 mt-0.5">
+                  Active and historic autonomous Antigravity workers, subagents, and ephemeral task sessions.
+                </p>
               </div>
             </div>
+
+            {/* Top Actions */}
+            <div className="flex items-center space-x-2">
+              <div className="flex items-center bg-onedark-darker p-0.5 rounded-lg border border-onedark-border">
+                <button
+                  onClick={() => setViewMode('grid')}
+                  className={`p-1.5 rounded-md text-xs transition-colors cursor-pointer ${
+                    viewMode === 'grid'
+                      ? 'bg-onedark-surface text-onedark-accent shadow-xs'
+                      : 'text-onedark-muted hover:text-onedark-fgBright'
+                  }`}
+                  title="Grid View (Cards)"
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => setViewMode('table')}
+                  className={`p-1.5 rounded-md text-xs transition-colors cursor-pointer ${
+                    viewMode === 'table'
+                      ? 'bg-onedark-surface text-onedark-accent shadow-xs'
+                      : 'text-onedark-muted hover:text-onedark-fgBright'
+                  }`}
+                  title="Compact List View"
+                >
+                  <List className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              <button
+                onClick={onNewChat}
+                className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span>New Session</span>
+              </button>
+            </div>
           </div>
-        )}
+
+          {/* Sticky Search & Filter Toolbar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-1">
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-onedark-muted" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search tasks by title, persona, repository, or summary..."
+                className="w-full bg-onedark-darker border border-onedark-border rounded-lg pl-9 pr-8 py-1.5 text-xs text-onedark-fgBright placeholder:text-onedark-muted font-sans focus:outline-none focus:border-onedark-accent transition-colors"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-onedark-muted hover:text-onedark-fgBright p-0.5 cursor-pointer"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+
+            {/* Status Filter Chips */}
+            <div className="flex items-center space-x-1.5 overflow-x-auto pb-0.5">
+              <button
+                onClick={() => setStatusFilter('all')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap border cursor-pointer ${
+                  statusFilter === 'all'
+                    ? 'bg-onedark-surface text-onedark-fgBright border-onedark-border shadow-xs'
+                    : 'bg-onedark-darker/60 text-onedark-muted hover:text-onedark-fg border-transparent'
+                }`}
+              >
+                All <span className="font-mono text-[10px] ml-1 opacity-70">({counts.total})</span>
+              </button>
+
+              <button
+                onClick={() => setStatusFilter('RUNNING')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap border flex items-center space-x-1 cursor-pointer ${
+                  statusFilter === 'RUNNING'
+                    ? 'bg-onedark-yellow/15 text-onedark-yellow border-onedark-yellow/30 shadow-xs'
+                    : 'bg-onedark-darker/60 text-onedark-muted hover:text-onedark-yellow border-transparent'
+                }`}
+              >
+                <Activity className="w-3 h-3" />
+                <span>Running</span>
+                <span className="font-mono text-[10px] ml-1 opacity-80">({counts.running})</span>
+              </button>
+
+              <button
+                onClick={() => setStatusFilter('AWAITING_APPROVAL')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap border flex items-center space-x-1 cursor-pointer ${
+                  statusFilter === 'AWAITING_APPROVAL'
+                    ? 'bg-onedark-purple/15 text-onedark-purple border-onedark-purple/30 shadow-xs'
+                    : 'bg-onedark-darker/60 text-onedark-muted hover:text-onedark-purple border-transparent'
+                }`}
+              >
+                <Clock className="w-3 h-3" />
+                <span>Review Needed</span>
+                <span className="font-mono text-[10px] ml-1 opacity-80">({counts.awaiting})</span>
+              </button>
+
+              <button
+                onClick={() => setStatusFilter('COMPLETED')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap border flex items-center space-x-1 cursor-pointer ${
+                  statusFilter === 'COMPLETED'
+                    ? 'bg-onedark-green/15 text-onedark-green border-onedark-green/30 shadow-xs'
+                    : 'bg-onedark-darker/60 text-onedark-muted hover:text-onedark-green border-transparent'
+                }`}
+              >
+                <CheckCircle2 className="w-3 h-3" />
+                <span>Completed</span>
+                <span className="font-mono text-[10px] ml-1 opacity-80">({counts.completed})</span>
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Main List / Grid View */}
+      {/* Main Content */}
+      <div className="max-w-6xl mx-auto px-6 lg:px-8 py-8 space-y-6 w-full">
+        {/* Collapsible Overview Metrics Banner */}
+        <div className="rounded-xl bg-onedark-darker border border-onedark-borderSubtle overflow-hidden transition-all shadow-xs">
+          <div 
+            onClick={() => setIsBannerCollapsed(!isBannerCollapsed)}
+            className="flex items-center justify-between p-3.5 cursor-pointer hover:bg-onedark-surface/40 transition-colors"
+          >
+            <div className="flex items-center space-x-2.5">
+              <Activity className="w-4 h-4 text-onedark-accent" />
+              <span className="text-xs font-bold text-onedark-fgBright">Fleet Concurrency & Worker Metrics</span>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-onedark-green/10 text-onedark-green border border-onedark-green/20">
+                Antigravity Harness 2.0
+              </span>
+            </div>
+            <div className="flex items-center space-x-2 text-xs text-onedark-fg/70">
+              <span className="text-[11px] font-medium hidden sm:inline">{isBannerCollapsed ? 'Show Details' : 'Hide Details'}</span>
+              {isBannerCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+            </div>
+          </div>
+
+          {!isBannerCollapsed && (
+            <div className="p-4 pt-0 border-t border-onedark-borderSubtle/60 grid grid-cols-2 md:grid-cols-4 gap-3 pt-3">
+              <div className="p-3 rounded-lg bg-onedark-bg border border-onedark-borderSubtle">
+                <div className="text-[10px] font-semibold text-onedark-fg/60 uppercase">Active Workers</div>
+                <div className="text-base font-bold text-onedark-yellow mt-0.5">{counts.running} Active</div>
+              </div>
+
+              <div className="p-3 rounded-lg bg-onedark-bg border border-onedark-borderSubtle">
+                <div className="text-[10px] font-semibold text-onedark-fg/60 uppercase">Awaiting Approval</div>
+                <div className="text-base font-bold text-onedark-purple mt-0.5">{counts.awaiting} Pending</div>
+              </div>
+
+              <div className="p-3 rounded-lg bg-onedark-bg border border-onedark-borderSubtle">
+                <div className="text-[10px] font-semibold text-onedark-fg/60 uppercase">Completed Fixes</div>
+                <div className="text-base font-bold text-onedark-green mt-0.5">{counts.completed} Done</div>
+              </div>
+
+              <div className="p-3 rounded-lg bg-onedark-bg border border-onedark-borderSubtle">
+                <div className="text-[10px] font-semibold text-onedark-fg/60 uppercase">Fleet Health</div>
+                <div className="text-xs font-mono text-onedark-green pt-1 flex items-center space-x-1.5 font-bold">
+                  <span className="w-2 h-2 rounded-full bg-onedark-green animate-pulse" />
+                  <span>Ready & Responsive</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Main List / Grid View */}
       <div className="space-y-3">
         <div className="flex items-center justify-between text-xs text-onedark-fg/70">
           <span className="font-semibold uppercase tracking-wider text-[11px] text-onedark-fg/80">

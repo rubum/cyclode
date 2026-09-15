@@ -391,10 +391,11 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
   }, [repositories]);
 
   return (
-    <div className="h-full w-full flex flex-col min-h-0 overflow-y-auto px-6 pb-8 bg-onedark-bg font-sans text-onedark-fg">
+    <div className="h-full w-full overflow-y-auto bg-onedark-bg font-sans text-onedark-fg">
       {/* Sticky Header with Navigation & Primary Actions */}
-      <div className="sticky top-0 z-20 bg-onedark-bg/95 backdrop-blur-md pt-5 pb-4 border-b border-onedark-borderSubtle -mx-6 px-6 mb-5 space-y-3">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+      <div className="sticky top-0 z-20 bg-onedark-bg/95 backdrop-blur-md border-b border-onedark-borderSubtle">
+        <div className="max-w-6xl mx-auto px-6 lg:px-8 py-5 space-y-3">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
           <div className="flex items-center space-x-3">
             {onBackToChat && (
               <button
@@ -557,8 +558,10 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
         </div>
       </div>
 
-      {/* Collapsible Info & Ingestion Endpoint Banner */}
-      <div className="mb-5 rounded-xl bg-onedark-darker border border-onedark-borderSubtle overflow-hidden transition-all shadow-xs">
+      {/* Main Content Centered with max-w-6xl */}
+      <div className="max-w-6xl mx-auto px-6 lg:px-8 py-8 space-y-6">
+        {/* Collapsible Info & Ingestion Endpoint Banner */}
+        <div className="rounded-xl bg-onedark-darker border border-onedark-borderSubtle overflow-hidden transition-all shadow-xs">
         <div 
           onClick={() => setIsBannerCollapsed(!isBannerCollapsed)}
           className="flex items-center justify-between p-3.5 cursor-pointer hover:bg-onedark-surface/40 transition-colors"

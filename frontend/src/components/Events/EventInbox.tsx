@@ -91,111 +91,113 @@ export const EventInbox: React.FC<EventInboxProps> = ({
   };
 
   return (
-    <div className="h-full w-full flex flex-col min-h-0 overflow-y-auto px-6 pb-8 bg-onedark-bg font-sans text-onedark-fg">
+    <div className="h-full w-full overflow-y-auto bg-onedark-bg font-sans text-onedark-fg">
       {/* Sticky Header */}
-      <div className="sticky top-0 z-20 bg-onedark-bg/95 backdrop-blur-md pt-5 pb-4 border-b border-onedark-borderSubtle -mx-6 px-6 mb-5 space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div className="flex items-center space-x-3">
-            {onBackToChat && (
-              <button
-                onClick={onBackToChat}
-                className="inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright text-xs font-medium border border-onedark-border transition-all active:scale-95 shadow-xs"
-                title="Return to Workstation / Chat"
-              >
-                <ArrowLeft className="w-3.5 h-3.5 text-onedark-accent" />
-                <span>Workstation</span>
-              </button>
-            )}
-
-            <div className="p-2 rounded-xl bg-onedark-darker border border-onedark-border text-onedark-accent shadow-xs">
-              <Inbox className="w-4 h-4" />
-            </div>
-
-            <div>
-              <h1 className="text-base font-bold text-onedark-fgBright flex items-center space-x-2">
-                <span>Event Ingestion & Webhook Inbox</span>
-                <span className="inline-flex items-center space-x-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-onedark-green/15 text-onedark-green border border-onedark-green/30">
-                  <span className="w-1.5 h-1.5 rounded-full bg-onedark-green animate-pulse" />
-                  <span>LIVE LISTENER</span>
-                </span>
-              </h1>
-              <p className="text-xs text-onedark-fg/70 mt-0.5">
-                Real-time audit log of incoming webhooks from GitHub, AppSignal, Slack, and REST APIs.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center space-x-2 self-start sm:self-auto">
-            {onNavigateToRepos && (
-              <button
-                onClick={onNavigateToRepos}
-                className="px-3 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright border border-onedark-border text-xs font-medium flex items-center space-x-1.5 transition-colors shadow-xs"
-              >
-                <FolderGit2 className="w-3.5 h-3.5 text-onedark-folder" />
-                <span>Repositories</span>
-              </button>
-            )}
-
-            <button
-              onClick={onRefresh}
-              className="px-3 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-fgBright border border-onedark-border text-xs font-medium flex items-center space-x-1.5 transition-colors shadow-xs"
-            >
-              <RefreshCw className="w-3.5 h-3.5 text-onedark-accent" />
-              <span>Refresh</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Filter Tabs & Search Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
-        <div className="flex items-center space-x-1.5 bg-onedark-darker p-1 rounded-xl border border-onedark-borderSubtle text-xs overflow-x-auto">
-          {[
-            { key: 'all', label: 'All Sources' },
-            { key: 'github', label: 'GitHub' },
-            { key: 'slack', label: 'Slack' },
-            { key: 'appsignal', label: 'AppSignal' },
-            { key: 'generic', label: 'Generic' },
-          ].map((tab) => {
-            const count = sourceCounts[tab.key] || 0;
-            const isSelected = selectedSource === tab.key;
-            return (
-              <button
-                key={tab.key}
-                onClick={() => setSelectedSource(tab.key)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center space-x-1.5 whitespace-nowrap ${
-                  isSelected
-                    ? 'bg-onedark-surface text-onedark-fgBright shadow-xs border border-onedark-border font-semibold'
-                    : 'text-onedark-muted hover:text-onedark-fg'
-                }`}
-              >
-                <span>{tab.label}</span>
-                <span
-                  className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                    isSelected ? 'bg-onedark-accent/20 text-onedark-accent' : 'bg-onedark-borderSubtle text-onedark-muted'
-                  }`}
+      <div className="sticky top-0 z-20 bg-onedark-bg/95 backdrop-blur-md border-b border-onedark-borderSubtle">
+        <div className="max-w-6xl mx-auto px-6 lg:px-8 py-5">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex items-center space-x-3">
+              {onBackToChat && (
+                <button
+                  onClick={onBackToChat}
+                  className="inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright text-xs font-medium border border-onedark-border transition-all active:scale-95 shadow-xs"
+                  title="Return to Workstation / Chat"
                 >
-                  {count}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+                  <ArrowLeft className="w-3.5 h-3.5 text-onedark-accent" />
+                  <span>Workstation</span>
+                </button>
+              )}
 
-        <div className="relative min-w-[240px]">
-          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-onedark-muted" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search events, payloads, branches..."
-            className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-onedark-darker border border-onedark-borderSubtle text-xs text-onedark-fgBright placeholder:text-onedark-muted focus:outline-none focus:border-onedark-accent transition-colors font-mono"
-          />
+              <div className="p-2 rounded-xl bg-onedark-darker border border-onedark-border text-onedark-accent shadow-xs">
+                <Inbox className="w-4 h-4" />
+              </div>
+
+              <div>
+                <h1 className="text-base font-bold text-onedark-fgBright flex items-center space-x-2">
+                  <span>Event Ingestion & Webhook Inbox</span>
+                  <span className="inline-flex items-center space-x-1.5 px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-onedark-green/15 text-onedark-green border border-onedark-green/30">
+                    <span className="w-1.5 h-1.5 rounded-full bg-onedark-green animate-pulse" />
+                    <span>LIVE LISTENER</span>
+                  </span>
+                </h1>
+                <p className="text-xs text-onedark-fg/70 mt-0.5">
+                  Real-time audit log of incoming webhooks from GitHub, AppSignal, Slack, and REST APIs.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2 self-start sm:self-auto">
+              {onNavigateToRepos && (
+                <button
+                  onClick={onNavigateToRepos}
+                  className="px-3 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright border border-onedark-border text-xs font-medium flex items-center space-x-1.5 transition-colors shadow-xs"
+                >
+                  <FolderGit2 className="w-3.5 h-3.5 text-onedark-folder" />
+                  <span>Repositories</span>
+                </button>
+              )}
+
+              <button
+                onClick={onRefresh}
+                className="px-3 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-fgBright border border-onedark-border text-xs font-medium flex items-center space-x-1.5 transition-colors shadow-xs"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-onedark-accent" />
+                <span>Refresh</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Filter Tabs & Search Bar */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3.5 border-t border-onedark-borderSubtle mt-4">
+            <div className="flex items-center space-x-1.5 bg-onedark-darker p-1 rounded-xl border border-onedark-borderSubtle text-xs overflow-x-auto">
+              {[
+                { key: 'all', label: 'All Sources' },
+                { key: 'github', label: 'GitHub' },
+                { key: 'slack', label: 'Slack' },
+                { key: 'appsignal', label: 'AppSignal' },
+                { key: 'generic', label: 'Generic' },
+              ].map((tab) => {
+                const count = sourceCounts[tab.key] || 0;
+                const isSelected = selectedSource === tab.key;
+                return (
+                  <button
+                    key={tab.key}
+                    onClick={() => setSelectedSource(tab.key)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center space-x-1.5 whitespace-nowrap ${
+                      isSelected
+                        ? 'bg-onedark-surface text-onedark-fgBright shadow-xs border border-onedark-border font-semibold'
+                        : 'text-onedark-muted hover:text-onedark-fg'
+                    }`}
+                  >
+                    <span>{tab.label}</span>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                        isSelected ? 'bg-onedark-accent/20 text-onedark-accent' : 'bg-onedark-borderSubtle text-onedark-muted'
+                      }`}
+                    >
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="relative min-w-[240px]">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-onedark-muted" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search events, payloads, branches..."
+                className="w-full pl-8 pr-3 py-1.5 rounded-xl bg-onedark-darker border border-onedark-borderSubtle text-xs text-onedark-fgBright placeholder:text-onedark-muted focus:outline-none focus:border-onedark-accent transition-colors font-mono"
+              />
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Events List */}
-      <div className="space-y-3">
+      {/* Events List Centered with max-w-6xl */}
+      <div className="max-w-6xl mx-auto px-6 lg:px-8 py-8 space-y-3">
         {filteredEvents.length === 0 ? (
           <div className="p-12 text-center rounded-2xl bg-onedark-darker/60 border border-onedark-borderSubtle text-onedark-muted space-y-3">
             <Radio className="w-8 h-8 mx-auto text-onedark-muted opacity-40 animate-pulse" />

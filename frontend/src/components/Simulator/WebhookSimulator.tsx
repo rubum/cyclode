@@ -275,108 +275,110 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({
   };
 
   return (
-    <div className="h-full w-full flex flex-col min-h-0 overflow-y-auto px-6 pb-8 bg-onedark-bg font-sans text-onedark-fg">
+    <div className="h-full w-full flex flex-col min-h-0 overflow-y-auto bg-onedark-bg font-sans text-onedark-fg">
       {/* Sticky Header with Navigation Breadcrumb */}
-      <div className="sticky top-0 z-20 bg-onedark-bg/95 backdrop-blur-md pt-6 pb-4 border-b border-onedark-borderSubtle mb-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div className="flex items-center space-x-3">
-            {onBackToChat && (
-              <button
-                onClick={onBackToChat}
-                className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright text-xs font-mono font-medium border border-onedark-borderSubtle transition-all shadow-sm active:scale-95 cursor-pointer"
-                title="Return to active chat workstation"
-              >
-                <ArrowLeft className="w-3.5 h-3.5 text-onedark-accent" />
-                <span>← Workstation</span>
-              </button>
-            )}
+      <div className="sticky top-0 z-20 bg-onedark-bg/95 backdrop-blur-md border-b border-onedark-borderSubtle">
+        <div className="max-w-6xl mx-auto px-6 lg:px-8 py-5">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex items-center space-x-3">
+              {onBackToChat && (
+                <button
+                  onClick={onBackToChat}
+                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright text-xs font-mono font-medium border border-onedark-borderSubtle transition-all shadow-sm active:scale-95 cursor-pointer"
+                  title="Return to active chat workstation"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5 text-onedark-accent" />
+                  <span>← Workstation</span>
+                </button>
+              )}
+              <div className="flex items-center space-x-2">
+                <h1 className="text-base font-bold text-onedark-fgBright flex items-center space-x-2">
+                  <FlaskConical className="w-4 h-4 text-onedark-accent" />
+                  <span>Event & Webhook Simulator</span>
+                </h1>
+                <span className="px-2 py-0.5 rounded-full bg-onedark-accent/15 text-onedark-accent font-mono text-[10.5px] font-bold border border-onedark-accent/30">
+                  Sandbox Testing
+                </span>
+              </div>
+            </div>
+
             <div className="flex items-center space-x-2">
-              <h1 className="text-base font-bold text-onedark-fgBright flex items-center space-x-2">
-                <FlaskConical className="w-4 h-4 text-onedark-accent" />
-                <span>Event & Webhook Simulator</span>
-              </h1>
-              <span className="px-2 py-0.5 rounded-full bg-onedark-accent/15 text-onedark-accent font-mono text-[10.5px] font-bold border border-onedark-accent/30">
-                Sandbox Testing
-              </span>
+              <button
+                onClick={() => setIsBannerCollapsed(!isBannerCollapsed)}
+                className="px-2.5 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg text-xs font-mono flex items-center space-x-1.5 border border-onedark-borderSubtle transition-colors cursor-pointer"
+              >
+                <span>{isBannerCollapsed ? 'Show Info' : 'Hide Info'}</span>
+                {isBannerCollapsed ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
+              </button>
             </div>
           </div>
 
-          <div className="flex items-center space-x-2">
-            <button
-              onClick={() => setIsBannerCollapsed(!isBannerCollapsed)}
-              className="px-2.5 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg text-xs font-mono flex items-center space-x-1.5 border border-onedark-borderSubtle transition-colors cursor-pointer"
-            >
-              <span>{isBannerCollapsed ? 'Show Info' : 'Hide Info'}</span>
-              {isBannerCollapsed ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
-            </button>
-          </div>
-        </div>
-
-        {/* Collapsible Sandbox Explanation Banner */}
-        {!isBannerCollapsed && (
-          <div className="mt-4 p-3.5 rounded-xl bg-onedark-darker border border-onedark-borderSubtle flex flex-col md:flex-row md:items-center justify-between gap-3 animate-fadeIn">
-            <div className="flex items-start space-x-3">
-              <div className="p-2 rounded-lg bg-onedark-surface border border-onedark-border text-onedark-accent flex-shrink-0 mt-0.5">
-                <Sparkles className="w-4 h-4" />
-              </div>
-              <div className="space-y-0.5">
-                <div className="text-xs font-semibold text-onedark-fgBright">
-                  Zero-Risk End-to-End Simulation
+          {/* Collapsible Sandbox Explanation Banner */}
+          {!isBannerCollapsed && (
+            <div className="mt-4 p-3.5 rounded-xl bg-onedark-darker border border-onedark-borderSubtle flex flex-col md:flex-row md:items-center justify-between gap-3 animate-fadeIn">
+              <div className="flex items-start space-x-3">
+                <div className="p-2 rounded-lg bg-onedark-surface border border-onedark-border text-onedark-accent flex-shrink-0 mt-0.5">
+                  <Sparkles className="w-4 h-4" />
                 </div>
-                <p className="text-[11.5px] text-onedark-muted leading-relaxed max-w-3xl">
-                  Simulate real inbound payloads from GitHub webhooks, Sentry stack traces, AppSignal incidents, or Slack commands.
-                  The dispatch engine verifies routing rules, spins up ephemeral isolated workspaces, and tests agent automations without modifying production branches.
-                </p>
+                <div className="space-y-0.5">
+                  <div className="text-xs font-semibold text-onedark-fgBright">
+                    Zero-Risk End-to-End Simulation
+                  </div>
+                  <p className="text-[11.5px] text-onedark-muted leading-relaxed max-w-3xl">
+                    Simulate real inbound payloads from GitHub webhooks, Sentry stack traces, AppSignal incidents, or Slack commands.
+                    The dispatch engine verifies routing rules, spins up ephemeral isolated workspaces, and tests agent automations without modifying production branches.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2 font-mono text-[11px] text-onedark-accent bg-onedark-surface px-3 py-1.5 rounded-lg border border-onedark-border flex-shrink-0">
+                <Clock className="w-3.5 h-3.5" />
+                <span>Clone → Run → Review → Cleanup</span>
               </div>
             </div>
-            <div className="flex items-center space-x-2 font-mono text-[11px] text-onedark-accent bg-onedark-surface px-3 py-1.5 rounded-lg border border-onedark-border flex-shrink-0">
-              <Clock className="w-3.5 h-3.5" />
-              <span>Clone → Run → Review → Cleanup</span>
+          )}
+
+          {/* Sticky Search & Filter Toolbar */}
+          <div className="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 border-t border-onedark-borderSubtle/60">
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-3.5 h-3.5 text-onedark-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search scenarios by title, payload keyword, or event..."
+                className="w-full bg-onedark-darker border border-onedark-border rounded-lg pl-8 pr-8 py-1.5 text-xs text-onedark-fgBright placeholder:text-onedark-muted/60 focus:outline-none focus:border-onedark-accent transition-colors font-mono"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-onedark-muted hover:text-onedark-fgBright cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
-          </div>
-        )}
 
-        {/* Sticky Search & Filter Toolbar */}
-        <div className="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 border-t border-onedark-borderSubtle/60">
-          <div className="relative flex-1 max-w-md">
-            <Search className="w-3.5 h-3.5 text-onedark-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search scenarios by title, payload keyword, or event..."
-              className="w-full bg-onedark-darker border border-onedark-border rounded-lg pl-8 pr-8 py-1.5 text-xs text-onedark-fgBright placeholder:text-onedark-muted/60 focus:outline-none focus:border-onedark-accent transition-colors font-mono"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-onedark-muted hover:text-onedark-fgBright cursor-pointer"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-
-          <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 sm:pb-0">
-            {['all', 'github', 'sentry', 'appsignal', 'slack'].map((src) => (
-              <button
-                key={src}
-                onClick={() => setSourceFilter(src)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-mono font-medium transition-all cursor-pointer ${
-                  sourceFilter === src
-                    ? 'bg-onedark-accent text-onedark-darker font-bold shadow-sm'
-                    : 'bg-onedark-darker text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface border border-onedark-borderSubtle'
-                }`}
-              >
-                {src === 'all' ? 'All Providers' : src.toUpperCase()}
-              </button>
-            ))}
+            <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 sm:pb-0">
+              {['all', 'github', 'sentry', 'appsignal', 'slack'].map((src) => (
+                <button
+                  key={src}
+                  onClick={() => setSourceFilter(src)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-mono font-medium transition-all cursor-pointer ${
+                    sourceFilter === src
+                      ? 'bg-onedark-accent text-onedark-darker font-bold shadow-sm'
+                      : 'bg-onedark-darker text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface border border-onedark-borderSubtle'
+                  }`}
+                >
+                  {src === 'all' ? 'All Providers' : src.toUpperCase()}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>
 
       {/* Main Content: 1-Click Presets & JSON Editor */}
-      <div className="space-y-6">
+      <div className="max-w-6xl mx-auto px-6 lg:px-8 py-8 space-y-6 w-full">
         {/* Presets Grid */}
         <div className="space-y-2.5">
           <div className="flex items-center justify-between">

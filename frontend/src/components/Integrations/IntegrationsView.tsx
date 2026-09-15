@@ -231,154 +231,156 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
   };
 
   return (
-    <div className="h-full w-full flex flex-col min-h-0 overflow-y-auto px-6 lg:px-10 pb-12 bg-onedark-bg font-sans text-onedark-fg">
-      {/* Sticky Header with Breadcrumb & Quick Nav */}
-      <div className="sticky top-0 z-20 bg-onedark-bg/95 backdrop-blur-md pt-6 pb-4 border-b border-onedark-borderSubtle mb-6">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <div className="flex items-center space-x-3.5">
-            {onBackToChat && (
-              <button
-                onClick={onBackToChat}
-                className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-fgBright hover:text-onedark-accent text-xs font-mono font-semibold border border-onedark-border transition-all shadow-sm active:scale-95 cursor-pointer"
-                title="Return to active chat workstation"
-              >
-                <ArrowLeft className="w-4 h-4 text-onedark-accent" />
-                <span>Workstation</span>
-              </button>
-            )}
-            <div className="flex items-center space-x-2.5">
-              <div className="p-2 rounded-xl bg-onedark-darker border border-onedark-border text-onedark-accent shadow-xs">
-                <PlugZap className="w-5 h-5" />
-              </div>
-              <div>
-                <div className="flex items-center space-x-2">
-                  <h1 className="text-lg font-bold text-onedark-fgBright tracking-tight">
-                    Integrations & Skills Hub
-                  </h1>
-                  <span className="px-2 py-0.5 rounded-full bg-onedark-accent/15 text-onedark-accent font-mono text-[11px] font-bold border border-onedark-accent/30">
-                    AES-256 Vault
-                  </span>
+    <div className="h-full w-full overflow-y-auto bg-onedark-bg font-sans text-onedark-fg">
+      {/* Sticky Header with Centered Max-Width */}
+      <div className="sticky top-0 z-20 bg-onedark-bg/95 backdrop-blur-md border-b border-onedark-borderSubtle">
+        <div className="max-w-6xl mx-auto px-6 lg:px-8 py-5">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex items-center space-x-3.5">
+              {onBackToChat && (
+                <button
+                  onClick={onBackToChat}
+                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-fgBright hover:text-onedark-accent text-xs font-mono font-semibold border border-onedark-border transition-all shadow-sm active:scale-95 cursor-pointer"
+                  title="Return to active chat workstation"
+                >
+                  <ArrowLeft className="w-4 h-4 text-onedark-accent" />
+                  <span>Workstation</span>
+                </button>
+              )}
+              <div className="flex items-center space-x-2.5">
+                <div className="p-2 rounded-xl bg-onedark-darker border border-onedark-border text-onedark-accent shadow-xs">
+                  <PlugZap className="w-5 h-5" />
                 </div>
-                <p className="text-xs text-onedark-fg/75 mt-0.5">
-                  Manage API keys, external developer providers, and background AI skills.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center space-x-2">
-            {onNavigateToPolicies && (
-              <button
-                onClick={onNavigateToPolicies}
-                className="px-3 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-fgBright hover:text-onedark-accent text-xs font-mono font-medium flex items-center space-x-1.5 border border-onedark-border transition-colors cursor-pointer shadow-xs"
-                title="Manage action approval policies and execution permissions"
-              >
-                <ShieldCheck className="w-4 h-4 text-onedark-accent" />
-                <span>Approval Policies →</span>
-              </button>
-            )}
-
-            {onRefreshIntegrations && (
-              <button
-                onClick={onRefreshIntegrations}
-                className="px-3 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-fgBright text-xs font-mono font-medium flex items-center space-x-1.5 border border-onedark-border transition-colors cursor-pointer shadow-xs"
-                title="Refresh Integrations Status"
-              >
-                <RefreshCw className="w-3.5 h-3.5 text-onedark-muted" />
-                <span>Sync Status</span>
-              </button>
-            )}
-            <button
-              onClick={() => setIsBannerCollapsed(!isBannerCollapsed)}
-              className="px-2.5 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright text-xs font-mono flex items-center space-x-1.5 border border-onedark-borderSubtle transition-colors cursor-pointer"
-            >
-              <span>{isBannerCollapsed ? 'Show Stats' : 'Hide Stats'}</span>
-              {isBannerCollapsed ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
-            </button>
-          </div>
-        </div>
-
-        {/* Collapsible Overview Stat Cards */}
-        {!isBannerCollapsed && (
-          <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3.5 animate-fadeIn">
-            <div className="p-4 rounded-xl bg-onedark-darker/90 border border-onedark-border flex items-center space-x-3.5 shadow-sm">
-              <div className="p-2.5 rounded-xl bg-onedark-surface text-cyan-400 border border-onedark-borderSubtle">
-                <Sparkles className="w-5 h-5" />
-              </div>
-              <div>
-                <div className="text-xs font-bold text-onedark-muted uppercase tracking-wider font-mono">External Providers</div>
-                <div className="text-base font-bold text-onedark-fgBright mt-0.5">{integrations.length} Active Services</div>
+                <div>
+                  <div className="flex items-center space-x-2">
+                    <h1 className="text-lg font-bold text-onedark-fgBright tracking-tight">
+                      Integrations & Skills Hub
+                    </h1>
+                    <span className="px-2 py-0.5 rounded-full bg-onedark-accent/15 text-onedark-accent font-mono text-[11px] font-bold border border-onedark-accent/30">
+                      AES-256 Vault
+                    </span>
+                  </div>
+                  <p className="text-xs text-onedark-fg/75 mt-0.5">
+                    Manage API keys, external developer providers, and background AI skills.
+                  </p>
+                </div>
               </div>
             </div>
 
-            <div className="p-4 rounded-xl bg-onedark-darker/90 border border-onedark-border flex items-center space-x-3.5 shadow-sm">
-              <div className="p-2.5 rounded-xl bg-onedark-surface text-onedark-accent border border-onedark-borderSubtle">
-                <PlugZap className="w-5 h-5" />
-              </div>
-              <div>
-                <div className="text-xs font-bold text-onedark-muted uppercase tracking-wider font-mono">Mounted Skills</div>
-                <div className="text-base font-bold text-onedark-fgBright mt-0.5">{allSkills.length} Agent Capabilities</div>
-              </div>
-            </div>
+            <div className="flex items-center space-x-2">
+              {onNavigateToPolicies && (
+                <button
+                  onClick={onNavigateToPolicies}
+                  className="px-3 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-fgBright hover:text-onedark-accent text-xs font-mono font-medium flex items-center space-x-1.5 border border-onedark-border transition-colors cursor-pointer shadow-xs"
+                  title="Manage action approval policies and execution permissions"
+                >
+                  <ShieldCheck className="w-4 h-4 text-onedark-accent" />
+                  <span>Approval Policies →</span>
+                </button>
+              )}
 
-            <div className="p-4 rounded-xl bg-onedark-darker/90 border border-onedark-border flex items-center space-x-3.5 shadow-sm">
-              <div className="p-2.5 rounded-xl bg-onedark-surface text-onedark-green border border-onedark-borderSubtle">
-                <Webhook className="w-5 h-5" />
-              </div>
-              <div>
-                <div className="text-xs font-bold text-onedark-muted uppercase tracking-wider font-mono">Inbound Gateways</div>
-                <div className="text-base font-bold text-onedark-fgBright mt-0.5">{webhookEndpoints.length || 3} Endpoints Active</div>
-              </div>
+              {onRefreshIntegrations && (
+                <button
+                  onClick={onRefreshIntegrations}
+                  className="px-3 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-fgBright text-xs font-mono font-medium flex items-center space-x-1.5 border border-onedark-border transition-colors cursor-pointer shadow-xs"
+                  title="Refresh Integrations Status"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-onedark-muted" />
+                  <span>Sync Status</span>
+                </button>
+              )}
+              <button
+                onClick={() => setIsBannerCollapsed(!isBannerCollapsed)}
+                className="px-2.5 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright text-xs font-mono flex items-center space-x-1.5 border border-onedark-borderSubtle transition-colors cursor-pointer"
+              >
+                <span>{isBannerCollapsed ? 'Show Stats' : 'Hide Stats'}</span>
+                {isBannerCollapsed ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
+              </button>
             </div>
           </div>
-        )}
 
-        {/* Sticky Search & Tab Selector Toolbar */}
-        <div className="mt-5 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3.5 border-t border-onedark-borderSubtle">
-          <div className="relative flex-1 max-w-md">
-            <Search className="w-4 h-4 text-onedark-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search providers (Gemini, GitHub), skills, or tokens..."
-              className="w-full bg-onedark-darker border border-onedark-border rounded-lg pl-9 pr-8 py-2 text-xs text-onedark-fgBright placeholder:text-onedark-muted focus:outline-none focus:border-onedark-accent transition-colors font-sans shadow-xs"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-onedark-muted hover:text-onedark-fgBright cursor-pointer p-1"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
+          {/* Collapsible Overview Stat Cards */}
+          {!isBannerCollapsed && (
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3.5 animate-fadeIn">
+              <div className="p-4 rounded-xl bg-onedark-darker/90 border border-onedark-border flex items-center space-x-3.5 shadow-sm">
+                <div className="p-2.5 rounded-xl bg-onedark-surface text-cyan-400 border border-onedark-borderSubtle">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-onedark-muted uppercase tracking-wider font-mono">External Providers</div>
+                  <div className="text-base font-bold text-onedark-fgBright mt-0.5">{integrations.length} Active Services</div>
+                </div>
+              </div>
 
-          <div className="flex items-center space-x-2 overflow-x-auto pb-1 sm:pb-0">
-            {[
-              { id: 'all', label: 'All Resources' },
-              { id: 'providers', label: `Providers & Keys (${integrations.length})` },
-              { id: 'skills', label: `Mounted Skills (${allSkills.length})` },
-              { id: 'gateways', label: `Webhook Gateways (${webhookEndpoints.length})` },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer whitespace-nowrap ${
-                  activeTab === tab.id
-                    ? 'bg-onedark-accent text-onedark-darker shadow-sm'
-                    : 'bg-onedark-darker text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface border border-onedark-borderSubtle'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
+              <div className="p-4 rounded-xl bg-onedark-darker/90 border border-onedark-border flex items-center space-x-3.5 shadow-sm">
+                <div className="p-2.5 rounded-xl bg-onedark-surface text-onedark-accent border border-onedark-borderSubtle">
+                  <PlugZap className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-onedark-muted uppercase tracking-wider font-mono">Mounted Skills</div>
+                  <div className="text-base font-bold text-onedark-fgBright mt-0.5">{allSkills.length} Agent Capabilities</div>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-xl bg-onedark-darker/90 border border-onedark-border flex items-center space-x-3.5 shadow-sm">
+                <div className="p-2.5 rounded-xl bg-onedark-surface text-onedark-green border border-onedark-borderSubtle">
+                  <Webhook className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="text-xs font-bold text-onedark-muted uppercase tracking-wider font-mono">Inbound Gateways</div>
+                  <div className="text-base font-bold text-onedark-fgBright mt-0.5">{webhookEndpoints.length || 3} Endpoints Active</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Sticky Search & Tab Selector Toolbar */}
+          <div className="mt-5 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3.5 border-t border-onedark-borderSubtle">
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-4 h-4 text-onedark-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search providers (Gemini, GitHub), skills, or tokens..."
+                className="w-full bg-onedark-darker border border-onedark-border rounded-lg pl-9 pr-8 py-2 text-xs text-onedark-fgBright placeholder:text-onedark-muted focus:outline-none focus:border-onedark-accent transition-colors font-sans shadow-xs"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-onedark-muted hover:text-onedark-fgBright cursor-pointer p-1"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center space-x-2 overflow-x-auto pb-1 sm:pb-0">
+              {[
+                { id: 'all', label: 'All Resources' },
+                { id: 'providers', label: `Providers & Keys (${integrations.length})` },
+                { id: 'skills', label: `Mounted Skills (${allSkills.length})` },
+                { id: 'gateways', label: `Webhook Gateways (${webhookEndpoints.length})` },
+              ].map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as any)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer whitespace-nowrap ${
+                    activeTab === tab.id
+                      ? 'bg-onedark-accent text-onedark-darker shadow-sm'
+                      : 'bg-onedark-darker text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface border border-onedark-borderSubtle'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Main Content Sections - Providers First for Instant Accessibility */}
-      <div className="space-y-8">
+      {/* Main Content Sections - Centered with max-w-6xl */}
+      <div className="max-w-6xl mx-auto px-6 lg:px-8 py-8 space-y-8">
         {/* 1. External Provider Connections (API Keys & Vault) */}
         {(activeTab === 'all' || activeTab === 'providers') && filteredIntegrations.length > 0 && (
           <div className="space-y-3.5">
