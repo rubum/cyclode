@@ -519,7 +519,7 @@ class AntigravityHarness:
             f"   - When listing pull requests: call `list_pull_requests`. ALWAYS present all discovered PRs in your response with an itemized Markdown table or list including direct clickable links ([#<number>: <title>](https://github.com/<owner>/<repo>/pull/<number>)), author (@<author>), status (OPEN/MERGED), branch flow (<head> ➔ <base>), and diff stats (+add / -del).\n"
             f"   - When reviewing PRs or summarizing changes: call `get_pull_request_diff` and `get_pull_request_details` to analyze the exact code hunks.\n"
             f"   - When answering user questions about the workspace: use `read_file`, `search_code`, `find_symbols`, and `run_command`.\n"
-            f"   - When asked to search the web: call `search_web` or `fetch_url`.\n"
+            f"   - When asked to search the web: call `search_web` or `fetch_url`. Formulate clean, concise keyword queries without redundant boolean operators or nested quotes. Complete web research in 1–3 focused tool queries and promptly deliver your full analytical synthesis.\n"
             f"2. ANALYTICAL PROSE & RICH CITATIONS:\n"
             f"   - Lead with an Executive Summary in fluid analytical prose.\n"
             f"   - Break down distinct architectural changes, modified files, and risks clearly.\n"
@@ -552,7 +552,7 @@ class AntigravityHarness:
                     break
                 api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{active_model}:generateContent?key={api_key}"
                 turn = 0
-                max_turns = 6
+                max_turns = 10
                 model_succeeded = False
                 final_agent_text = ""
 
@@ -844,7 +844,37 @@ class AntigravityHarness:
                             "parts": response_parts
                         })
 
+                    if model_succeeded:
+                        # Perform a guaranteed synthesis turn without tools to deliver a full analytical response
+                        synthesis_payload = {
+                            "contents": contents,
+                            "system_instruction": {
+                                "parts": [{
+                                    "text": system_instruction + "\n\nCRITICAL DIRECTIVE: You have completed tool invocations. Deliver your comprehensive, fluid analytical synthesis answering the user prompt directly in rich markdown with clickable citations. Do not call any further tools."
+                                }]
+                            }
+                        }
+                        try:
+                            synth_resp = await client.post(api_url, json=synthesis_payload)
+                            if synth_resp.status_code == 200:
+                                synth_data = synth_resp.json()
+                                synth_cands = synth_data.get("candidates", [])
+                                if synth_cands:
+                                    s_parts = synth_cands[0].get("content", {}).get("parts", [])
+                                    s_texts = [p["text"] for p in s_parts if "text" in p]
+                                    if s_texts:
+                                        final_synth_text = "\n".join(s_texts).strip()
+                                        await self._emit_streamed_message(
+                                            "agent", final_synth_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
+                                        )
+                                        return {"status": "COMPLETED", "summary": final_synth_text[:120]}
+                        except Exception as synth_err:
+                            logger.error(f"Synthesis turn error: {synth_err}")
+
                     if model_succeeded and final_agent_text:
+                        await self._emit_streamed_message(
+                            "agent", final_agent_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
+                        )
                         return {"status": "COMPLETED", "summary": final_agent_text[:120]}
 
                 except Exception as e:
@@ -852,8 +882,7 @@ class AntigravityHarness:
                     continue
 
         fallback_msg = (
-            f"### ⚠️ Agent Notice\n\n"
-            f"The LLM execution turn completed. If you'd like to perform further actions, ask any question or prompt the reviewer."
+            f"Execution completed. All available tools and models have finished processing this turn."
         )
         await self._emit_streamed_message(
             "agent", fallback_msg, on_message, on_stream_start, on_stream_chunk, on_stream_end

@@ -4,6 +4,7 @@ import ast
 import json
 import fnmatch
 import subprocess
+import html
 import httpx
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
@@ -509,16 +510,22 @@ class WorkspaceTools:
     @staticmethod
     async def search_web(query: str, limit: int = 5, temporal_context: Optional[str] = None) -> Dict[str, Any]:
         """
-        Executes live web retrieval across news, developer feeds, and real-time tech endpoints.
-        Supports temporal anchoring (e.g. 'this week', 'latest', 'today', 'this month', 'last weeks')
-        with strict age cutoffs and homonym disambiguation.
+        Executes live web retrieval across news, developer feeds, search engines, and real-time tech endpoints.
+        Supports dual retrieval (DuckDuckGo web search + Hacker News Algolia) with temporal anchoring.
         """
         now = datetime.now(timezone.utc)
         current_year = now.year
         
         results = []
-        clean_q = query.lower().strip()
-        full_context = f"{clean_q} {(temporal_context or '').lower()}".strip()
+        clean_q = query.strip()
+        # Sanitize query: strip surrounding quotes and boolean operators for robust search engine parsing
+        clean_q = re.sub(r'["\']', ' ', clean_q)
+        clean_q = re.sub(r'\b(OR|AND)\b', ' ', clean_q, flags=re.IGNORECASE)
+        clean_q = re.sub(r'\s+', ' ', clean_q).strip()
+        if not clean_q:
+            clean_q = query.strip()
+
+        full_context = f"{clean_q.lower()} {(temporal_context or '').lower()}".strip()
 
         if any(w in full_context for w in ("today", "yesterday", "tonight", "this morning", "hours ago", "last 24 hours")):
             max_age_days = 7
@@ -541,7 +548,7 @@ class WorkspaceTools:
         entity_query = re.sub(
             rf"\b(news|announcements|announcement|latest|today|yesterday|tonight|this morning|this week|this month|this year|recently|recent|releases|update|updates|what happened|what is happening|what is happening at|what happened at|what happened with|esp the last weeks|especially the last weeks|in the last weeks|over the last weeks|last weeks|last week|tell me about|provide a summary of|summary of|2023|2024|2025|2026|{research_wrapper}|{months_pat})\b",
             "",
-            clean_q,
+            clean_q.lower(),
             flags=re.IGNORECASE
         ).strip()
         entity_query = re.sub(r"^(?:at|with|about|for|in|on|to|of)\s+", "", entity_query).strip()
@@ -549,7 +556,7 @@ class WorkspaceTools:
         entity_query = entity_query.strip("'\"`").strip()
         entity_query = re.sub(r"\s+", " ", entity_query).strip()
         if not entity_query:
-            entity_query = clean_q.strip("'\"`").strip()
+            entity_query = clean_q.lower().strip("'\"`").strip()
 
         ENTITY_EXPANSIONS = {
             "cursor": ["cursor ide", "cursor ai", "cursor"],
@@ -588,7 +595,7 @@ class WorkspaceTools:
                 if entity_query not in title_lower:
                     return False
             elif len(entity_query.split()) > 1:
-                stopwords = {"the", "and", "for", "with", "this", "that", "from", "about", "what", "how"}
+                stopwords = {"the", "and", "for", "with", "this", "that", "from", "about", "what", "how", "browse", "blogs"}
                 words = [w for w in entity_query.split() if len(w) >= 3 and w not in stopwords]
                 if words and not any(w in title_lower for w in words):
                     return False
@@ -601,6 +608,62 @@ class WorkspaceTools:
                 if age > max_age_days:
                     return False
             return True
+
+        async def fetch_duckduckgo(q_str: str, max_hits: int) -> List[Dict[str, Any]]:
+            hits_found = []
+            try:
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "en-US,en;q=0.9"
+                }
+                async with httpx.AsyncClient(follow_redirects=True, timeout=8.0) as client:
+                    resp = await client.post(
+                        "https://html.duckduckgo.com/html/",
+                        data={"q": q_str},
+                        headers=headers
+                    )
+                    if resp.status_code == 200:
+                        body_html = resp.text
+                        pattern = re.compile(
+                            r'<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="(?P<raw_url>[^"]+)"[^>]*>(?P<title>.*?)</a>.*?(?:<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>(?P<snippet>.*?)</a>)?',
+                            re.DOTALL | re.IGNORECASE
+                        )
+                        for match in pattern.finditer(body_html):
+                            if len(hits_found) >= max_hits:
+                                break
+                            raw_u = match.group("raw_url")
+                            raw_t = match.group("title") or ""
+                            raw_s = match.group("snippet") or ""
+
+                            clean_title = html.unescape(re.sub(r"<[^>]+>", "", raw_t)).strip()
+                            clean_snippet = html.unescape(re.sub(r"<[^>]+>", "", raw_s)).strip()
+
+                            target_url = raw_u
+                            if "uddg=" in raw_u:
+                                try:
+                                    parsed_u = urllib.parse.urlparse(raw_u)
+                                    qs = urllib.parse.parse_qs(parsed_u.query)
+                                    if "uddg" in qs:
+                                        target_url = qs["uddg"][0]
+                                except Exception:
+                                    pass
+
+                            if target_url.startswith("//"):
+                                target_url = "https:" + target_url
+                            if not target_url.startswith("http"):
+                                continue
+
+                            if target_url and clean_title:
+                                hits_found.append({
+                                    "title": clean_title,
+                                    "url": target_url,
+                                    "snippet": clean_snippet,
+                                    "source": "Web Search"
+                                })
+            except Exception:
+                pass
+            return hits_found
 
         async def fetch_hn(q_str: str, max_hits: int, by_date: bool = False):
             hits_found = []
@@ -642,37 +705,48 @@ class WorkspaceTools:
                 pass
             return hits_found
 
-        if is_temporal:
-            for sq in search_queries:
-                if len(results) >= limit:
-                    break
-                more = await fetch_hn(sq, limit - len(results), by_date=True)
-                seen_urls = {r["url"] for r in results}
-                for m in more:
-                    if m["url"] not in seen_urls:
-                        results.append(m)
-                        seen_urls.add(m["url"])
-            
-            if len(results) < limit:
+        # 1. Fetch from DuckDuckGo
+        ddg_hits = await fetch_duckduckgo(clean_q, max_hits=limit)
+        results.extend(ddg_hits)
+
+        # 2. Fetch from Hacker News
+        if len(results) < limit:
+            if is_temporal:
                 for sq in search_queries:
                     if len(results) >= limit:
                         break
-                    more = await fetch_hn(f"{sq} {current_year}", limit - len(results), by_date=False)
+                    more = await fetch_hn(sq, limit - len(results), by_date=True)
                     seen_urls = {r["url"] for r in results}
                     for m in more:
                         if m["url"] not in seen_urls:
                             results.append(m)
                             seen_urls.add(m["url"])
-        else:
-            for sq in search_queries:
-                if len(results) >= limit:
-                    break
-                more = await fetch_hn(sq, limit - len(results), by_date=False)
-                seen_urls = {r["url"] for r in results}
-                for m in more:
-                    if m["url"] not in seen_urls:
-                        results.append(m)
-                        seen_urls.add(m["url"])
+                
+                if len(results) < limit:
+                    for sq in search_queries:
+                        if len(results) >= limit:
+                            break
+                        more = await fetch_hn(f"{sq} {current_year}", limit - len(results), by_date=False)
+                        seen_urls = {r["url"] for r in results}
+                        for m in more:
+                            if m["url"] not in seen_urls:
+                                results.append(m)
+                                seen_urls.add(m["url"])
+            else:
+                for sq in search_queries:
+                    if len(results) >= limit:
+                        break
+                    more = await fetch_hn(sq, limit - len(results), by_date=False)
+                    seen_urls = {r["url"] for r in results}
+                    for m in more:
+                        if m["url"] not in seen_urls:
+                            results.append(m)
+                            seen_urls.add(m["url"])
+
+        # Fallback if no results found yet: try raw un-entity search on DuckDuckGo
+        if not results and clean_q != entity_query:
+            fallback_ddg = await fetch_duckduckgo(entity_query, max_hits=limit)
+            results.extend(fallback_ddg)
 
         deduped = []
         seen = set()
