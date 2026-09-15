@@ -747,6 +747,13 @@ export const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ commits, rep
                 </div>
               )}
             </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
 export const MiniDiffHunkViewer: React.FC<{
   diffHunk: string;
   filePath?: string;
