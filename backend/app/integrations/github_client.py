@@ -340,6 +340,61 @@ class GitHubClient:
             except Exception as e:
                 return {"ok": False, "error": str(e), "simulated": False}
 
+    async def merge_pull_request(
+        self,
+        owner: str,
+        repo: str,
+        pr_number: int,
+        commit_title: Optional[str] = None,
+        commit_message: Optional[str] = None,
+        merge_method: str = "squash",
+        custom_token: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Merges a pull request on GitHub (merge_method: squash, merge, rebase).
+        """
+        import os
+        token = custom_token or self.token
+        if not token:
+            if os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
+                return {
+                    "ok": True,
+                    "sha": "6dcb09b5b57875f334f61aebed695e2e4193db5e",
+                    "merged": True,
+                    "message": "Pull Request successfully merged",
+                    "simulated": True
+                }
+            return {
+                "ok": False,
+                "error": "GitHub Personal Access Token is required to merge pull requests.",
+                "auth_required": True,
+                "simulated": False
+            }
+
+        headers = self._get_headers(token)
+        payload: Dict[str, Any] = {"merge_method": merge_method}
+        if commit_title:
+            payload["commit_title"] = commit_title
+        if commit_message:
+            payload["commit_message"] = commit_message
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            url = f"{self.api_base}/repos/{owner}/{repo}/pulls/{pr_number}/merge"
+            try:
+                resp = await client.put(
+                    url,
+                    headers=headers,
+                    json=payload,
+                    timeout=15.0
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    data["ok"] = True
+                    return data
+                return {"ok": False, "error": resp.text, "status_code": resp.status_code, "simulated": False}
+            except Exception as e:
+                return {"ok": False, "error": str(e), "simulated": False}
+
     async def post_issue_comment(self, owner: str, repo: str, issue_number: int, comment: str, custom_token: Optional[str] = None) -> Dict[str, Any]:
         """
         Posts a progress or resolution comment on an issue or PR.

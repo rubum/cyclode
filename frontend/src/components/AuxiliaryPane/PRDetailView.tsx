@@ -25,6 +25,9 @@ import {
   Bot, 
   Play, 
   ShieldCheck, 
+  CheckCircle2,
+  GitMerge,
+  AlertTriangle,
   Download, 
   AlertCircle, 
   Terminal, 
@@ -1099,8 +1102,26 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
             </button>
           </div>
 
-          {/* Auto-Sync Indicator & Refresh Button */}
-          <div className="flex items-center space-x-2 text-[11px] text-onedark-muted">
+          {/* Auto-Sync Indicator & Actions */}
+          <div className="flex items-center space-x-2 text-[11px] text-onedark-muted flex-wrap gap-y-1">
+            {onAskAboutComment && comments.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  const allFeedbackSummary = comments
+                    .map(c => `[Comment by @${c.author || 'reviewer'}${c.path ? ` on ${c.path}:${c.line || ''}` : ''}]:\n${c.body}`)
+                    .join('\n\n---\n\n');
+                  const prompt = `Please review and auto-fix all unresolved feedback and review comments for PR #${prNumber || ''}:\n\n${allFeedbackSummary}\n\nInspect the workspace files, fix all identified issues, run verification tests, and report the resolved changes.`;
+                  onAskAboutComment(prompt);
+                }}
+                className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-onedark-accent/15 hover:bg-onedark-accent/25 text-onedark-accent border border-onedark-accent/30 transition-all cursor-pointer shadow-2xs"
+                title="Dispatch all PR review comments to Agent to automatically fix in workspace"
+              >
+                <Zap className="w-3 h-3" />
+                <span>Auto-Fix All Comments</span>
+              </button>
+            )}
+
             <span className="flex items-center space-x-1 font-mono">
               <span className={`w-1.5 h-1.5 rounded-full ${isSyncing ? 'bg-onedark-yellow animate-ping' : 'bg-onedark-green'}`} />
               <span>{isSyncing ? 'Syncing...' : lastSyncedAt ? `Synced ${formatCommentTimeAgo(lastSyncedAt.toISOString())}` : 'Live auto-sync active'}</span>
@@ -1496,6 +1517,365 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
   );
 };
 
+export interface PRReviewDecisionModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  prNumber: number;
+  prTitle?: string;
+  initialEvent?: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
+  onSubmitDecision: (event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT', body: string) => Promise<void>;
+  isLoading?: boolean;
+}
+
+export const PRReviewDecisionModal: React.FC<PRReviewDecisionModalProps> = ({
+  isOpen,
+  onClose,
+  prNumber,
+  prTitle,
+  initialEvent = 'APPROVE',
+  onSubmitDecision,
+  isLoading = false
+}) => {
+  const [event, setEvent] = useState<'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT'>(initialEvent);
+  const [body, setBody] = useState<string>('');
+
+  useEffect(() => {
+    if (isOpen) {
+      setEvent(initialEvent);
+      setBody('');
+    }
+  }, [isOpen, initialEvent]);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await onSubmitDecision(event, body);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+      <div className="bg-onedark-darker border border-onedark-border rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden text-onedark-fg font-sans">
+        {/* Header */}
+        <div className="p-4 bg-onedark-surface/60 border-b border-onedark-borderSubtle flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <div className="w-7 h-7 rounded-lg bg-onedark-accent/15 border border-onedark-accent/30 flex items-center justify-center text-onedark-accent">
+              <ShieldCheck className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-xs font-bold text-onedark-fgBright">Submit Code Review</h3>
+              <p className="text-[11px] text-onedark-muted font-mono truncate max-w-sm">
+                #{prNumber} {prTitle ? `• ${prTitle}` : ''}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1 rounded-md text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface transition-colors cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-4 space-y-4 text-xs">
+          {/* Verdict Radio Option Tiles */}
+          <div className="space-y-2">
+            <label className="text-[11px] font-semibold text-onedark-muted uppercase tracking-wider">
+              Review Verdict
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setEvent('APPROVE')}
+                className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between space-y-1.5 ${
+                  event === 'APPROVE'
+                    ? 'bg-onedark-green/15 border-onedark-green/60 text-onedark-green ring-1 ring-onedark-green/30'
+                    : 'bg-onedark-surface/50 border-onedark-borderSubtle text-onedark-fg hover:bg-onedark-surface'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <CheckCircle2 className="w-4 h-4 text-onedark-green" />
+                  {event === 'APPROVE' && <span className="w-1.5 h-1.5 rounded-full bg-onedark-green" />}
+                </div>
+                <div>
+                  <div className="font-bold text-[12px]">Approve</div>
+                  <div className="text-[10px] text-onedark-muted leading-tight mt-0.5">Submit feedback and approve merging</div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setEvent('COMMENT')}
+                className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between space-y-1.5 ${
+                  event === 'COMMENT'
+                    ? 'bg-onedark-accent/15 border-onedark-accent/60 text-onedark-accent ring-1 ring-onedark-accent/30'
+                    : 'bg-onedark-surface/50 border-onedark-borderSubtle text-onedark-fg hover:bg-onedark-surface'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <MessageSquare className="w-4 h-4 text-onedark-accent" />
+                  {event === 'COMMENT' && <span className="w-1.5 h-1.5 rounded-full bg-onedark-accent" />}
+                </div>
+                <div>
+                  <div className="font-bold text-[12px]">Comment</div>
+                  <div className="text-[10px] text-onedark-muted leading-tight mt-0.5">Submit general review comments</div>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setEvent('REQUEST_CHANGES')}
+                className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between space-y-1.5 ${
+                  event === 'REQUEST_CHANGES'
+                    ? 'bg-onedark-red/15 border-onedark-red/60 text-onedark-red ring-1 ring-onedark-red/30'
+                    : 'bg-onedark-surface/50 border-onedark-borderSubtle text-onedark-fg hover:bg-onedark-surface'
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <AlertCircle className="w-4 h-4 text-onedark-red" />
+                  {event === 'REQUEST_CHANGES' && <span className="w-1.5 h-1.5 rounded-full bg-onedark-red" />}
+                </div>
+                <div>
+                  <div className="font-bold text-[12px]">Request Changes</div>
+                  <div className="text-[10px] text-onedark-muted leading-tight mt-0.5">Require changes before merging</div>
+                </div>
+              </button>
+            </div>
+          </div>
+
+          {/* Feedback Body Textarea */}
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-semibold text-onedark-muted uppercase tracking-wider flex items-center justify-between">
+              <span>Review Summary / Comments</span>
+              <span className="text-[10px] text-onedark-muted/60 font-normal">Markdown supported</span>
+            </label>
+            <textarea
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              placeholder={
+                event === 'APPROVE'
+                  ? 'LGTM! Great work on the architecture and defensive checks...'
+                  : event === 'REQUEST_CHANGES'
+                  ? 'Please address the following comments before this PR can be merged...'
+                  : 'Overall observations on the patch...'
+              }
+              rows={4}
+              className="w-full bg-onedark-bg border border-onedark-border rounded-xl p-3 text-xs text-onedark-fg placeholder:text-onedark-muted/60 focus:outline-none focus:border-onedark-accent leading-relaxed font-mono"
+            />
+          </div>
+
+          {/* Modal Footer */}
+          <div className="pt-2 border-t border-onedark-borderSubtle flex items-center justify-end space-x-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isLoading}
+              className={`px-4 py-1.5 rounded-lg text-xs font-bold text-white shadow-xs transition-all flex items-center space-x-1.5 cursor-pointer disabled:opacity-50 ${
+                event === 'APPROVE'
+                  ? 'bg-onedark-green hover:bg-onedark-green/90'
+                  : event === 'REQUEST_CHANGES'
+                  ? 'bg-onedark-red hover:bg-onedark-red/90'
+                  : 'bg-onedark-accent hover:bg-onedark-accentHover'
+              }`}
+            >
+              {isLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              <span>
+                {isLoading
+                  ? 'Submitting...'
+                  : event === 'APPROVE'
+                  ? 'Submit Approval'
+                  : event === 'REQUEST_CHANGES'
+                  ? 'Submit Change Request'
+                  : 'Submit Review'}
+              </span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+export interface PRMergeModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  prNumber: number;
+  prTitle?: string;
+  headBranch?: string;
+  baseBranch?: string;
+  onConfirmMerge: (method: 'squash' | 'merge' | 'rebase', title?: string, message?: string) => Promise<void>;
+  isLoading?: boolean;
+}
+
+export const PRMergeModal: React.FC<PRMergeModalProps> = ({
+  isOpen,
+  onClose,
+  prNumber,
+  prTitle = '',
+  headBranch = 'feature',
+  baseBranch = 'main',
+  onConfirmMerge,
+  isLoading = false
+}) => {
+  const [method, setMethod] = useState<'squash' | 'merge' | 'rebase'>('squash');
+  const [commitTitle, setCommitTitle] = useState<string>('');
+  const [commitMessage, setCommitMessage] = useState<string>('');
+
+  useEffect(() => {
+    if (isOpen) {
+      setCommitTitle(`${prTitle} (#${prNumber})`);
+      setCommitMessage(`Squash-merge pull request #${prNumber} from ${headBranch}`);
+    }
+  }, [isOpen, prTitle, prNumber, headBranch]);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await onConfirmMerge(method, commitTitle, commitMessage);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
+      <div className="bg-onedark-darker border border-onedark-border rounded-2xl w-full max-w-md shadow-2xl overflow-hidden text-onedark-fg font-sans">
+        {/* Header */}
+        <div className="p-4 bg-onedark-surface/60 border-b border-onedark-borderSubtle flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <div className="w-7 h-7 rounded-lg bg-onedark-purple/15 border border-onedark-purple/30 flex items-center justify-center text-onedark-purple">
+              <GitMerge className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-xs font-bold text-onedark-fgBright">Merge Pull Request</h3>
+              <p className="text-[11px] text-onedark-muted font-mono truncate">
+                #{prNumber} into <span className="text-onedark-fgBright">{baseBranch}</span>
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1 rounded-md text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface transition-colors cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-4 space-y-4 text-xs">
+          {/* Merge Strategy Options */}
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-semibold text-onedark-muted uppercase tracking-wider">
+              Merge Strategy
+            </label>
+            <div className="space-y-1.5">
+              <button
+                type="button"
+                onClick={() => setMethod('squash')}
+                className={`w-full p-2.5 rounded-xl border text-left transition-all cursor-pointer flex items-start justify-between ${
+                  method === 'squash'
+                    ? 'bg-onedark-purple/15 border-onedark-purple/60 text-onedark-fgBright ring-1 ring-onedark-purple/30'
+                    : 'bg-onedark-surface/40 border-onedark-borderSubtle text-onedark-muted hover:bg-onedark-surface hover:text-onedark-fg'
+                }`}
+              >
+                <div>
+                  <div className="font-semibold text-xs text-onedark-fgBright">Squash and merge</div>
+                  <div className="text-[10.5px] text-onedark-muted mt-0.5">Combine all commits from this PR into one single commit on {baseBranch}.</div>
+                </div>
+                {method === 'squash' && <Check className="w-4 h-4 text-onedark-purple flex-shrink-0 mt-0.5" />}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setMethod('rebase')}
+                className={`w-full p-2.5 rounded-xl border text-left transition-all cursor-pointer flex items-start justify-between ${
+                  method === 'rebase'
+                    ? 'bg-onedark-purple/15 border-onedark-purple/60 text-onedark-fgBright ring-1 ring-onedark-purple/30'
+                    : 'bg-onedark-surface/40 border-onedark-borderSubtle text-onedark-muted hover:bg-onedark-surface hover:text-onedark-fg'
+                }`}
+              >
+                <div>
+                  <div className="font-semibold text-xs text-onedark-fgBright">Rebase and merge</div>
+                  <div className="text-[10.5px] text-onedark-muted mt-0.5">Apply all commits individually onto the tip of {baseBranch}.</div>
+                </div>
+                {method === 'rebase' && <Check className="w-4 h-4 text-onedark-purple flex-shrink-0 mt-0.5" />}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setMethod('merge')}
+                className={`w-full p-2.5 rounded-xl border text-left transition-all cursor-pointer flex items-start justify-between ${
+                  method === 'merge'
+                    ? 'bg-onedark-purple/15 border-onedark-purple/60 text-onedark-fgBright ring-1 ring-onedark-purple/30'
+                    : 'bg-onedark-surface/40 border-onedark-borderSubtle text-onedark-muted hover:bg-onedark-surface hover:text-onedark-fg'
+                }`}
+              >
+                <div>
+                  <div className="font-semibold text-xs text-onedark-fgBright">Create a merge commit</div>
+                  <div className="text-[10.5px] text-onedark-muted mt-0.5">Preserve all individual commits with a merge commit.</div>
+                </div>
+                {method === 'merge' && <Check className="w-4 h-4 text-onedark-purple flex-shrink-0 mt-0.5" />}
+              </button>
+            </div>
+          </div>
+
+          {/* Commit Title */}
+          <div className="space-y-1">
+            <label className="text-[11px] font-semibold text-onedark-muted uppercase tracking-wider">
+              Commit Title
+            </label>
+            <input
+              type="text"
+              value={commitTitle}
+              onChange={(e) => setCommitTitle(e.target.value)}
+              className="w-full bg-onedark-bg border border-onedark-border rounded-xl p-2.5 text-xs text-onedark-fg font-mono focus:outline-none focus:border-onedark-purple"
+            />
+          </div>
+
+          {/* Commit Message */}
+          <div className="space-y-1">
+            <label className="text-[11px] font-semibold text-onedark-muted uppercase tracking-wider">
+              Extended Commit Message
+            </label>
+            <textarea
+              value={commitMessage}
+              onChange={(e) => setCommitMessage(e.target.value)}
+              rows={2}
+              className="w-full bg-onedark-bg border border-onedark-border rounded-xl p-2.5 text-xs text-onedark-fg font-mono focus:outline-none focus:border-onedark-purple leading-relaxed"
+            />
+          </div>
+
+          {/* Footer */}
+          <div className="pt-2 border-t border-onedark-borderSubtle flex items-center justify-end space-x-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface transition-colors cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="px-4 py-1.5 rounded-lg bg-onedark-purple hover:bg-onedark-purple/90 text-white font-bold text-xs shadow-xs transition-all flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+            >
+              {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <GitMerge className="w-3.5 h-3.5" />}
+              <span>{isLoading ? 'Merging...' : `Confirm ${method === 'squash' ? 'Squash & Merge' : method === 'rebase' ? 'Rebase & Merge' : 'Merge'}`}</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
 export interface PRDetailViewProps {
   url?: string | null;
   prNumber?: number;
@@ -1532,6 +1912,9 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
   const [isOutlineOpen, setIsOutlineOpen] = useState<boolean>(false);
 
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [isReviewDecisionModalOpen, setIsReviewDecisionModalOpen] = useState<boolean>(false);
+  const [initialReviewEvent, setInitialReviewEvent] = useState<'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT'>('APPROVE');
+  const [isMergeModalOpen, setIsMergeModalOpen] = useState<boolean>(false);
 
   const contentScrollRef = useRef<HTMLDivElement>(null);
   const outlinePopoverRef = useRef<HTMLDivElement>(null);
@@ -1669,6 +2052,53 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
       setPrTab('review');
     } catch (e) {
       console.error('Error generating AI review:', e);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleSubmitDecision = async (event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT', body: string) => {
+    const effectivePrNum = data?.pr_number || prNumber || prRecord?.pr_number;
+    if (!task?.id || !effectivePrNum) return;
+    setActionLoading('decision');
+    try {
+      const apiBase = import.meta.env.VITE_API_URL || '';
+      await fetch(`${apiBase}/api/tasks/${task.id}/prs/${effectivePrNum}/review_decision`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event, body })
+      });
+      fetchCommentsOnly();
+      if (targetUrl) fetchPR(targetUrl);
+    } catch (e) {
+      console.error('Error submitting review decision:', e);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleQuickApprove = async () => {
+    await handleSubmitDecision('APPROVE', 'LGTM! Approved.');
+  };
+
+  const handleConfirmMerge = async (method: 'squash' | 'merge' | 'rebase', commitTitle?: string, commitMessage?: string) => {
+    const effectivePrNum = data?.pr_number || prNumber || prRecord?.pr_number;
+    if (!task?.id || !effectivePrNum) return;
+    setActionLoading('merge');
+    try {
+      const apiBase = import.meta.env.VITE_API_URL || '';
+      await fetch(`${apiBase}/api/tasks/${task.id}/prs/${effectivePrNum}/merge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          merge_method: method,
+          commit_title: commitTitle,
+          commit_message: commitMessage
+        })
+      });
+      if (targetUrl) fetchPR(targetUrl);
+    } catch (e) {
+      console.error('Error merging pull request:', e);
     } finally {
       setActionLoading(null);
     }
@@ -1962,15 +2392,53 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
               <span>Review with Agent</span>
             </button>
 
-            {onCloneToSession && data?.clone_url && (
-              <button
-                onClick={() => onCloneToSession(data.clone_url!, data.repo_name || '')}
-                className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-onedark-accent/20 hover:bg-onedark-accent/30 border border-onedark-accent/40 text-onedark-accent text-[11px] font-semibold transition-all cursor-pointer shadow-xs whitespace-nowrap flex-shrink-0"
-                title="Clone PR repository into current session sandbox"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span>Clone to Session</span>
-              </button>
+            {/* PR Decision Actions (Only when not already merged/closed) */}
+            {effectiveState !== 'MERGED' && effectiveState !== 'CLOSED' && (
+              <>
+                {/* Quick Approve Button */}
+                <button
+                  onClick={handleQuickApprove}
+                  disabled={Boolean(actionLoading)}
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-onedark-green/20 hover:bg-onedark-green/30 border border-onedark-green/40 text-onedark-green text-[11px] font-semibold transition-all cursor-pointer shadow-xs disabled:opacity-50 whitespace-nowrap flex-shrink-0"
+                  title="Quickly submit an approval review"
+                >
+                  {actionLoading === 'decision' ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                  )}
+                  <span>Approve</span>
+                </button>
+
+                {/* Submit Review Modal Trigger */}
+                <button
+                  onClick={() => {
+                    setInitialReviewEvent('APPROVE');
+                    setIsReviewDecisionModalOpen(true);
+                  }}
+                  disabled={Boolean(actionLoading)}
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-onedark-surface hover:bg-onedark-surface/80 border border-onedark-border text-onedark-fgBright text-[11px] font-semibold transition-all cursor-pointer shadow-xs disabled:opacity-50 whitespace-nowrap flex-shrink-0"
+                  title="Open code review decision modal (Approve, Request Changes, Comment)"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 text-onedark-accent" />
+                  <span>Submit Review</span>
+                </button>
+
+                {/* Merge PR Modal Trigger */}
+                <button
+                  onClick={() => setIsMergeModalOpen(true)}
+                  disabled={Boolean(actionLoading)}
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-onedark-purple/20 hover:bg-onedark-purple/30 border border-onedark-purple/40 text-onedark-purple text-[11px] font-semibold transition-all cursor-pointer shadow-xs disabled:opacity-50 whitespace-nowrap flex-shrink-0"
+                  title="Merge this pull request"
+                >
+                  {actionLoading === 'merge' ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <GitMerge className="w-3.5 h-3.5" />
+                  )}
+                  <span>Merge PR</span>
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -2207,6 +2675,28 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
         onNavigateToFileLine={(filename, line) => {
           setPrTab('diff');
         }}
+      />
+      {/* PR Review Decision Modal */}
+      <PRReviewDecisionModal
+        isOpen={isReviewDecisionModalOpen}
+        onClose={() => setIsReviewDecisionModalOpen(false)}
+        prNumber={Number(effectivePrNum) || 0}
+        prTitle={data?.title || prRecord?.title}
+        initialEvent={initialReviewEvent}
+        onSubmitDecision={handleSubmitDecision}
+        isLoading={actionLoading === 'decision'}
+      />
+
+      {/* PR Merge Modal */}
+      <PRMergeModal
+        isOpen={isMergeModalOpen}
+        onClose={() => setIsMergeModalOpen(false)}
+        prNumber={Number(effectivePrNum) || 0}
+        prTitle={data?.title || prRecord?.title}
+        headBranch={effectiveHeadBranch}
+        baseBranch={effectiveBaseBranch}
+        onConfirmMerge={handleConfirmMerge}
+        isLoading={actionLoading === 'merge'}
       />
     </div>
   );

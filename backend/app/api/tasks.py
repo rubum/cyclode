@@ -1116,4 +1116,141 @@ async def post_task_pr_comment(
     }
 
 
+class PRReviewDecisionRequest(BaseModel):
+    event: str = "APPROVE"  # APPROVE, REQUEST_CHANGES, COMMENT
+    body: Optional[str] = ""
+
+
+class PRMergeRequest(BaseModel):
+    merge_method: str = "squash"  # squash, merge, rebase
+    commit_title: Optional[str] = None
+    commit_message: Optional[str] = None
+
+
+@router.post("/{task_id}/prs/{pr_number}/review_decision")
+async def post_task_pr_review_decision(
+    task_id: str,
+    pr_number: int,
+    req: PRReviewDecisionRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    res = await db.execute(stmt)
+    task = res.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    if not task.repo_name or "/" not in task.repo_name:
+        raise HTTPException(status_code=400, detail="No repository attached to task")
+
+    owner, repo = task.repo_name.split("/", 1)
+    from app.integrations.github_client import github_client
+    from app.integrations.manager import integration_manager
+
+    token = await integration_manager.get_github_token_for_repo(task.repo_url or f"https://github.com/{task.repo_name}")
+    
+    clean_event = (req.event or "APPROVE").upper()
+    if clean_event not in ("APPROVE", "REQUEST_CHANGES", "COMMENT"):
+        clean_event = "APPROVE"
+
+    review_body = req.body.strip() if req.body else (
+        "LGTM! Code review approved via Cyclode." if clean_event == "APPROVE"
+        else "Changes requested via Cyclode code review." if clean_event == "REQUEST_CHANGES"
+        else "Review comments submitted via Cyclode."
+    )
+
+    result = await github_client.post_pull_request_review(
+        owner=owner,
+        repo=repo,
+        pr_number=pr_number,
+        body=review_body,
+        event=clean_event,
+        custom_token=token
+    )
+
+    # Update TaskPR record if present
+    pr_stmt = select(TaskPRModel).where(TaskPRModel.task_id == task_id, TaskPRModel.pr_number == pr_number)
+    p_res = await db.execute(pr_stmt)
+    pr = p_res.scalars().first()
+    if pr:
+        pr.review_summary = review_body
+        await db.commit()
+        await db.refresh(pr)
+
+    await ws_manager.broadcast("TASK_PR_UPDATED", {
+        "task_id": task_id,
+        "pr_number": pr_number,
+        "review_event": clean_event,
+        "review_summary": review_body
+    })
+
+    return {
+        "ok": result.get("ok", True),
+        "result": result,
+        "event": clean_event,
+        "pr_number": pr_number
+    }
+
+
+@router.post("/{task_id}/prs/{pr_number}/merge")
+async def merge_task_pr(
+    task_id: str,
+    pr_number: int,
+    req: PRMergeRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    res = await db.execute(stmt)
+    task = res.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    if not task.repo_name or "/" not in task.repo_name:
+        raise HTTPException(status_code=400, detail="No repository attached to task")
+
+    owner, repo = task.repo_name.split("/", 1)
+    from app.integrations.github_client import github_client
+    from app.integrations.manager import integration_manager
+
+    token = await integration_manager.get_github_token_for_repo(task.repo_url or f"https://github.com/{task.repo_name}")
+    
+    clean_method = req.merge_method.lower() if req.merge_method in ("squash", "merge", "rebase") else "squash"
+
+    result = await github_client.merge_pull_request(
+        owner=owner,
+        repo=repo,
+        pr_number=pr_number,
+        commit_title=req.commit_title,
+        commit_message=req.commit_message,
+        merge_method=clean_method,
+        custom_token=token
+    )
+
+    if not result.get("ok") and not result.get("merged"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Failed to merge pull request"))
+
+    # Update TaskPR in DB
+    pr_stmt = select(TaskPRModel).where(TaskPRModel.task_id == task_id, TaskPRModel.pr_number == pr_number)
+    p_res = await db.execute(pr_stmt)
+    pr = p_res.scalars().first()
+    if pr:
+        pr.status = "MERGED"
+        await db.commit()
+        await db.refresh(pr)
+
+    await ws_manager.broadcast("TASK_PR_UPDATED", {
+        "task_id": task_id,
+        "pr_number": pr_number,
+        "status": "MERGED",
+        "merged": True
+    })
+
+    return {
+        "ok": True,
+        "merged": True,
+        "result": result,
+        "pr_number": pr_number
+    }
+
+
 
