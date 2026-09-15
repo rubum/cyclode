@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Zap,
   ExternalLink,
@@ -17,8 +17,9 @@ import {
   MessageSquare,
   Sparkles,
   ChevronDown,
-  ArrowRight,
-  Layers
+  Layers,
+  KeyRound,
+  ShieldAlert
 } from 'lucide-react';
 import { LinearIssue, LinearState, LinearComment, Task } from '../../types';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
@@ -41,6 +42,7 @@ export const LinearIssueDetailView: React.FC<LinearIssueDetailViewProps> = ({
   const [issue, setIssue] = useState<LinearIssue | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [errorStatus, setErrorStatus] = useState<number | null>(null);
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState<boolean>(false);
   const [updatingStatus, setUpdatingStatus] = useState<boolean>(false);
@@ -53,15 +55,23 @@ export const LinearIssueDetailView: React.FC<LinearIssueDetailViewProps> = ({
     if (!cleanKey) return;
     setLoading(true);
     setError(null);
+    setErrorStatus(null);
     try {
       const res = await fetch(`${API_BASE}/api/linear/issues/${cleanKey}`);
       if (!res.ok) {
-        throw new Error(`Failed to load Linear issue ${cleanKey} (${res.status})`);
+        setErrorStatus(res.status);
+        let errorDetail = `Failed to load Linear ticket ${cleanKey} (HTTP ${res.status})`;
+        try {
+          const errData = await res.json();
+          if (errData.detail) errorDetail = errData.detail;
+        } catch (_) {}
+        throw new Error(errorDetail);
       }
       const data = await res.json();
       setIssue(data);
     } catch (err: any) {
       setError(err.message || 'Error communicating with Linear API');
+      setIssue(null);
     } finally {
       setLoading(false);
     }
@@ -72,7 +82,6 @@ export const LinearIssueDetailView: React.FC<LinearIssueDetailViewProps> = ({
   }, [fetchIssue]);
 
   const handleCopyLink = () => {
-    if (!issue?.url && !cleanKey) return;
     const url = issue?.url || `https://linear.app/issue/${cleanKey}`;
     navigator.clipboard.writeText(url);
     setIsCopied(true);
@@ -90,7 +99,6 @@ export const LinearIssueDetailView: React.FC<LinearIssueDetailViewProps> = ({
         body: JSON.stringify({ state_id: stateId }),
       });
       if (res.ok) {
-        // Optimistically update or re-fetch
         await fetchIssue();
       }
     } catch (err) {
@@ -158,6 +166,8 @@ export const LinearIssueDetailView: React.FC<LinearIssueDetailViewProps> = ({
     { id: 'st-canceled', name: 'Canceled', color: '#eb5757' }
   ];
 
+  const fallbackLinearUrl = issue?.url || `https://linear.app/issue/${cleanKey}`;
+
   return (
     <div className="flex flex-col h-full w-full bg-onedark-bg font-sans text-onedark-fg overflow-hidden select-text">
       {/* Top Header Bar */}
@@ -170,15 +180,19 @@ export const LinearIssueDetailView: React.FC<LinearIssueDetailViewProps> = ({
             <span className="font-mono text-xs font-bold text-onedark-accent tracking-wide whitespace-nowrap">
               {issue?.identifier || cleanKey}
             </span>
-            <span className="text-onedark-borderSubtle">|</span>
-            <span className="text-xs font-medium text-onedark-fgBright truncate">
-              {issue?.title || `Linear Ticket ${cleanKey}`}
-            </span>
+            {issue?.title && (
+              <>
+                <span className="text-onedark-borderSubtle">|</span>
+                <span className="text-xs font-medium text-onedark-fgBright truncate">
+                  {issue.title}
+                </span>
+              </>
+            )}
           </div>
         </div>
 
         <div className="flex items-center space-x-1.5 flex-shrink-0">
-          {onImplementWithAgent && (
+          {issue && onImplementWithAgent && (
             <button
               onClick={handleImplement}
               className="flex items-center space-x-1.5 px-3 py-1 rounded-md bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker text-xs font-mono font-bold transition-all cursor-pointer shadow-xs active:scale-95"
@@ -206,17 +220,15 @@ export const LinearIssueDetailView: React.FC<LinearIssueDetailViewProps> = ({
             {isCopied ? <Check className="w-3.5 h-3.5 text-onedark-green" /> : <Copy className="w-3.5 h-3.5" />}
           </button>
 
-          {issue?.url && (
-            <a
-              href={issue.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="p-1.5 rounded-lg text-onedark-muted hover:text-onedark-accent hover:bg-onedark-surface transition-colors flex-shrink-0"
-              title="Open in Linear.app"
-            >
-              <ExternalLink className="w-3.5 h-3.5" />
-            </a>
-          )}
+          <a
+            href={fallbackLinearUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="p-1.5 rounded-lg text-onedark-muted hover:text-onedark-accent hover:bg-onedark-surface transition-colors flex-shrink-0"
+            title="Open in Linear.app"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+          </a>
 
           {onClose && (
             <button
@@ -240,19 +252,43 @@ export const LinearIssueDetailView: React.FC<LinearIssueDetailViewProps> = ({
           </div>
         )}
 
-        {error && !issue && (
-          <div className="p-4 rounded-xl bg-onedark-red/10 border border-onedark-red/30 text-onedark-red text-xs font-mono space-y-2">
-            <div className="flex items-center space-x-2 font-bold">
-              <AlertCircle className="w-4 h-4" />
-              <span>Failed to load Linear ticket</span>
+        {/* Dedicated Unretrieved / Error State */}
+        {!loading && !issue && (
+          <div className="max-w-xl mx-auto my-8 p-6 rounded-2xl bg-onedark-darker/80 border border-onedark-borderSubtle text-center space-y-4 shadow-xl">
+            <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center mx-auto shadow-xs">
+              {errorStatus === 400 ? <KeyRound className="w-6 h-6" /> : <ShieldAlert className="w-6 h-6" />}
             </div>
-            <p className="text-onedark-fg/80">{error}</p>
-            <button
-              onClick={fetchIssue}
-              className="px-3 py-1 bg-onedark-red/20 hover:bg-onedark-red/30 rounded text-[11px] font-semibold transition-colors cursor-pointer"
-            >
-              Try Again
-            </button>
+
+            <div className="space-y-1.5">
+              <h2 className="text-sm font-bold text-onedark-fgBright">
+                {errorStatus === 400
+                  ? "Linear Integration Not Configured"
+                  : `Unable to Retrieve Ticket ${cleanKey}`}
+              </h2>
+              <p className="text-xs text-onedark-fg/75 max-w-md mx-auto leading-relaxed">
+                {error || `Linear ticket ${cleanKey} could not be retrieved from the workspace.`}
+              </p>
+            </div>
+
+            <div className="pt-2 flex items-center justify-center gap-2.5 flex-wrap">
+              <a
+                href={fallbackLinearUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright text-xs font-mono font-medium transition-colors border border-onedark-border cursor-pointer shadow-xs"
+              >
+                <ExternalLink className="w-3.5 h-3.5 text-onedark-accent" />
+                <span>Open {cleanKey} on Linear.app</span>
+              </a>
+
+              <button
+                onClick={fetchIssue}
+                className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker text-xs font-mono font-bold transition-all cursor-pointer shadow-xs active:scale-95"
+              >
+                <RotateCw className="w-3.5 h-3.5" />
+                <span>Retry</span>
+              </button>
+            </div>
           </div>
         )}
 

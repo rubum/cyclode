@@ -941,7 +941,26 @@ async def _fetch_linear_issue_info(issue_key: str, original_url: str) -> Dict[st
     from app.integrations.linear_client import linear_client
     issue = await linear_client.get_issue(issue_key)
     if not issue:
-        raise HTTPException(status_code=404, detail=f"Linear issue {issue_key} not found")
+        content_markdown = f"""# Linear Issue: {issue_key}
+
+Unable to retrieve ticket `{issue_key}` from Linear.
+
+- Configure your Linear API key in **Settings &rarr; Integrations** to view and sync tickets directly within Cyclode.
+- You can [open {issue_key} directly on Linear.app]({original_url}).
+"""
+        return {
+            "type": "linear",
+            "url": original_url,
+            "title": f"Linear: {issue_key}",
+            "domain": "linear.app",
+            "description": f"Linear Issue {issue_key} (Unretrieved)",
+            "content_markdown": content_markdown,
+            "headings": [{"level": 1, "text": f"Linear: {issue_key}"}],
+            "is_linear": True,
+            "linear_issue": None,
+            "read_time_minutes": 1,
+            "cached": False
+        }
 
     identifier = issue.get("identifier") or issue_key
     title_text = issue.get("title") or "Linear Ticket"

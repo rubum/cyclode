@@ -22,10 +22,19 @@ async def get_linear_issue(issue_key: str):
     """
     Fetches full Linear issue details including comments, labels, status workflow, and assignee.
     """
+    if not linear_client.is_configured():
+        raise HTTPException(
+            status_code=400,
+            detail="Linear integration is not configured. Please connect your Linear API key in Settings > Integrations."
+        )
+
     try:
         issue = await linear_client.get_issue(issue_key)
         if not issue:
-            raise HTTPException(status_code=404, detail=f"Linear issue {issue_key} not found")
+            raise HTTPException(
+                status_code=404,
+                detail=f"Linear issue '{issue_key}' could not be retrieved or does not exist."
+            )
         return issue
     except HTTPException:
         raise
@@ -39,12 +48,21 @@ async def update_linear_issue_status(issue_key: str, payload: UpdateStatusReques
     """
     Updates the state/status of a Linear issue.
     """
+    if not linear_client.is_configured():
+        raise HTTPException(
+            status_code=400,
+            detail="Linear integration is not configured. Please connect your Linear API key in Settings > Integrations."
+        )
+
     try:
-        # First retrieve issue to get id if issue_key is an identifier like PD-1236
         issue = await linear_client.get_issue(issue_key)
-        issue_id = issue.get("id", issue_key)
+        issue_id = issue.get("id", issue_key) if issue else issue_key
         result = await linear_client.update_issue_status(issue_id, payload.state_id)
+        if not result.get("success"):
+            raise HTTPException(status_code=400, detail=result.get("error", "Failed to update status"))
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error updating status for Linear issue {issue_key}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to update issue status: {str(e)}")
@@ -55,11 +73,21 @@ async def post_linear_issue_comment(issue_key: str, payload: PostCommentRequest)
     """
     Posts a new comment to a Linear issue.
     """
+    if not linear_client.is_configured():
+        raise HTTPException(
+            status_code=400,
+            detail="Linear integration is not configured. Please connect your Linear API key in Settings > Integrations."
+        )
+
     try:
         issue = await linear_client.get_issue(issue_key)
-        issue_id = issue.get("id", issue_key)
+        issue_id = issue.get("id", issue_key) if issue else issue_key
         result = await linear_client.post_comment(issue_id, payload.body)
+        if not result.get("success"):
+            raise HTTPException(status_code=400, detail=result.get("error", "Failed to post comment"))
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error posting comment to Linear issue {issue_key}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to post comment: {str(e)}")
@@ -70,6 +98,9 @@ async def search_linear_issues(q: str = Query(..., min_length=1, description="Se
     """
     Searches Linear issues matching the search query.
     """
+    if not linear_client.is_configured():
+        return {"query": q, "results": []}
+
     try:
         results = await linear_client.search_issues(q)
         return {"query": q, "results": results}
