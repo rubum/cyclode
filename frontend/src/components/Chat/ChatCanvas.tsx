@@ -50,7 +50,7 @@ interface ChatCanvasProps {
   currentPreset?: 'standard' | 'wide' | 'fullscreen';
   onSetPreset?: (preset: 'standard' | 'wide' | 'fullscreen') => void;
   onOpenSandboxModal?: () => void;
-  onSelectAuxTab?: (tab: 'docs' | 'files' | 'diff' | 'activity' | 'subagents' | 'event') => void;
+  onSelectAuxTab?: (tab: 'docs' | 'files' | 'prs' | 'activity' | 'subagents' | 'event') => void;
   onOpenPreview?: (url: string, title?: string) => void;
   onNavigateToRepos?: () => void;
 }

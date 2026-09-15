@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { FileCode2, Activity, Cpu, Inbox, Folder, Compass } from 'lucide-react';
+import { GitPullRequest, Activity, Cpu, Inbox, Folder, Compass } from 'lucide-react';
 import { Task } from '../../types';
-import { DiffViewerTab } from './DiffViewerTab';
+import { PullRequestsTab } from './PullRequestsTab';
 import { TerminalTab } from './TerminalTab';
 import { SubagentsTab } from './SubagentsTab';
 import { EventInspectorTab } from './EventInspectorTab';
@@ -12,13 +12,18 @@ import { ErrorBoundary } from '../Common/ErrorBoundary';
 interface AuxiliaryPaneProps {
   task: Task | null;
   repositories?: any[];
-  activeTab?: 'docs' | 'files' | 'diff' | 'activity' | 'subagents' | 'event';
-  onTabChange?: (tab: 'docs' | 'files' | 'diff' | 'activity' | 'subagents' | 'event') => void;
+  activeTab?: 'docs' | 'files' | 'prs' | 'activity' | 'subagents' | 'event';
+  onTabChange?: (tab: 'docs' | 'files' | 'prs' | 'activity' | 'subagents' | 'event') => void;
   previewTarget?: { url: string; title?: string } | null;
   onClearPreview?: () => void;
   onAskAboutRepo?: (repoName: string) => void;
   onCloneToSession?: (repoUrl: string, repoName: string) => void;
 }
+
+const isPrUrl = (targetUrl?: string | null): boolean => {
+  if (!targetUrl) return false;
+  return /github\.com\/[^/]+\/[^/]+\/pull\/\d+/i.test(targetUrl);
+};
 
 export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({ 
   task, 
@@ -30,16 +35,16 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
   onAskAboutRepo,
   onCloneToSession,
 }) => {
-  const [internalTab, setInternalTab] = useState<'docs' | 'files' | 'diff' | 'activity' | 'subagents' | 'event'>(() => {
-    if (previewTarget?.url) return 'docs';
-    if (task?.diffs && task.diffs.length > 0) return 'diff';
+  const [internalTab, setInternalTab] = useState<'docs' | 'files' | 'prs' | 'activity' | 'subagents' | 'event'>(() => {
+    if (previewTarget?.url) return isPrUrl(previewTarget.url) ? 'prs' : 'docs';
+    if (task?.prs && task.prs.length > 0) return 'prs';
     if (task?.repo_name || task?.repo_url) return 'files';
     return 'activity';
   });
 
   const activeTab = controlledTab ?? internalTab;
 
-  const handleTabClick = (tab: 'docs' | 'files' | 'diff' | 'activity' | 'subagents' | 'event') => {
+  const handleTabClick = (tab: 'docs' | 'files' | 'prs' | 'activity' | 'subagents' | 'event') => {
     setInternalTab(tab);
     onTabChange?.(tab);
   };
@@ -48,7 +53,11 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
 
   useEffect(() => {
     if (previewTarget?.url && previewTarget.url !== lastUrlRef.current) {
-      handleTabClick('docs');
+      if (isPrUrl(previewTarget.url)) {
+        handleTabClick('prs');
+      } else {
+        handleTabClick('docs');
+      }
     }
     lastUrlRef.current = previewTarget?.url;
   }, [previewTarget?.url]);
@@ -56,8 +65,8 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
   useEffect(() => {
     if (!task) return;
     if (activeTab === 'docs' && !previewTarget?.url) {
-      if (task.diffs && task.diffs.length > 0) {
-        handleTabClick('diff');
+      if (task.prs && task.prs.length > 0) {
+        handleTabClick('prs');
       } else if (task.repo_name || task.repo_url) {
         handleTabClick('files');
       } else {
@@ -67,9 +76,9 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
   }, [task?.id, previewTarget?.url]);
 
   const tabs = [
-    { id: 'docs', label: 'Web & Docs', icon: Compass, badge: previewTarget?.url ? '●' : undefined },
+    { id: 'docs', label: 'Web & Docs', icon: Compass, badge: (previewTarget?.url && !isPrUrl(previewTarget.url)) ? '●' : undefined },
     { id: 'files', label: 'Files', icon: Folder, iconClass: 'text-onedark-folder' },
-    { id: 'diff', label: 'Diff', icon: FileCode2, count: task?.diffs?.length || 0 },
+    { id: 'prs', label: 'PRs', icon: GitPullRequest, count: task?.prs?.length || 0, badge: (previewTarget?.url && isPrUrl(previewTarget.url)) ? '●' : undefined },
     { id: 'activity', label: 'Tool Activity', icon: Activity, count: task?.logs?.length || 0 },
     { id: 'subagents', label: 'Subagents', icon: Cpu },
     { id: 'event', label: 'Event', icon: Inbox },
@@ -124,10 +133,12 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
               No active task selected
             </div>
           )}
-          {activeTab === 'diff' && (
-            <DiffViewerTab
-              diffs={task?.diffs}
-              taskId={task?.id}
+          {activeTab === 'prs' && (
+            <PullRequestsTab
+              task={task}
+              selectedPrUrl={isPrUrl(previewTarget?.url) ? previewTarget?.url : undefined}
+              onClearSelectedPr={onClearPreview}
+              onCloneToSession={onCloneToSession}
             />
           )}
           {activeTab === 'activity' && <TerminalTab logs={task?.logs} />}
@@ -138,3 +149,4 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
     </div>
   );
 };
+

@@ -696,11 +696,16 @@ async def _fetch_github_pr_info(owner: str, repo: str, pr_number: int) -> Dict[s
                 for c in r_commits.json():
                     commit_obj = c.get("commit", {})
                     author_obj = c.get("author") or {}
+                    raw_msg = commit_obj.get("message", "")
+                    lines = raw_msg.split("\n")
+                    subject = lines[0].strip() if lines else ""
+                    body = "\n".join(lines[1:]).strip() if len(lines) > 1 else ""
                     commits_list.append({
                         "sha": c.get("sha", ""),
                         "short_sha": (c.get("sha") or "")[:7],
-                        "message": commit_obj.get("message", "").split("\n")[0],
-                        "full_message": commit_obj.get("message", ""),
+                        "message": subject,
+                        "body": body,
+                        "full_message": raw_msg,
                         "author_name": commit_obj.get("author", {}).get("name") or author_obj.get("login") or "Unknown",
                         "author_login": author_obj.get("login", ""),
                         "author_avatar": author_obj.get("avatar_url", ""),
@@ -771,6 +776,80 @@ async def _fetch_github_pr_info(owner: str, repo: str, pr_number: int) -> Dict[s
             "files": files_list,
             "commits": commits_list
         }
+
+
+async def _fetch_github_commit_info(owner: str, repo: str, sha: str) -> Dict[str, Any]:
+    """
+    Fetches GitHub Commit metadata, commit message body, author, and changed files with patches.
+    """
+    token = await _get_github_auth_token(owner, repo)
+    headers = {
+        "User-Agent": "Cyclode-Workstation/1.0",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    if token:
+        headers["Authorization"] = f"token {token}"
+
+    commit_url = f"https://api.github.com/repos/{owner}/{repo}/commits/{sha}"
+    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+        try:
+            r = await client.get(commit_url, headers=headers)
+            if r.status_code == 200:
+                data = r.json()
+                commit_obj = data.get("commit", {})
+                author_obj = data.get("author") or {}
+                raw_msg = commit_obj.get("message", "")
+                lines = raw_msg.split("\n")
+                subject = lines[0].strip() if lines else ""
+                body = "\n".join(lines[1:]).strip() if len(lines) > 1 else ""
+                files = []
+                for f in data.get("files", []):
+                    files.append({
+                        "filename": f.get("filename", ""),
+                        "status": f.get("status", "modified"),
+                        "additions": f.get("additions", 0),
+                        "deletions": f.get("deletions", 0),
+                        "changes": f.get("changes", 0),
+                        "patch": f.get("patch", ""),
+                        "raw_url": f.get("raw_url", ""),
+                        "blob_url": f.get("blob_url", "")
+                    })
+                
+                md_content = f"# Commit `{sha[:7]}`: {subject}\n\n**Author**: @{author_obj.get('login') or commit_obj.get('author', {}).get('name') or 'Unknown'} | **Date**: {commit_obj.get('author', {}).get('date', '')}\n\n{body}\n"
+                return {
+                    "type": "github",
+                    "is_commit": True,
+                    "url": data.get("html_url", f"https://github.com/{owner}/{repo}/commit/{sha}"),
+                    "sha": sha,
+                    "short_sha": sha[:7],
+                    "message": subject,
+                    "body": body,
+                    "full_message": raw_msg,
+                    "author_name": commit_obj.get("author", {}).get("name") or author_obj.get("login") or "Unknown",
+                    "author_login": author_obj.get("login", ""),
+                    "author_avatar": author_obj.get("avatar_url", ""),
+                    "date": commit_obj.get("author", {}).get("date", ""),
+                    "html_url": data.get("html_url", f"https://github.com/{owner}/{repo}/commit/{sha}"),
+                    "stats": data.get("stats", {}),
+                    "files": files,
+                    "title": f"{owner}/{repo}@{sha[:7]}: {subject}",
+                    "content_markdown": md_content,
+                    "overview_markdown": md_content
+                }
+        except Exception as e:
+            logger.warning(f"Failed to fetch commit {owner}/{repo}@{sha}: {e}")
+
+    return {
+        "type": "github",
+        "is_commit": True,
+        "sha": sha,
+        "short_sha": sha[:7],
+        "message": f"Commit {sha[:7]}",
+        "body": "",
+        "full_message": f"Commit {sha[:7]}",
+        "files": [],
+        "content_markdown": f"# Commit `{sha[:7]}`\n\nNo details available."
+    }
 
 
 async def _fetch_github_issue_info(owner: str, repo: str, issue_number: int) -> Dict[str, Any]:
@@ -1005,6 +1084,14 @@ async def get_url_reader(url: str = Query(..., description="Target URL to read")
                     return gh_info
                 except Exception as e:
                     logger.warning(f"Error resolving GitHub Issue {owner}/{repo}#{issue_number}: {e}")
+
+            # Check for GitHub Commit URL: /owner/repo/commit/sha
+            elif len(path_parts) >= 4 and path_parts[2].lower() in ("commit", "commits"):
+                commit_sha = path_parts[3]
+                try:
+                    return await _fetch_github_commit_info(owner, repo, commit_sha)
+                except Exception as e:
+                    logger.warning(f"Error resolving GitHub Commit {owner}/{repo}@{commit_sha}: {e}")
 
             # Fallback to GitHub Repository README
             try:

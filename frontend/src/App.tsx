@@ -32,7 +32,7 @@ const MainApp: React.FC = () => {
   const [webhookEndpoints, setWebhookEndpoints] = useState<WebhookEndpoint[]>([]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [currentPreset, setCurrentPreset] = useState<'standard' | 'wide' | 'fullscreen'>('standard');
-  const [activeAuxTab, setActiveAuxTab] = useState<'files' | 'diff' | 'activity' | 'subagents' | 'event' | 'docs'>('activity');
+  const [activeAuxTab, setActiveAuxTab] = useState<'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'docs'>('activity');
   const [sessionPreviews, setSessionPreviews] = useState<Record<string, { url: string; title?: string } | null>>({});
   const activePreviewTarget = activeTaskId ? (sessionPreviews[activeTaskId] || null) : null;
 
@@ -353,6 +353,24 @@ const MainApp: React.FC = () => {
       }
     });
 
+    const unsubPrUpdated = subscribe('TASK_PR_UPDATED', (data: any) => {
+      if (activeTaskId === data.task_id) {
+        fetchTaskDetails(data.task_id);
+      }
+    });
+
+    const unsubPrTestCompleted = subscribe('TASK_PR_TEST_COMPLETED', (data: any) => {
+      if (activeTaskId === data.task_id) {
+        fetchTaskDetails(data.task_id);
+      }
+    });
+
+    const unsubPrReviewed = subscribe('TASK_PR_REVIEWED', (data: any) => {
+      if (activeTaskId === data.task_id) {
+        fetchTaskDetails(data.task_id);
+      }
+    });
+
     const unsubApproval = subscribe('APPROVAL_REQUIRED', (data: any) => {
       fetchTasks();
       if (activeTaskId === data.task_id) {
@@ -430,6 +448,9 @@ const MainApp: React.FC = () => {
       unsubThought();
       unsubToolEnd();
       unsubDiff();
+      unsubPrUpdated();
+      unsubPrTestCompleted();
+      unsubPrReviewed();
       unsubApproval();
       unsubChat();
       unsubEventReceived();
@@ -1048,7 +1069,7 @@ const MainApp: React.FC = () => {
 
   const activeTask = tasks.find((t) => t.id === activeTaskId);
 
-  const handleSelectAuxTab = (tab: 'files' | 'diff' | 'activity' | 'subagents' | 'event') => {
+  const handleSelectAuxTab = (tab: 'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'docs') => {
     setActiveAuxTab(tab);
     if (currentPreset === 'fullscreen') {
       handleSetPreset('standard');

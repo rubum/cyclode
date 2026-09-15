@@ -120,6 +120,92 @@ class AntigravityHarness:
         else:
             on_message(sender, content)
 
+    async def _upsert_task_prs(
+        self,
+        task_id: str,
+        pr_records: List[Dict[str, Any]],
+        filter_context: Optional[Dict[str, Any]] = None,
+        is_session_scoped: bool = True
+    ):
+        """
+        Asynchronously persists discovered PR metadata to TaskPRModel with session scoping and broadcasts live updates.
+        """
+        if not task_id or not pr_records:
+            return
+        try:
+            from app.db.session import async_session_factory
+            from app.db.models import TaskPRModel
+            from app.api.websocket import ws_manager
+            from sqlalchemy import select
+
+            async with async_session_factory() as session:
+                for item in pr_records:
+                    if not isinstance(item, dict):
+                        continue
+                    pr_num = item.get("number") or item.get("pr_number")
+                    if not pr_num:
+                        continue
+                    pr_num = int(pr_num)
+                    stmt = select(TaskPRModel).where(TaskPRModel.task_id == task_id, TaskPRModel.pr_number == pr_num)
+                    res = await session.execute(stmt)
+                    existing = res.scalars().first()
+
+                    title = item.get("title", f"PR #{pr_num}")
+                    author = item.get("author") or (item.get("user", {}).get("login") if isinstance(item.get("user"), dict) else "unknown")
+                    head_branch = item.get("head_branch") or (item.get("head", {}).get("ref") if isinstance(item.get("head"), dict) else "")
+                    base_branch = item.get("base_branch") or (item.get("base", {}).get("ref") if isinstance(item.get("base"), dict) else "main")
+                    html_url = item.get("html_url") or ""
+                    raw_state = (item.get("state") or "OPEN").upper()
+                    status = "MERGED" if item.get("merged") else ("CLOSED" if raw_state == "CLOSED" else "OPEN")
+                    body = item.get("body", "")
+                    diff_stats = {
+                        "additions": item.get("additions", 0),
+                        "deletions": item.get("deletions", 0),
+                        "changed_files": item.get("changed_files") or item.get("changed_files_count", 0)
+                    }
+
+                    if existing:
+                        existing.title = title
+                        existing.author = author
+                        existing.head_branch = head_branch
+                        existing.base_branch = base_branch
+                        existing.html_url = html_url
+                        if body:
+                            existing.body = body
+                        if is_session_scoped:
+                            existing.is_session_scoped = True
+                        if existing.status not in ["TESTS_PASSING", "TESTS_FAILED", "REVIEWING"]:
+                            existing.status = status
+                        existing.diff_stats = diff_stats
+                    else:
+                        new_pr = TaskPRModel(
+                            task_id=task_id,
+                            pr_number=pr_num,
+                            title=title,
+                            author=author,
+                            head_branch=head_branch,
+                            base_branch=base_branch,
+                            html_url=html_url,
+                            body=body,
+                            is_session_scoped=is_session_scoped,
+                            status=status,
+                            diff_stats=diff_stats,
+                            worktree_path=f"worktree-pr-{pr_num}"
+                        )
+                        session.add(new_pr)
+                await session.commit()
+
+            broadcast_payload = {
+                "task_id": task_id,
+                "is_session_scoped": is_session_scoped
+            }
+            if filter_context:
+                broadcast_payload["filter_context"] = filter_context
+
+            await ws_manager.broadcast("TASK_PR_UPDATED", broadcast_payload)
+        except Exception as e:
+            logger.debug(f"Auto-upsert task PRs notice: {e}")
+
     async def execute_task(
         self,
         task_id: str,
@@ -657,6 +743,8 @@ class AntigravityHarness:
                                 pr_num = int(args.get("pr_number", 1))
                                 tool_result = await WorkspaceTools.get_pull_request_details(repo_arg, pr_num)
                                 out_str = json.dumps(tool_result, indent=2)
+                                if isinstance(tool_result, dict) and ("number" in tool_result or "pr_number" in tool_result):
+                                    asyncio.create_task(self._upsert_task_prs(task_id, [tool_result]))
                             elif fn_name == "get_pull_request_diff":
                                 repo_arg = args.get("repository", "")
                                 pr_num = int(args.get("pr_number", 1))
@@ -671,6 +759,19 @@ class AntigravityHarness:
                                     repo_arg, state=state_arg, author=author_arg, limit=limit_arg
                                 )
                                 out_str = json.dumps(tool_result, indent=2)
+                                if isinstance(tool_result, dict) and "pull_requests" in tool_result:
+                                    f_ctx = {
+                                        "author": author_arg,
+                                        "state": state_arg,
+                                        "repository": repo_arg,
+                                        "total_found": tool_result.get("total_found", len(tool_result["pull_requests"]))
+                                    }
+                                    asyncio.create_task(self._upsert_task_prs(
+                                        task_id, 
+                                        tool_result["pull_requests"],
+                                        filter_context=f_ctx,
+                                        is_session_scoped=True
+                                    ))
                             elif fn_name == "post_pull_request_review":
                                 repo_arg = args.get("repository", "")
                                 pr_num = int(args.get("pr_number", 1))
@@ -702,6 +803,8 @@ class AntigravityHarness:
                                     repo_arg, title_arg, body_arg, head_branch_arg, base_branch_arg
                                 )
                                 out_str = json.dumps(tool_result, indent=2)
+                                if isinstance(tool_result, dict) and ("number" in tool_result or "pr_number" in tool_result):
+                                    asyncio.create_task(self._upsert_task_prs(task_id, [tool_result]))
                             elif fn_name == "connect_repository":
                                 repo_url_arg = args.get("repo_url", "")
                                 token_arg = args.get("token")

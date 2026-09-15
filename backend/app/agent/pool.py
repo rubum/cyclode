@@ -7,8 +7,9 @@ from typing import Dict, Any, Optional, List
 from sqlalchemy import select, update, delete
 from app.config import settings
 from app.db.session import async_session_factory
-from app.db.models import TaskModel, TaskMessageModel, TaskLogModel, TaskApprovalModel, TaskDiffModel, get_utc_now
+from app.db.models import TaskModel, TaskMessageModel, TaskLogModel, TaskApprovalModel, TaskDiffModel, TaskPRModel, get_utc_now
 from app.core.worktree import worktree_manager
+from app.agent.tools import WorkspaceTools
 from app.core.sandboxes.manager import sandbox_manager
 from app.core.sandboxes.base import CloneAuthRequiredException, CloneFailedException
 from app.agent.harness import antigravity_harness
@@ -68,7 +69,11 @@ class AgentTaskPool:
                 from app.db.models import RepositoryConfigModel
                 async with async_session_factory() as session:
                     res = await session.execute(select(RepositoryConfigModel))
-                    saved_repos = res.scalars().all()
+                    saved_repos = sorted(
+                        res.scalars().all(),
+                        key=lambda r: max(len(r.full_name or ""), len(r.name or "")),
+                        reverse=True
+                    )
                     combined_lower = f"{title} {description}".lower()
                     for r in saved_repos:
                         r_name = (r.name or "").lower()
@@ -838,6 +843,130 @@ class AgentTaskPool:
             "status": "CANCELLED"
         })
         return {"ok": True, "task_id": task_id, "status": "CANCELLED"}
+
+    async def execute_pr_action(
+        self,
+        task_id: str,
+        pr_id: str,
+        action: str,
+        custom_feedback: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Executes a targeted action on a Pull Request (run_tests, sync, post_review, auto_fix).
+        """
+        async with async_session_factory() as session:
+            stmt = select(TaskPRModel).where(TaskPRModel.id == pr_id, TaskPRModel.task_id == task_id)
+            res = await session.execute(stmt)
+            pr = res.scalars().first()
+            if not pr and pr_id.isdigit():
+                stmt_num = select(TaskPRModel).where(TaskPRModel.pr_number == int(pr_id), TaskPRModel.task_id == task_id)
+                res_num = await session.execute(stmt_num)
+                pr = res_num.scalars().first()
+            if not pr:
+                return {"ok": False, "error": f"Pull Request {pr_id} not found for task {task_id}"}
+
+            task_stmt = select(TaskModel).where(TaskModel.id == task_id)
+            task_res = await session.execute(task_stmt)
+            task = task_res.scalars().first()
+            repo_name = task.repo_name if task else None
+            repo_url = task.repo_url if task else None
+
+            if action == "run_tests":
+                pr.status = "REVIEWING"
+                await session.commit()
+                await ws_manager.broadcast("TASK_PR_UPDATED", {
+                    "task_id": task_id,
+                    "pr_id": pr.id,
+                    "pr_number": pr.pr_number,
+                    "status": "REVIEWING"
+                })
+
+                workspace_path = Path(task.workspace_path if task and task.workspace_path else "/workspaces")
+                test_cmd = "pytest -v" if (workspace_path / "pytest.ini").exists() or (workspace_path / "tests").exists() else "npm test"
+                if repo_name:
+                    from app.db.models import RepositoryConfigModel
+                    r_res = await session.execute(select(RepositoryConfigModel).where(RepositoryConfigModel.full_name == repo_name))
+                    r_cfg = r_res.scalars().first()
+                    if r_cfg and r_cfg.test_command:
+                        test_cmd = r_cfg.test_command
+
+                res_run = WorkspaceTools.run_command(workspace_path, test_cmd)
+                exit_code = res_run.get("exit_code", 0)
+                output = res_run.get("stdout", "") or res_run.get("stderr", "") or "Test command executed."
+                pr.status = "TESTS_PASSING" if exit_code == 0 else "TESTS_FAILED"
+                pr.test_output = output
+                await session.commit()
+
+                await ws_manager.broadcast("TASK_PR_UPDATED", {
+                    "task_id": task_id,
+                    "pr_id": pr.id,
+                    "pr_number": pr.pr_number,
+                    "status": pr.status,
+                    "test_output": pr.test_output
+                })
+                return {"ok": True, "status": pr.status, "test_output": pr.test_output}
+
+            elif action == "sync":
+                if repo_name:
+                    pr_info = await github_client.get_pull_request(repo_name, pr.pr_number)
+                    if pr_info:
+                        pr.title = pr_info.get("title", pr.title)
+                        pr.head_branch = pr_info.get("head_branch", pr.head_branch)
+                        pr.base_branch = pr_info.get("base_branch", pr.base_branch)
+                        pr.author = pr_info.get("author", pr.author)
+                        pr.html_url = pr_info.get("html_url", pr.html_url)
+                        raw_state = (pr_info.get("state") or "OPEN").upper()
+                        if pr_info.get("merged"):
+                            pr.status = "MERGED"
+                        elif raw_state == "CLOSED":
+                            pr.status = "CLOSED"
+                        elif pr.status not in ["TESTS_PASSING", "TESTS_FAILED"]:
+                            pr.status = "OPEN"
+                        pr.diff_stats = {
+                            "additions": pr_info.get("additions", 0),
+                            "deletions": pr_info.get("deletions", 0),
+                            "changed_files": pr_info.get("changed_files_count", 0)
+                        }
+                        await session.commit()
+
+                await ws_manager.broadcast("TASK_PR_UPDATED", {
+                    "task_id": task_id,
+                    "pr_id": pr.id,
+                    "pr_number": pr.pr_number,
+                    "title": pr.title,
+                    "status": pr.status,
+                    "head_branch": pr.head_branch,
+                    "base_branch": pr.base_branch,
+                    "diff_stats": pr.diff_stats
+                })
+                return {"ok": True, "pr": {
+                    "id": pr.id,
+                    "pr_number": pr.pr_number,
+                    "title": pr.title,
+                    "status": pr.status
+                }}
+
+            elif action == "post_review":
+                review_body = custom_feedback or pr.review_summary or f"AI Review for PR #{pr.pr_number}: Automated analysis complete."
+                if repo_name:
+                    review_res = await github_client.post_pull_request_review(
+                        repo_name=repo_name,
+                        pr_number=pr.pr_number,
+                        body=review_body,
+                        event="COMMENT"
+                    )
+                    pr.review_summary = review_body
+                    await session.commit()
+                    await ws_manager.broadcast("TASK_PR_UPDATED", {
+                        "task_id": task_id,
+                        "pr_id": pr.id,
+                        "pr_number": pr.pr_number,
+                        "review_summary": pr.review_summary
+                    })
+                    return {"ok": True, "result": review_res}
+                return {"ok": False, "error": "No repository name attached to task"}
+
+            return {"ok": False, "error": f"Unknown action '{action}'"}
 
     async def send_user_message(self, task_id: str, message_text: str) -> Dict[str, Any]:
         """

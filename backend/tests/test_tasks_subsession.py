@@ -63,3 +63,83 @@ async def test_subsession_creation_and_filtering():
         detail = detail_res.json()
         assert detail["is_subsession"] is True
         assert detail["parent_task_id"] == primary_id
+
+
+@pytest.mark.asyncio
+async def test_task_pr_endpoints_and_actions():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Create a task
+        create_res = await client.post("/api/tasks", json={
+            "title": "Task for PR Testing",
+            "description": "Validating PR tab mission control",
+            "persona": "CodeReviewer",
+            "repo_name": "octocat/Hello-World"
+        })
+        assert create_res.status_code == 200
+        task_id = create_res.json()["task_id"]
+
+        # 2. Attach a PR to the task
+        attach_res = await client.post(f"/api/tasks/{task_id}/prs", json={
+            "pr_number": 42,
+            "title": "Fix race condition in session loop",
+            "head_branch": "fix/session-race",
+            "base_branch": "main",
+            "author": "octocat",
+            "html_url": "https://github.com/octocat/Hello-World/pull/42"
+        })
+        assert attach_res.status_code == 200
+        pr_id = attach_res.json()["pr_id"]
+
+        # 3. GET /api/tasks/{task_id}/prs returns the attached PR
+        list_prs_res = await client.get(f"/api/tasks/{task_id}/prs")
+        assert list_prs_res.status_code == 200
+        prs = list_prs_res.json()
+        assert len(prs) == 1
+        assert prs[0]["pr_number"] == 42
+        assert prs[0]["title"] == "Fix race condition in session loop"
+        assert prs[0]["status"] == "OPEN"
+
+        # 4. GET /api/tasks/{task_id} includes prs list in detail
+        task_detail_res = await client.get(f"/api/tasks/{task_id}")
+        assert task_detail_res.status_code == 200
+        task_detail = task_detail_res.json()
+        assert "prs" in task_detail
+        assert len(task_detail["prs"]) == 1
+        assert task_detail["prs"][0]["pr_number"] == 42
+
+        # 5. Trigger PR action (run_tests)
+        action_res = await client.post(f"/api/tasks/{task_id}/prs/{pr_id}/action", json={
+            "action": "run_tests"
+        })
+        assert action_res.status_code == 200
+        action_data = action_res.json()
+        assert action_data["ok"] is True
+        assert action_data["status"] in ["TESTS_PASSING", "TESTS_FAILED"]
+
+        # 6. Check GET /api/tasks/{task_id}/prs/{pr_number}/diff
+        diff_res = await client.get(f"/api/tasks/{task_id}/prs/42/diff")
+        assert diff_res.status_code == 200
+        diff_data = diff_res.json()
+        assert diff_data["ok"] is True
+        assert "diffs" in diff_data
+
+        # 7. Test POST /api/tasks/{task_id}/prs/sync_repo
+        sync_res = await client.post(f"/api/tasks/{task_id}/prs/sync_repo")
+        assert sync_res.status_code == 200
+        sync_data = sync_res.json()
+        assert sync_data["ok"] is True
+        assert "count" in sync_data
+
+        # 8. Test scoped and author filtering on GET /api/tasks/{task_id}/prs
+        session_scoped_res = await client.get(f"/api/tasks/{task_id}/prs?scope=session")
+        assert session_scoped_res.status_code == 200
+        session_prs = session_scoped_res.json()
+        assert any(p["pr_number"] == 42 and p["is_session_scoped"] is True for p in session_prs)
+
+        author_filter_res = await client.get(f"/api/tasks/{task_id}/prs?author=octocat")
+        assert author_filter_res.status_code == 200
+        author_prs = author_filter_res.json()
+        assert all("octocat" in p["author"].lower() for p in author_prs)
+
+

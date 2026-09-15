@@ -87,6 +87,14 @@ def _migrate_db(connection):
     if "tokens" not in msg_cols:
         connection.exec_driver_sql("ALTER TABLE task_messages ADD COLUMN tokens INTEGER DEFAULT 0")
 
+    # Check task_prs table columns
+    prs_cols = [row[1] for row in connection.exec_driver_sql("PRAGMA table_info(task_prs)").fetchall()]
+    if prs_cols:
+        if "body" not in prs_cols:
+            connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN body TEXT")
+        if "is_session_scoped" not in prs_cols:
+            connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN is_session_scoped BOOLEAN DEFAULT 1")
+
 
 async def ensure_default_repositories():
     """

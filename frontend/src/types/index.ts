@@ -97,6 +97,8 @@ export interface TaskPR {
   };
   review_summary?: string;
   test_output?: string;
+  body?: string;
+  is_session_scoped?: boolean;
   created_at?: string;
   updated_at?: string;
 }

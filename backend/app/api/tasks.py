@@ -269,6 +269,188 @@ async def edit_task_description(task_id: str, req: EditMessageRequest):
     return res
 
 
+class PRActionRequest(BaseModel):
+    action: str  # run_tests, sync, post_review
+    feedback: Optional[str] = None
+
+
+class AttachPRRequest(BaseModel):
+    pr_number: int
+    title: str
+    head_branch: str = ""
+    base_branch: str = "main"
+    author: str = ""
+    html_url: str = ""
+
+
+@router.get("/{task_id}/prs")
+async def get_task_prs(
+    task_id: str,
+    scope: Optional[str] = None,
+    author: Optional[str] = None,
+    state: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(TaskPRModel).where(TaskPRModel.task_id == task_id)
+    if scope == "session":
+        stmt = stmt.where(TaskPRModel.is_session_scoped == True)
+    if author:
+        clean_author = author.replace("@", "").strip()
+        if clean_author:
+            stmt = stmt.where(TaskPRModel.author.ilike(f"%{clean_author}%"))
+    if state and state.upper() != "ALL":
+        if state.upper() == "PASSING":
+            stmt = stmt.where(TaskPRModel.status == "TESTS_PASSING")
+        elif state.upper() == "FAILED":
+            stmt = stmt.where(TaskPRModel.status == "TESTS_FAILED")
+        else:
+            stmt = stmt.where(TaskPRModel.status == state.upper())
+
+    stmt = stmt.order_by(TaskPRModel.pr_number.desc())
+    res = await db.execute(stmt)
+    prs = res.scalars().all()
+    return [
+        {
+            "id": p.id,
+            "task_id": p.task_id,
+            "pr_number": p.pr_number,
+            "title": p.title,
+            "author": p.author,
+            "head_branch": p.head_branch,
+            "base_branch": p.base_branch,
+            "html_url": p.html_url,
+            "body": p.body,
+            "status": p.status,
+            "is_session_scoped": p.is_session_scoped,
+            "worktree_path": p.worktree_path,
+            "diff_stats": p.diff_stats or {},
+            "review_summary": p.review_summary,
+            "test_output": p.test_output,
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+            "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+        }
+        for p in prs
+    ]
+
+
+@router.post("/{task_id}/prs")
+async def attach_pr_to_task(task_id: str, req: AttachPRRequest, db: AsyncSession = Depends(get_db)):
+    stmt = select(TaskPRModel).where(TaskPRModel.task_id == task_id, TaskPRModel.pr_number == req.pr_number)
+    res = await db.execute(stmt)
+    existing = res.scalars().first()
+    if existing:
+        existing.title = req.title
+        existing.head_branch = req.head_branch
+        existing.base_branch = req.base_branch
+        existing.author = req.author
+        existing.html_url = req.html_url
+        existing.is_session_scoped = True
+        await db.commit()
+        await ws_manager.broadcast("TASK_PR_UPDATED", {"task_id": task_id, "pr_id": existing.id, "pr_number": existing.pr_number})
+        return {"ok": True, "pr_id": existing.id}
+
+    pr = TaskPRModel(
+        task_id=task_id,
+        pr_number=req.pr_number,
+        title=req.title,
+        head_branch=req.head_branch,
+        base_branch=req.base_branch,
+        author=req.author,
+        html_url=req.html_url,
+        is_session_scoped=True,
+        status="OPEN"
+    )
+    db.add(pr)
+    await db.commit()
+    await db.refresh(pr)
+    await ws_manager.broadcast("TASK_PR_UPDATED", {"task_id": task_id, "pr_id": pr.id, "pr_number": pr.pr_number})
+    return {"ok": True, "pr_id": pr.id}
+
+
+@router.post("/{task_id}/prs/{pr_id}/action")
+async def trigger_pr_action(task_id: str, pr_id: str, req: PRActionRequest):
+    res = await agent_pool.execute_pr_action(task_id, pr_id, req.action, req.feedback)
+    if not res.get("ok"):
+        raise HTTPException(status_code=400, detail=res.get("error", "Action failed"))
+    return res
+
+
+@router.post("/{task_id}/prs/sync_repo")
+async def sync_task_repo_prs(task_id: str, db: AsyncSession = Depends(get_db)):
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    res = await db.execute(stmt)
+    task = res.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    if not task.repo_name or "/" not in task.repo_name:
+        return {"ok": True, "count": 0, "message": "No repository attached to task"}
+
+    owner, repo = task.repo_name.split("/", 1)
+    from app.integrations.github_client import github_client
+    from app.integrations.manager import integration_manager
+
+    token = await integration_manager.get_github_token_for_repo(task.repo_url or f"https://github.com/{task.repo_name}")
+    raw_prs = await github_client.list_pull_requests(owner, repo, state="all", custom_token=token)
+
+    synced_count = 0
+    for p in raw_prs[:50]:
+        pr_num = p.get("number")
+        if not pr_num:
+            continue
+        p_stmt = select(TaskPRModel).where(TaskPRModel.task_id == task_id, TaskPRModel.pr_number == pr_num)
+        p_res = await db.execute(p_stmt)
+        existing = p_res.scalars().first()
+
+        title = p.get("title", f"PR #{pr_num}")
+        author = p.get("user", {}).get("login", "unknown") if isinstance(p.get("user"), dict) else str(p.get("user") or "unknown")
+        head_branch = p.get("head", {}).get("ref", "") if isinstance(p.get("head"), dict) else ""
+        base_branch = p.get("base", {}).get("ref", "main") if isinstance(p.get("base"), dict) else "main"
+        html_url = p.get("html_url", "")
+        body = p.get("body", "")
+        raw_state = (p.get("state") or "OPEN").upper()
+        status = "MERGED" if p.get("merged") else ("CLOSED" if raw_state == "CLOSED" else "OPEN")
+        diff_stats = {
+            "additions": p.get("additions", 0),
+            "deletions": p.get("deletions", 0),
+            "changed_files": p.get("changed_files") or p.get("changed_files_count", 0)
+        }
+
+        if existing:
+            existing.title = title
+            existing.author = author
+            existing.head_branch = head_branch
+            existing.base_branch = base_branch
+            existing.html_url = html_url
+            if body:
+                existing.body = body
+            if existing.status not in ["TESTS_PASSING", "TESTS_FAILED", "REVIEWING"]:
+                existing.status = status
+            existing.diff_stats = diff_stats
+        else:
+            new_pr = TaskPRModel(
+                task_id=task_id,
+                pr_number=pr_num,
+                title=title,
+                author=author,
+                head_branch=head_branch,
+                base_branch=base_branch,
+                html_url=html_url,
+                body=body,
+                is_session_scoped=False,
+                status=status,
+                diff_stats=diff_stats,
+                worktree_path=f"worktree-pr-{pr_num}"
+            )
+            db.add(new_pr)
+        synced_count += 1
+
+    await db.commit()
+    await ws_manager.broadcast("TASK_PR_UPDATED", {"task_id": task_id})
+    return {"ok": True, "count": synced_count, "repo_name": task.repo_name}
+
+
+
 @router.post("/{task_id}/approve")
 async def approve_task_action(task_id: str, req: ApprovalActionRequest):
     res = await agent_pool.approve_task(task_id, req.feedback)
@@ -696,12 +878,6 @@ async def get_sandbox_file_content(task_id: str, path: str, db: AsyncSession = D
     }
 
 
-@router.get("/{task_id}/prs")
-async def list_task_prs(task_id: str, db: AsyncSession = Depends(get_db)):
-    stmt = select(TaskPRModel).where(TaskPRModel.task_id == task_id).order_by(TaskPRModel.pr_number)
-    res = await db.execute(stmt)
-    prs = res.scalars().all()
-    return prs
 
 
 @router.get("/{task_id}/prs/{pr_number}/diff")

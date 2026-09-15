@@ -100,6 +100,8 @@ class TaskPRModel(Base):
     diff_stats: Mapped[Dict[str, Any]] = mapped_column(JSON, default=dict)
     review_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     test_output: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    body: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_session_scoped: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now, onupdate=get_utc_now)
 
