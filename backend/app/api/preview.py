@@ -73,6 +73,202 @@ def _extract_html_title(html_file: Path) -> Optional[str]:
     return None
 
 
+def _inject_html_telemetry_and_base(html_text: str, base_href: str) -> str:
+    """
+    Injects `<base href="...">` and an iframe telemetry/console capture script into HTML content.
+    """
+    telemetry_script = (
+        "\n<script id=\"cyclode-preview-telemetry\">\n"
+        "(function() {\n"
+        "  function serializeArg(arg) {\n"
+        "    if (arg === null) return 'null';\n"
+        "    if (arg === undefined) return 'undefined';\n"
+        "    if (arg instanceof Error) return (arg.name || 'Error') + ': ' + arg.message + (arg.stack ? '\\n' + arg.stack : '');\n"
+        "    if (typeof arg === 'object') {\n"
+        "      try { return JSON.stringify(arg); } catch (e) { return String(arg); }\n"
+        "    }\n"
+        "    return String(arg);\n"
+        "  }\n"
+        "  function send(level, args) {\n"
+        "    try {\n"
+        "      var strArgs = Array.prototype.slice.call(args).map(serializeArg).join(' ');\n"
+        "      window.parent.postMessage({\n"
+        "        source: 'cyclode-preview-console',\n"
+        "        level: level,\n"
+        "        payload: strArgs,\n"
+        "        timestamp: new Date().toISOString()\n"
+        "      }, '*');\n"
+        "    } catch (e) {}\n"
+        "  }\n"
+        "  var origLog = console.log, origWarn = console.warn, origErr = console.error, origInfo = console.info;\n"
+        "  console.log = function() { send('log', arguments); if (origLog) origLog.apply(console, arguments); };\n"
+        "  console.warn = function() { send('warn', arguments); if (origWarn) origWarn.apply(console, arguments); };\n"
+        "  console.error = function() { send('error', arguments); if (origErr) origErr.apply(console, arguments); };\n"
+        "  console.info = function() { send('info', arguments); if (origInfo) origInfo.apply(console, arguments); };\n"
+        "  window.addEventListener('error', function(e) {\n"
+        "    var loc = (e.filename || '') + (e.lineno ? ':' + e.lineno : '') + (e.colno ? ':' + e.colno : '');\n"
+        "    var stack = e.error && e.error.stack ? '\\n' + e.error.stack : '';\n"
+        "    send('error', [(e.message || 'Uncaught Error') + (loc ? ' (' + loc + ')' : '') + stack]);\n"
+        "  });\n"
+        "  window.addEventListener('unhandledrejection', function(e) {\n"
+        "    var reason = e.reason;\n"
+        "    var msg = reason instanceof Error ? (reason.message + (reason.stack ? '\\n' + reason.stack : '')) : String(reason);\n"
+        "    send('error', ['Unhandled Promise Rejection: ' + msg]);\n"
+        "  });\n"
+        "})();\n"
+        "</script>\n"
+    )
+
+    base_tag = f'<base href="{base_href}">' if not re.search(r'<base\s+[^>]*href=', html_text, re.IGNORECASE) else ""
+    injection = f"{base_tag}\n{telemetry_script}"
+
+    if re.search(r"<head[^>]*>", html_text, re.IGNORECASE):
+        return re.sub(r"(<head[^>]*>)", r"\1\n" + injection, html_text, count=1, flags=re.IGNORECASE)
+    elif re.search(r"<html[^>]*>", html_text, re.IGNORECASE):
+        return re.sub(r"(<html[^>]*>)", r"\1\n<head>" + injection + "</head>", html_text, count=1, flags=re.IGNORECASE)
+    else:
+        return f"<!DOCTYPE html>\n<html><head>{injection}</head><body>{html_text}</body></html>"
+
+
+def _generate_diagnostic_html(task_id: str, task_title: str, ws_path: Optional[Path]) -> str:
+    """
+    Generates a helpful, rich OneDark-themed diagnostic landing page when no static index.html is available.
+    """
+    discovered_files: List[str] = []
+    framework_hint = "Static HTML / Web App"
+
+    if ws_path and ws_path.exists():
+        for root, dirs, files in os.walk(ws_path):
+            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "venv", "__pycache__", ".git")]
+            for f in files:
+                rel = str((Path(root) / f).relative_to(ws_path))
+                discovered_files.append(rel)
+                if len(discovered_files) >= 30:
+                    break
+            if len(discovered_files) >= 30:
+                break
+
+    if any(f.endswith((".tsx", ".jsx")) for f in discovered_files):
+        framework_hint = "React / Vite / TSX Application (Raw source detected without static index.html or build output)"
+    elif any(f.endswith(".py") for f in discovered_files):
+        framework_hint = "Python Service / Backend Application"
+    elif any("package.json" in f for f in discovered_files):
+        framework_hint = "Node.js / Web Application"
+
+    file_list_html = "".join(f"<li style='margin-bottom:4px;font-family:monospace;'>📄 {f}</li>" for f in discovered_files[:15])
+    if not file_list_html:
+        file_list_html = "<li style='color:#7f848e;'>No files found in workspace root yet.</li>"
+
+    html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Preview Diagnostics - {task_title}</title>
+  <style>
+    * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+    body {{
+      background: #1e1e24;
+      color: #abb2bf;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 24px;
+    }}
+    .card {{
+      background: #21252b;
+      border: 1px solid #3b4048;
+      border-radius: 14px;
+      padding: 28px;
+      max-width: 640px;
+      width: 100%;
+      box-shadow: 0 12px 30px rgba(0,0,0,0.4);
+    }}
+    .header {{
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+    }}
+    .icon {{
+      width: 36px;
+      height: 36px;
+      border-radius: 8px;
+      background: rgba(97, 175, 239, 0.15);
+      border: 1px solid rgba(97, 175, 239, 0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #61afef;
+      font-size: 18px;
+    }}
+    h1 {{ font-size: 16px; color: #e5c07b; font-weight: 600; }}
+    p {{ font-size: 13px; line-height: 1.6; color: #abb2bf; margin-bottom: 14px; }}
+    .badge {{
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: rgba(224, 108, 117, 0.15);
+      border: 1px solid rgba(224, 108, 117, 0.3);
+      color: #e06c75;
+      font-size: 11px;
+      font-family: monospace;
+      margin-bottom: 14px;
+    }}
+    .file-box {{
+      background: #1a1c22;
+      border: 1px solid #2c313a;
+      border-radius: 8px;
+      padding: 14px;
+      margin-bottom: 16px;
+      font-size: 12px;
+      max-height: 160px;
+      overflow-y: auto;
+    }}
+    .tip {{
+      background: rgba(97, 175, 239, 0.08);
+      border-left: 3px solid #61afef;
+      padding: 10px 14px;
+      border-radius: 0 6px 6px 0;
+      font-size: 12px;
+      color: #d19a66;
+    }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <div class="icon">⚡</div>
+      <div>
+        <h1>Cyclode App Preview Diagnostics</h1>
+        <div style="font-size: 11px; color: #7f848e;">Workspace: sandbox-{task_id[:8]}</div>
+      </div>
+    </div>
+    <div class="badge">No Static Entry Point (index.html) Detected</div>
+    <p>The Cyclode live preview engine serves web applications rendered directly from an <code>index.html</code> entry point or built client bundles.</p>
+    
+    <div style="font-size: 11px; color: #7f848e; margin-bottom: 6px; font-weight: 600; text-transform: uppercase;">
+      Detected Environment: <span style="color: #61afef;">{framework_hint}</span>
+    </div>
+    
+    <div class="file-box">
+      <div style="color: #5c6370; margin-bottom: 6px; font-weight: 600;">Discovered Files in Sandbox:</div>
+      <ul style="list-style: none;">
+        {file_list_html}
+      </ul>
+    </div>
+
+    <div class="tip">
+      💡 <strong>Suggested Remediation</strong>: Tell the Cyclode Agent in chat: <em>"Create an interactive index.html with modern React/Tailwind CDN stack"</em> or build the frontend bundle.
+    </div>
+  </div>
+</body>
+</html>"""
+    return _inject_html_telemetry_and_base(html_content, f"/api/tasks/{task_id}/preview/")
+
+
 @router.get("/{task_id}/preview/inspect")
 async def inspect_preview(task_id: str, db: AsyncSession = Depends(get_db)):
     """
@@ -139,11 +335,14 @@ async def inspect_preview(task_id: str, db: AsyncSession = Depends(get_db)):
 
     asset_extensions = {".html", ".htm", ".css", ".js", ".mjs", ".jsx", ".ts", ".tsx", ".svg", ".png", ".jpg", ".jpeg", ".json", ".wasm"}
     assets_count = 0
+    discovered_files: List[str] = []
     for root, dirs, files in os.walk(ws_path):
         dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "venv", "__pycache__", ".git")]
         for f in files:
             if Path(f).suffix.lower() in asset_extensions:
                 assets_count += 1
+            rel_f = str((Path(root) / f).relative_to(ws_path))
+            discovered_files.append(rel_f)
 
     pkg_json_file = ws_path / "package.json"
     has_package_json = pkg_json_file.exists() and pkg_json_file.is_file()
@@ -168,6 +367,16 @@ async def inspect_preview(task_id: str, db: AsyncSession = Depends(get_db)):
             "available_entry_points": [],
             "preview_url": None,
         }
+    elif assets_count > 0:
+        return {
+            "has_preview": True,
+            "type": "diagnostic",
+            "entry_point": "index.html",
+            "title": task.title or "App Preview Diagnostics",
+            "assets_count": assets_count,
+            "available_entry_points": [],
+            "preview_url": f"/api/tasks/{task_id}/preview/index.html",
+        }
 
     return {
         "has_preview": False,
@@ -180,10 +389,68 @@ async def inspect_preview(task_id: str, db: AsyncSession = Depends(get_db)):
     }
 
 
+@router.get("/{task_id}/preview/diagnostics")
+async def get_preview_diagnostics(task_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Returns deep inspection diagnostics of workspace files, framework type, and preview telemetry.
+    """
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    result = await db.execute(stmt)
+    task = result.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    ws_path = _get_workspace_path(task)
+    if not ws_path:
+        return {
+            "task_id": task_id,
+            "workspace_exists": False,
+            "framework": "None",
+            "files": [],
+            "suggestions": ["Task workspace has not been created on disk yet."]
+        }
+
+    files: List[Dict[str, Any]] = []
+    for root, dirs, files_list in os.walk(ws_path):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "venv", "__pycache__", ".git")]
+        for f in files_list:
+            fp = Path(root) / f
+            try:
+                rel = str(fp.relative_to(ws_path))
+                files.append({
+                    "path": rel,
+                    "size": fp.stat().st_size,
+                    "is_entry": rel in ["index.html", "public/index.html", "dist/index.html"]
+                })
+            except Exception:
+                continue
+
+    framework = "Static Web (HTML/JS)"
+    suggestions = []
+    file_paths = [f["path"] for f in files]
+
+    if any(p.endswith((".tsx", ".jsx")) for p in file_paths):
+        framework = "React / Vite / TSX"
+        if not any(p == "index.html" or "dist/index.html" in p for p in file_paths):
+            suggestions.append("Found React/TSX source without built bundle. Generate a zero-dependency CDN index.html for instant preview.")
+    elif any(p.endswith(".py") for p in file_paths):
+        framework = "Python Backend API"
+        suggestions.append("FastAPI / Python backend detected. Verify REST endpoints or pair with a frontend index.html.")
+
+    return {
+        "task_id": task_id,
+        "workspace_exists": True,
+        "framework": framework,
+        "files_count": len(files),
+        "files": files[:50],
+        "suggestions": suggestions
+    }
+
+
 @router.get("/{task_id}/preview/{file_path:path}")
 async def serve_preview_file(task_id: str, file_path: str = "", db: AsyncSession = Depends(get_db)):
     """
-    Safely serves workspace static assets with strict path confinement, MIME detection, and sandboxing headers.
+    Safely serves workspace static assets with script injection, MIME detection, and sandboxing headers.
     """
     stmt = select(TaskModel).where(TaskModel.id == task_id)
     result = await db.execute(stmt)
@@ -212,14 +479,28 @@ async def serve_preview_file(task_id: str, file_path: str = "", db: AsyncSession
         logger.warning(f"Path traversal attempt blocked: {clean_rel} outside {ws_path}")
         raise HTTPException(status_code=403, detail="Access denied: Path outside workspace sandbox")
 
+    headers = {
+        "X-Frame-Options": "SAMEORIGIN",
+        "Content-Security-Policy": "frame-ancestors 'self' *",
+        "Cache-Control": "no-cache, must-revalidate",
+        "Cross-Origin-Resource-Policy": "cross-origin",
+        "Access-Control-Allow-Origin": "*",
+    }
+
     if target_file.exists() and target_file.is_dir():
         index_candidate = target_file / "index.html"
         if index_candidate.exists() and index_candidate.is_file():
             target_file = index_candidate
         else:
-            raise HTTPException(status_code=404, detail=f"Directory '{clean_rel}' has no index.html")
+            # Generate diagnostic page for this folder
+            diag_html = _generate_diagnostic_html(task_id, task.title or "Preview", ws_path)
+            return Response(content=diag_html, media_type="text/html; charset=utf-8", headers=headers)
 
+    # If index.html requested but does not exist on disk, render diagnostic landing page!
     if not target_file.exists() or not target_file.is_file():
+        if clean_rel in ["index.html", "public/index.html"]:
+            diag_html = _generate_diagnostic_html(task_id, task.title or "Preview", ws_path)
+            return Response(content=diag_html, media_type="text/html; charset=utf-8", headers=headers)
         raise HTTPException(status_code=404, detail=f"File '{clean_rel}' not found")
 
     ext = target_file.suffix.lower()
@@ -228,12 +509,19 @@ async def serve_preview_file(task_id: str, file_path: str = "", db: AsyncSession
         guessed_type, _ = mimetypes.guess_type(str(target_file))
         media_type = guessed_type or "application/octet-stream"
 
-    headers = {
-        "X-Frame-Options": "SAMEORIGIN",
-        "Content-Security-Policy": "frame-ancestors 'self' *",
-        "Cache-Control": "no-cache, must-revalidate",
-        "Cross-Origin-Resource-Policy": "cross-origin",
-    }
+    # For HTML files: inject base URL and console/error capture telemetry script
+    if ext in [".html", ".htm"]:
+        try:
+            raw_html = target_file.read_text(encoding="utf-8", errors="ignore")
+            base_href = f"/api/tasks/{task_id}/preview/"
+            injected_html = _inject_html_telemetry_and_base(raw_html, base_href)
+            return Response(
+                content=injected_html,
+                media_type="text/html; charset=utf-8",
+                headers=headers
+            )
+        except Exception as e:
+            logger.error(f"Failed to inject preview telemetry: {e}")
 
     return FileResponse(
         path=str(target_file),

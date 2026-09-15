@@ -10,18 +10,25 @@ import {
   Terminal,
   AlertCircle,
   Play,
-  Layers,
   ChevronDown,
   Sparkles,
-  Maximize2,
   Trash2,
-  Globe
+  Globe,
+  Search,
+  RefreshCw,
+  X,
+  Wrench,
+  CheckCircle2,
+  XCircle,
+  FileCode,
+  ArrowRight
 } from 'lucide-react';
 import { Task, WorkspacePreviewInfo } from '../../types';
 
 interface AppPreviewTabProps {
   task: Task | null;
   onSelectAuxTab?: (tab: string) => void;
+  onAskAgent?: (prompt: string) => void;
 }
 
 interface ConsoleEntry {
@@ -31,9 +38,32 @@ interface ConsoleEntry {
   timestamp: string;
 }
 
+interface DiagnosticData {
+  task_id: string;
+  has_preview: boolean;
+  entry_point?: string;
+  available_entry_points: string[];
+  framework?: string;
+  title?: string;
+  assets_found: Array<{ name: string; type: string; size: number }>;
+  diagnostics: {
+    entry_point_exists: boolean;
+    has_html_files: boolean;
+    has_js_bundles: boolean;
+    has_package_json: boolean;
+    has_vite_config: boolean;
+    workspace_total_files: number;
+  };
+  suggested_actions: string[];
+}
+
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
-export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({ task }) => {
+export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
+  task,
+  onSelectAuxTab,
+  onAskAgent,
+}) => {
   const [previewInfo, setPreviewInfo] = useState<WorkspacePreviewInfo | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -41,9 +71,20 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({ task }) => {
   const [currentPath, setCurrentPath] = useState<string>('index.html');
   const [iframeKey, setIframeKey] = useState<number>(0);
   const [copied, setCopied] = useState<boolean>(false);
-  const [consoleOpen, setConsoleOpen] = useState<boolean>(false);
+  const [logsCopied, setLogsCopied] = useState<boolean>(false);
+
+  // DevTools & Console State
+  const [devToolsOpen, setDevToolsOpen] = useState<boolean>(false);
+  const [devToolsTab, setDevToolsTab] = useState<'console' | 'diagnostics'>('console');
   const [consoleLogs, setConsoleLogs] = useState<ConsoleEntry[]>([]);
+  const [consoleFilter, setConsoleFilter] = useState<'all' | 'error' | 'warn' | 'log'>('all');
+  const [searchQuery, setSearchQuery] = useState<string>('');
   const [entryDropdownOpen, setEntryDropdownOpen] = useState<boolean>(false);
+  const [errorBannerDismissed, setErrorBannerDismissed] = useState<boolean>(false);
+
+  // Detailed Diagnostics State
+  const [diagnosticsData, setDiagnosticsData] = useState<DiagnosticData | null>(null);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState<boolean>(false);
 
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const pollTimerRef = useRef<any>(null);
@@ -81,12 +122,30 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({ task }) => {
     }
   }, [task?.id]);
 
+  // Fetch deep diagnostics
+  const fetchDiagnostics = useCallback(async () => {
+    if (!task?.id) return;
+    setDiagnosticsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/tasks/${task.id}/preview/diagnostics`);
+      if (res.ok) {
+        const data: DiagnosticData = await res.json();
+        setDiagnosticsData(data);
+      }
+    } catch (err) {
+      // ignore
+    } finally {
+      setDiagnosticsLoading(false);
+    }
+  }, [task?.id]);
+
   useEffect(() => {
     const isNewTask = prevTaskIdRef.current !== task?.id;
     prevTaskIdRef.current = task?.id || null;
 
     if (isNewTask) {
       setConsoleLogs([]);
+      setErrorBannerDismissed(false);
       inspectPreview(false);
     } else {
       inspectPreview(true);
@@ -109,15 +168,24 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({ task }) => {
   useEffect(() => {
     const handleWindowMessage = (e: MessageEvent) => {
       if (e.data && e.data.source === 'cyclode-preview-console') {
+        const newLevel = (e.data.level || 'log') as 'log' | 'warn' | 'error' | 'info';
+        const formattedMsg = typeof e.data.payload === 'string'
+          ? e.data.payload
+          : JSON.stringify(e.data.payload, null, 2);
+
         setConsoleLogs((prev) => [
-          ...prev.slice(-150),
+          ...prev.slice(-200),
           {
             id: Math.random().toString(36).substring(2, 9),
-            type: e.data.level || 'log',
-            message: typeof e.data.payload === 'string' ? e.data.payload : JSON.stringify(e.data.payload),
+            type: newLevel,
+            message: formattedMsg,
             timestamp: new Date().toLocaleTimeString(),
           },
         ]);
+
+        if (newLevel === 'error') {
+          setErrorBannerDismissed(false);
+        }
       }
     };
 
@@ -127,6 +195,7 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({ task }) => {
 
   const handleReload = () => {
     setIframeKey((prev) => prev + 1);
+    inspectPreview(true);
   };
 
   const previewUrl = task?.id
@@ -141,10 +210,47 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({ task }) => {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleCopyAllLogs = () => {
+    const logsText = consoleLogs.map((l) => `[${l.timestamp}] [${l.type.toUpperCase()}] ${l.message}`).join('\n');
+    navigator.clipboard.writeText(logsText);
+    setLogsCopied(true);
+    setTimeout(() => setLogsCopied(false), 2000);
+  };
+
   const handleOpenExternal = () => {
     if (!previewUrl) return;
     window.open(previewUrl, '_blank', 'noopener,noreferrer');
   };
+
+  const handleAskAgentToFixPreview = () => {
+    const errorLogs = consoleLogs.filter((l) => l.type === 'error');
+    const errorDetails = errorLogs.length > 0
+      ? errorLogs.map((e) => `[${e.timestamp}] ${e.message}`).join('\n')
+      : 'The app preview is not rendering properly or encountered runtime errors.';
+
+    const prompt = `I noticed runtime errors in the App Preview:\n\`\`\`\n${errorDetails}\n\`\`\`\nPlease inspect the workspace files, fix the issue causing this error, and verify the application runs smoothly.`;
+    onAskAgent?.(prompt);
+  };
+
+  const handleAskAgentSuggestion = (actionText: string) => {
+    const prompt = `Regarding the App Preview:\nAction needed: ${actionText}\nPlease update the workspace files to implement this and ensure the preview renders properly.`;
+    onAskAgent?.(prompt);
+  };
+
+  // Filtered console logs
+  const filteredLogs = consoleLogs.filter((log) => {
+    if (consoleFilter === 'error' && log.type !== 'error') return false;
+    if (consoleFilter === 'warn' && log.type !== 'warn') return false;
+    if (consoleFilter === 'log' && log.type !== 'log' && log.type !== 'info') return false;
+    if (searchQuery.trim()) {
+      return log.message.toLowerCase().includes(searchQuery.toLowerCase());
+    }
+    return true;
+  });
+
+  const errorCount = consoleLogs.filter((l) => l.type === 'error').length;
+  const warnCount = consoleLogs.filter((l) => l.type === 'warn').length;
+  const latestError = consoleLogs.slice().reverse().find((l) => l.type === 'error');
 
   // Render Loading State
   if (loading && !previewInfo) {
@@ -169,13 +275,24 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({ task }) => {
             When Cyclode creates an <code className="text-onedark-accent bg-onedark-surface px-1 py-0.5 rounded">index.html</code>, frontend bundle, or single-page app in this workspace, the live interactive preview will automatically appear here.
           </div>
         </div>
-        <button
-          onClick={() => inspectPreview(false)}
-          className="mt-2 px-3 py-1 rounded bg-onedark-surface hover:bg-onedark-border text-onedark-fg text-[11px] transition-colors cursor-pointer border border-onedark-borderSubtle flex items-center space-x-1.5"
-        >
-          <RotateCw className="w-3 h-3" />
-          <span>Check Workspace</span>
-        </button>
+        <div className="flex items-center space-x-2 pt-1">
+          <button
+            onClick={() => inspectPreview(false)}
+            className="px-3 py-1 rounded bg-onedark-surface hover:bg-onedark-border text-onedark-fg text-[11px] transition-colors cursor-pointer border border-onedark-borderSubtle flex items-center space-x-1.5"
+          >
+            <RotateCw className="w-3 h-3" />
+            <span>Check Workspace</span>
+          </button>
+          {onAskAgent && (
+            <button
+              onClick={() => onAskAgent('Please create a fully functional web application with an index.html file in this workspace so I can preview it.')}
+              className="px-3 py-1 rounded bg-onedark-accent/15 hover:bg-onedark-accent/25 text-onedark-accent border border-onedark-accent/30 text-[11px] font-sans font-medium transition-colors cursor-pointer flex items-center space-x-1.5"
+            >
+              <Sparkles className="w-3 h-3" />
+              <span>Ask Agent to Build App</span>
+            </button>
+          )}
+        </div>
       </div>
     );
   }
@@ -239,9 +356,9 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({ task }) => {
             )}
           </div>
 
-          {previewInfo.title && (
-            <span className="hidden xl:inline-block text-[11px] text-onedark-muted truncate max-w-[140px] font-medium" title={previewInfo.title}>
-              {previewInfo.title}
+          {previewInfo.framework && (
+            <span className="hidden xl:inline-flex items-center px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-borderSubtle text-[10px] font-mono text-onedark-accent font-medium">
+              {previewInfo.framework}
             </span>
           )}
         </div>
@@ -283,24 +400,35 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({ task }) => {
           </button>
         </div>
 
-        {/* Right: Console Drawer Toggle, Copy URL, External Link */}
+        {/* Right: DevTools Drawer Toggle, Copy URL, External Link */}
         <div className="flex items-center space-x-1.5">
           <button
-            onClick={() => setConsoleOpen(!consoleOpen)}
+            onClick={() => {
+              setDevToolsOpen(!devToolsOpen);
+              if (!devToolsOpen && devToolsTab === 'diagnostics') {
+                fetchDiagnostics();
+              }
+            }}
             className={`px-2 py-1 rounded text-[11px] font-mono flex items-center space-x-1 transition-colors cursor-pointer border ${
-              consoleOpen
+              devToolsOpen
                 ? 'bg-onedark-accent/15 border-onedark-accent/30 text-onedark-accent'
+                : errorCount > 0
+                ? 'bg-onedark-red/15 border-onedark-red/30 text-onedark-red hover:bg-onedark-red/25'
                 : 'border-transparent text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface'
             }`}
-            title="Toggle Console Output"
+            title="Toggle DevTools & Inspector"
           >
             <Terminal className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Console</span>
-            {consoleLogs.length > 0 && (
+            <span className="hidden sm:inline">DevTools</span>
+            {errorCount > 0 ? (
+              <span className="ml-0.5 px-1 rounded-full bg-onedark-red text-[9px] font-bold text-white">
+                {errorCount}
+              </span>
+            ) : consoleLogs.length > 0 ? (
               <span className="ml-0.5 px-1 rounded-full bg-onedark-accent text-[9px] font-bold text-onedark-darker">
                 {consoleLogs.length}
               </span>
-            )}
+            ) : null}
           </button>
 
           <button
@@ -322,7 +450,61 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({ task }) => {
       </div>
 
       {/* Main Preview Canvas Area */}
-      <div className="flex-1 overflow-auto bg-onedark-bg flex items-center justify-center p-2 relative">
+      <div className="flex-1 overflow-auto bg-onedark-bg flex flex-col items-center justify-center p-2 relative">
+        {/* Floating Runtime Error Alert Banner */}
+        {errorCount > 0 && !errorBannerDismissed && (
+          <div className="absolute top-4 left-4 right-4 z-30 max-w-xl mx-auto animate-fadeIn">
+            <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl bg-onedark-darker/95 border border-onedark-red/40 shadow-2xl backdrop-blur-md text-xs">
+              <div className="flex items-start space-x-2.5 min-w-0 flex-1">
+                <AlertCircle className="w-4 h-4 text-onedark-red flex-shrink-0 mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center space-x-1.5">
+                    <span className="font-semibold text-onedark-red">
+                      {errorCount} Runtime {errorCount === 1 ? 'Error' : 'Errors'} Detected
+                    </span>
+                    <span className="text-[10px] text-onedark-muted">in Preview</span>
+                  </div>
+                  {latestError && (
+                    <div className="text-[11px] font-mono text-onedark-fg truncate mt-0.5 opacity-90">
+                      {latestError.message}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-1.5 flex-shrink-0">
+                {onAskAgent && (
+                  <button
+                    onClick={handleAskAgentToFixPreview}
+                    className="px-2.5 py-1 rounded-lg bg-onedark-red/20 hover:bg-onedark-red/30 text-onedark-red border border-onedark-red/40 text-[11px] font-medium transition-all flex items-center space-x-1 cursor-pointer shadow-xs active:scale-95"
+                    title="Send error logs to agent for automatic fix"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    <span>Ask Agent to Fix</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => {
+                    setDevToolsOpen(true);
+                    setDevToolsTab('console');
+                    setConsoleFilter('error');
+                  }}
+                  className="px-2 py-1 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fg text-[11px] transition-colors cursor-pointer"
+                >
+                  Inspect
+                </button>
+                <button
+                  onClick={() => setErrorBannerDismissed(true)}
+                  className="p-1 text-onedark-muted hover:text-onedark-fg rounded transition-colors"
+                  title="Dismiss alert"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div
           className={`h-full transition-all duration-200 flex flex-col overflow-hidden ${
             viewport === 'desktop'
@@ -350,25 +532,132 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({ task }) => {
         </div>
       </div>
 
-      {/* Collapsible Console / Runtime Log Drawer */}
-      {consoleOpen && (
-        <div className="h-40 border-t border-onedark-borderSubtle bg-onedark-darker flex flex-col flex-shrink-0 z-20 font-mono text-[11px]">
+      {/* Collapsible DevTools Drawer (Console + Diagnostics) */}
+      {devToolsOpen && (
+        <div className="h-56 border-t border-onedark-borderSubtle bg-onedark-darker flex flex-col flex-shrink-0 z-20 font-mono text-[11px]">
+          {/* DevTools Navigation Header */}
           <div className="px-3 py-1.5 border-b border-onedark-borderSubtle flex items-center justify-between bg-onedark-surface/40 select-none">
-            <div className="flex items-center space-x-1.5 text-onedark-fg font-semibold">
-              <Terminal className="w-3.5 h-3.5 text-onedark-accent" />
-              <span>Runtime Console</span>
-              <span className="text-onedark-muted text-[10px]">({consoleLogs.length} events)</span>
-            </div>
+            {/* Tabs */}
             <div className="flex items-center space-x-2">
               <button
-                onClick={() => setConsoleLogs([])}
-                className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-colors"
-                title="Clear console"
+                onClick={() => setDevToolsTab('console')}
+                className={`px-2 py-1 rounded text-xs font-medium font-sans flex items-center space-x-1.5 transition-colors cursor-pointer ${
+                  devToolsTab === 'console'
+                    ? 'bg-onedark-surface text-onedark-accent font-semibold border border-onedark-borderSubtle'
+                    : 'text-onedark-muted hover:text-onedark-fg'
+                }`}
               >
-                <Trash2 className="w-3 h-3" />
+                <Terminal className="w-3.5 h-3.5" />
+                <span>Console</span>
+                {consoleLogs.length > 0 && (
+                  <span className="text-[10px] px-1 py-0.2 rounded-full bg-onedark-bg text-onedark-muted">
+                    {consoleLogs.length}
+                  </span>
+                )}
               </button>
+
               <button
-                onClick={() => setConsoleOpen(false)}
+                onClick={() => {
+                  setDevToolsTab('diagnostics');
+                  fetchDiagnostics();
+                }}
+                className={`px-2 py-1 rounded text-xs font-medium font-sans flex items-center space-x-1.5 transition-colors cursor-pointer ${
+                  devToolsTab === 'diagnostics'
+                    ? 'bg-onedark-surface text-onedark-accent font-semibold border border-onedark-borderSubtle'
+                    : 'text-onedark-muted hover:text-onedark-fg'
+                }`}
+              >
+                <Wrench className="w-3.5 h-3.5" />
+                <span>Diagnostics & Assets</span>
+              </button>
+            </div>
+
+            {/* Right Controls */}
+            <div className="flex items-center space-x-2">
+              {devToolsTab === 'console' && (
+                <>
+                  {/* Log Filter Buttons */}
+                  <div className="flex items-center space-x-1 bg-onedark-bg p-0.5 rounded border border-onedark-borderSubtle">
+                    <button
+                      onClick={() => setConsoleFilter('all')}
+                      className={`px-1.5 py-0.5 rounded text-[10px] transition-colors cursor-pointer ${
+                        consoleFilter === 'all' ? 'bg-onedark-surface text-onedark-fg font-semibold' : 'text-onedark-muted hover:text-onedark-fg'
+                      }`}
+                    >
+                      All
+                    </button>
+                    <button
+                      onClick={() => setConsoleFilter('error')}
+                      className={`px-1.5 py-0.5 rounded text-[10px] transition-colors cursor-pointer ${
+                        consoleFilter === 'error' ? 'bg-onedark-red/20 text-onedark-red font-semibold' : 'text-onedark-muted hover:text-onedark-red'
+                      }`}
+                    >
+                      Errors {errorCount > 0 && `(${errorCount})`}
+                    </button>
+                    <button
+                      onClick={() => setConsoleFilter('warn')}
+                      className={`px-1.5 py-0.5 rounded text-[10px] transition-colors cursor-pointer ${
+                        consoleFilter === 'warn' ? 'bg-onedark-yellow/20 text-onedark-yellow font-semibold' : 'text-onedark-muted hover:text-onedark-yellow'
+                      }`}
+                    >
+                      Warns {warnCount > 0 && `(${warnCount})`}
+                    </button>
+                  </div>
+
+                  {/* Search input */}
+                  <div className="relative">
+                    <Search className="w-3 h-3 absolute left-1.5 top-1.5 text-onedark-muted" />
+                    <input
+                      type="text"
+                      placeholder="Filter..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="pl-5 pr-2 py-0.5 w-24 sm:w-32 bg-onedark-bg border border-onedark-borderSubtle rounded text-[10px] text-onedark-fg focus:outline-none focus:border-onedark-accent"
+                    />
+                  </div>
+
+                  {/* Fix with Agent button */}
+                  {errorCount > 0 && onAskAgent && (
+                    <button
+                      onClick={handleAskAgentToFixPreview}
+                      className="px-2 py-0.5 rounded bg-onedark-red/20 hover:bg-onedark-red/30 text-onedark-red border border-onedark-red/40 text-[10px] font-medium transition-colors flex items-center space-x-1 cursor-pointer"
+                      title="Ask Agent to fix console errors"
+                    >
+                      <Sparkles className="w-2.5 h-2.5" />
+                      <span className="hidden sm:inline">Fix Errors</span>
+                    </button>
+                  )}
+
+                  <button
+                    onClick={handleCopyAllLogs}
+                    className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-colors"
+                    title="Copy all logs"
+                  >
+                    {logsCopied ? <Check className="w-3 h-3 text-onedark-green" /> : <Copy className="w-3 h-3" />}
+                  </button>
+
+                  <button
+                    onClick={() => setConsoleLogs([])}
+                    className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-colors"
+                    title="Clear console"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </>
+              )}
+
+              {devToolsTab === 'diagnostics' && (
+                <button
+                  onClick={fetchDiagnostics}
+                  className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-colors"
+                  title="Refresh diagnostics"
+                >
+                  <RefreshCw className={`w-3 h-3 ${diagnosticsLoading ? 'animate-spin text-onedark-accent' : ''}`} />
+                </button>
+              )}
+
+              <button
+                onClick={() => setDevToolsOpen(false)}
                 className="text-onedark-muted hover:text-onedark-fg text-xs px-1"
               >
                 ✕
@@ -376,29 +665,145 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({ task }) => {
             </div>
           </div>
 
+          {/* Drawer Body */}
           <div className="flex-1 overflow-y-auto p-2 space-y-1 select-text">
-            {consoleLogs.length === 0 ? (
-              <div className="text-onedark-muted/60 text-[10.5px] italic py-2 text-center">
-                Console output and errors will be recorded here.
-              </div>
-            ) : (
-              consoleLogs.map((log) => (
-                <div
-                  key={log.id}
-                  className={`flex items-start space-x-2 py-0.5 px-1 rounded ${
-                    log.type === 'error'
-                      ? 'bg-onedark-red/10 text-onedark-red'
-                      : log.type === 'warn'
-                      ? 'bg-onedark-yellow/10 text-onedark-yellow'
-                      : 'text-onedark-fg'
-                  }`}
-                >
-                  <span className="text-onedark-muted text-[9.5px] select-none flex-shrink-0 mt-0.5">
-                    {log.timestamp}
-                  </span>
-                  <span className="break-all whitespace-pre-wrap flex-1">{log.message}</span>
+            {devToolsTab === 'console' ? (
+              filteredLogs.length === 0 ? (
+                <div className="text-onedark-muted/60 text-[10.5px] italic py-4 text-center">
+                  {consoleLogs.length === 0
+                    ? 'No console events recorded yet. Telemetry listener is active.'
+                    : 'No logs match the current filter.'}
                 </div>
-              ))
+              ) : (
+                filteredLogs.map((log) => (
+                  <div
+                    key={log.id}
+                    className={`flex items-start space-x-2 py-0.5 px-1.5 rounded transition-colors ${
+                      log.type === 'error'
+                        ? 'bg-onedark-red/10 text-onedark-red border-l-2 border-onedark-red'
+                        : log.type === 'warn'
+                        ? 'bg-onedark-yellow/10 text-onedark-yellow border-l-2 border-onedark-yellow'
+                        : 'text-onedark-fg hover:bg-onedark-surface/40'
+                    }`}
+                  >
+                    <span className="text-onedark-muted text-[9.5px] select-none flex-shrink-0 mt-0.5">
+                      {log.timestamp}
+                    </span>
+                    <span className={`text-[9px] px-1 py-0.2 rounded font-bold uppercase select-none flex-shrink-0 mt-0.5 ${
+                      log.type === 'error' ? 'bg-onedark-red/20 text-onedark-red' :
+                      log.type === 'warn' ? 'bg-onedark-yellow/20 text-onedark-yellow' :
+                      'bg-onedark-surface text-onedark-muted'
+                    }`}>
+                      {log.type}
+                    </span>
+                    <span className="break-all whitespace-pre-wrap flex-1">{log.message}</span>
+                  </div>
+                ))
+              )
+            ) : (
+              /* Diagnostics Tab Content */
+              <div className="p-1 space-y-3 font-sans">
+                {diagnosticsLoading ? (
+                  <div className="flex items-center justify-center py-6 text-onedark-muted text-xs space-x-2">
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin text-onedark-accent" />
+                    <span>Analyzing workspace structure...</span>
+                  </div>
+                ) : (
+                  <>
+                    {/* Status & Framework Summary */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <div className="p-2 rounded-lg bg-onedark-surface/50 border border-onedark-borderSubtle">
+                        <div className="text-[10px] text-onedark-muted uppercase font-medium">Framework</div>
+                        <div className="text-xs font-semibold text-onedark-accent mt-0.5 truncate">
+                          {diagnosticsData?.framework || previewInfo?.framework || 'Vanilla Web'}
+                        </div>
+                      </div>
+
+                      <div className="p-2 rounded-lg bg-onedark-surface/50 border border-onedark-borderSubtle">
+                        <div className="text-[10px] text-onedark-muted uppercase font-medium">Entry Point</div>
+                        <div className="text-xs font-semibold text-onedark-fgBright mt-0.5 flex items-center space-x-1">
+                          {diagnosticsData?.diagnostics.entry_point_exists !== false ? (
+                            <CheckCircle2 className="w-3 h-3 text-onedark-green" />
+                          ) : (
+                            <XCircle className="w-3 h-3 text-onedark-red" />
+                          )}
+                          <span className="truncate">{diagnosticsData?.entry_point || currentPath}</span>
+                        </div>
+                      </div>
+
+                      <div className="p-2 rounded-lg bg-onedark-surface/50 border border-onedark-borderSubtle">
+                        <div className="text-[10px] text-onedark-muted uppercase font-medium">Telemetry</div>
+                        <div className="text-xs font-semibold text-onedark-green mt-0.5 flex items-center space-x-1">
+                          <CheckCircle2 className="w-3 h-3 text-onedark-green" />
+                          <span>Active (PostMessage)</span>
+                        </div>
+                      </div>
+
+                      <div className="p-2 rounded-lg bg-onedark-surface/50 border border-onedark-borderSubtle">
+                        <div className="text-[10px] text-onedark-muted uppercase font-medium">Total Files</div>
+                        <div className="text-xs font-semibold text-onedark-fg mt-0.5 font-mono">
+                          {diagnosticsData?.diagnostics.workspace_total_files ?? 0} files
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Discovered Web Assets */}
+                    <div>
+                      <div className="text-[11px] font-semibold text-onedark-fg mb-1.5 flex items-center justify-between">
+                        <span>Discovered Assets ({diagnosticsData?.assets_found?.length || 0})</span>
+                        <span className="text-[10px] font-normal text-onedark-muted">Workspace root</span>
+                      </div>
+                      <div className="bg-onedark-bg rounded-lg border border-onedark-borderSubtle overflow-hidden max-h-32 overflow-y-auto">
+                        {(diagnosticsData?.assets_found || []).length === 0 ? (
+                          <div className="p-2 text-center text-xs text-onedark-muted/60">No web assets found in workspace</div>
+                        ) : (
+                          <table className="w-full text-[11px] font-mono">
+                            <tbody>
+                              {(diagnosticsData?.assets_found || []).map((asset) => (
+                                <tr key={asset.name} className="border-b border-onedark-borderSubtle/50 hover:bg-onedark-surface/40">
+                                  <td className="px-2 py-1 text-onedark-fg flex items-center space-x-1.5">
+                                    <FileCode className="w-3 h-3 text-onedark-accent flex-shrink-0" />
+                                    <span className="truncate">{asset.name}</span>
+                                  </td>
+                                  <td className="px-2 py-1 text-right text-onedark-muted text-[10px]">
+                                    {asset.size ? `${(asset.size / 1024).toFixed(1)} KB` : '0 KB'}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Suggested Actions */}
+                    {diagnosticsData?.suggested_actions && diagnosticsData.suggested_actions.length > 0 && (
+                      <div>
+                        <div className="text-[11px] font-semibold text-onedark-fg mb-1.5">Recommendations</div>
+                        <div className="space-y-1">
+                          {diagnosticsData.suggested_actions.map((action, i) => (
+                            <div
+                              key={i}
+                              className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-onedark-surface/40 border border-onedark-borderSubtle text-xs"
+                            >
+                              <span className="text-onedark-fg text-[11px]">{action}</span>
+                              {onAskAgent && (
+                                <button
+                                  onClick={() => handleAskAgentSuggestion(action)}
+                                  className="px-2 py-0.5 rounded bg-onedark-accent/15 hover:bg-onedark-accent/25 text-onedark-accent text-[10.5px] font-medium transition-colors flex items-center space-x-1 cursor-pointer flex-shrink-0 ml-2"
+                                >
+                                  <span>Apply</span>
+                                  <ArrowRight className="w-2.5 h-2.5" />
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -406,3 +811,4 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({ task }) => {
     </div>
   );
 };
+

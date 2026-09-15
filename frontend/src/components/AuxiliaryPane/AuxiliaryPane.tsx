@@ -187,7 +187,11 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
             </div>
           )}
           {activeTab === 'preview' && (
-            <AppPreviewTab task={task} onSelectAuxTab={handleTabClick} />
+            <AppPreviewTab
+              task={task}
+              onSelectAuxTab={handleTabClick}
+              onAskAgent={onAskAboutComment}
+            />
           )}
           {activeTab === 'prs' && (
             <PullRequestsTab

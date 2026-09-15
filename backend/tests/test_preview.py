@@ -225,3 +225,126 @@ async def test_preview_missing_file_returns_404(temp_workspace: Path):
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         resp = await ac.get(f"/api/tasks/{task_id}/preview/nonexistent.html")
         assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_preview_html_telemetry_injection(temp_workspace: Path):
+    (temp_workspace / "index.html").write_text(
+        "<!DOCTYPE html><html><head><title>Telemetry Test</title></head><body><h1>Live Preview</h1></body></html>",
+        encoding="utf-8"
+    )
+
+    task_id = f"test-diag-{uuid.uuid4()}"
+    async with async_session_factory() as session:
+        task = TaskModel(
+            id=task_id,
+            title="Telemetry Injection Test",
+            description="Testing script injection",
+            persona="AppBuilder",
+            model_name="gemini-3.7-flash",
+            status="RUNNING",
+            workspace_path=str(temp_workspace),
+        )
+        session.add(task)
+        await session.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        resp = await ac.get(f"/api/tasks/{task_id}/preview/index.html")
+        assert resp.status_code == 200
+        html = resp.text
+        assert "cyclode-preview-telemetry" in html
+        assert f'<base href="/api/tasks/{task_id}/preview/">' in html
+        assert "cyclode-preview-console" in html
+
+
+@pytest.mark.asyncio
+async def test_preview_diagnostic_fallback_on_missing_index(temp_workspace: Path):
+    # Create raw React/TSX source without built index.html
+    src_dir = temp_workspace / "src"
+    src_dir.mkdir(parents=True, exist_ok=True)
+    (src_dir / "App.tsx").write_text("export default function App() { return <div>Hello</div>; }", encoding="utf-8")
+    (temp_workspace / "package.json").write_text('{"name": "raw-react-app"}', encoding="utf-8")
+
+    task_id = f"test-diag-{uuid.uuid4()}"
+    async with async_session_factory() as session:
+        task = TaskModel(
+            id=task_id,
+            title="Build React App",
+            description="Raw React source",
+            persona="AppBuilder",
+            model_name="gemini-3.7-flash",
+            status="RUNNING",
+            workspace_path=str(temp_workspace),
+        )
+        session.add(task)
+        await session.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        # Requesting index.html should return diagnostic page with 200 status
+        resp = await ac.get(f"/api/tasks/{task_id}/preview/index.html")
+        assert resp.status_code == 200
+        html = resp.text
+        assert "Cyclode App Preview Diagnostics" in html
+        assert "React / Vite / TSX" in html
+        assert "App.tsx" in html
+
+        # Inspect diagnostics endpoint
+        diag_resp = await ac.get(f"/api/tasks/{task_id}/preview/diagnostics")
+        assert diag_resp.status_code == 200
+        data = diag_resp.json()
+        assert data["workspace_exists"] is True
+        assert "React" in data["framework"]
+        assert data["files_count"] >= 2
+
+
+@pytest.mark.asyncio
+async def test_inquiry_respond_api_and_resolution():
+    from app.db.models import TaskApprovalModel
+    task_id = f"test-inquiry-{uuid.uuid4()}"
+    async with async_session_factory() as session:
+        task = TaskModel(
+            id=task_id,
+            title="Inquiry Test Session",
+            description="Testing interactive inquiries",
+            persona="AppBuilder",
+            model_name="gemini-3.7-flash",
+            status="AWAITING_INPUT",
+        )
+        session.add(task)
+
+        approval = TaskApprovalModel(
+            task_id=task_id,
+            action_type="user_inquiry",
+            action_details={
+                "question": "Which theme do you prefer?",
+                "options": [
+                    {"id": "opt_dark", "label": "Dark OneDark Theme"},
+                    {"id": "opt_light", "label": "Clean Light Theme"}
+                ],
+                "default_option_id": "opt_dark",
+                "timeout_seconds": 30
+            },
+            status="PENDING"
+        )
+        session.add(approval)
+        await session.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        resp = await ac.post(
+            f"/api/tasks/{task_id}/inquiry/respond",
+            json={"selected_option_id": "opt_light", "custom_response": "I prefer Light Theme"}
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["ok"] is True
+        assert data["status"] == "RESOLVED"
+
+    # Verify DB status updated to APPROVED
+    async with async_session_factory() as session:
+        from sqlalchemy import select
+        res = await session.execute(
+            select(TaskApprovalModel).where(TaskApprovalModel.task_id == task_id)
+        )
+        app_record = res.scalars().first()
+        assert app_record is not None
+        assert app_record.status == "APPROVED"

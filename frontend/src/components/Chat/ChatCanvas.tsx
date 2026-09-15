@@ -39,7 +39,9 @@ import {
   RefreshCw,
   Brain,
   Eye,
-  AlertCircle
+  AlertCircle,
+  Clock,
+  HelpCircle
 } from 'lucide-react';
 import { Task, TaskMessage, TaskLog, RepositoryConfig, TaskPR, WorkspacePreviewInfo } from '../../types';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
@@ -280,6 +282,212 @@ const renderStyledMessageContent = (text?: string) => {
   });
 };
 
+interface InquiryCardProps {
+  taskId: string;
+  approval: any;
+  onResolved: () => void;
+}
+
+const InquiryCard: React.FC<InquiryCardProps> = ({ taskId, approval, onResolved }) => {
+  const details = approval.action_details || {};
+  const question = details.question || 'Please specify your preference:';
+  const options: Array<{ id: string; label: string; description?: string }> = details.options || [];
+  const defaultOptionId = details.default_option_id || (options[0]?.id ?? '');
+  const totalSeconds = details.timeout_seconds || 25;
+  const expiresAt = details.expires_at ? new Date(details.expires_at).getTime() : Date.now() + totalSeconds * 1000;
+
+  const [selectedId, setSelectedId] = useState<string>(defaultOptionId);
+  const [customText, setCustomText] = useState<string>('');
+  const [remainingSeconds, setRemainingSeconds] = useState<number>(() => {
+    return Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+  });
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const diff = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+      setRemainingSeconds(diff);
+    }, 500);
+    return () => clearInterval(timer);
+  }, [expiresAt]);
+
+  const handleSubmit = async (optId?: string, customResp?: string) => {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      await fetch(`${API_BASE}/api/tasks/${taskId}/inquiry/respond`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          selected_option_id: optId || selectedId,
+          custom_response: customResp || (customText.trim() ? customText.trim() : undefined),
+        }),
+      });
+      onResolved();
+    } catch (e) {
+      console.error('Failed to submit inquiry response:', e);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const defaultOption = options.find((o) => o.id === defaultOptionId);
+  const progressPercent = Math.min(100, Math.max(0, (remainingSeconds / totalSeconds) * 100));
+
+  return (
+    <div className="rounded-2xl border border-onedark-accent/40 bg-onedark-darker/95 p-5 space-y-4 shadow-xl overflow-hidden relative">
+      {/* Top Animated Countdown Bar */}
+      <div className="absolute top-0 left-0 right-0 h-1 bg-onedark-surface">
+        <div
+          className="h-full bg-gradient-to-r from-onedark-accent via-onedark-purple to-onedark-green transition-all duration-500 ease-linear"
+          style={{ width: `${progressPercent}%` }}
+        />
+      </div>
+
+      {/* Header */}
+      <div className="flex items-center justify-between pt-1">
+        <div className="flex items-center space-x-2.5">
+          <div className="w-6 h-6 rounded-lg bg-onedark-accent/15 border border-onedark-accent/30 flex items-center justify-center text-onedark-accent flex-shrink-0">
+            <Sparkles className="w-3.5 h-3.5" />
+          </div>
+          <div>
+            <span className="text-xs font-bold text-onedark-fgBright">
+              Interactive Inquiry & Configuration
+            </span>
+            <div className="text-[10.5px] text-onedark-muted font-mono">
+              Autonomous Assistant Decision Point
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center space-x-2">
+          <span
+            className={`px-2.5 py-1 rounded-full text-[11px] font-mono border flex items-center space-x-1.5 ${
+              remainingSeconds <= 5
+                ? 'bg-onedark-red/10 border-onedark-red/30 text-onedark-red animate-pulse'
+                : 'bg-onedark-yellow/10 border-onedark-yellow/30 text-onedark-yellow'
+            }`}
+          >
+            <Clock className="w-3 h-3" />
+            <span>
+              {remainingSeconds > 0
+                ? `Auto-proceeding in ${remainingSeconds}s`
+                : 'Auto-proceeding...'}
+            </span>
+          </span>
+        </div>
+      </div>
+
+      {/* Question Text */}
+      <div className="p-3.5 rounded-xl bg-onedark-surface/40 border border-onedark-borderSubtle text-sm text-onedark-fg font-sans leading-relaxed">
+        <MarkdownRenderer content={question} />
+      </div>
+
+      {/* Selectable Options Grid */}
+      {options.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          {options.map((option) => {
+            const isSelected = selectedId === option.id;
+            const isDefault = option.id === defaultOptionId;
+
+            return (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => {
+                  setSelectedId(option.id);
+                  handleSubmit(option.id);
+                }}
+                disabled={submitting}
+                className={`p-3 rounded-xl border text-left transition-all cursor-pointer select-none relative group ${
+                  isSelected
+                    ? 'bg-onedark-accent/15 border-onedark-accent text-onedark-fgBright shadow-sm ring-1 ring-onedark-accent/40'
+                    : 'bg-onedark-surface/30 hover:bg-onedark-surface/70 border-onedark-borderSubtle text-onedark-fg'
+                }`}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center space-x-1.5 flex-wrap">
+                      <span className="text-xs font-semibold">{option.label}</span>
+                      {isDefault && (
+                        <span className="px-1.5 py-0.2 rounded bg-onedark-accent/10 border border-onedark-accent/20 text-onedark-accent text-[9.5px] font-mono font-medium">
+                          Recommended
+                        </span>
+                      )}
+                    </div>
+                    {option.description && (
+                      <p className="text-[11px] text-onedark-muted line-clamp-2 leading-relaxed">
+                        {option.description}
+                      </p>
+                    )}
+                  </div>
+                  <div
+                    className={`w-4 h-4 rounded-full border flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                      isSelected
+                        ? 'border-onedark-accent bg-onedark-accent text-onedark-darker'
+                        : 'border-onedark-muted/40 group-hover:border-onedark-muted'
+                    }`}
+                  >
+                    {isSelected && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Custom Write-In Input Field */}
+      <div className="flex items-center space-x-2 pt-1">
+        <input
+          type="text"
+          value={customText}
+          onChange={(e) => setCustomText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              if (customText.trim()) handleSubmit(selectedId, customText.trim());
+            }
+          }}
+          placeholder="Or write a custom answer / instruction..."
+          className="flex-1 bg-onedark-surface/40 border border-onedark-borderSubtle rounded-xl px-3.5 py-2 text-xs text-onedark-fgBright font-sans focus:outline-none focus:border-onedark-accent placeholder-onedark-muted"
+        />
+        <button
+          type="button"
+          onClick={() => {
+            if (customText.trim()) handleSubmit(selectedId, customText.trim());
+            else handleSubmit(selectedId);
+          }}
+          disabled={submitting}
+          className="px-3.5 py-2 rounded-xl bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker font-bold text-xs font-sans flex items-center space-x-1.5 transition-all cursor-pointer shadow-sm disabled:opacity-50"
+        >
+          {submitting ? (
+            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <Send className="w-3.5 h-3.5" />
+          )}
+          <span>Proceed</span>
+        </button>
+      </div>
+
+      {defaultOption && (
+        <div className="text-[10.5px] text-onedark-muted font-mono flex items-center justify-between pt-1 border-t border-onedark-borderSubtle/40">
+          <span>
+            Default: <strong className="text-onedark-fg">{defaultOption.label}</strong>
+          </span>
+          <button
+            type="button"
+            onClick={() => handleSubmit(defaultOptionId)}
+            className="text-onedark-accent hover:underline cursor-pointer"
+          >
+            Accept default immediately ➔
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   task,
   repositories: propRepositories,
@@ -303,7 +511,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const [inputValue, setInputValue] = useState('');
   const [selectedPersona, setSelectedPersona] = useState('PairProgrammer');
   const [openThoughts, setOpenThoughts] = useState<Record<string, boolean>>({});
-  const [openActivities, setOpenActivities] = useState<Record<string, boolean>>({});
+  const [userToggledActivities, setUserToggledActivities] = useState<Record<string, boolean>>({});
   const [expandedLogIds, setExpandedLogIds] = useState<Record<string, boolean>>({});
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState<string>('');
@@ -1365,11 +1573,13 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
       >
         <div className={`w-full ${contentMaxWidth} mx-auto space-y-6`}>
           {turns.map((turn, tIdx) => {
+            const isTurnRunning = isRunning && turn.isLatest && (turn.agentMessages.length === 0 || (turn.agentMessages.length === 1 && !turn.agentMessages[0].content));
             const isTurnOpen = openThoughts[turn.id] ?? (isRunning && turn.isLatest);
-            const isActOpen = openActivities[turn.id] ?? false;
+            const isActOpen = userToggledActivities[turn.id] !== undefined 
+              ? userToggledActivities[turn.id] 
+              : (isTurnRunning && turn.isLatest);
             const hasThoughts = turn.thoughts.length > 0;
             const hasLogs = turn.logs.length > 0;
-            const isTurnRunning = isRunning && turn.isLatest && (turn.agentMessages.length === 0 || (turn.agentMessages.length === 1 && !turn.agentMessages[0].content));
 
             return (
               <div key={turn.id || tIdx} className="space-y-4">
@@ -1529,28 +1739,102 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                     ? `${totalDuration}ms` 
                     : `${(totalDuration / 1000).toFixed(1)}s`;
 
+                  const editCount = turn.logs.filter((l) => l.tool_name === 'edit_file').length;
+                  const runCount = turn.logs.filter((l) => l.tool_name === 'run_command').length;
+                  const readCount = turn.logs.filter((l) => ['read_file', 'grep_search', 'search_code', 'find_symbols', 'tgrep_ast', 'list_dir'].includes(l.tool_name)).length;
+                  const webCount = turn.logs.filter((l) => ['search_web', 'fetch_url'].includes(l.tool_name)).length;
+                  const prCount = turn.logs.filter((l) => l.tool_name.includes('pull_request') || l.tool_name.includes('connect_repository')).length;
+                  const failedCount = turn.logs.filter((l) => l.exit_code !== 0 && !l.isRunning).length;
+                  const hasRunning = turn.logs.some((l) => l.isRunning);
+
                   return (
                     <div className="rounded-xl border border-onedark-border bg-onedark-darker/60 overflow-hidden shadow-sm transition-all space-y-0">
                       {/* Summary Header */}
                       <div
-                        onClick={() => setOpenActivities((prev) => ({ ...prev, [turn.id]: !isActOpen }))}
-                        className="w-full px-3.5 py-2 flex items-center justify-between text-xs text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/30 transition-colors cursor-pointer select-none"
+                        onClick={() => setUserToggledActivities((prev) => ({ ...prev, [turn.id]: !isActOpen }))}
+                        className={`w-full px-3.5 py-2.5 flex items-center justify-between text-xs transition-colors cursor-pointer select-none group/hdr ${
+                          isActOpen ? 'bg-onedark-surface/40 hover:bg-onedark-surface/60' : 'hover:bg-onedark-surface/30'
+                        }`}
                       >
                         <div className="flex items-center space-x-2.5 min-w-0 pr-2">
-                          <div className="w-5 h-5 rounded-md bg-onedark-accent/10 border border-onedark-accent/20 flex items-center justify-center flex-shrink-0 text-onedark-accent">
-                            <Zap className="w-3 h-3" />
+                          <div className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 transition-all ${
+                            hasRunning
+                              ? 'bg-onedark-accent/20 border border-onedark-accent/40 text-onedark-accent animate-pulse'
+                              : failedCount > 0
+                              ? 'bg-onedark-red/15 border border-onedark-red/30 text-onedark-red'
+                              : 'bg-onedark-accent/10 border border-onedark-accent/20 text-onedark-accent'
+                          }`}>
+                            {hasRunning ? (
+                              <RefreshCw className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Zap className="w-3 h-3" />
+                            )}
                           </div>
-                          <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+
+                          <div className="flex items-center space-x-2 flex-wrap gap-y-1 min-w-0">
                             <span className="font-mono text-xs font-semibold text-onedark-fgBright">
                               Workspace Actions
                             </span>
-                            <span className="text-[11px] text-onedark-muted font-mono">
-                              • {turn.logs.length} action{turn.logs.length > 1 ? 's' : ''} ({formattedDuration})
+
+                            {/* Categorized action chips */}
+                            <div className="flex items-center space-x-1.5 flex-wrap gap-1">
+                              {editCount > 0 && (
+                                <span className="px-1.5 py-0.2 rounded bg-onedark-green/10 text-onedark-green border border-onedark-green/20 text-[10.5px] font-mono flex items-center space-x-1">
+                                  <Pencil className="w-2.5 h-2.5" />
+                                  <span>{editCount} edit{editCount > 1 ? 's' : ''}</span>
+                                </span>
+                              )}
+                              {runCount > 0 && (
+                                <span className="px-1.5 py-0.2 rounded bg-onedark-yellow/10 text-onedark-yellow border border-onedark-yellow/20 text-[10.5px] font-mono flex items-center space-x-1">
+                                  <Terminal className="w-2.5 h-2.5" />
+                                  <span>{runCount} run{runCount > 1 ? 's' : ''}</span>
+                                </span>
+                              )}
+                              {readCount > 0 && (
+                                <span className="px-1.5 py-0.2 rounded bg-onedark-accent/10 text-onedark-accent border border-onedark-accent/20 text-[10.5px] font-mono flex items-center space-x-1">
+                                  <FileCode2 className="w-2.5 h-2.5" />
+                                  <span>{readCount} read{readCount > 1 ? 's' : ''}</span>
+                                </span>
+                              )}
+                              {webCount > 0 && (
+                                <span className="px-1.5 py-0.2 rounded bg-onedark-purple/10 text-onedark-purple border border-onedark-purple/20 text-[10.5px] font-mono flex items-center space-x-1">
+                                  <Globe className="w-2.5 h-2.5" />
+                                  <span>{webCount} web</span>
+                                </span>
+                              )}
+                              {prCount > 0 && (
+                                <span className="px-1.5 py-0.2 rounded bg-onedark-green/10 text-onedark-green border border-onedark-green/20 text-[10.5px] font-mono flex items-center space-x-1">
+                                  <GitPullRequest className="w-2.5 h-2.5" />
+                                  <span>{prCount} PR</span>
+                                </span>
+                              )}
+                            </div>
+
+                            <span className="text-[11px] text-onedark-muted font-mono hidden sm:inline">
+                              • {turn.logs.length} total ({formattedDuration})
                             </span>
                           </div>
                         </div>
 
                         <div className="flex items-center space-x-2 flex-shrink-0">
+                          {/* Status indicator pill */}
+                          {hasRunning ? (
+                            <span className="px-2 py-0.5 rounded-md bg-onedark-accent/15 text-onedark-accent border border-onedark-accent/30 text-[10.5px] font-mono flex items-center space-x-1 animate-pulse">
+                              <span className="w-1.5 h-1.5 rounded-full bg-onedark-accent" />
+                              <span>Executing...</span>
+                            </span>
+                          ) : failedCount > 0 ? (
+                            <span className="px-2 py-0.5 rounded-md bg-onedark-red/10 text-onedark-red border border-onedark-red/30 text-[10.5px] font-mono flex items-center space-x-1">
+                              <AlertCircle className="w-3 h-3" />
+                              <span>{failedCount} error{failedCount > 1 ? 's' : ''}</span>
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-md bg-onedark-green/10 text-onedark-green border border-onedark-green/30 text-[10.5px] font-mono flex items-center space-x-1">
+                              <Check className="w-3 h-3" />
+                              <span>Done ({formattedDuration})</span>
+                            </span>
+                          )}
+
                           {onSelectAuxTab && (
                             <button
                               type="button"
@@ -1558,115 +1842,104 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                                 e.stopPropagation();
                                 onSelectAuxTab('activity');
                               }}
-                              className="hidden sm:flex items-center space-x-1 px-2 py-1 rounded-md bg-onedark-surface/50 hover:bg-onedark-surface text-onedark-muted hover:text-onedark-accent text-[11px] font-mono border border-onedark-borderSubtle transition-colors"
+                              className="hidden md:flex items-center space-x-1 px-2 py-1 rounded-md bg-onedark-surface/50 hover:bg-onedark-surface text-onedark-muted hover:text-onedark-accent text-[11px] font-mono border border-onedark-borderSubtle transition-colors"
                               title="Inspect logs in Auxiliary Tool Activity tab"
                             >
-                              <span>Activity Pane</span>
+                              <span>Activity</span>
                               <ExternalLink className="w-3 h-3" />
                             </button>
                           )}
-                          <span className="px-2 py-0.5 rounded-md bg-onedark-surface text-onedark-muted text-[11px] font-mono border border-onedark-borderSubtle flex items-center space-x-1">
-                            <span>{isActOpen ? 'Hide All' : 'Show All Trace'}</span>
+
+                          <span className="px-2 py-0.5 rounded-md bg-onedark-surface text-onedark-muted text-[11px] font-mono border border-onedark-borderSubtle flex items-center space-x-1 group-hover/hdr:text-onedark-fgBright transition-colors">
+                            <span>{isActOpen ? 'Hide' : `Show (${turn.logs.length})`}</span>
                             {isActOpen ? (
-                              <ChevronDown className="w-3.5 h-3.5 ml-0.5" />
+                              <ChevronDown className="w-3.5 h-3.5 ml-0.5 text-onedark-muted group-hover/hdr:text-onedark-fgBright" />
                             ) : (
-                              <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
+                              <ChevronRight className="w-3.5 h-3.5 ml-0.5 text-onedark-muted group-hover/hdr:text-onedark-fgBright" />
                             )}
                           </span>
                         </div>
                       </div>
 
                       {/* Inline Action Items Stream */}
-                      <div className="p-2 border-t border-onedark-borderSubtle/60 space-y-1.5 bg-onedark-darker/80">
-                        {turn.logs.map((log, idx) => {
-                          const logKey = log.id || `log-${turn.id}-${idx}`;
-                          const isExpanded = isActOpen || !!expandedLogIds[logKey];
-                          const actionInfo = getToolActionInfo(log.tool_name, log.tool_input, log.isRunning);
-                          const ActionIcon = actionInfo.icon;
-
-                          return (
-                            <div key={logKey} className="space-y-1">
-                              <div
-                                onClick={() => setExpandedLogIds((prev) => ({ ...prev, [logKey]: !prev[logKey] }))}
-                                className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg border text-xs font-mono transition-all cursor-pointer select-none group/action ${
-                                  log.isRunning
-                                    ? 'bg-onedark-accent/10 border-onedark-accent/40 text-onedark-fgBright shadow-xs'
-                                    : log.exit_code !== 0
-                                    ? 'bg-onedark-red/10 border-onedark-red/30 text-onedark-red'
-                                    : 'bg-onedark-surface/30 hover:bg-onedark-surface/60 border-onedark-borderSubtle/60 text-onedark-fg'
-                                }`}
-                              >
-                                <div className="flex items-center space-x-2 min-w-0 pr-2">
-                                  <div className={`p-1 rounded ${actionInfo.badgeBg} border ${actionInfo.badgeBorder} flex items-center justify-center flex-shrink-0`}>
-                                    {log.isRunning ? (
-                                      <RefreshCw className="w-3 h-3 animate-spin text-onedark-accent" />
-                                    ) : (
-                                      <ActionIcon className={`w-3 h-3 ${actionInfo.colorClass}`} />
-                                    )}
-                                  </div>
-                                  <div className="truncate flex items-center space-x-1.5 text-xs">
-                                    <span className={`font-semibold ${actionInfo.colorClass}`}>
-                                      {actionInfo.verb}
-                                    </span>
-                                    <span className="text-onedark-fgBright font-mono truncate">
-                                      {actionInfo.target}
-                                    </span>
-                                  </div>
-                                </div>
-
-                                <div className="flex items-center space-x-2 flex-shrink-0 text-[10.5px] text-onedark-muted">
-                                  {log.isRunning ? (
-                                    <span className="px-1.5 py-0.2 rounded bg-onedark-accent/20 text-onedark-accent border border-onedark-accent/30 animate-pulse">
-                                      running...
-                                    </span>
-                                  ) : (
-                                    <>
-                                      <span className="font-mono">
-                                        {log.duration_ms < 1000 ? `${log.duration_ms}ms` : `${(log.duration_ms / 1000).toFixed(1)}s`}
-                                      </span>
-                                      <span
-                                        className={`px-1.5 py-0.2 rounded text-[9.5px] border ${
-                                          log.exit_code === 0
-                                            ? 'bg-onedark-green/10 text-onedark-green border-onedark-green/20'
-                                            : 'bg-onedark-red/10 text-onedark-red border-onedark-red/20'
-                                        }`}
-                                      >
-                                        exit {log.exit_code}
-                                      </span>
-                                    </>
-                                  )}
-                                  <span className="text-onedark-muted group-hover/action:text-onedark-fg transition-colors">
-                                    {isExpanded ? (
-                                      <ChevronDown className="w-3.5 h-3.5" />
-                                    ) : (
-                                      <ChevronRight className="w-3.5 h-3.5" />
-                                    )}
-                                  </span>
-                                </div>
-                              </div>
-
-                              {/* Expanded Individual Log */}
-                              {isExpanded && !isActOpen && (
-                                <div className="pl-2 pt-0.5 pb-1">
-                                  <FormattedLogView log={log} initiallyExpanded={true} isExpanded={true} />
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      {/* Full Trace Accordion Body when Show All is active */}
                       {isActOpen && (
-                        <div className="p-3 border-t border-onedark-borderSubtle space-y-2 bg-onedark-darker/90">
-                          {turn.logs.map((log, idx) => (
-                            <FormattedLogView
-                              key={log.id || idx}
-                              log={log}
-                              initiallyExpanded={true}
-                              isExpanded={true}
-                            />
-                          ))}
+                        <div className="p-2 border-t border-onedark-borderSubtle/60 space-y-1.5 bg-onedark-darker/80 animate-fadeIn">
+                          {turn.logs.map((log, idx) => {
+                            const logKey = log.id || `log-${turn.id}-${idx}`;
+                            const isExpanded = !!expandedLogIds[logKey];
+                            const actionInfo = getToolActionInfo(log.tool_name, log.tool_input, log.isRunning);
+                            const ActionIcon = actionInfo.icon;
+
+                            return (
+                              <div key={logKey} className="space-y-1">
+                                <div
+                                  onClick={() => setExpandedLogIds((prev) => ({ ...prev, [logKey]: !prev[logKey] }))}
+                                  className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg border text-xs font-mono transition-all cursor-pointer select-none group/action ${
+                                    log.isRunning
+                                      ? 'bg-onedark-accent/10 border-onedark-accent/40 text-onedark-fgBright shadow-xs'
+                                      : log.exit_code !== 0
+                                      ? 'bg-onedark-red/10 border-onedark-red/30 text-onedark-red'
+                                      : 'bg-onedark-surface/30 hover:bg-onedark-surface/60 border-onedark-borderSubtle/60 text-onedark-fg'
+                                  }`}
+                                >
+                                  <div className="flex items-center space-x-2 min-w-0 pr-2">
+                                    <div className={`p-1 rounded ${actionInfo.badgeBg} border ${actionInfo.badgeBorder} flex items-center justify-center flex-shrink-0`}>
+                                      {log.isRunning ? (
+                                        <RefreshCw className="w-3 h-3 animate-spin text-onedark-accent" />
+                                      ) : (
+                                        <ActionIcon className={`w-3 h-3 ${actionInfo.colorClass}`} />
+                                      )}
+                                    </div>
+                                    <div className="truncate flex items-center space-x-1.5 text-xs">
+                                      <span className={`font-semibold ${actionInfo.colorClass}`}>
+                                        {actionInfo.verb}
+                                      </span>
+                                      <span className="text-onedark-fgBright font-mono truncate">
+                                        {actionInfo.target}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center space-x-2 flex-shrink-0 text-[10.5px] text-onedark-muted">
+                                    {log.isRunning ? (
+                                      <span className="px-1.5 py-0.2 rounded bg-onedark-accent/20 text-onedark-accent border border-onedark-accent/30 animate-pulse">
+                                        running...
+                                      </span>
+                                    ) : (
+                                      <>
+                                        <span className="font-mono">
+                                          {log.duration_ms < 1000 ? `${log.duration_ms}ms` : `${(log.duration_ms / 1000).toFixed(1)}s`}
+                                        </span>
+                                        <span
+                                          className={`px-1.5 py-0.2 rounded text-[9.5px] border ${
+                                            log.exit_code === 0
+                                              ? 'bg-onedark-green/10 text-onedark-green border-onedark-green/20'
+                                              : 'bg-onedark-red/10 text-onedark-red border-onedark-red/20'
+                                          }`}
+                                        >
+                                          exit {log.exit_code}
+                                        </span>
+                                      </>
+                                    )}
+                                    <span className="text-onedark-muted group-hover/action:text-onedark-fg transition-colors">
+                                      {isExpanded ? (
+                                        <ChevronDown className="w-3.5 h-3.5" />
+                                      ) : (
+                                        <ChevronRight className="w-3.5 h-3.5" />
+                                      )}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Expanded Individual Log */}
+                                {isExpanded && (
+                                  <div className="pl-2 pt-0.5 pb-1">
+                                    <FormattedLogView log={log} initiallyExpanded={true} isExpanded={true} />
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -1785,46 +2058,56 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
             );
           })}
 
-          {/* Pending Action Approval Card */}
+          {/* Pending Action Approval Card or Interactive Inquiry Card */}
           {latestApproval && (
-            <div className="rounded-xl border border-onedark-border bg-onedark-surface p-4 space-y-3 shadow-md">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2 text-onedark-yellow font-semibold text-xs">
-                  <ShieldAlert className="w-4 h-4 text-onedark-yellow" />
-                  <span>Action Approval Required</span>
-                </div>
-                <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-onedark-darker text-onedark-muted border border-onedark-border">
-                  Gated Policy
-                </span>
-              </div>
-
-              <div className="p-3.5 rounded-lg bg-onedark-darker border border-onedark-border text-xs text-onedark-fg font-mono space-y-1 leading-relaxed">
-                <div><strong className="text-onedark-muted">Action:</strong> {latestApproval.action_type}</div>
-                <div><strong className="text-onedark-muted">Target:</strong> {latestApproval.action_details.title || latestApproval.action_details.branch}</div>
-                {latestApproval.action_details.description && (
-                  <div className="mt-2 text-onedark-muted whitespace-pre-wrap text-xs">
-                    {latestApproval.action_details.description}
+            latestApproval.action_type === 'user_inquiry' ? (
+              <InquiryCard
+                taskId={task.id}
+                approval={latestApproval}
+                onResolved={() => {
+                  if (onApprove) onApprove();
+                }}
+              />
+            ) : (
+              <div className="rounded-xl border border-onedark-border bg-onedark-surface p-4 space-y-3 shadow-md">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2 text-onedark-yellow font-semibold text-xs">
+                    <ShieldAlert className="w-4 h-4 text-onedark-yellow" />
+                    <span>Action Approval Required</span>
                   </div>
-                )}
-              </div>
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-onedark-darker text-onedark-muted border border-onedark-border">
+                    Gated Policy
+                  </span>
+                </div>
 
-              <div className="flex items-center space-x-2.5 pt-1">
-                <button
-                  onClick={() => onApprove()}
-                  className="py-2 px-3.5 rounded-lg bg-onedark-green hover:bg-onedark-green/90 text-onedark-darker font-bold text-xs flex items-center space-x-1.5 transition-colors shadow-sm"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Approve & Execute</span>
-                </button>
+                <div className="p-3.5 rounded-lg bg-onedark-darker border border-onedark-border text-xs text-onedark-fg font-mono space-y-1 leading-relaxed">
+                  <div><strong className="text-onedark-muted">Action:</strong> {latestApproval.action_type}</div>
+                  <div><strong className="text-onedark-muted">Target:</strong> {latestApproval.action_details.title || latestApproval.action_details.branch}</div>
+                  {latestApproval.action_details.description && (
+                    <div className="mt-2 text-onedark-muted whitespace-pre-wrap text-xs">
+                      {latestApproval.action_details.description}
+                    </div>
+                  )}
+                </div>
 
-                <button
-                  onClick={() => onReject()}
-                  className="py-2 px-3.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-red border border-onedark-border text-xs font-semibold transition-colors"
-                >
-                  <span>Reject</span>
-                </button>
+                <div className="flex items-center space-x-2.5 pt-1">
+                  <button
+                    onClick={() => onApprove()}
+                    className="py-2 px-3.5 rounded-lg bg-onedark-green hover:bg-onedark-green/90 text-onedark-darker font-bold text-xs flex items-center space-x-1.5 transition-colors shadow-sm"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Approve & Execute</span>
+                  </button>
+
+                  <button
+                    onClick={() => onReject()}
+                    className="py-2 px-3.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-red border border-onedark-border text-xs font-semibold transition-colors"
+                  >
+                    <span>Reject</span>
+                  </button>
+                </div>
               </div>
-            </div>
+            )
           )}
 
           <div ref={messagesEndRef} />

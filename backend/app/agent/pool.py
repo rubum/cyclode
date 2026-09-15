@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from sqlalchemy import select, update, delete
@@ -32,6 +32,7 @@ def estimate_tokens(text: str) -> int:
 class AgentTaskPool:
     def __init__(self):
         self.active_tasks: Dict[str, asyncio.Task] = {}
+        self.pending_inquiries: Dict[str, Dict[str, Any]] = {}
 
     async def spawn_task(
         self,
@@ -504,6 +505,132 @@ class AgentTaskPool:
                     "timestamp": datetime.now(timezone.utc).isoformat()
                 })
 
+            async def on_inquiry(question: str, options: List[Dict[str, Any]], default_option_id: str, timeout_seconds: int = 25) -> Dict[str, Any]:
+                expires_at = (datetime.now(timezone.utc) + timedelta(seconds=timeout_seconds)).isoformat()
+                approval_id = None
+
+                # Create TaskApprovalModel for inquiry
+                async with async_session_factory() as session:
+                    approval = TaskApprovalModel(
+                        task_id=task_id,
+                        action_type="user_inquiry",
+                        action_details={
+                            "question": question,
+                            "options": options,
+                            "default_option_id": default_option_id,
+                            "timeout_seconds": timeout_seconds,
+                            "expires_at": expires_at
+                        },
+                        status="PENDING"
+                    )
+                    session.add(approval)
+                    await session.execute(
+                        update(TaskModel).where(TaskModel.id == task_id).values(status="AWAITING_INPUT")
+                    )
+                    await session.commit()
+                    await session.refresh(approval)
+                    approval_id = approval.id
+
+                # Broadcast inquiry to UI
+                await ws_manager.broadcast("INQUIRY_REQUESTED", {
+                    "task_id": task_id,
+                    "approval_id": approval_id,
+                    "question": question,
+                    "options": options,
+                    "default_option_id": default_option_id,
+                    "timeout_seconds": timeout_seconds,
+                    "expires_at": expires_at,
+                    "status": "AWAITING_INPUT"
+                })
+                await ws_manager.broadcast("APPROVAL_REQUIRED", {
+                    "task_id": task_id,
+                    "approval_id": approval_id,
+                    "action_type": "user_inquiry",
+                    "details": {
+                        "question": question,
+                        "options": options,
+                        "default_option_id": default_option_id,
+                        "timeout_seconds": timeout_seconds,
+                        "expires_at": expires_at
+                    },
+                    "status": "AWAITING_INPUT"
+                })
+                await ws_manager.broadcast("TASK_STATUS_CHANGE", {
+                    "task_id": task_id,
+                    "status": "AWAITING_INPUT"
+                })
+
+                inquiry_event = asyncio.Event()
+                self.pending_inquiries[task_id] = {
+                    "event": inquiry_event,
+                    "response_data": None,
+                    "default_option_id": default_option_id,
+                    "options": options,
+                    "approval_id": approval_id
+                }
+
+                default_label = default_option_id
+                for o in options:
+                    if isinstance(o, dict) and o.get("id") == default_option_id:
+                        default_label = o.get("label", default_option_id)
+                        break
+
+                timed_out = False
+                res_data: Dict[str, Any] = {}
+
+                try:
+                    await asyncio.wait_for(inquiry_event.wait(), timeout=float(timeout_seconds))
+                    res_data = self.pending_inquiries.get(task_id, {}).get("response_data", {}) or {}
+                except asyncio.TimeoutError:
+                    timed_out = True
+                finally:
+                    self.pending_inquiries.pop(task_id, None)
+
+                selected_opt_id = res_data.get("selected_option_id") or default_option_id
+                selected_label = default_label
+                for o in options:
+                    if isinstance(o, dict) and o.get("id") == selected_opt_id:
+                        selected_label = o.get("label", selected_opt_id)
+                        break
+
+                custom_resp = res_data.get("custom_response")
+
+                # Update approval record and task status in DB
+                async with async_session_factory() as session:
+                    stmt_a = select(TaskApprovalModel).where(TaskApprovalModel.id == approval_id)
+                    res_a = await session.execute(stmt_a)
+                    app_record = res_a.scalars().first()
+                    if app_record:
+                        app_record.status = "APPROVED"
+                        app_record.feedback = f"User responded: {custom_resp}" if custom_resp else (
+                            f"(Auto-proceeded after timeout: {selected_label})" if timed_out else f"Selected: {selected_label}"
+                        )
+                        app_record.resolved_at = get_utc_now()
+
+                    await session.execute(
+                        update(TaskModel).where(TaskModel.id == task_id).values(status="RUNNING")
+                    )
+                    await session.commit()
+
+                await ws_manager.broadcast("APPROVAL_RESOLVED", {
+                    "task_id": task_id,
+                    "approval_id": approval_id,
+                    "status": "APPROVED",
+                    "selection": selected_label,
+                    "timed_out": timed_out
+                })
+                await ws_manager.broadcast("TASK_STATUS_CHANGE", {
+                    "task_id": task_id,
+                    "status": "RUNNING"
+                })
+
+                return {
+                    "selected_option_id": selected_opt_id,
+                    "label": selected_label,
+                    "custom_response": custom_resp,
+                    "timed_out": timed_out
+                }
+
             # Execute via Antigravity Harness
             result = await antigravity_harness.execute_task(
                 task_id=task_id,
@@ -520,7 +647,8 @@ class AgentTaskPool:
                 history=history,
                 on_stream_start=on_stream_start,
                 on_stream_chunk=on_stream_chunk,
-                on_stream_end=on_stream_end
+                on_stream_end=on_stream_end,
+                on_inquiry=on_inquiry
             )
 
             # Determine final status
@@ -702,6 +830,47 @@ class AgentTaskPool:
 
             self.active_tasks.pop(task_id, None)
 
+    async def respond_to_inquiry(
+        self,
+        task_id: str,
+        selected_option_id: Optional[str] = None,
+        custom_response: Optional[str] = None,
+        feedback: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Resolves an active inquiry with user choice or custom write-in.
+        """
+        if task_id in self.pending_inquiries:
+            inq = self.pending_inquiries[task_id]
+            inq["response_data"] = {
+                "selected_option_id": selected_option_id or inq.get("default_option_id"),
+                "custom_response": custom_response,
+                "feedback": feedback
+            }
+            if "event" in inq and not inq["event"].is_set():
+                inq["event"].set()
+            return {"ok": True, "task_id": task_id, "status": "RESOLVED"}
+
+        # Fallback if task is not in memory: resolve in DB
+        async with async_session_factory() as session:
+            stmt = select(TaskApprovalModel).where(
+                TaskApprovalModel.task_id == task_id,
+                TaskApprovalModel.status == "PENDING"
+            )
+            result = await session.execute(stmt)
+            approval = result.scalars().first()
+            if approval:
+                approval.status = "APPROVED"
+                approval.feedback = custom_response or feedback or selected_option_id
+                approval.resolved_at = get_utc_now()
+                await session.commit()
+
+        await ws_manager.broadcast("APPROVAL_RESOLVED", {
+            "task_id": task_id,
+            "status": "APPROVED"
+        })
+        return {"ok": True, "task_id": task_id, "status": "RESOLVED"}
+
     async def approve_task(self, task_id: str, feedback: Optional[str] = None) -> Dict[str, Any]:
         """
         Processes human approval for an awaiting task.
@@ -714,6 +883,13 @@ class AgentTaskPool:
             )
             result = await session.execute(stmt)
             approval = result.scalars().first()
+
+            if approval and approval.action_type == "user_inquiry":
+                return await self.respond_to_inquiry(
+                    task_id=task_id,
+                    custom_response=feedback,
+                    feedback=feedback
+                )
 
             if approval:
                 approval.status = "APPROVED"

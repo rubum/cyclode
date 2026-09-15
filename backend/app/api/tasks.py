@@ -50,6 +50,12 @@ class ApprovalActionRequest(BaseModel):
     feedback: Optional[str] = None
 
 
+class InquiryResponseRequest(BaseModel):
+    selected_option_id: Optional[str] = None
+    custom_response: Optional[str] = None
+    feedback: Optional[str] = None
+
+
 @router.get("")
 async def list_tasks(
     status: Optional[str] = None,
@@ -454,6 +460,17 @@ async def sync_task_repo_prs(task_id: str, db: AsyncSession = Depends(get_db)):
 @router.post("/{task_id}/approve")
 async def approve_task_action(task_id: str, req: ApprovalActionRequest):
     res = await agent_pool.approve_task(task_id, req.feedback)
+    return res
+
+
+@router.post("/{task_id}/inquiry/respond")
+async def respond_to_inquiry_action(task_id: str, req: InquiryResponseRequest):
+    res = await agent_pool.respond_to_inquiry(
+        task_id=task_id,
+        selected_option_id=req.selected_option_id,
+        custom_response=req.custom_response,
+        feedback=req.feedback
+    )
     return res
 
 

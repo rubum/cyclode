@@ -301,8 +301,11 @@ export interface WorkspacePreviewInfo {
   type?: 'static' | 'dev_server' | null;
   entry_point?: string | null;
   title?: string | null;
+  framework?: string | null;
   assets_count?: number;
   available_entry_points?: string[];
   preview_url?: string | null;
+  viewport_recommended?: 'desktop' | 'tablet' | 'mobile';
 }
+
 

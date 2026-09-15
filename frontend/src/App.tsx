@@ -12,7 +12,7 @@ import { PolicySettings } from './components/Policies/PolicySettings';
 import { IntegrationsView } from './components/Integrations/IntegrationsView';
 import { RepositoriesView } from './components/Repositories/RepositoriesView';
 import { SandboxInspectorModal } from './components/Sandbox/SandboxInspectorModal';
-import { Task, TaskMessage, EventItem, PolicyMap, Integration, AutomationRule, SkillCatalogItem, WebhookEndpoint, RepositoryConfig } from './types';
+import { Task, TaskMessage, TaskLog, EventItem, PolicyMap, Integration, AutomationRule, SkillCatalogItem, WebhookEndpoint, RepositoryConfig } from './types';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 

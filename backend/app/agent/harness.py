@@ -226,7 +226,8 @@ class AntigravityHarness:
         history: Optional[List[Dict[str, Any]]] = None,
         on_stream_start: Optional[Callable[[str, str], Any]] = None,
         on_stream_chunk: Optional[Callable[[str, str, str, str], Any]] = None,
-        on_stream_end: Optional[Callable[[str, str, str], Any]] = None
+        on_stream_end: Optional[Callable[[str, str, str], Any]] = None,
+        on_inquiry: Optional[Callable[[str, List[Dict[str, Any]], str, int], Any]] = None
     ) -> Dict[str, Any]:
         """
         Executes an agent task directly via the LLM-First ReAct engine with native function calling.
@@ -248,8 +249,11 @@ class AntigravityHarness:
                 f"### 🤖 LLM Model Configuration Required\n\n"
                 f"To run autonomous code reviews, synthesize PR diffs, and orchestrate workspace tools, please configure an LLM provider:\n\n"
                 f"1. **Gemini API Key**: Set `GEMINI_API_KEY` in your `.env` file or configure it in **Settings > Integrations**.\n"
-                f"2. **ChatOps Provisioning**: Reply directly in this chat with your API key (`AIzaSy...`), and I'll immediately hot-load it into your session vault!\n\n"
-                f"*Standing by for credentials to proceed with your task.*"
+                f"2. **Real-time Tool Orchestration**: Tools (`read_file`, `search_code`, `run_command`, `search_web`, `create_pull_request`) execute automatically once an API key is connected."
+            )
+            await self._emit_streamed_thought(
+                "API credentials missing. Please set GEMINI_API_KEY in environment or Integrations Settings.",
+                on_thought, on_stream_start, on_stream_chunk, on_stream_end
             )
             await self._emit_streamed_message(
                 "agent", guidance_msg, on_message, on_stream_start, on_stream_chunk, on_stream_end
@@ -273,7 +277,8 @@ class AntigravityHarness:
             history=history,
             on_stream_start=on_stream_start,
             on_stream_chunk=on_stream_chunk,
-            on_stream_end=on_stream_end
+            on_stream_end=on_stream_end,
+            on_inquiry=on_inquiry
         )
 
     async def _execute_with_llm(
@@ -293,7 +298,8 @@ class AntigravityHarness:
         history: Optional[List[Dict[str, Any]]] = None,
         on_stream_start: Optional[Callable[[str, str], Any]] = None,
         on_stream_chunk: Optional[Callable[[str, str, str, str], Any]] = None,
-        on_stream_end: Optional[Callable[[str, str, str], Any]] = None
+        on_stream_end: Optional[Callable[[str, str, str], Any]] = None,
+        on_inquiry: Optional[Callable[[str, List[Dict[str, Any]], str, int], Any]] = None
     ) -> Dict[str, Any]:
         """
         Primary LLM-first ReAct engine: invokes model with comprehensive tool declarations.
@@ -497,6 +503,32 @@ class AntigravityHarness:
                                 "token": {"type": "STRING", "description": "Optional GitHub personal access token"}
                             },
                             "required": ["repo_url"]
+                        }
+                    },
+                    {
+                        "name": "ask_user_inquiry",
+                        "description": "Ask the human user a structured multiple-choice inquiry or clarification question with predefined options and a default auto-proceed choice if the user does not respond within a timeout (e.g. app name, theme, features, architecture).",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "question": {"type": "STRING", "description": "The clear question to ask the human user"},
+                                "options": {
+                                    "type": "ARRAY",
+                                    "description": "List of choice options formatted as objects with 'id', 'label', and optional 'description'",
+                                    "items": {
+                                        "type": "OBJECT",
+                                        "properties": {
+                                            "id": {"type": "STRING", "description": "Unique option identifier (e.g. 'opt_modern_dark')"},
+                                            "label": {"type": "STRING", "description": "Short title of option"},
+                                            "description": {"type": "STRING", "description": "Detailed explanation of this choice"}
+                                        },
+                                        "required": ["id", "label"]
+                                    }
+                                },
+                                "default_option_id": {"type": "STRING", "description": "ID of the recommended default option to auto-proceed with if the user doesn't respond in time"},
+                                "timeout_seconds": {"type": "INTEGER", "description": "Seconds to wait before auto-proceeding with default (default: 25, min: 10, max: 120)"}
+                            },
+                            "required": ["question", "options", "default_option_id"]
                         }
                     }
                 ]
@@ -815,6 +847,42 @@ class AntigravityHarness:
                                 token_arg = args.get("token")
                                 tool_result = await WorkspaceTools.connect_repository(repo_url_arg, token_arg)
                                 out_str = json.dumps(tool_result, indent=2)
+                            elif fn_name == "ask_user_inquiry":
+                                question_arg = args.get("question", "Please clarify your preference:")
+                                options_arg = args.get("options", [])
+                                default_opt_arg = args.get("default_option_id", "")
+                                timeout_arg = int(args.get("timeout_seconds", 25))
+
+                                if on_inquiry:
+                                    if inspect.iscoroutinefunction(on_inquiry):
+                                        inquiry_res = await on_inquiry(question_arg, options_arg, default_opt_arg, timeout_arg)
+                                    else:
+                                        inquiry_res = on_inquiry(question_arg, options_arg, default_opt_arg, timeout_arg)
+                                        if asyncio.iscoroutine(inquiry_res):
+                                            inquiry_res = await inquiry_res
+                                else:
+                                    def_label = default_opt_arg
+                                    for o in options_arg:
+                                        if isinstance(o, dict) and o.get("id") == default_opt_arg:
+                                            def_label = o.get("label", default_opt_arg)
+                                            break
+                                    inquiry_res = {
+                                        "selected_option_id": default_opt_arg,
+                                        "label": def_label,
+                                        "timed_out": True
+                                    }
+
+                                tool_result = inquiry_res or {}
+                                sel_label = tool_result.get("label") or tool_result.get("selected_option_id") or "Default Option"
+                                is_timed = tool_result.get("timed_out", False)
+                                custom_t = tool_result.get("custom_response")
+
+                                if custom_t:
+                                    out_str = f"User custom response: '{custom_t}' (Option ID: {tool_result.get('selected_option_id')})"
+                                elif is_timed:
+                                    out_str = f"Auto-proceeded after {timeout_arg}s timeout with recommended default: '{sel_label}' (ID: {tool_result.get('selected_option_id')})"
+                                else:
+                                    out_str = f"User selected: '{sel_label}' (ID: {tool_result.get('selected_option_id')})"
                             else:
                                 tool_result = {"error": f"Unknown tool: {fn_name}"}
                                 exit_code = 1
