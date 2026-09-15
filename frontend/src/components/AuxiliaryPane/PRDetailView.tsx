@@ -376,6 +376,103 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, o
   );
 };
 
+interface ParsedCommit {
+  typeBadge?: { label: string; colorClass: string };
+  ticket?: string;
+  cleanSubject: string;
+  bodyProse: string;
+  trailers: Array<{ key: string; value: string; raw: string; type: 'co-author' | 'sign-off' | 'reference' | 'other' }>;
+}
+
+function parseCommitDetails(c: PRCommitItem): ParsedCommit {
+  const subject = (c.message || '').trim();
+  let cleanSubject = subject;
+  let typeBadge: ParsedCommit['typeBadge'] | undefined = undefined;
+  let ticket: string | undefined = undefined;
+
+  // Conventional commit format: type(scope): message or type: message
+  const conventionalMatch = subject.match(/^([a-zA-Z]+)(?:\(([^)]+)\))?:\s*(.+)$/);
+  if (conventionalMatch) {
+    const rawType = conventionalMatch[1].toLowerCase();
+    const rawScope = conventionalMatch[2];
+    const rest = conventionalMatch[3];
+    cleanSubject = rest;
+
+    let colorClass = 'bg-onedark-blue/15 text-onedark-blue border-onedark-blue/30';
+    if (['feat', 'feature'].includes(rawType)) {
+      colorClass = 'bg-onedark-green/15 text-onedark-green border-onedark-green/30';
+    } else if (['fix', 'bugfix', 'hotfix', 'patch'].includes(rawType)) {
+      colorClass = 'bg-onedark-yellow/15 text-onedark-yellow border-onedark-yellow/30';
+    } else if (['perf', 'refactor', 'style'].includes(rawType)) {
+      colorClass = 'bg-onedark-purple/15 text-onedark-purple border-onedark-purple/30';
+    } else if (['test', 'ci', 'build', 'chore', 'docs'].includes(rawType)) {
+      colorClass = 'bg-onedark-surface text-onedark-muted border-onedark-borderSubtle';
+    }
+
+    typeBadge = {
+      label: rawType,
+      colorClass
+    };
+
+    if (rawScope) {
+      ticket = rawScope;
+    }
+  } else {
+    // Ticket prefix format: [PD-1155] or PD-1155:
+    const ticketMatch = subject.match(/^\[?([A-Z]{2,10}-\d+)\]?[:\s]+(.+)$/);
+    if (ticketMatch) {
+      ticket = ticketMatch[1];
+      cleanSubject = ticketMatch[2];
+    }
+  }
+
+  // Extract raw body
+  let rawBody = c.body && c.body.trim() ? c.body.trim() : '';
+  if (!rawBody && c.full_message) {
+    const full = c.full_message.trim();
+    if (full.startsWith(subject)) {
+      rawBody = full.slice(subject.length).trim();
+    } else if (full !== subject) {
+      rawBody = full;
+    }
+  }
+
+  // Extract trailers (Co-Authored-By, Signed-off-by, Refs, etc.)
+  const bodyLines = rawBody.split('\n');
+  const proseLines: string[] = [];
+  const trailers: ParsedCommit['trailers'] = [];
+
+  for (const line of bodyLines) {
+    const trimmed = line.trim();
+    const coAuthorMatch = trimmed.match(/^Co-[Aa]uthored-[Bb]y:\s*(.+)$/i);
+    const signOffMatch = trimmed.match(/^Signed-off-by:\s*(.+)$/i);
+    const reviewedMatch = trimmed.match(/^Reviewed-by:\s*(.+)$/i);
+    const fixesMatch = trimmed.match(/^(Fixes|Closes|Resolves|Refs):\s*(.+)$/i);
+
+    if (coAuthorMatch) {
+      trailers.push({ key: 'Co-Authored-By', value: coAuthorMatch[1], raw: trimmed, type: 'co-author' });
+    } else if (signOffMatch) {
+      trailers.push({ key: 'Signed-off-by', value: signOffMatch[1], raw: trimmed, type: 'sign-off' });
+    } else if (reviewedMatch) {
+      trailers.push({ key: 'Reviewed-by', value: reviewedMatch[1], raw: trimmed, type: 'sign-off' });
+    } else if (fixesMatch) {
+      trailers.push({ key: fixesMatch[1], value: fixesMatch[2], raw: trimmed, type: 'reference' });
+    } else {
+      proseLines.push(line);
+    }
+  }
+
+  const bodyProse = proseLines.join('\n').trim();
+
+  return {
+    typeBadge,
+    ticket,
+    cleanSubject,
+    bodyProse,
+    trailers
+  };
+}
+
 interface PRCommitsSectionProps {
   commits: PRCommitItem[];
   repoName?: string;
@@ -394,18 +491,6 @@ export const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ commits, rep
     navigator.clipboard.writeText(sha);
     setCopiedSha(sha);
     setTimeout(() => setCopiedSha(null), 1500);
-  };
-
-  const getCleanCommitBody = (c: PRCommitItem): string => {
-    if (c.body && c.body.trim()) return c.body.trim();
-    if (!c.full_message) return '';
-    const full = c.full_message.trim();
-    const subject = c.message.trim();
-    if (full === subject) return '';
-    if (full.startsWith(subject)) {
-      return full.slice(subject.length).trim();
-    }
-    return full;
   };
 
   const toggleCommitDiff = async (sha: string, htmlUrl?: string) => {
@@ -451,7 +536,7 @@ export const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ commits, rep
 
       <div className="space-y-3">
         {commits.map((c, idx) => {
-          const cleanBody = getCleanCommitBody(c);
+          const parsed = parseCommitDetails(c);
           const isBodyExpanded = !!expandedBodies[c.sha];
           const isDiffExpanded = !!expandedDiffs[c.sha];
           const diffFiles = commitDiffData[c.sha] || [];
@@ -460,48 +545,118 @@ export const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ commits, rep
           return (
             <div
               key={`${c.sha}-${idx}`}
-              className="rounded-xl border border-onedark-border bg-onedark-darker overflow-hidden hover:border-onedark-borderSubtle transition-all"
+              className="rounded-xl border border-onedark-border bg-onedark-darker overflow-hidden hover:border-onedark-borderSubtle transition-all shadow-xs"
             >
-              <div className="p-3 flex flex-col sm:flex-row sm:items-start justify-between gap-2.5">
-                <div className="flex items-start space-x-2.5 min-w-0 flex-1">
-                  <div className="w-6 h-6 rounded-full bg-onedark-surface border border-onedark-borderSubtle flex items-center justify-center text-onedark-accent flex-shrink-0 mt-0.5 overflow-hidden">
+              <div className="p-3.5 flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                <div className="flex items-start space-x-3 min-w-0 flex-1">
+                  {/* Author Avatar */}
+                  <div className="w-7 h-7 rounded-full bg-onedark-surface border border-onedark-borderSubtle flex items-center justify-center text-onedark-accent flex-shrink-0 mt-0.5 overflow-hidden shadow-xs">
                     {c.author_avatar ? (
                       <img src={c.author_avatar} alt={c.author_name} className="w-full h-full object-cover" />
                     ) : (
-                      <User className="w-3.5 h-3.5" />
+                      <User className="w-3.5 h-3.5 text-onedark-muted" />
                     )}
                   </div>
 
                   <div className="min-w-0 flex-1">
-                    {/* Commit Subject */}
-                    <div className="text-xs font-bold text-onedark-fgBright leading-snug">
-                      {c.message}
+                    {/* Subject Line with Conventional Commit & Ticket Badges */}
+                    <div className="flex flex-wrap items-center gap-1.5 leading-snug">
+                      {parsed.typeBadge && (
+                        <span className={`px-1.5 py-0.5 rounded-md font-mono text-[10px] font-bold uppercase tracking-wider border flex-shrink-0 ${parsed.typeBadge.colorClass}`}>
+                          {parsed.typeBadge.label}
+                        </span>
+                      )}
+
+                      {parsed.ticket && (
+                        <span className="px-1.5 py-0.5 rounded-md font-mono text-[10.5px] font-semibold bg-onedark-accent/15 text-onedark-accent border border-onedark-accent/30 flex-shrink-0">
+                          {parsed.ticket}
+                        </span>
+                      )}
+
+                      <span className="text-[13px] font-bold text-onedark-fgBright select-text">
+                        {parsed.cleanSubject}
+                      </span>
                     </div>
 
-                    {/* Commit Description Body (Without duplicate subject) */}
-                    {cleanBody && (
-                      <div className="mt-1.5 bg-onedark-surface/40 p-2 rounded-lg border border-onedark-borderSubtle/50 text-[11.5px] text-onedark-muted/90 font-sans leading-relaxed">
-                        <div className={`whitespace-pre-wrap ${!isBodyExpanded && cleanBody.length > 200 ? 'line-clamp-3' : ''}`}>
-                          {cleanBody}
-                        </div>
-                        {cleanBody.length > 200 && (
-                          <button
-                            onClick={() => setExpandedBodies(prev => ({ ...prev, [c.sha]: !isBodyExpanded }))}
-                            className="mt-1 text-[10.5px] font-semibold text-onedark-accent hover:underline cursor-pointer"
-                          >
-                            {isBodyExpanded ? 'Show less' : 'Show full description'}
-                          </button>
+                    {/* Commit Description Body Box */}
+                    {(parsed.bodyProse || parsed.trailers.length > 0) && (
+                      <div className="mt-2.5 bg-onedark-bg/95 p-3.5 rounded-lg border border-onedark-borderSubtle/80 text-[12.5px] text-onedark-fg/90 font-sans leading-relaxed shadow-xs select-text">
+                        {parsed.bodyProse && (
+                          <div>
+                            <div className={`prose prose-invert max-w-none text-onedark-fg/95 text-[12.5px] leading-relaxed ${!isBodyExpanded && parsed.bodyProse.length > 220 ? 'line-clamp-3' : ''}`}>
+                              <MarkdownRenderer content={parsed.bodyProse} className="text-[12.5px] leading-relaxed text-onedark-fg/95" />
+                            </div>
+
+                            {parsed.bodyProse.length > 220 && (
+                              <button
+                                onClick={() => setExpandedBodies(prev => ({ ...prev, [c.sha]: !isBodyExpanded }))}
+                                className="inline-flex items-center space-x-1.5 mt-2.5 px-2.5 py-1 rounded-md text-[11px] font-medium text-onedark-accent bg-onedark-accent/10 hover:bg-onedark-accent/20 border border-onedark-accent/25 transition-colors cursor-pointer"
+                              >
+                                <span>{isBodyExpanded ? 'Show less' : 'Show full description'}</span>
+                                {isBodyExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                              </button>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Git Trailers: Co-Authored-By, Signed-Off-By, Issue References */}
+                        {parsed.trailers.length > 0 && (
+                          <div className={`flex flex-wrap items-center gap-1.5 ${parsed.bodyProse ? 'mt-3 pt-2.5 border-t border-onedark-borderSubtle/60' : ''}`}>
+                            {parsed.trailers.map((t, tIdx) => {
+                              if (t.type === 'co-author') {
+                                const nameMatch = t.value.match(/^([^<]+)(?:<([^>]+)>)?$/);
+                                const authorName = nameMatch ? nameMatch[1].trim() : t.value;
+                                const authorEmail = nameMatch && nameMatch[2] ? nameMatch[2].trim() : null;
+
+                                return (
+                                  <div
+                                    key={tIdx}
+                                    className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-onedark-surface/80 border border-onedark-borderSubtle text-[11px] text-onedark-muted shadow-2xs"
+                                  >
+                                    <Bot className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
+                                    <span className="text-onedark-muted/80">Co-authored by</span>
+                                    <span className="font-semibold text-onedark-fgBright">{authorName}</span>
+                                    {authorEmail && <span className="font-mono text-[10px] text-onedark-muted/60">&lt;{authorEmail}&gt;</span>}
+                                  </div>
+                                );
+                              }
+
+                              if (t.type === 'sign-off') {
+                                return (
+                                  <div
+                                    key={tIdx}
+                                    className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-onedark-surface/80 border border-onedark-borderSubtle text-[11px] text-onedark-muted shadow-2xs"
+                                  >
+                                    <Check className="w-3.5 h-3.5 text-onedark-green flex-shrink-0" />
+                                    <span className="text-onedark-muted/80">{t.key}:</span>
+                                    <span className="font-medium text-onedark-fgBright">{t.value}</span>
+                                  </div>
+                                );
+                              }
+
+                              return (
+                                <div
+                                  key={tIdx}
+                                  className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-onedark-surface/80 border border-onedark-borderSubtle text-[11px] text-onedark-muted shadow-2xs"
+                                >
+                                  <Sparkles className="w-3.5 h-3.5 text-onedark-purple flex-shrink-0" />
+                                  <span className="text-onedark-muted/80">{t.key}:</span>
+                                  <span className="font-mono font-medium text-onedark-accent">{t.value}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
                         )}
                       </div>
                     )}
 
                     {/* Author & Timestamp Footer */}
-                    <div className="flex items-center space-x-2 text-[11px] text-onedark-muted mt-2 font-sans">
-                      <span className="font-semibold text-onedark-fg">@{c.author_login || c.author_name}</span>
+                    <div className="flex items-center space-x-2 text-[11px] text-onedark-muted mt-2 font-sans select-none">
+                      <span className="font-semibold text-onedark-fgBright">@{c.author_login || c.author_name}</span>
                       {c.date && (
                         <>
                           <span>•</span>
-                          <span className="flex items-center space-x-1">
+                          <span className="flex items-center space-x-1 text-onedark-muted/80">
                             <Clock className="w-3 h-3" />
                             <span>{new Date(c.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
                           </span>
@@ -511,11 +666,11 @@ export const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ commits, rep
                   </div>
                 </div>
 
-                {/* Right Actions: SHA Copy, View Changes Toggle, GitHub Link */}
-                <div className="flex items-center space-x-1.5 self-end sm:self-start flex-shrink-0 pt-0.5">
+                {/* Right Actions: View Changes Toggle, SHA Copy, GitHub Link */}
+                <div className="flex items-center space-x-1.5 self-end sm:self-start flex-shrink-0 pt-0.5 select-none">
                   <button
                     onClick={() => toggleCommitDiff(c.sha, c.html_url)}
-                    className={`flex items-center space-x-1 px-2 py-1 rounded text-[11px] font-semibold border transition-all cursor-pointer ${
+                    className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold border transition-all cursor-pointer shadow-xs whitespace-nowrap ${
                       isDiffExpanded
                         ? 'bg-onedark-accent/20 border-onedark-accent/50 text-onedark-accent'
                         : 'bg-onedark-surface hover:bg-onedark-surface/80 border-onedark-border text-onedark-fg'
@@ -523,16 +678,16 @@ export const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ commits, rep
                     title="View files changed in this commit"
                   >
                     {isDiffLoading ? (
-                      <Loader2 className="w-3 h-3 animate-spin text-onedark-accent" />
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-onedark-accent" />
                     ) : (
-                      <FileCode2 className="w-3 h-3 text-onedark-blue" />
+                      <FileCode2 className="w-3.5 h-3.5 text-onedark-blue" />
                     )}
                     <span>{isDiffExpanded ? 'Hide Diff' : 'View Diff'}</span>
                   </button>
 
                   <button
                     onClick={(e) => handleCopySha(c.sha, e)}
-                    className="flex items-center space-x-1 px-2 py-1 rounded bg-onedark-surface hover:bg-onedark-surface/80 border border-onedark-border font-mono text-[10.5px] text-onedark-muted hover:text-onedark-fg transition-colors cursor-pointer"
+                    className="flex items-center space-x-1 px-2 py-1 rounded-md bg-onedark-surface hover:bg-onedark-surface/80 border border-onedark-border font-mono text-[10.5px] text-onedark-muted hover:text-onedark-fg transition-colors cursor-pointer shadow-xs whitespace-nowrap"
                     title="Copy Full Commit SHA"
                   >
                     {copiedSha === c.sha ? (
@@ -548,7 +703,7 @@ export const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ commits, rep
                       href={c.html_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-accent transition-colors"
+                      className="p-1 rounded-md hover:bg-onedark-surface text-onedark-muted hover:text-onedark-accent transition-colors border border-transparent hover:border-onedark-borderSubtle"
                       title="View commit on GitHub"
                     >
                       <ExternalLink className="w-3.5 h-3.5" />
