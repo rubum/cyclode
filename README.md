@@ -6,7 +6,7 @@
 
 [![Frontend](https://img.shields.io/badge/frontend-React%2018%20%7C%20Vite%20%7C%20Tailwind-38bdf8.svg)](frontend/)
 [![Backend](https://img.shields.io/badge/backend-FastAPI%20%7C%20Python%203.11-10b981.svg)](backend/)
-[![Tests](https://img.shields.io/badge/tests-38%20passing-brightgreen.svg)](backend/tests/)
+[![Tests](https://img.shields.io/badge/tests-44%20passing-brightgreen.svg)](backend/tests/)
 [![License](https://img.shields.io/badge/license-Proprietary-amber.svg)](LICENSE)
 
 </div>
@@ -34,32 +34,46 @@ Embedded directly into the workstation's Auxiliary Pane, allowing developers and
 ### 2. Side-by-Side Web Reader & GitHub Inspector
 - **Clean Markdown Extraction**: Fetches external documentation, isolates core content (`<article>`, `<main>`), and converts it into high-fidelity markdown stripped of clutter, cookie banners, and noise.
 - **Automated GitHub Inspector**: Directly detects GitHub repository links and displays live repository statistics (stars, language, license, forks, clone URL) alongside formatted README documentation.
-- **Session-Scoped Isolation**: Documentation previews are strictly isolated per session, preventing cross-session tab pollution.
 
-### 3. AI Session Titles & Inline Renaming
+### 3. Full-Fidelity Pull Request Inspector & Auto-Sync Comments
+- **Live GitHub PR Discovery & Diffs**: Real-time retrieval of PR metadata, commit timelines, and syntax-highlighted unified diffs for both public and vaulted private repositories.
+- **Consolidated Comments Timeline**: Unified feed aggregating PR conversations, inline code review comments, and formal review submissions (`Approved`, `Changes Requested`).
+- **Multi-Trigger Auto-Sync**: Real-time updates via WebSockets (`PR_COMMENTS_UPDATED`), focus-aware adaptive polling (every 20s when visible), post-submission sync, and on-demand refresh.
+- **Code Context Anchors & In-App Composer**: Inspect diff hunks directly on review comments, jump to code lines with one click, and submit replies or comments directly to GitHub.
+- **Sandbox Test Execution & AI Review Reports**: Run automated tests in isolated worktrees and generate deep architectural & security code reviews.
+
+### 4. Strict Cross-Session Boundary Isolation
+- **Composite Lifecycle Keying**: Tab views in the Auxiliary Pane are strictly keyed (`key={`${activeTab}-${task?.id || 'none'}`}`), ensuring that switching sessions immediately unmounts prior tab state and completely purges cached diffs, popovers, and preview targets.
+- **Repository Scope Guarding**: Validates that all PR URLs and records match the active session's repository before rendering.
+
+### 5. Dynamic 3-State Send & Stop Controls
+- **3-State Action Button**: Transitions smoothly between active Send (paper plane), Submitting (animated spinner), and Running (pulsing red **Stop** button for instant cancellation of executing agent runs).
+- **Legible Typography**: Enhanced 15px typography with mirrored syntax highlighting for repository `@mentions`.
+
+### 6. AI Session Titles & Inline Renaming
 - **Dual-Phase Title Generation**: Immediate heuristic cleanup on prompt submission followed by background asynchronous AI title synthesis (Gemini Flash).
 - **Inline Editing**: Double-click session titles in the Sidebar or click the edit pencil in the Chat header to rename sessions on the fly, synchronized via WebSockets (`TASK_TITLE_UPDATED`).
 
-### 4. Autonomous Multi-Agent Personas
+### 7. Autonomous Multi-Agent Personas
 - `PairProgrammer`: General architecture design, full-stack implementation, refactoring, and test verification.
 - `CodeReviewer`: Deep PR diff analysis, security audits, null safety checks, and edge-case validation.
 - `IssueResolver`: Targeted root-cause investigation, reproduction script authoring, and automated patching.
 - `APMTriage`: Production crash triage, stack trace analysis, and synthetic regression reproducing.
 
-### 5. Webhook Simulator & Event Router
+### 8. Webhook Simulator & Event Router
 - Built-in simulation environment to trigger and test inbound webhooks from **GitHub**, **Slack**, **AppSignal**, or custom systems.
 - Cryptographic signature verification supporting HMAC-SHA256 (GitHub / Slack) and Bearer tokens.
 - Automated event routing to standing automation rules or agent dispatch.
 
-### 6. Granular Governance & Approval Policies
+### 9. Granular Governance & Approval Policies
 - Three distinct governance security tiers: `STRICT`, `AUTONOMOUS`, and `PERMISSIVE`.
 - Automated action gating requiring explicit human approval (`AWAITING_APPROVAL`) for destructive actions, shell executions, git push, and notifications.
 
-### 7. Isolated Ephemeral Sandboxes
+### 10. Isolated Ephemeral Sandboxes
 - Every task runs in an isolated workspace with safe execution sandboxing.
 - Interactive **Sandbox Inspector** provides live filesystem tree views, disk consumption analytics, and git commit history tracking.
 
-### 8. One Dark Pro Workstation Interface
+### 11. One Dark Pro Workstation Interface
 - Designed with 100% viewport space utilization for dense engineering productivity.
 - Flexible workspace layout presets: `Standard`, `Wide`, and `Zen ⛶` (fullscreen).
 
