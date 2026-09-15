@@ -17,6 +17,10 @@
 
 **Cyclode** is an autonomous AI engineering workstation designed for full-lifecycle software engineering, automated PR reviews, incident triage, and interactive pair programming. Built for high-leverage software teams, Cyclode pairs developer intent with autonomous background agents executing inside isolated, disposable sandboxes with real-time token streaming, human-in-the-loop governance policies, and an integrated documentation research engine.
 
+<p align="center">
+  <img src="./assets/cyclode-workstation.png" alt="Cyclode Workstation Interface" style="border-radius: 8px; border: 1px solid #30363d;" width="100%" />
+</p>
+
 ---
 
 ## Key Features
