@@ -1034,3 +1034,86 @@ async def trigger_task_pr_review(task_id: str, pr_number: int, db: AsyncSession 
     }
 
 
+class PostPRCommentRequest(BaseModel):
+    body: str
+    in_reply_to_id: Optional[int] = None
+
+
+@router.get("/{task_id}/prs/{pr_number}/comments")
+async def get_task_pr_comments(
+    task_id: str,
+    pr_number: int,
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    res = await db.execute(stmt)
+    task = res.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    if not task.repo_name or "/" not in task.repo_name:
+        return {"comments": [], "count": 0}
+
+    owner, repo = task.repo_name.split("/", 1)
+    from app.integrations.github_client import github_client
+    from app.integrations.manager import integration_manager
+
+    token = await integration_manager.get_github_token_for_repo(task.repo_url or f"https://github.com/{task.repo_name}")
+    comments = await github_client.list_pull_request_comments(owner, repo, pr_number, custom_token=token)
+    return {
+        "comments": comments,
+        "count": len(comments),
+        "task_id": task_id,
+        "pr_number": pr_number
+    }
+
+
+@router.post("/{task_id}/prs/{pr_number}/comments")
+async def post_task_pr_comment(
+    task_id: str,
+    pr_number: int,
+    req: PostPRCommentRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    clean_body = req.body.strip()
+    if not clean_body:
+        raise HTTPException(status_code=400, detail="Comment body cannot be empty")
+
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    res = await db.execute(stmt)
+    task = res.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    if not task.repo_name or "/" not in task.repo_name:
+        raise HTTPException(status_code=400, detail="No repository attached to task")
+
+    owner, repo = task.repo_name.split("/", 1)
+    from app.integrations.github_client import github_client
+    from app.integrations.manager import integration_manager
+
+    token = await integration_manager.get_github_token_for_repo(task.repo_url or f"https://github.com/{task.repo_name}")
+    result = await github_client.post_pull_request_comment(
+        owner=owner,
+        repo=repo,
+        pr_number=pr_number,
+        comment=clean_body,
+        in_reply_to_id=req.in_reply_to_id,
+        custom_token=token
+    )
+
+    await ws_manager.broadcast("PR_COMMENTS_UPDATED", {
+        "task_id": task_id,
+        "pr_number": pr_number,
+        "comment_id": result.get("id"),
+        "action": "created"
+    })
+
+    return {
+        "ok": result.get("ok", True),
+        "comment": result,
+        "pr_number": pr_number
+    }
+
+
+

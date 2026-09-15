@@ -97,6 +97,18 @@ class EventRouter:
                 "payload": payload,
                 "created_at": event.created_at.isoformat() if hasattr(event, "created_at") and event.created_at else get_utc_now().isoformat()
             })
+
+            # If event is a comment or review on a PR, broadcast PR_COMMENTS_UPDATED for live auto-sync
+            if source == "github" and ("comment" in event_type or "review" in event_type):
+                pr_num = payload.get("number") or payload.get("issue", {}).get("number") or payload.get("pull_request", {}).get("number")
+                if pr_num:
+                    await ws_manager.broadcast("PR_COMMENTS_UPDATED", {
+                        "task_id": task_id,
+                        "pr_number": pr_num,
+                        "repo_name": repo_name,
+                        "event_type": event_type,
+                        "action": "webhook_event"
+                    })
         except Exception as e:
             logger.debug(f"Note: WebSocket broadcast skipped or client absent: {e}")
 

@@ -218,3 +218,24 @@ export interface WebSocketEvent {
   data: any;
 }
 
+export interface PRCommentItem {
+  id: string;
+  raw_id?: number;
+  type: 'conversation' | 'code_comment' | 'review';
+  author: string;
+  author_avatar?: string;
+  author_association?: string;
+  body: string;
+  created_at?: string;
+  updated_at?: string;
+  html_url?: string;
+  reactions?: Record<string, number>;
+  path?: string;
+  line?: number;
+  original_line?: number;
+  diff_hunk?: string;
+  commit_id?: string;
+  in_reply_to_id?: number | null;
+  review_state?: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED';
+}
+

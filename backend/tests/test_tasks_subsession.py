@@ -142,4 +142,19 @@ async def test_task_pr_endpoints_and_actions():
         author_prs = author_filter_res.json()
         assert all("octocat" in p["author"].lower() for p in author_prs)
 
+        # 9. Test GET and POST PR comments
+        post_comment_res = await client.post(f"/api/tasks/{task_id}/prs/42/comments", json={
+            "body": "Automated code review: verified thread safety."
+        })
+        assert post_comment_res.status_code == 200
+        post_comment_data = post_comment_res.json()
+        assert post_comment_data["ok"] is True
+        assert post_comment_data["pr_number"] == 42
+
+        get_comments_res = await client.get(f"/api/tasks/{task_id}/prs/42/comments")
+        assert get_comments_res.status_code == 200
+        comments_data = get_comments_res.json()
+        assert "comments" in comments_data
+        assert "count" in comments_data
+
 

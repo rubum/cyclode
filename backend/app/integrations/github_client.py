@@ -1,7 +1,11 @@
+import os
 import time
+import logging
 import httpx
 from typing import Optional, Dict, Any, List
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class GitHubClient:
@@ -416,6 +420,229 @@ class GitHubClient:
                 return {"ok": False, "error": resp.text, "status_code": resp.status_code, "simulated": False}
             except Exception as e:
                 return {"ok": False, "error": str(e), "simulated": False}
+
+    async def list_pull_request_comments(
+        self,
+        owner: str,
+        repo: str,
+        pr_number: int,
+        custom_token: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetches all comments on a pull request:
+        1. PR-level conversation comments (issues/{pr_number}/comments)
+        2. Inline diff code review comments (pulls/{pr_number}/comments)
+        3. Formal review submissions (pulls/{pr_number}/reviews)
+        Returns a sorted, normalized chronological list.
+        """
+        token = custom_token or self.token
+        headers = {
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "Cyclode-Agentic-Harness",
+        }
+        if token:
+            headers["Authorization"] = f"token {token}"
+
+        if os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
+            return [
+                {
+                    "id": "issue_101",
+                    "raw_id": 101,
+                    "type": "conversation",
+                    "author": "octocat",
+                    "author_avatar": "https://github.com/images/error/octocat_happy.gif",
+                    "author_association": "COLLABORATOR",
+                    "body": "Thanks for opening this PR! Looking forward to reviewing the implementation.",
+                    "created_at": "2026-09-14T10:00:00Z",
+                    "updated_at": "2026-09-14T10:00:00Z",
+                    "html_url": f"https://github.com/{owner}/{repo}/pull/{pr_number}#issuecomment-101",
+                    "reactions": {"+1": 2, "-1": 0, "laugh": 0, "heart": 1, "eyes": 1}
+                },
+                {
+                    "id": "review_comment_202",
+                    "raw_id": 202,
+                    "type": "code_comment",
+                    "author": "reviewer1",
+                    "author_avatar": "https://github.com/images/error/octocat_happy.gif",
+                    "author_association": "MEMBER",
+                    "body": "Consider using structured error logging here rather than a plain string.",
+                    "created_at": "2026-09-14T11:30:00Z",
+                    "updated_at": "2026-09-14T11:30:00Z",
+                    "html_url": f"https://github.com/{owner}/{repo}/pull/{pr_number}#discussion_r202",
+                    "path": "src/main.rs",
+                    "line": 42,
+                    "original_line": 42,
+                    "diff_hunk": "@@ -40,3 +40,5 @@\n+    if err.is_some() {\n+        println!(\"error\");",
+                    "commit_id": "a1b2c3d",
+                    "in_reply_to_id": None,
+                    "reactions": {"+1": 1, "heart": 0}
+                },
+                {
+                    "id": "review_303",
+                    "raw_id": 303,
+                    "type": "review",
+                    "author": "senior-eng",
+                    "author_avatar": "https://github.com/images/error/octocat_happy.gif",
+                    "author_association": "OWNER",
+                    "body": "LGTM overall, left one minor suggestion on the error handling.",
+                    "review_state": "COMMENTED",
+                    "created_at": "2026-09-14T12:00:00Z",
+                    "html_url": f"https://github.com/{owner}/{repo}/pull/{pr_number}#pullrequestreview-303"
+                }
+            ]
+
+        items: List[Dict[str, Any]] = []
+        async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+            # 1. PR Conversation comments
+            try:
+                r_issue = await client.get(
+                    f"{self.api_base}/repos/{owner}/{repo}/issues/{pr_number}/comments?per_page=100",
+                    headers=headers
+                )
+                if r_issue.status_code == 200:
+                    for c in r_issue.json():
+                        u = c.get("user") or {}
+                        reactions = c.get("reactions") or {}
+                        items.append({
+                            "id": f"issue_{c.get('id')}",
+                            "raw_id": c.get("id"),
+                            "type": "conversation",
+                            "author": u.get("login", "unknown") if isinstance(u, dict) else "unknown",
+                            "author_avatar": u.get("avatar_url", "") if isinstance(u, dict) else "",
+                            "author_association": c.get("author_association", "NONE"),
+                            "body": c.get("body", ""),
+                            "created_at": c.get("created_at"),
+                            "updated_at": c.get("updated_at"),
+                            "html_url": c.get("html_url", ""),
+                            "reactions": {
+                                "+1": reactions.get("+1", 0),
+                                "-1": reactions.get("-1", 0),
+                                "laugh": reactions.get("laugh", 0),
+                                "hooray": reactions.get("hooray", 0),
+                                "heart": reactions.get("heart", 0),
+                                "rocket": reactions.get("rocket", 0),
+                                "eyes": reactions.get("eyes", 0),
+                            }
+                        })
+            except Exception as e:
+                logger.debug(f"Failed to fetch PR conversation comments: {e}")
+
+            # 2. Diff code review comments
+            try:
+                r_review_comments = await client.get(
+                    f"{self.api_base}/repos/{owner}/{repo}/pulls/{pr_number}/comments?per_page=100",
+                    headers=headers
+                )
+                if r_review_comments.status_code == 200:
+                    for rc in r_review_comments.json():
+                        u = rc.get("user") or {}
+                        reactions = rc.get("reactions") or {}
+                        items.append({
+                            "id": f"review_comment_{rc.get('id')}",
+                            "raw_id": rc.get("id"),
+                            "type": "code_comment",
+                            "author": u.get("login", "unknown") if isinstance(u, dict) else "unknown",
+                            "author_avatar": u.get("avatar_url", "") if isinstance(u, dict) else "",
+                            "author_association": rc.get("author_association", "NONE"),
+                            "body": rc.get("body", ""),
+                            "created_at": rc.get("created_at"),
+                            "updated_at": rc.get("updated_at"),
+                            "html_url": rc.get("html_url", ""),
+                            "path": rc.get("path", ""),
+                            "line": rc.get("line") or rc.get("original_line"),
+                            "original_line": rc.get("original_line"),
+                            "diff_hunk": rc.get("diff_hunk", ""),
+                            "commit_id": rc.get("commit_id", ""),
+                            "in_reply_to_id": rc.get("in_reply_to_id"),
+                            "reactions": {
+                                "+1": reactions.get("+1", 0),
+                                "-1": reactions.get("-1", 0),
+                                "laugh": reactions.get("laugh", 0),
+                                "heart": reactions.get("heart", 0),
+                                "eyes": reactions.get("eyes", 0),
+                            }
+                        })
+            except Exception as e:
+                logger.debug(f"Failed to fetch PR review comments: {e}")
+
+            # 3. Formal review submissions
+            try:
+                r_reviews = await client.get(
+                    f"{self.api_base}/repos/{owner}/{repo}/pulls/{pr_number}/reviews?per_page=50",
+                    headers=headers
+                )
+                if r_reviews.status_code == 200:
+                    for r in r_reviews.json():
+                        u = r.get("user") or {}
+                        body = (r.get("body") or "").strip()
+                        state = (r.get("state") or "COMMENTED").upper()
+                        # Keep reviews that have text or are significant decisions
+                        if body or state in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED"):
+                            items.append({
+                                "id": f"review_{r.get('id')}",
+                                "raw_id": r.get("id"),
+                                "type": "review",
+                                "author": u.get("login", "unknown") if isinstance(u, dict) else "unknown",
+                                "author_avatar": u.get("avatar_url", "") if isinstance(u, dict) else "",
+                                "author_association": r.get("author_association", "NONE"),
+                                "body": body,
+                                "review_state": state,
+                                "created_at": r.get("submitted_at") or r.get("created_at"),
+                                "html_url": r.get("html_url", ""),
+                            })
+            except Exception as e:
+                logger.debug(f"Failed to fetch PR reviews: {e}")
+
+        # Sort chronologically by created_at
+        def sort_key(item: Dict[str, Any]) -> str:
+            return item.get("created_at") or ""
+
+        items.sort(key=sort_key)
+        return items
+
+    async def post_pull_request_comment(
+        self,
+        owner: str,
+        repo: str,
+        pr_number: int,
+        comment: str,
+        in_reply_to_id: Optional[int] = None,
+        custom_token: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Posts a comment or reply on a PR.
+        If in_reply_to_id is provided, replies to an inline review comment thread.
+        Otherwise, posts a top-level conversation comment.
+        """
+        token = custom_token or self.token
+        if not token:
+            return {
+                "ok": True,
+                "id": 999,
+                "body": comment,
+                "html_url": f"https://github.com/{owner}/{repo}/pull/{pr_number}#issuecomment-999",
+                "simulated": True
+            }
+
+        headers = {
+            "Accept": "application/vnd.github.v3+json",
+            "User-Agent": "Cyclode-Agentic-Harness",
+            "Authorization": f"token {token}"
+        }
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            if in_reply_to_id:
+                url = f"{self.api_base}/repos/{owner}/{repo}/pulls/{pr_number}/comments/{in_reply_to_id}/replies"
+                resp = await client.post(url, headers=headers, json={"body": comment})
+            else:
+                url = f"{self.api_base}/repos/{owner}/{repo}/issues/{pr_number}/comments"
+                resp = await client.post(url, headers=headers, json={"body": comment})
+
+            if resp.status_code in (200, 201):
+                data = resp.json()
+                data["ok"] = True
+                return data
+            return {"ok": False, "error": resp.text, "status_code": resp.status_code, "simulated": False}
 
     async def list_webhooks(self, owner: str, repo: str, custom_token: Optional[str] = None) -> Dict[str, Any]:
         """

@@ -18,22 +18,29 @@ import {
   FileCode2,
   GitCommit,
   User,
-  Clock,
-  Loader2,
+  Clock, 
+  Loader2, 
   MessageSquarePlus,
-  Bot,
-  Play,
-  ShieldCheck,
-  Download,
-  AlertCircle,
-  Terminal,
-  Sparkles,
-  Layers,
-  Filter
+  MessageSquare,
+  Bot, 
+  Play, 
+  ShieldCheck, 
+  Download, 
+  AlertCircle, 
+  Terminal, 
+  Sparkles, 
+  Layers, 
+  Filter,
+  Send,
+  CornerDownRight,
+  ThumbsUp,
+  Heart,
+  Smile
 } from 'lucide-react';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { PRReviewAgentPopover, LineContext } from './PRReviewAgentPopover';
-import { Task, TaskPR } from '../../types';
+import { Task, TaskPR, PRCommentItem } from '../../types';
+import { useWebSocket } from '../../contexts/WebSocketContext';
 
 export interface PRFileItem {
   filename: string;
@@ -71,6 +78,8 @@ export interface PRReaderResponse {
   diff_text?: string;
   files?: PRFileItem[];
   commits?: PRCommitItem[];
+  comments?: PRCommentItem[];
+  comments_count?: number;
   pr_number?: number;
   pr_title?: string;
   state?: string;
@@ -741,6 +750,486 @@ export const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ commits, rep
   );
 };
 
+interface PRCommentsSectionProps {
+  comments: PRCommentItem[];
+  prNumber?: number;
+  task?: Task | null;
+  onJumpToDiff?: (path: string, line?: number) => void;
+  onRefreshComments?: () => Promise<void>;
+  isSyncing?: boolean;
+  lastSyncedAt?: Date | null;
+}
+
+const formatCommentTimeAgo = (dateStr?: string): string => {
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffSec = Math.floor((now.getTime() - date.getTime()) / 1000);
+  if (diffSec < 60) return 'just now';
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m ago`;
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`;
+  if (diffSec < 2592000) return `${Math.floor(diffSec / 86400)}d ago`;
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+};
+
+export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
+  comments,
+  prNumber,
+  task,
+  onJumpToDiff,
+  onRefreshComments,
+  isSyncing = false,
+  lastSyncedAt = null
+}) => {
+  const [filter, setFilter] = useState<'ALL' | 'CONVERSATION' | 'CODE' | 'REVIEWS'>('ALL');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [newCommentText, setNewCommentText] = useState<string>('');
+  const [replyingTo, setReplyingTo] = useState<PRCommentItem | null>(null);
+  const [isPosting, setIsPosting] = useState<boolean>(false);
+  const [postError, setPostError] = useState<string | null>(null);
+  const [postSuccess, setPostSuccess] = useState<boolean>(false);
+  const [expandedDiffHunks, setExpandedDiffHunks] = useState<Record<string, boolean>>({});
+
+  const conversationCount = useMemo(() => comments.filter(c => c.type === 'conversation').length, [comments]);
+  const codeCount = useMemo(() => comments.filter(c => c.type === 'code_comment').length, [comments]);
+  const reviewCount = useMemo(() => comments.filter(c => c.type === 'review').length, [comments]);
+
+  const filteredComments = useMemo(() => {
+    return comments.filter((c) => {
+      if (filter === 'CONVERSATION' && c.type !== 'conversation') return false;
+      if (filter === 'CODE' && c.type !== 'code_comment') return false;
+      if (filter === 'REVIEWS' && c.type !== 'review') return false;
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const matchesAuthor = c.author?.toLowerCase().includes(q);
+        const matchesBody = c.body?.toLowerCase().includes(q);
+        const matchesPath = c.path?.toLowerCase().includes(q);
+        return matchesAuthor || matchesBody || matchesPath;
+      }
+      return true;
+    });
+  }, [comments, filter, searchQuery]);
+
+  const handlePost = async () => {
+    const text = newCommentText.trim();
+    if (!text || !task?.id || !prNumber) return;
+    setIsPosting(true);
+    setPostError(null);
+    setPostSuccess(false);
+
+    try {
+      const apiBase = import.meta.env.VITE_API_URL || '';
+      const res = await fetch(`${apiBase}/api/tasks/${task.id}/prs/${prNumber}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          body: text,
+          in_reply_to_id: replyingTo?.raw_id
+        })
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.detail || errJson.error || `HTTP ${res.status}`);
+      }
+
+      setNewCommentText('');
+      setReplyingTo(null);
+      setPostSuccess(true);
+      setTimeout(() => setPostSuccess(false), 3000);
+      if (onRefreshComments) {
+        await onRefreshComments();
+      }
+    } catch (err: any) {
+      setPostError(err.message || 'Failed to post comment');
+    } finally {
+      setIsPosting(false);
+    }
+  };
+
+  const toggleDiffHunk = (commentId: string) => {
+    setExpandedDiffHunks(prev => ({ ...prev, [commentId]: !prev[commentId] }));
+  };
+
+  return (
+    <div className="space-y-4 font-sans text-xs">
+      {/* Top Controls: Category Tabs, Search, and Auto-Sync Status */}
+      <div className="flex flex-col gap-2.5 bg-onedark-surface/40 p-3 rounded-xl border border-onedark-borderSubtle">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {/* Filter Chips */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              onClick={() => setFilter('ALL')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer flex items-center space-x-1.5 ${
+                filter === 'ALL'
+                  ? 'bg-onedark-accent text-onedark-bg font-semibold shadow-xs'
+                  : 'bg-onedark-surface text-onedark-muted hover:text-onedark-fg border border-onedark-borderSubtle'
+              }`}
+            >
+              <span>All</span>
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${filter === 'ALL' ? 'bg-onedark-bg/30 text-onedark-bg font-bold' : 'bg-onedark-darker text-onedark-muted'}`}>
+                {comments.length}
+              </span>
+            </button>
+
+            <button
+              onClick={() => setFilter('CONVERSATION')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer flex items-center space-x-1.5 ${
+                filter === 'CONVERSATION'
+                  ? 'bg-onedark-accent text-onedark-bg font-semibold shadow-xs'
+                  : 'bg-onedark-surface text-onedark-muted hover:text-onedark-fg border border-onedark-borderSubtle'
+              }`}
+            >
+              <MessageSquare className="w-3 h-3" />
+              <span>Conversation</span>
+              {conversationCount > 0 && (
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${filter === 'CONVERSATION' ? 'bg-onedark-bg/30 text-onedark-bg font-bold' : 'bg-onedark-darker text-onedark-muted'}`}>
+                  {conversationCount}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setFilter('CODE')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer flex items-center space-x-1.5 ${
+                filter === 'CODE'
+                  ? 'bg-onedark-accent text-onedark-bg font-semibold shadow-xs'
+                  : 'bg-onedark-surface text-onedark-muted hover:text-onedark-fg border border-onedark-borderSubtle'
+              }`}
+            >
+              <FileCode2 className="w-3 h-3 text-onedark-blue" />
+              <span>Code Review</span>
+              {codeCount > 0 && (
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${filter === 'CODE' ? 'bg-onedark-bg/30 text-onedark-bg font-bold' : 'bg-onedark-darker text-onedark-muted'}`}>
+                  {codeCount}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setFilter('REVIEWS')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer flex items-center space-x-1.5 ${
+                filter === 'REVIEWS'
+                  ? 'bg-onedark-accent text-onedark-bg font-semibold shadow-xs'
+                  : 'bg-onedark-surface text-onedark-muted hover:text-onedark-fg border border-onedark-borderSubtle'
+              }`}
+            >
+              <ShieldCheck className="w-3 h-3 text-onedark-green" />
+              <span>Reviews</span>
+              {reviewCount > 0 && (
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${filter === 'REVIEWS' ? 'bg-onedark-bg/30 text-onedark-bg font-bold' : 'bg-onedark-darker text-onedark-muted'}`}>
+                  {reviewCount}
+                </span>
+              )}
+            </button>
+          </div>
+
+          {/* Auto-Sync Indicator & Refresh Button */}
+          <div className="flex items-center space-x-2 text-[11px] text-onedark-muted">
+            <span className="flex items-center space-x-1 font-mono">
+              <span className={`w-1.5 h-1.5 rounded-full ${isSyncing ? 'bg-onedark-yellow animate-ping' : 'bg-onedark-green'}`} />
+              <span>{isSyncing ? 'Syncing...' : lastSyncedAt ? `Synced ${formatCommentTimeAgo(lastSyncedAt.toISOString())}` : 'Live auto-sync active'}</span>
+            </span>
+
+            {onRefreshComments && (
+              <button
+                onClick={() => onRefreshComments()}
+                disabled={isSyncing}
+                title="Sync latest comments now"
+                className="p-1 rounded-md bg-onedark-surface hover:bg-onedark-surface/80 border border-onedark-borderSubtle text-onedark-fg hover:text-onedark-fgBright transition-colors cursor-pointer disabled:opacity-50"
+              >
+                <RotateCw className={`w-3 h-3 ${isSyncing ? 'animate-spin text-onedark-accent' : ''}`} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Search Bar */}
+        <div className="relative w-full">
+          <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-onedark-muted" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search discussion comments, code reviews, authors..."
+            className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-onedark-darker border border-onedark-borderSubtle text-xs text-onedark-fg placeholder-onedark-muted focus:outline-hidden focus:border-onedark-accent/60"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-onedark-muted hover:text-onedark-fg"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Empty State */}
+      {filteredComments.length === 0 && (
+        <div className="p-8 rounded-xl border border-onedark-borderSubtle bg-onedark-surface/30 text-center text-onedark-muted space-y-2">
+          <MessageSquare className="w-8 h-8 mx-auto opacity-30 text-onedark-accent" />
+          <p className="font-medium text-onedark-fgBright">No comments match the filter</p>
+          <p className="text-[11px]">
+            {comments.length === 0
+              ? 'No comments have been posted to this pull request yet. Start the conversation below.'
+              : 'Try selecting a different filter chip or clearing the search query.'}
+          </p>
+        </div>
+      )}
+
+      {/* Comments Feed */}
+      <div className="space-y-3">
+        {filteredComments.map((c) => {
+          const isCodeComment = c.type === 'code_comment';
+          const isReview = c.type === 'review';
+          const isDiffHunkExpanded = expandedDiffHunks[c.id] ?? false;
+
+          return (
+            <div
+              key={c.id}
+              className={`rounded-xl border transition-all ${
+                isReview
+                  ? c.review_state === 'APPROVED'
+                    ? 'border-onedark-green/40 bg-onedark-green/5'
+                    : c.review_state === 'CHANGES_REQUESTED'
+                    ? 'border-onedark-red/40 bg-onedark-red/5'
+                    : 'border-onedark-borderSubtle bg-onedark-surface/30'
+                  : 'border-onedark-borderSubtle bg-onedark-surface/40'
+              }`}
+            >
+              {/* Comment Header */}
+              <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-onedark-borderSubtle/60 bg-onedark-surface/50 rounded-t-xl gap-2">
+                <div className="flex items-center space-x-2.5 min-w-0">
+                  {c.author_avatar ? (
+                    <img
+                      src={c.author_avatar}
+                      alt={c.author}
+                      className="w-5 h-5 rounded-full ring-1 ring-onedark-borderSubtle flex-shrink-0"
+                    />
+                  ) : (
+                    <div className="w-5 h-5 rounded-full bg-onedark-surface flex items-center justify-center font-mono text-[10px] text-onedark-accent flex-shrink-0">
+                      {c.author ? c.author[0].toUpperCase() : 'U'}
+                    </div>
+                  )}
+
+                  <span className="font-semibold text-onedark-fgBright text-xs truncate">
+                    @{c.author}
+                  </span>
+
+                  {c.author_association && c.author_association !== 'NONE' && (
+                    <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono tracking-tight uppercase bg-onedark-surface text-onedark-muted border border-onedark-borderSubtle">
+                      {c.author_association.toLowerCase()}
+                    </span>
+                  )}
+
+                  {/* Comment Type Indicator Badge */}
+                  {isReview && (
+                    <span
+                      className={`inline-flex items-center space-x-1 px-1.5 py-0.2 rounded text-[10px] font-semibold ${
+                        c.review_state === 'APPROVED'
+                          ? 'bg-onedark-green/20 text-onedark-green border border-onedark-green/30'
+                          : c.review_state === 'CHANGES_REQUESTED'
+                          ? 'bg-onedark-red/20 text-onedark-red border border-onedark-red/30'
+                          : 'bg-onedark-blue/20 text-onedark-blue border border-onedark-blue/30'
+                      }`}
+                    >
+                      {c.review_state === 'APPROVED' && <ShieldCheck className="w-2.5 h-2.5" />}
+                      {c.review_state === 'CHANGES_REQUESTED' && <AlertCircle className="w-2.5 h-2.5" />}
+                      {c.review_state === 'COMMENTED' && <MessageSquare className="w-2.5 h-2.5" />}
+                      <span>{c.review_state === 'CHANGES_REQUESTED' ? 'Changes Requested' : c.review_state}</span>
+                    </span>
+                  )}
+
+                  {isCodeComment && (
+                    <span className="inline-flex items-center space-x-1 px-1.5 py-0.2 rounded text-[10px] font-medium bg-onedark-blue/15 text-onedark-blue border border-onedark-blue/25">
+                      <FileCode2 className="w-2.5 h-2.5" />
+                      <span>Code Review</span>
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center space-x-2 text-onedark-muted flex-shrink-0">
+                  <span className="text-[11px] font-mono">
+                    {formatCommentTimeAgo(c.created_at)}
+                  </span>
+                  {c.html_url && (
+                    <a
+                      href={c.html_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="View on GitHub"
+                      className="hover:text-onedark-fgBright transition-colors"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
+                </div>
+              </div>
+
+              {/* Code Comment Anchor & Diff Snippet Context */}
+              {isCodeComment && c.path && (
+                <div className="px-3.5 py-2 bg-onedark-darker/60 border-b border-onedark-borderSubtle/60 flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center space-x-1.5 text-onedark-fg font-mono truncate">
+                      <FileText className="w-3 h-3 text-onedark-accent flex-shrink-0" />
+                      <span className="font-semibold text-onedark-fgBright truncate">{c.path}</span>
+                      {c.line && (
+                        <span className="text-onedark-accent font-mono font-medium">:{c.line}</span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center space-x-2 flex-shrink-0">
+                      {c.diff_hunk && (
+                        <button
+                          onClick={() => toggleDiffHunk(c.id)}
+                          className="text-[11px] text-onedark-muted hover:text-onedark-fg flex items-center space-x-1 cursor-pointer"
+                        >
+                          <span>{isDiffHunkExpanded ? 'Hide context' : 'Show context'}</span>
+                          {isDiffHunkExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                        </button>
+                      )}
+                      {onJumpToDiff && (
+                        <button
+                          onClick={() => onJumpToDiff(c.path!, c.line)}
+                          className="px-2 py-0.5 rounded text-[10.5px] font-medium bg-onedark-accent/15 text-onedark-accent hover:bg-onedark-accent/25 border border-onedark-accent/30 transition-colors cursor-pointer"
+                        >
+                          Jump to Diff
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Collapsible Diff Hunk Preview */}
+                  {c.diff_hunk && (isDiffHunkExpanded || !c.in_reply_to_id) && (
+                    <pre className="p-2.5 rounded-lg bg-onedark-bg border border-onedark-borderSubtle text-[11px] font-mono overflow-x-auto leading-tight text-onedark-muted/90 max-h-48 whitespace-pre-wrap">
+                      {c.diff_hunk}
+                    </pre>
+                  )}
+                </div>
+              )}
+
+              {/* Comment Body Markdown */}
+              <div className="px-4 py-3 text-onedark-fg text-xs leading-relaxed select-text">
+                <MarkdownRenderer content={c.body || '*No content provided.*'} />
+              </div>
+
+              {/* Comment Footer: Reactions & Reply Action */}
+              <div className="px-3.5 py-2 border-t border-onedark-borderSubtle/40 bg-onedark-surface/20 rounded-b-xl flex items-center justify-between">
+                {/* Reaction Counters */}
+                <div className="flex items-center space-x-1.5 flex-wrap">
+                  {c.reactions && Object.entries(c.reactions).map(([emojiKey, count]) => {
+                    if (typeof count !== 'number' || count <= 0) return null;
+                    const emojiIcon = emojiKey === '+1' ? '👍' : emojiKey === '-1' ? '👎' : emojiKey === 'heart' ? '❤️' : emojiKey === 'laugh' ? '😄' : emojiKey === 'rocket' ? '🚀' : emojiKey === 'eyes' ? '👀' : '🎉';
+                    return (
+                      <span
+                        key={emojiKey}
+                        className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded-md bg-onedark-surface border border-onedark-borderSubtle text-[10px] text-onedark-fg font-mono"
+                      >
+                        <span>{emojiIcon}</span>
+                        <span>{count}</span>
+                      </span>
+                    );
+                  })}
+                </div>
+
+                {/* Reply Button */}
+                {task?.id && (
+                  <button
+                    onClick={() => {
+                      setReplyingTo(c);
+                      const textarea = document.getElementById('pr-comment-composer-input');
+                      if (textarea) textarea.focus();
+                    }}
+                    className="inline-flex items-center space-x-1 px-2 py-1 rounded text-[11px] font-medium text-onedark-muted hover:text-onedark-accent hover:bg-onedark-surface/60 transition-colors cursor-pointer"
+                  >
+                    <CornerDownRight className="w-3 h-3" />
+                    <span>Reply</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Interactive Comment Composer */}
+      {task?.id && prNumber && (
+        <div className="mt-6 p-3.5 rounded-xl border border-onedark-border bg-onedark-darker/90 shadow-sm space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="font-semibold text-onedark-fgBright text-xs flex items-center space-x-1.5">
+              <MessageSquarePlus className="w-3.5 h-3.5 text-onedark-accent" />
+              <span>{replyingTo ? `Reply to @${replyingTo.author}` : 'Add a comment'}</span>
+            </span>
+
+            {replyingTo && (
+              <button
+                onClick={() => setReplyingTo(null)}
+                className="text-[11px] text-onedark-muted hover:text-onedark-fg flex items-center space-x-1 cursor-pointer"
+              >
+                <span>Cancel reply</span>
+                <X className="w-3 h-3" />
+              </button>
+            )}
+          </div>
+
+          {replyingTo && (
+            <div className="p-2 rounded-lg bg-onedark-surface/60 border border-onedark-borderSubtle text-[11px] text-onedark-muted line-clamp-2 italic">
+              &quot;{replyingTo.body.slice(0, 140)}...&quot;
+            </div>
+          )}
+
+          <textarea
+            id="pr-comment-composer-input"
+            rows={3}
+            value={newCommentText}
+            onChange={(e) => setNewCommentText(e.target.value)}
+            placeholder={
+              replyingTo
+                ? `Reply to @${replyingTo.author}... (Markdown supported)`
+                : 'Leave a comment on this pull request... (Markdown supported)'
+            }
+            className="w-full p-2.5 rounded-lg bg-onedark-bg border border-onedark-borderSubtle text-xs text-onedark-fg placeholder-onedark-muted focus:outline-hidden focus:border-onedark-accent leading-relaxed resize-y min-h-[70px]"
+          />
+
+          {postError && (
+            <div className="text-[11px] text-onedark-red flex items-center space-x-1">
+              <AlertCircle className="w-3 h-3" />
+              <span>{postError}</span>
+            </div>
+          )}
+
+          {postSuccess && (
+            <div className="text-[11px] text-onedark-green flex items-center space-x-1">
+              <Check className="w-3 h-3" />
+              <span>Comment posted successfully!</span>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between pt-1">
+            <span className="text-[10px] text-onedark-muted">
+              Supports GitHub Flavored Markdown
+            </span>
+
+            <button
+              onClick={handlePost}
+              disabled={isPosting || !newCommentText.trim()}
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-onedark-accent text-onedark-bg hover:brightness-110 active:scale-95 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isPosting ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Send className="w-3.5 h-3.5" />
+              )}
+              <span>{isPosting ? 'Posting...' : replyingTo ? 'Send Reply' : 'Comment'}</span>
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export interface PRDetailViewProps {
   url?: string | null;
   prNumber?: number;
@@ -763,7 +1252,12 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'reader' | 'webview'>('reader');
   const [isCopied, setIsCopied] = useState<boolean>(false);
-  const [prTab, setPrTab] = useState<'overview' | 'diff' | 'commits' | 'tests' | 'review'>('overview');
+  const [prTab, setPrTab] = useState<'overview' | 'diff' | 'commits' | 'comments' | 'tests' | 'review'>('overview');
+  const [comments, setComments] = useState<PRCommentItem[]>([]);
+  const [isSyncingComments, setIsSyncingComments] = useState<boolean>(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+
+  const { subscribe } = useWebSocket();
 
   const [isReviewPopoverOpen, setIsReviewPopoverOpen] = useState<boolean>(false);
   const [activeLineComment, setActiveLineComment] = useState<LineContext | null>(null);
@@ -783,6 +1277,64 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
     }
     return null;
   }, [url, prRecord, task, prNumber]);
+
+  const effectivePrNum = prNumber || prRecord?.pr_number || data?.pr_number;
+
+  // Sync initial comments when reader data finishes loading
+  useEffect(() => {
+    if (data?.comments && Array.isArray(data.comments)) {
+      setComments(data.comments);
+      setLastSyncedAt(new Date());
+    }
+  }, [data?.comments]);
+
+  // Fast dedicated comments fetcher for auto-sync and refresh
+  const fetchCommentsOnly = async () => {
+    if (!task?.id || !effectivePrNum) return;
+    setIsSyncingComments(true);
+    try {
+      const apiBase = import.meta.env.VITE_API_URL || '';
+      const res = await fetch(`${apiBase}/api/tasks/${task.id}/prs/${effectivePrNum}/comments`);
+      if (res.ok) {
+        const json = await res.json();
+        if (json.comments && Array.isArray(json.comments)) {
+          setComments(json.comments);
+          setLastSyncedAt(new Date());
+        }
+      }
+    } catch (err) {
+      console.debug('Failed to sync PR comments:', err);
+    } finally {
+      setIsSyncingComments(false);
+    }
+  };
+
+  // WebSocket live auto-sync listener for PR comments
+  useEffect(() => {
+    if (!task?.id || !effectivePrNum) return;
+    const unsub = subscribe('PR_COMMENTS_UPDATED', (payload: any) => {
+      if (payload.task_id === task.id || Number(payload.pr_number) === Number(effectivePrNum)) {
+        fetchCommentsOnly();
+      }
+    });
+    return () => unsub();
+  }, [subscribe, task?.id, effectivePrNum]);
+
+  // Adaptive background polling: polls every 20s when comments tab is active and page is visible
+  useEffect(() => {
+    if (prTab !== 'comments' || !effectivePrNum || !task?.id) return;
+    if (comments.length === 0) {
+      fetchCommentsOnly();
+    }
+    const interval = setInterval(() => {
+      if (!document.hidden) {
+        fetchCommentsOnly();
+      }
+    }, 20000);
+    return () => clearInterval(interval);
+  }, [prTab, effectivePrNum, task?.id]);
+
+  const totalCommentsCount = comments.length || data?.comments_count || (data?.comments?.length ?? 0);
 
   const fetchPR = async (fetchUrl: string) => {
     setIsLoading(true);
@@ -1203,6 +1755,23 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
             )}
           </button>
 
+          <button
+            onClick={() => setPrTab('comments')}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-t-md text-xs font-medium border-b-2 transition-all cursor-pointer whitespace-nowrap flex-shrink-0 ${
+              prTab === 'comments'
+                ? 'border-onedark-accent text-onedark-fgBright bg-onedark-darker font-semibold'
+                : 'border-transparent text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
+            }`}
+          >
+            <MessageSquare className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
+            <span>Comments</span>
+            {totalCommentsCount > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full bg-onedark-surface text-[10px] font-mono text-onedark-fgBright">
+                {totalCommentsCount}
+              </span>
+            )}
+          </button>
+
           {prRecord?.test_output && (
             <button
               onClick={() => setPrTab('tests')}
@@ -1290,6 +1859,18 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
               onLineComment={(filename, line, content) => {
                 setActiveLineComment({ filename, line, content });
                 setIsReviewPopoverOpen(true);
+              }}
+            />
+          ) : prTab === 'comments' ? (
+            <PRCommentsSection
+              comments={comments}
+              prNumber={effectivePrNum}
+              task={task}
+              isSyncing={isSyncingComments}
+              lastSyncedAt={lastSyncedAt}
+              onRefreshComments={fetchCommentsOnly}
+              onJumpToDiff={() => {
+                setPrTab('diff');
               }}
             />
           ) : prTab === 'tests' ? (

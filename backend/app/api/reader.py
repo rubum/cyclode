@@ -715,6 +715,14 @@ async def _fetch_github_pr_info(owner: str, repo: str, pr_number: int) -> Dict[s
         except Exception as e:
             logger.debug(f"Failed to fetch PR commits via API: {e}")
 
+        # Fetch PR comments (issue comments, review comments, reviews)
+        comments_list: List[Dict[str, Any]] = []
+        try:
+            from app.integrations.github_client import github_client
+            comments_list = await github_client.list_pull_request_comments(owner, repo, pr_number, custom_token=token)
+        except Exception as e:
+            logger.debug(f"Failed to fetch PR comments in reader: {e}")
+
         title = pr_data.get("title") or f"Pull Request #{pr_number}"
         user_login = pr_data.get("user", {}).get("login", "unknown")
         user_avatar = pr_data.get("user", {}).get("avatar_url", "")
@@ -774,7 +782,9 @@ async def _fetch_github_pr_info(owner: str, repo: str, pr_number: int) -> Dict[s
             "content_markdown": overview_md,
             "diff_text": diff_text,
             "files": files_list,
-            "commits": commits_list
+            "commits": commits_list,
+            "comments": comments_list,
+            "comments_count": len(comments_list)
         }
 
 
