@@ -306,41 +306,41 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
     switch (status) {
       case 'TESTS_PASSING':
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-onedark-green/15 text-onedark-green border border-onedark-green/30">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-onedark-green/15 text-onedark-green">
             <CheckCircle2 className="w-3 h-3" />
             Tests Passing
           </span>
         );
       case 'TESTS_FAILED':
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-onedark-red/15 text-onedark-red border border-onedark-red/30">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-onedark-red/15 text-onedark-red">
             <XCircle className="w-3 h-3" />
             Tests Failed
           </span>
         );
       case 'REVIEWING':
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-onedark-purple/15 text-onedark-purple border border-onedark-purple/30 animate-pulse">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-onedark-purple/15 text-onedark-purple animate-pulse">
             <Sparkles className="w-3 h-3" />
             Reviewing
           </span>
         );
       case 'MERGED':
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-500/15 text-purple-400 border border-purple-500/30">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-500/15 text-purple-400">
             <GitMerge className="w-3 h-3" />
             Merged
           </span>
         );
       case 'CLOSED':
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-onedark-muted/15 text-onedark-muted border border-onedark-borderSubtle">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-onedark-muted/15 text-onedark-muted">
             Closed
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-onedark-accent/15 text-onedark-accent border border-onedark-accent/30">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-onedark-accent/15 text-onedark-accent">
             <Clock className="w-3 h-3" />
             Open
           </span>
@@ -395,19 +395,19 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
   return (
     <div className="flex flex-col h-full bg-onedark-darker overflow-hidden text-onedark-fg font-sans text-xs">
       {/* Top Header & Scope Controls */}
-      <div className="px-3 py-2.5 border-b border-onedark-border bg-onedark-darker flex flex-col gap-2 flex-shrink-0">
+      <div className="px-3 py-2.5 border-b border-onedark-borderSubtle/60 bg-onedark-darker flex flex-col gap-2 flex-shrink-0">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <GitPullRequest className="w-4 h-4 text-onedark-accent" />
             <span className="font-semibold text-onedark-fgBright text-xs">Pull Requests</span>
-            <span className="px-1.5 py-0.2 rounded-full bg-onedark-surface text-[10px] font-mono text-onedark-muted border border-onedark-border">
+            <span className="px-1.5 py-0.2 rounded-full bg-onedark-surface text-[10px] font-mono text-onedark-muted">
               {displayedScopedPrs.length}
             </span>
           </div>
 
           {/* Session vs All Repo Segmented Toggle */}
           {prs.length > sessionScopedPrs.length && sessionScopedPrs.length > 0 && (
-            <div className="flex items-center gap-1 bg-onedark-surface/60 p-0.5 rounded border border-onedark-border">
+            <div className="flex items-center gap-1 bg-onedark-surface/60 p-0.5 rounded">
               <button
                 onClick={() => setScopeFilter('SESSION')}
                 className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer ${
@@ -437,7 +437,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
                 onClick={() => syncRepoPRs()}
                 disabled={isSyncingRepo || loading}
                 title={`Sync all PRs from ${task.repo_name}`}
-                className="flex items-center gap-1 px-2 py-1 rounded bg-onedark-surface hover:bg-onedark-borderSubtle text-[11px] text-onedark-fg font-medium border border-onedark-border transition-colors disabled:opacity-50 cursor-pointer"
+                className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-onedark-surface hover:bg-onedark-surface/80 text-[11px] text-onedark-fg font-medium transition-colors disabled:opacity-50 cursor-pointer"
               >
                 <RefreshCw className={`w-3 h-3 ${isSyncingRepo ? 'animate-spin text-onedark-accent' : ''}`} />
                 <span>{isSyncingRepo ? 'Syncing...' : 'Sync Repo'}</span>
@@ -448,7 +448,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
               onClick={fetchPRs}
               disabled={loading}
               title="Refresh PRs"
-              className="p-1.5 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-colors disabled:opacity-50 cursor-pointer"
+              className="p-1.5 rounded-md hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-colors disabled:opacity-50 cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin text-onedark-accent' : ''}`} />
             </button>
@@ -458,13 +458,13 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
         {/* Filter Pills & Search */}
         <div className="flex items-center gap-1.5 flex-wrap">
           <div className="relative flex-1 min-w-[120px]">
-            <Search className="w-3 h-3 text-onedark-muted absolute left-2 top-1/2 -translate-y-1/2" />
+            <Search className="w-3 h-3 text-onedark-muted absolute left-2.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               placeholder="Filter PRs..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-6 pr-2 py-1 text-[11px] rounded bg-onedark-surface border border-onedark-border text-onedark-fg placeholder:text-onedark-muted focus:outline-none focus:border-onedark-accent"
+              className="w-full pl-7 pr-2.5 py-1 text-[11px] rounded-md bg-onedark-surface text-onedark-fg placeholder:text-onedark-muted/60 focus:outline-none focus:ring-1 focus:ring-onedark-accent/40"
             />
           </div>
 
@@ -476,7 +476,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
                 className={`px-2 py-0.5 rounded font-mono transition-colors cursor-pointer ${
                   statusFilter === filterKey
                     ? 'bg-onedark-accent text-white font-semibold shadow-xs'
-                    : 'bg-onedark-surface/60 text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface'
+                    : 'bg-onedark-surface/50 text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface'
                 }`}
               >
                 {filterKey === 'ALL' ? 'All' : filterKey.charAt(0) + filterKey.slice(1).toLowerCase()}
@@ -487,7 +487,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
 
         {/* Dynamic Author Chips Bar */}
         {uniqueAuthors.length > 0 && (
-          <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 scrollbar-thin text-[10px] border-t border-onedark-border/30 pt-1.5">
+          <div className="flex items-center gap-1.5 overflow-x-auto py-0.5 scrollbar-thin text-[10px] border-t border-onedark-borderSubtle/20 pt-1.5">
             <span className="text-onedark-muted flex-shrink-0 flex items-center gap-1">
               <User className="w-3 h-3" /> Author:
             </span>
@@ -496,7 +496,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
               className={`px-2 py-0.5 rounded font-mono transition-colors flex-shrink-0 cursor-pointer ${
                 authorFilter === 'ALL'
                   ? 'bg-onedark-purple text-white font-semibold shadow-xs'
-                  : 'bg-onedark-surface text-onedark-muted hover:text-onedark-fg hover:bg-onedark-borderSubtle'
+                  : 'bg-onedark-surface/60 text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface'
               }`}
             >
               All ({displayedScopedPrs.length})
@@ -510,7 +510,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
                   className={`px-2 py-0.5 rounded font-mono transition-colors flex-shrink-0 flex items-center gap-1 cursor-pointer ${
                     isSelected
                       ? 'bg-onedark-purple text-white font-semibold shadow-xs'
-                      : 'bg-onedark-surface text-onedark-muted hover:text-onedark-fg hover:bg-onedark-borderSubtle'
+                      : 'bg-onedark-surface/60 text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface'
                   }`}
                 >
                   <span>@{author}</span>
@@ -523,14 +523,14 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
       </div>
 
       {/* PR Cards Container */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+      <div className="flex-1 overflow-y-auto p-2 space-y-1">
         {(loading || isSyncingRepo) && prs.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-onedark-muted space-y-2">
             <Loader2 className="w-6 h-6 animate-spin text-onedark-accent" />
             <span className="text-xs font-mono">Synchronizing pull requests from repository...</span>
           </div>
         ) : filteredPrs.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-onedark-borderSubtle bg-onedark-surface/20 p-8 text-center text-onedark-muted">
+          <div className="rounded-lg bg-onedark-surface/20 p-8 text-center text-onedark-muted">
             <GitPullRequest className="w-8 h-8 mx-auto mb-2 opacity-30 text-onedark-accent" />
             <p className="font-medium text-onedark-fgBright text-xs mb-1">No matching pull requests</p>
             <p className="text-[11px] text-onedark-muted max-w-sm mx-auto mb-3">
@@ -548,7 +548,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
                     setStatusFilter('ALL');
                     setScopeFilter('ALL_REPO');
                   }}
-                  className="px-3 py-1.5 rounded bg-onedark-surface hover:bg-onedark-borderSubtle text-onedark-fg text-xs font-medium border border-onedark-border transition-colors cursor-pointer"
+                  className="px-3 py-1.5 rounded-md bg-onedark-surface hover:bg-onedark-surface/80 text-onedark-fg text-xs font-medium transition-colors cursor-pointer"
                 >
                   Reset Filters & Show All
                 </button>
@@ -557,7 +557,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
                 <button
                   onClick={() => syncRepoPRs()}
                   disabled={isSyncingRepo}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-onedark-accent hover:bg-onedark-accentHover text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-onedark-accent hover:bg-onedark-accentHover text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isSyncingRepo ? 'animate-spin' : ''}`} />
                   <span>{isSyncingRepo ? 'Importing PRs...' : `Import PRs from ${task.repo_name}`}</span>
@@ -581,10 +581,10 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
               <div 
                 key={pr.id || pr.pr_number}
                 onClick={() => setSelectedPr({ url: prUrl, number: pr.pr_number, record: pr })}
-                className={`group rounded-xl border p-3 transition-all cursor-pointer shadow-xs hover:shadow-md select-none ${
+                className={`group rounded-lg p-2.5 transition-colors cursor-pointer select-none ${
                   pr.is_session_scoped 
-                    ? 'border-onedark-accent/40 bg-onedark-surface/50 hover:bg-onedark-surface/70 ring-1 ring-onedark-accent/20' 
-                    : 'border-onedark-border bg-onedark-surface/30 hover:bg-onedark-surface/60 hover:border-onedark-borderSubtle'
+                    ? 'bg-onedark-accent/10 hover:bg-onedark-accent/15' 
+                    : 'bg-onedark-surface/30 hover:bg-onedark-surface/60'
                 }`}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -614,7 +614,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
                         </h4>
                         {getStatusBadge(pr.status)}
                         {pr.is_session_scoped && (
-                          <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-medium bg-onedark-accent/15 text-onedark-accent border border-onedark-accent/30">
+                          <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-medium bg-onedark-accent/15 text-onedark-accent">
                             Session
                           </span>
                         )}
@@ -637,7 +637,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
                           </button>
                         )}
 
-                        <span className="flex items-center gap-1 font-mono text-[10.5px] text-onedark-purple bg-onedark-surface/60 px-1.5 py-0.5 rounded border border-onedark-borderSubtle">
+                        <span className="flex items-center gap-1 font-mono text-[10.5px] text-onedark-purple bg-onedark-surface/40 px-1.5 py-0.5 rounded">
                           <GitBranch className="w-3 h-3 text-onedark-purple flex-shrink-0" />
                           <span className="text-onedark-fgBright">{pr.head_branch || 'feature'}</span>
                           <span className="text-onedark-muted">➔</span>
@@ -671,7 +671,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
                     <button
                       type="button"
                       onClick={() => setSelectedPr({ url: prUrl, number: pr.pr_number, record: pr })}
-                      className="px-2.5 py-1 rounded-lg bg-onedark-surface hover:bg-onedark-accent/15 border border-onedark-border hover:border-onedark-accent/40 text-[11px] text-onedark-accent font-semibold transition-all cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                      className="px-2.5 py-1 rounded-md bg-onedark-surface/80 hover:bg-onedark-accent/20 text-[11px] text-onedark-accent font-semibold transition-all cursor-pointer flex items-center gap-1.5"
                       title="Open full-screen PR Inspector with diffs, commits, comments & review agent"
                     >
                       <FileText className="w-3 h-3" />
@@ -682,7 +682,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
                       type="button"
                       onClick={() => handleTriggerAction(pr, 'sync')}
                       disabled={isActionRunning}
-                      className="p-1 rounded-lg text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface border border-transparent hover:border-onedark-borderSubtle transition-colors disabled:opacity-50 cursor-pointer"
+                      className="p-1 rounded-md text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface transition-colors disabled:opacity-50 cursor-pointer"
                       title="Sync PR from GitHub"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${currentAction === 'sync' ? 'animate-spin text-onedark-accent' : ''}`} />
@@ -693,7 +693,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
                         href={pr.html_url}
                         target="_blank"
                         rel="noreferrer"
-                        className="p-1 rounded-lg text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface border border-transparent hover:border-onedark-borderSubtle transition-colors"
+                        className="p-1 rounded-md text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface transition-colors"
                         title="Open on GitHub"
                       >
                         <ExternalLink className="w-3.5 h-3.5" />

@@ -205,27 +205,27 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, o
     const s = (status || 'modified').toLowerCase();
     if (s === 'added' || s === 'new') {
       return (
-        <span className="px-1.5 py-0.2 rounded text-[9.5px] uppercase font-mono bg-onedark-green/15 text-onedark-green border border-onedark-green/30">
+        <span className="px-1.5 py-0.2 rounded text-[9.5px] uppercase font-mono bg-onedark-green/15 text-onedark-green">
           + Added
         </span>
       );
     }
     if (s === 'deleted' || s === 'removed') {
       return (
-        <span className="px-1.5 py-0.2 rounded text-[9.5px] uppercase font-mono bg-onedark-red/15 text-onedark-red border border-onedark-red/30">
+        <span className="px-1.5 py-0.2 rounded text-[9.5px] uppercase font-mono bg-onedark-red/15 text-onedark-red">
           - Deleted
         </span>
       );
     }
     if (s === 'renamed') {
       return (
-        <span className="px-1.5 py-0.2 rounded text-[9.5px] uppercase font-mono bg-onedark-purple/15 text-onedark-purple border border-onedark-purple/30">
+        <span className="px-1.5 py-0.2 rounded text-[9.5px] uppercase font-mono bg-onedark-purple/15 text-onedark-purple">
           ➔ Renamed
         </span>
       );
     }
     return (
-      <span className="px-1.5 py-0.2 rounded text-[9.5px] uppercase font-mono bg-onedark-blue/15 text-onedark-blue border border-onedark-blue/30">
+      <span className="px-1.5 py-0.2 rounded text-[9.5px] uppercase font-mono bg-onedark-blue/15 text-onedark-blue">
         ~ Modified
       </span>
     );
@@ -414,15 +414,15 @@ function parseCommitDetails(c: PRCommitItem): ParsedCommit {
     const rest = conventionalMatch[3];
     cleanSubject = rest;
 
-    let colorClass = 'bg-onedark-blue/15 text-onedark-blue border-onedark-blue/30';
+    let colorClass = 'bg-onedark-blue/15 text-onedark-blue';
     if (['feat', 'feature'].includes(rawType)) {
-      colorClass = 'bg-onedark-green/15 text-onedark-green border-onedark-green/30';
+      colorClass = 'bg-onedark-green/15 text-onedark-green';
     } else if (['fix', 'bugfix', 'hotfix', 'patch'].includes(rawType)) {
-      colorClass = 'bg-onedark-yellow/15 text-onedark-yellow border-onedark-yellow/30';
+      colorClass = 'bg-onedark-yellow/15 text-onedark-yellow';
     } else if (['perf', 'refactor', 'style'].includes(rawType)) {
-      colorClass = 'bg-onedark-purple/15 text-onedark-purple border-onedark-purple/30';
+      colorClass = 'bg-onedark-purple/15 text-onedark-purple';
     } else if (['test', 'ci', 'build', 'chore', 'docs'].includes(rawType)) {
-      colorClass = 'bg-onedark-surface text-onedark-muted border-onedark-borderSubtle';
+      colorClass = 'bg-onedark-surface text-onedark-muted';
     }
 
     typeBadge = {
@@ -887,33 +887,33 @@ export function parseBotReviewComment(rawBody?: string): ParsedBotComment {
         const lower = part.toLowerCase();
         // Category
         if (lower.includes('correctness') || lower.includes('functional') || lower.includes('bug') || lower.includes('logic')) {
-          category = { label: 'Functional Correctness', colorClass: 'bg-onedark-purple/15 text-onedark-purple border-onedark-purple/30' };
+          category = { label: 'Functional Correctness', colorClass: 'bg-onedark-purple/15 text-onedark-purple' };
         } else if (lower.includes('security') || lower.includes('vulnerability') || lower.includes('cve')) {
-          category = { label: 'Security', colorClass: 'bg-onedark-red/15 text-onedark-red border-onedark-red/30' };
+          category = { label: 'Security', colorClass: 'bg-onedark-red/15 text-onedark-red' };
         } else if (lower.includes('performance') || lower.includes('speed') || lower.includes('optimization')) {
-          category = { label: 'Performance', colorClass: 'bg-onedark-yellow/15 text-onedark-yellow border-onedark-yellow/30' };
+          category = { label: 'Performance', colorClass: 'bg-onedark-yellow/15 text-onedark-yellow' };
         } else if (lower.includes('refactor') || lower.includes('clean') || lower.includes('maintainability')) {
-          category = { label: 'Refactor', colorClass: 'bg-onedark-blue/15 text-onedark-blue border-onedark-blue/30' };
+          category = { label: 'Refactor', colorClass: 'bg-onedark-blue/15 text-onedark-blue' };
         } else if (lower.includes('doc') || lower.includes('style') || lower.includes('typo')) {
-          category = { label: 'Documentation', colorClass: 'bg-onedark-surface text-onedark-fg border-onedark-borderSubtle' };
+          category = { label: 'Documentation', colorClass: 'bg-onedark-surface text-onedark-fg' };
         }
 
         // Severity
         if (lower.includes('critical') || lower.includes('blocker')) {
-          severity = { label: 'Critical', colorClass: 'bg-onedark-red/20 text-onedark-red border-onedark-red/40 font-bold' };
+          severity = { label: 'Critical', colorClass: 'bg-onedark-red/20 text-onedark-red font-bold' };
         } else if (lower.includes('major')) {
-          severity = { label: 'Major', colorClass: 'bg-onedark-yellow/20 text-onedark-yellow border-onedark-yellow/40 font-bold' };
+          severity = { label: 'Major', colorClass: 'bg-onedark-yellow/20 text-onedark-yellow font-bold' };
         } else if (lower.includes('minor')) {
-          severity = { label: 'Minor', colorClass: 'bg-onedark-surface text-onedark-fgBright border-onedark-borderSubtle' };
+          severity = { label: 'Minor', colorClass: 'bg-onedark-surface text-onedark-fgBright' };
         } else if (lower.includes('nitpick') || lower.includes('trivial') || lower.includes('info')) {
-          severity = { label: 'Nitpick', colorClass: 'bg-onedark-blue/15 text-onedark-blue border-onedark-blue/30' };
+          severity = { label: 'Nitpick', colorClass: 'bg-onedark-blue/15 text-onedark-blue' };
         }
 
         // Effort
         if (lower.includes('quick win') || lower.includes('quick')) {
-          effort = { label: 'Quick win', colorClass: 'bg-onedark-green/15 text-onedark-green border-onedark-green/30' };
+          effort = { label: 'Quick win', colorClass: 'bg-onedark-green/15 text-onedark-green' };
         } else if (lower.includes('complex') || lower.includes('high effort')) {
-          effort = { label: 'High effort', colorClass: 'bg-onedark-purple/15 text-onedark-purple border-onedark-purple/30' };
+          effort = { label: 'High effort', colorClass: 'bg-onedark-purple/15 text-onedark-purple' };
         }
       }
       continue;
@@ -2304,17 +2304,17 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
       </div>
 
       {/* GitHub PR Hero Header */}
-      <div className="bg-onedark-surface/30 border-b border-onedark-borderSubtle select-none flex-shrink-0">
-        <div className="px-3 py-2 flex flex-wrap items-center justify-between gap-2 border-b border-onedark-borderSubtle/60 text-xs">
+      <div className="bg-onedark-surface/30 border-b border-onedark-borderSubtle/60 select-none flex-shrink-0">
+        <div className="px-3 py-2 flex flex-wrap items-center justify-between gap-2 border-b border-onedark-borderSubtle/40 text-xs">
           {/* Metadata Row */}
           <div className="flex flex-wrap items-center gap-2 min-w-0">
             {/* Status Badge */}
-            <span className={`px-2 py-0.5 rounded-full font-mono text-[10.5px] font-bold border uppercase whitespace-nowrap flex-shrink-0 ${
+            <span className={`px-2 py-0.5 rounded-full font-mono text-[10.5px] font-bold uppercase whitespace-nowrap flex-shrink-0 ${
               effectiveState === 'MERGED'
-                ? 'bg-onedark-purple/20 text-onedark-purple border-onedark-purple/40'
+                ? 'bg-onedark-purple/20 text-onedark-purple'
                 : effectiveState === 'CLOSED'
-                ? 'bg-onedark-red/20 text-onedark-red border-onedark-red/40'
-                : 'bg-onedark-green/20 text-onedark-green border-onedark-green/40'
+                ? 'bg-onedark-red/20 text-onedark-red'
+                : 'bg-onedark-green/20 text-onedark-green'
             }`}>
               {effectiveState === 'MERGED' ? '● Merged' : effectiveState === 'CLOSED' ? '● Closed' : '● Open'}
             </span>
@@ -2329,7 +2329,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
 
             {/* Branch Flow */}
             {effectiveHeadBranch && effectiveBaseBranch && (
-              <div className="flex items-center space-x-1 font-mono text-[11px] bg-onedark-bg/80 px-2 py-0.5 rounded border border-onedark-borderSubtle whitespace-nowrap flex-shrink-0">
+              <div className="flex items-center space-x-1 font-mono text-[11px] bg-onedark-surface/40 px-2 py-0.5 rounded whitespace-nowrap flex-shrink-0">
                 <span className="text-onedark-accent font-semibold">{effectiveHeadBranch}</span>
                 <span className="text-onedark-muted">➔</span>
                 <span className="text-onedark-muted">{effectiveBaseBranch}</span>
@@ -2352,7 +2352,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
             <button
               onClick={handleRunTests}
               disabled={Boolean(actionLoading)}
-              className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-onedark-surface hover:bg-onedark-surface/80 border border-onedark-border text-[11px] text-onedark-fgBright font-medium transition-all cursor-pointer shadow-xs disabled:opacity-50 whitespace-nowrap flex-shrink-0"
+              className="flex items-center space-x-1 px-2.5 py-1 rounded-md bg-onedark-surface hover:bg-onedark-surface/80 text-[11px] text-onedark-fgBright font-medium transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap flex-shrink-0"
               title="Run test suite in ephemeral container"
             >
               {actionLoading === 'test' ? (
@@ -2367,7 +2367,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
             <button
               onClick={handleGenerateReview}
               disabled={Boolean(actionLoading)}
-              className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-onedark-surface hover:bg-onedark-surface/80 border border-onedark-border text-[11px] text-onedark-fgBright font-medium transition-all cursor-pointer shadow-xs disabled:opacity-50 whitespace-nowrap flex-shrink-0"
+              className="flex items-center space-x-1 px-2.5 py-1 rounded-md bg-onedark-surface hover:bg-onedark-surface/80 text-[11px] text-onedark-fgBright font-medium transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap flex-shrink-0"
               title="Generate comprehensive AI code review report"
             >
               {actionLoading === 'review' ? (
@@ -2381,10 +2381,10 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
             {/* Review with Agent Popover Button */}
             <button
               onClick={() => setIsReviewPopoverOpen(!isReviewPopoverOpen)}
-              className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-lg border text-[11px] font-medium transition-all cursor-pointer shadow-xs whitespace-nowrap flex-shrink-0 ${
+              className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer whitespace-nowrap flex-shrink-0 ${
                 isReviewPopoverOpen
-                  ? 'bg-onedark-accent/20 border-onedark-accent/50 text-onedark-accent font-semibold ring-1 ring-onedark-accent/30'
-                  : 'bg-onedark-surface hover:bg-onedark-surface/80 border-onedark-border text-onedark-fgBright'
+                  ? 'bg-onedark-accent/20 text-onedark-accent font-semibold'
+                  : 'bg-onedark-surface hover:bg-onedark-surface/80 text-onedark-fgBright'
               }`}
               title="Open interactive PR Reviewer Agent sub-session launcher"
             >
@@ -2399,7 +2399,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
                 <button
                   onClick={handleQuickApprove}
                   disabled={Boolean(actionLoading)}
-                  className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-onedark-green/20 hover:bg-onedark-green/30 border border-onedark-green/40 text-onedark-green text-[11px] font-semibold transition-all cursor-pointer shadow-xs disabled:opacity-50 whitespace-nowrap flex-shrink-0"
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded-md bg-onedark-green/20 hover:bg-onedark-green/30 text-onedark-green text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap flex-shrink-0"
                   title="Quickly submit an approval review"
                 >
                   {actionLoading === 'decision' ? (
@@ -2417,7 +2417,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
                     setIsReviewDecisionModalOpen(true);
                   }}
                   disabled={Boolean(actionLoading)}
-                  className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-onedark-surface hover:bg-onedark-surface/80 border border-onedark-border text-onedark-fgBright text-[11px] font-semibold transition-all cursor-pointer shadow-xs disabled:opacity-50 whitespace-nowrap flex-shrink-0"
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded-md bg-onedark-surface hover:bg-onedark-surface/80 text-onedark-fgBright text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap flex-shrink-0"
                   title="Open code review decision modal (Approve, Request Changes, Comment)"
                 >
                   <ShieldCheck className="w-3.5 h-3.5 text-onedark-accent" />
@@ -2428,7 +2428,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
                 <button
                   onClick={() => setIsMergeModalOpen(true)}
                   disabled={Boolean(actionLoading)}
-                  className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-onedark-purple/20 hover:bg-onedark-purple/30 border border-onedark-purple/40 text-onedark-purple text-[11px] font-semibold transition-all cursor-pointer shadow-xs disabled:opacity-50 whitespace-nowrap flex-shrink-0"
+                  className="flex items-center space-x-1 px-2.5 py-1 rounded-md bg-onedark-purple/20 hover:bg-onedark-purple/30 text-onedark-purple text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap flex-shrink-0"
                   title="Merge this pull request"
                 >
                   {actionLoading === 'merge' ? (
