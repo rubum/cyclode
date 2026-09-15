@@ -1153,6 +1153,10 @@ const MainApp: React.FC = () => {
               setActiveView('chat');
               handleSendMessage(`Please clone and inspect the repository ${cloneUrl} into this session workspace.`);
             }}
+            onAskAboutComment={(prompt) => {
+              setActiveView('chat');
+              handleSendMessage(prompt);
+            }}
           />
         }
       />

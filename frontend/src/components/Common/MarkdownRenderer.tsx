@@ -691,8 +691,8 @@ function normalizeSpecialSymbols(text: string): string {
     .replace(/&ndash;/gi, '–')
     // Strip stray HTML comments
     .replace(/<!--[\s\S]*?-->/g, '')
-    // Strip stray HTML wrapper tags
-    .replace(/<\/?(?:p|div|center|picture|source|span|details|summary)[^>]*>/gi, '')
+    // Strip stray HTML wrapper tags while preserving formatting tags
+    .replace(/<\/?(?:p|div|center|picture|source|span)[^>]*>/gi, '')
     // Convert <br> or <br/> to newline
     .replace(/<br\s*\/?>/gi, '\n')
     // Escaped backticks: \` -> `
@@ -715,9 +715,9 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
     .replace(/&bull;/gi, '•')
     .replace(/<!--[\s\S]*?-->/g, '');
 
-  // Match display math, inline math, inline code, bold, strikethrough, italic, linked images, images, links, HTML tags, and raw URLs
+  // Match display math, inline math, inline code, bold, strikethrough, italic, sub/sup/kbd/mark/code, linked images, images, links, HTML tags, and raw URLs
   const tokens = decodedText.split(
-    /(\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|\$(?!\s)(?:\\\$|[^\$\n])+?(?<!\s)\$|`+[^`]+`+|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\*[^*]+\*|(?<!\w)_[^_]+_(?!\w)|\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|!\[[^\]]*\]\([^)]+\)|\[[^\]]+\]\([^)]+\)|<img\s+[^>]*src=["'][^"']+["'][^>]*\/?>|<a\s+[^>]*href=["'][^"']+["'][^>]*>[\s\S]*?<\/a>|https?:\/\/[^\s<>()"']+)/gi
+    /(\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|\$(?!\s)(?:\\\$|[^\$\n])+?(?<!\s)\$|`+[^`]+`+|\*\*[^*]+\*\*|__[^_]+__|~~[^~]+~~|\*[^*]+\*|(?<!\w)_[^_]+_(?!\w)|<sub\b[^>]*>[\s\S]*?<\/sub>|<sup\b[^>]*>[\s\S]*?<\/sup>|<kbd\b[^>]*>[\s\S]*?<\/kbd>|<mark\b[^>]*>[\s\S]*?<\/mark>|<code\b[^>]*>[\s\S]*?<\/code>|\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|!\[[^\]]*\]\([^)]+\)|\[[^\]]+\]\([^)]+\)|<img\s+[^>]*src=["'][^"']+["'][^>]*\/?>|<a\s+[^>]*href=["'][^"']+["'][^>]*>[\s\S]*?<\/a>|https?:\/\/[^\s<>()"']+)/gi
   );
 
   return tokens.map((token, i) => {
@@ -796,6 +796,62 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
         <em key={i} className="italic text-onedark-fgBright">
           {renderInline(token.slice(1, -1), onLinkClick)}
         </em>
+      );
+    }
+
+    // HTML <sub>...</sub>
+    const subMatch = token.match(/^<sub\b[^>]*>([\s\S]*?)<\/sub>$/i);
+    if (subMatch) {
+      return (
+        <sub key={i} className="text-[10px] text-onedark-muted inline leading-tight align-sub font-mono">
+          {renderInline(subMatch[1], onLinkClick)}
+        </sub>
+      );
+    }
+
+    // HTML <sup>...</sup>
+    const supMatch = token.match(/^<sup\b[^>]*>([\s\S]*?)<\/sup>$/i);
+    if (supMatch) {
+      return (
+        <sup key={i} className="text-[10px] text-onedark-muted inline leading-tight align-super font-mono">
+          {renderInline(supMatch[1], onLinkClick)}
+        </sup>
+      );
+    }
+
+    // HTML <kbd>...</kbd>
+    const kbdMatch = token.match(/^<kbd\b[^>]*>([\s\S]*?)<\/kbd>$/i);
+    if (kbdMatch) {
+      return (
+        <kbd
+          key={i}
+          className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-border font-mono text-[10.5px] text-onedark-fgBright shadow-2xs inline-block align-baseline mx-0.5"
+        >
+          {kbdMatch[1]}
+        </kbd>
+      );
+    }
+
+    // HTML <mark>...</mark>
+    const markMatch = token.match(/^<mark\b[^>]*>([\s\S]*?)<\/mark>$/i);
+    if (markMatch) {
+      return (
+        <mark key={i} className="bg-onedark-yellow/20 text-onedark-yellow px-1 py-0.5 rounded">
+          {renderInline(markMatch[1], onLinkClick)}
+        </mark>
+      );
+    }
+
+    // HTML <code>...</code>
+    const htmlCodeMatch = token.match(/^<code\b[^>]*>([\s\S]*?)<\/code>$/i);
+    if (htmlCodeMatch) {
+      return (
+        <code
+          key={i}
+          className="px-1.5 py-0.5 rounded bg-onedark-surface/90 border border-onedark-borderSubtle text-onedark-yellow font-mono text-[12px] font-medium tracking-tight mx-0.5 align-baseline select-text"
+        >
+          {htmlCodeMatch[1]}
+        </code>
       );
     }
 

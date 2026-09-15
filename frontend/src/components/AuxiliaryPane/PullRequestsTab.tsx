@@ -38,6 +38,7 @@ interface PullRequestsTabProps {
   onNavigateToFileLine?: (filename: string, line: number) => void;
   onOpenPreview?: (url: string, title?: string) => void;
   onCloneToSession?: (repoUrl: string, repoName: string) => void;
+  onAskAboutComment?: (prompt: string) => void;
 }
 
 interface PRDiffFile {
@@ -55,7 +56,8 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
   onClearSelectedPr,
   onNavigateToFileLine, 
   onOpenPreview,
-  onCloneToSession
+  onCloneToSession,
+  onAskAboutComment
 }) => {
   const [prs, setPrs] = useState<TaskPR[]>([]);
   const [selectedPr, setSelectedPr] = useState<{ url?: string; number?: number; record?: TaskPR } | null>(() => {
@@ -442,6 +444,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
           onClearSelectedPr?.();
         }}
         onCloneToSession={onCloneToSession}
+        onAskAboutComment={onAskAboutComment}
       />
     );
   }

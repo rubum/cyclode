@@ -18,6 +18,7 @@ interface AuxiliaryPaneProps {
   onClearPreview?: () => void;
   onAskAboutRepo?: (repoName: string) => void;
   onCloneToSession?: (repoUrl: string, repoName: string) => void;
+  onAskAboutComment?: (prompt: string) => void;
 }
 
 const isPrUrl = (targetUrl?: string | null): boolean => {
@@ -43,6 +44,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
   onClearPreview,
   onAskAboutRepo,
   onCloneToSession,
+  onAskAboutComment,
 }) => {
   const [internalTab, setInternalTab] = useState<'docs' | 'files' | 'prs' | 'activity' | 'subagents' | 'event'>(() => {
     if (previewTarget?.url) return isPrForTask(previewTarget.url, task) ? 'prs' : 'docs';
@@ -157,6 +159,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
               selectedPrUrl={isPrForTask(previewTarget?.url, task) ? previewTarget?.url : undefined}
               onClearSelectedPr={onClearPreview}
               onCloneToSession={onCloneToSession}
+              onAskAboutComment={onAskAboutComment}
             />
           )}
           {activeTab === 'activity' && <TerminalTab logs={task?.logs} />}

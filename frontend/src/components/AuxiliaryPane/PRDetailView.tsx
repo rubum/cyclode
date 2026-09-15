@@ -35,7 +35,11 @@ import {
   CornerDownRight,
   ThumbsUp,
   Heart,
-  Smile
+  Smile,
+  Zap,
+  ArrowRight,
+  ShieldAlert,
+  Tag
 } from 'lucide-react';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { PRReviewAgentPopover, LineContext } from './PRReviewAgentPopover';
@@ -743,6 +747,81 @@ export const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ commits, rep
                 </div>
               )}
             </div>
+export const MiniDiffHunkViewer: React.FC<{
+  diffHunk: string;
+  filePath?: string;
+  targetLine?: number;
+  onJumpToDiff?: (path: string, line?: number) => void;
+}> = ({ diffHunk, filePath, targetLine, onJumpToDiff }) => {
+  const parsedLines = useMemo(() => parseUnifiedPatch(diffHunk), [diffHunk]);
+
+  if (!diffHunk) return null;
+
+  return (
+    <div className="rounded-xl border border-onedark-borderSubtle bg-onedark-bg overflow-hidden font-mono text-[11.5px] shadow-2xs my-1.5">
+      {filePath && (
+        <div className="flex items-center justify-between px-3 py-1.5 bg-onedark-darker border-b border-onedark-borderSubtle text-xs">
+          <div className="flex items-center space-x-1.5 truncate text-onedark-fg">
+            <FileCode2 className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
+            <span className="font-semibold text-onedark-fgBright truncate">{filePath}</span>
+            {targetLine && (
+              <span className="text-onedark-accent font-mono font-medium">:{targetLine}</span>
+            )}
+          </div>
+          {onJumpToDiff && (
+            <button
+              onClick={() => onJumpToDiff(filePath, targetLine)}
+              className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10.5px] font-medium bg-onedark-accent/15 text-onedark-accent hover:bg-onedark-accent/25 border border-onedark-accent/30 transition-colors cursor-pointer"
+              title="Jump to line in PR Diff tab"
+            >
+              <span>Jump to Diff</span>
+              <ArrowRight className="w-2.5 h-2.5" />
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className="overflow-x-auto divide-y divide-onedark-borderSubtle/20 max-h-64 leading-tight">
+        {parsedLines.map((line, idx) => {
+          const isTarget = targetLine && (line.newLine === targetLine || line.oldLine === targetLine);
+          if (line.type === 'header') {
+            return (
+              <div
+                key={idx}
+                className="px-3 py-1 bg-onedark-purple/10 text-onedark-purple text-[10.5px] select-none font-semibold"
+              >
+                {line.text}
+              </div>
+            );
+          }
+
+          const isAddition = line.type === 'addition';
+          const isDeletion = line.type === 'deletion';
+
+          return (
+            <div
+              key={idx}
+              className={`flex items-start px-2 py-0.5 transition-colors ${
+                isAddition
+                  ? 'bg-onedark-green/10 text-onedark-green hover:bg-onedark-green/15'
+                  : isDeletion
+                  ? 'bg-onedark-red/10 text-onedark-red hover:bg-onedark-red/15'
+                  : 'text-onedark-fg/90 hover:bg-onedark-surface/30'
+              } ${isTarget ? 'ring-1 ring-inset ring-onedark-accent font-semibold' : ''}`}
+            >
+              <span className="w-7 text-right select-none opacity-40 font-mono text-[10px] pr-1.5 flex-shrink-0">
+                {line.oldLine || ''}
+              </span>
+              <span className="w-7 text-right select-none opacity-40 font-mono text-[10px] pr-2 flex-shrink-0 border-r border-onedark-borderSubtle/40">
+                {line.newLine || ''}
+              </span>
+              <span className="w-4 text-center select-none font-bold text-xs flex-shrink-0">
+                {isAddition ? '+' : isDeletion ? '-' : ' '}
+              </span>
+              <pre className="font-mono whitespace-pre flex-1 text-[11px] overflow-x-auto pl-1 leading-snug">
+                {line.text.slice(1) || ' '}
+              </pre>
+            </div>
           );
         })}
       </div>
@@ -750,12 +829,99 @@ export const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ commits, rep
   );
 };
 
+export interface ParsedBotComment {
+  category?: { label: string; colorClass: string };
+  severity?: { label: string; colorClass: string };
+  effort?: { label: string; colorClass: string };
+  aiPrompt?: string;
+  cleanBody: string;
+}
+
+export function parseBotReviewComment(rawBody?: string): ParsedBotComment {
+  if (!rawBody) return { cleanBody: '' };
+
+  let category: ParsedBotComment['category'] = undefined;
+  let severity: ParsedBotComment['severity'] = undefined;
+  let effort: ParsedBotComment['effort'] = undefined;
+  let aiPrompt: string | undefined = undefined;
+
+  // Extract AI prompt block if available: <details><summary>...Prompt for AI Agents...</summary>...
+  const promptMatch = rawBody.match(/(?:<details>\s*<summary>[\s\S]*?Prompt for AI Agents[\s\S]*?<\/summary>([\s\S]*?)<\/details>|>\s*🤖\s*Prompt for AI Agents[\r\n]+(?:```(?:[a-zA-Z0-9_-]+)?\s*([\s\S]*?)```|([\s\S]*?)(?=\n\n|\n[#<]|$)))/i);
+  if (promptMatch) {
+    aiPrompt = (promptMatch[1] || promptMatch[2] || promptMatch[3] || '').trim();
+    aiPrompt = aiPrompt.replace(/^```[a-zA-Z0-9_-]*\s*/, '').replace(/\s*```$/, '').trim();
+  }
+
+  const lines = rawBody.split('\n');
+  const cleanLines: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+
+    // Check for piped badges: e.g. 🎯 Functional Correctness | 🟠 Major | ⚡ Quick win
+    if (line.includes('|') && (
+      line.includes('Correctness') ||
+      line.includes('Security') ||
+      line.includes('Performance') ||
+      line.includes('Refactor') ||
+      line.includes('Documentation') ||
+      line.includes('Major') ||
+      line.includes('Minor') ||
+      line.includes('Critical') ||
+      line.includes('Nitpick') ||
+      line.includes('Quick win') ||
+      line.includes('Suggestion')
+    )) {
+      const parts = line.split('|').map((p) => p.replace(/[*_`]/g, '').trim());
+      for (const part of parts) {
+        const lower = part.toLowerCase();
+        // Category
+        if (lower.includes('correctness') || lower.includes('functional') || lower.includes('bug') || lower.includes('logic')) {
+          category = { label: 'Functional Correctness', colorClass: 'bg-onedark-purple/15 text-onedark-purple border-onedark-purple/30' };
+        } else if (lower.includes('security') || lower.includes('vulnerability') || lower.includes('cve')) {
+          category = { label: 'Security', colorClass: 'bg-onedark-red/15 text-onedark-red border-onedark-red/30' };
+        } else if (lower.includes('performance') || lower.includes('speed') || lower.includes('optimization')) {
+          category = { label: 'Performance', colorClass: 'bg-onedark-yellow/15 text-onedark-yellow border-onedark-yellow/30' };
+        } else if (lower.includes('refactor') || lower.includes('clean') || lower.includes('maintainability')) {
+          category = { label: 'Refactor', colorClass: 'bg-onedark-blue/15 text-onedark-blue border-onedark-blue/30' };
+        } else if (lower.includes('doc') || lower.includes('style') || lower.includes('typo')) {
+          category = { label: 'Documentation', colorClass: 'bg-onedark-surface text-onedark-fg border-onedark-borderSubtle' };
+        }
+
+        // Severity
+        if (lower.includes('critical') || lower.includes('blocker')) {
+          severity = { label: 'Critical', colorClass: 'bg-onedark-red/20 text-onedark-red border-onedark-red/40 font-bold' };
+        } else if (lower.includes('major')) {
+          severity = { label: 'Major', colorClass: 'bg-onedark-yellow/20 text-onedark-yellow border-onedark-yellow/40 font-bold' };
+        } else if (lower.includes('minor')) {
+          severity = { label: 'Minor', colorClass: 'bg-onedark-surface text-onedark-fgBright border-onedark-borderSubtle' };
+        } else if (lower.includes('nitpick') || lower.includes('trivial') || lower.includes('info')) {
+          severity = { label: 'Nitpick', colorClass: 'bg-onedark-blue/15 text-onedark-blue border-onedark-blue/30' };
+        }
+
+        // Effort
+        if (lower.includes('quick win') || lower.includes('quick')) {
+          effort = { label: 'Quick win', colorClass: 'bg-onedark-green/15 text-onedark-green border-onedark-green/30' };
+        } else if (lower.includes('complex') || lower.includes('high effort')) {
+          effort = { label: 'High effort', colorClass: 'bg-onedark-purple/15 text-onedark-purple border-onedark-purple/30' };
+        }
+      }
+      continue;
+    }
+
+    cleanLines.push(lines[i]);
+  }
+
+  return { category, severity, effort, aiPrompt, cleanBody: cleanLines.join('\n').trim() };
+}
+
 interface PRCommentsSectionProps {
   comments: PRCommentItem[];
   prNumber?: number;
   task?: Task | null;
   onJumpToDiff?: (path: string, line?: number) => void;
   onRefreshComments?: () => Promise<void>;
+  onAskAboutComment?: (prompt: string) => void;
   isSyncing?: boolean;
   lastSyncedAt?: Date | null;
 }
@@ -778,6 +944,7 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
   task,
   onJumpToDiff,
   onRefreshComments,
+  onAskAboutComment,
   isSyncing = false,
   lastSyncedAt = null
 }) => {
@@ -789,6 +956,7 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
   const [postError, setPostError] = useState<string | null>(null);
   const [postSuccess, setPostSuccess] = useState<boolean>(false);
   const [expandedDiffHunks, setExpandedDiffHunks] = useState<Record<string, boolean>>({});
+  const [copiedPromptId, setCopiedPromptId] = useState<string | null>(null);
 
   const conversationCount = useMemo(() => comments.filter(c => c.type === 'conversation').length, [comments]);
   const codeCount = useMemo(() => comments.filter(c => c.type === 'code_comment').length, [comments]);
@@ -983,24 +1151,29 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
         {filteredComments.map((c) => {
           const isCodeComment = c.type === 'code_comment';
           const isReview = c.type === 'review';
-          const isDiffHunkExpanded = expandedDiffHunks[c.id] ?? false;
+          const isBot = (c.author || '').toLowerCase().includes('[bot]') || (c.author || '').toLowerCase() === 'coderabbitai';
+          const botMeta = parseBotReviewComment(c.body);
 
           return (
             <div
               key={c.id}
-              className={`rounded-xl border transition-all ${
+              className={`rounded-xl border transition-all overflow-hidden ${
                 isReview
                   ? c.review_state === 'APPROVED'
-                    ? 'border-onedark-green/40 bg-onedark-green/5'
+                    ? 'border-l-4 border-l-onedark-green border-onedark-green/30 bg-onedark-green/5 shadow-2xs'
                     : c.review_state === 'CHANGES_REQUESTED'
-                    ? 'border-onedark-red/40 bg-onedark-red/5'
-                    : 'border-onedark-borderSubtle bg-onedark-surface/30'
-                  : 'border-onedark-borderSubtle bg-onedark-surface/40'
+                    ? 'border-l-4 border-l-onedark-red border-onedark-red/30 bg-onedark-red/5 shadow-2xs'
+                    : 'border-l-4 border-l-onedark-blue border-onedark-borderSubtle bg-onedark-surface/30'
+                  : isCodeComment
+                  ? isBot
+                    ? 'border-l-4 border-l-onedark-purple border-onedark-borderSubtle bg-onedark-surface/40'
+                    : 'border-l-4 border-l-onedark-blue border-onedark-borderSubtle bg-onedark-surface/40'
+                  : 'border border-onedark-borderSubtle bg-onedark-surface/40'
               }`}
             >
               {/* Comment Header */}
-              <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-onedark-borderSubtle/60 bg-onedark-surface/50 rounded-t-xl gap-2">
-                <div className="flex items-center space-x-2.5 min-w-0">
+              <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-onedark-borderSubtle/60 bg-onedark-surface/60 gap-2">
+                <div className="flex items-center space-x-2.5 min-w-0 flex-wrap gap-y-1">
                   {c.author_avatar ? (
                     <img
                       src={c.author_avatar}
@@ -1013,20 +1186,32 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
                     </div>
                   )}
 
-                  <span className="font-semibold text-onedark-fgBright text-xs truncate">
+                  <span className="font-bold text-onedark-fgBright text-xs truncate">
                     @{c.author}
                   </span>
 
-                  {c.author_association && c.author_association !== 'NONE' && (
-                    <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono tracking-tight uppercase bg-onedark-surface text-onedark-muted border border-onedark-borderSubtle">
+                  {/* Role / Association Badges */}
+                  {isBot ? (
+                    <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono tracking-tight uppercase bg-onedark-purple/15 text-onedark-purple border border-onedark-purple/30 font-bold flex items-center space-x-1">
+                      <Bot className="w-2.5 h-2.5" />
+                      <span>BOT</span>
+                    </span>
+                  ) : c.author_association && c.author_association !== 'NONE' && (
+                    <span className={`px-1.5 py-0.2 rounded text-[9.5px] font-mono tracking-tight uppercase border ${
+                      c.author_association === 'MEMBER'
+                        ? 'bg-onedark-blue/15 text-onedark-blue border-onedark-blue/30 font-semibold'
+                        : c.author_association === 'OWNER' || c.author_association === 'AUTHOR'
+                        ? 'bg-onedark-green/15 text-onedark-green border-onedark-green/30 font-semibold'
+                        : 'bg-onedark-surface text-onedark-muted border-onedark-borderSubtle'
+                    }`}>
                       {c.author_association.toLowerCase()}
                     </span>
                   )}
 
-                  {/* Comment Type Indicator Badge */}
+                  {/* Review Decision Badge */}
                   {isReview && (
                     <span
-                      className={`inline-flex items-center space-x-1 px-1.5 py-0.2 rounded text-[10px] font-semibold ${
+                      className={`inline-flex items-center space-x-1 px-2 py-0.5 rounded-md text-[10px] font-bold ${
                         c.review_state === 'APPROVED'
                           ? 'bg-onedark-green/20 text-onedark-green border border-onedark-green/30'
                           : c.review_state === 'CHANGES_REQUESTED'
@@ -1034,9 +1219,9 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
                           : 'bg-onedark-blue/20 text-onedark-blue border border-onedark-blue/30'
                       }`}
                     >
-                      {c.review_state === 'APPROVED' && <ShieldCheck className="w-2.5 h-2.5" />}
-                      {c.review_state === 'CHANGES_REQUESTED' && <AlertCircle className="w-2.5 h-2.5" />}
-                      {c.review_state === 'COMMENTED' && <MessageSquare className="w-2.5 h-2.5" />}
+                      {c.review_state === 'APPROVED' && <ShieldCheck className="w-3 h-3" />}
+                      {c.review_state === 'CHANGES_REQUESTED' && <AlertCircle className="w-3 h-3" />}
+                      {c.review_state === 'COMMENTED' && <MessageSquare className="w-3 h-3" />}
                       <span>{c.review_state === 'CHANGES_REQUESTED' ? 'Changes Requested' : c.review_state}</span>
                     </span>
                   )}
@@ -1044,7 +1229,7 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
                   {isCodeComment && (
                     <span className="inline-flex items-center space-x-1 px-1.5 py-0.2 rounded text-[10px] font-medium bg-onedark-blue/15 text-onedark-blue border border-onedark-blue/25">
                       <FileCode2 className="w-2.5 h-2.5" />
-                      <span>Code Review</span>
+                      <span>Inline Review</span>
                     </span>
                   )}
                 </div>
@@ -1059,7 +1244,7 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
                       target="_blank"
                       rel="noopener noreferrer"
                       title="View on GitHub"
-                      className="hover:text-onedark-fgBright transition-colors"
+                      className="hover:text-onedark-fgBright transition-colors p-0.5"
                     >
                       <ExternalLink className="w-3 h-3" />
                     </a>
@@ -1067,28 +1252,44 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
                 </div>
               </div>
 
-              {/* Code Comment Anchor & Diff Snippet Context */}
-              {isCodeComment && c.path && (
-                <div className="px-3.5 py-2 bg-onedark-darker/60 border-b border-onedark-borderSubtle/60 flex flex-col gap-1.5">
-                  <div className="flex items-center justify-between text-xs">
-                    <div className="flex items-center space-x-1.5 text-onedark-fg font-mono truncate">
-                      <FileText className="w-3 h-3 text-onedark-accent flex-shrink-0" />
-                      <span className="font-semibold text-onedark-fgBright truncate">{c.path}</span>
-                      {c.line && (
-                        <span className="text-onedark-accent font-mono font-medium">:{c.line}</span>
-                      )}
-                    </div>
+              {/* Bot Metadata Chip Bar (Category, Severity, Effort) */}
+              {(botMeta.category || botMeta.severity || botMeta.effort) && (
+                <div className="flex items-center gap-1.5 flex-wrap px-3.5 pt-2.5 pb-1 bg-onedark-surface/30 border-b border-onedark-borderSubtle/40">
+                  {botMeta.category && (
+                    <span className={`px-2 py-0.5 rounded-md font-mono text-[10.5px] font-semibold border ${botMeta.category.colorClass}`}>
+                      {botMeta.category.label}
+                    </span>
+                  )}
+                  {botMeta.severity && (
+                    <span className={`px-2 py-0.5 rounded-md font-mono text-[10.5px] font-bold border ${botMeta.severity.colorClass}`}>
+                      {botMeta.severity.label}
+                    </span>
+                  )}
+                  {botMeta.effort && (
+                    <span className={`px-2 py-0.5 rounded-md font-mono text-[10.5px] font-medium border ${botMeta.effort.colorClass}`}>
+                      {botMeta.effort.label}
+                    </span>
+                  )}
+                </div>
+              )}
 
-                    <div className="flex items-center space-x-2 flex-shrink-0">
-                      {c.diff_hunk && (
-                        <button
-                          onClick={() => toggleDiffHunk(c.id)}
-                          className="text-[11px] text-onedark-muted hover:text-onedark-fg flex items-center space-x-1 cursor-pointer"
-                        >
-                          <span>{isDiffHunkExpanded ? 'Hide context' : 'Show context'}</span>
-                          {isDiffHunkExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                        </button>
-                      )}
+              {/* Code Comment Anchor & Diff Snippet Context */}
+              {isCodeComment && (c.diff_hunk || c.path) && (
+                <div className="px-3.5 py-2 bg-onedark-darker/40 border-b border-onedark-borderSubtle/60">
+                  {c.diff_hunk ? (
+                    <MiniDiffHunkViewer
+                      diffHunk={c.diff_hunk}
+                      filePath={c.path}
+                      targetLine={c.line}
+                      onJumpToDiff={onJumpToDiff}
+                    />
+                  ) : c.path ? (
+                    <div className="flex items-center justify-between text-xs font-mono">
+                      <div className="flex items-center space-x-1.5 text-onedark-fg truncate">
+                        <FileCode2 className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
+                        <span className="font-semibold text-onedark-fgBright truncate">{c.path}</span>
+                        {c.line && <span className="text-onedark-accent">:{c.line}</span>}
+                      </div>
                       {onJumpToDiff && (
                         <button
                           onClick={() => onJumpToDiff(c.path!, c.line)}
@@ -1098,24 +1299,60 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
                         </button>
                       )}
                     </div>
-                  </div>
-
-                  {/* Collapsible Diff Hunk Preview */}
-                  {c.diff_hunk && (isDiffHunkExpanded || !c.in_reply_to_id) && (
-                    <pre className="p-2.5 rounded-lg bg-onedark-bg border border-onedark-borderSubtle text-[11px] font-mono overflow-x-auto leading-tight text-onedark-muted/90 max-h-48 whitespace-pre-wrap">
-                      {c.diff_hunk}
-                    </pre>
-                  )}
+                  ) : null}
                 </div>
               )}
 
-              {/* Comment Body Markdown */}
-              <div className="px-4 py-3 text-onedark-fg text-xs leading-relaxed select-text">
-                <MarkdownRenderer content={c.body || '*No content provided.*'} />
+              {/* Comment Body Markdown & Actionable AI Prompt Card */}
+              <div className="px-4 py-3 text-onedark-fg text-xs leading-relaxed select-text space-y-3">
+                <MarkdownRenderer content={botMeta.cleanBody || c.body || '*No content provided.*'} />
+
+                {/* Structured AI Agent Prompt Box if present */}
+                {botMeta.aiPrompt && (
+                  <div className="mt-3 p-3 rounded-xl border border-onedark-purple/30 bg-onedark-darker/90 space-y-2 shadow-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center space-x-1.5 text-onedark-purple font-mono text-xs font-bold">
+                        <Bot className="w-3.5 h-3.5" />
+                        <span>Prompt for AI Agents</span>
+                      </div>
+                      <div className="flex items-center space-x-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(botMeta.aiPrompt!);
+                            setCopiedPromptId(c.id);
+                            setTimeout(() => setCopiedPromptId(null), 2000);
+                          }}
+                          className="inline-flex items-center space-x-1 px-2 py-1 rounded bg-onedark-surface hover:bg-onedark-surface/80 border border-onedark-borderSubtle text-[10.5px] font-mono text-onedark-muted hover:text-onedark-fg transition-colors cursor-pointer"
+                          title="Copy AI Prompt"
+                        >
+                          {copiedPromptId === c.id ? <Check className="w-3 h-3 text-onedark-green" /> : <Copy className="w-3 h-3" />}
+                          <span>{copiedPromptId === c.id ? 'Copied' : 'Copy'}</span>
+                        </button>
+
+                        {onAskAboutComment && (
+                          <button
+                            type="button"
+                            onClick={() => onAskAboutComment(botMeta.aiPrompt!)}
+                            className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker font-bold text-[11px] shadow-xs active:scale-95 transition-all cursor-pointer"
+                            title="Execute prompt directly in Chat Workstation"
+                          >
+                            <Zap className="w-3 h-3 fill-current" />
+                            <span>Fix with Cyclode</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <pre className="p-2.5 rounded-lg bg-black/40 border border-onedark-borderSubtle text-[11px] font-mono text-onedark-fg/90 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto select-text">
+                      {botMeta.aiPrompt}
+                    </pre>
+                  </div>
+                )}
               </div>
 
-              {/* Comment Footer: Reactions & Reply Action */}
-              <div className="px-3.5 py-2 border-t border-onedark-borderSubtle/40 bg-onedark-surface/20 rounded-b-xl flex items-center justify-between">
+              {/* Comment Footer: Reactions & Actions */}
+              <div className="px-3.5 py-2 border-t border-onedark-borderSubtle/40 bg-onedark-surface/20 rounded-b-xl flex items-center justify-between gap-2">
                 {/* Reaction Counters */}
                 <div className="flex items-center space-x-1.5 flex-wrap">
                   {c.reactions && Object.entries(c.reactions).map(([emojiKey, count]) => {
@@ -1133,20 +1370,42 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
                   })}
                 </div>
 
-                {/* Reply Button */}
-                {task?.id && (
-                  <button
-                    onClick={() => {
-                      setReplyingTo(c);
-                      const textarea = document.getElementById('pr-comment-composer-input');
-                      if (textarea) textarea.focus();
-                    }}
-                    className="inline-flex items-center space-x-1 px-2 py-1 rounded text-[11px] font-medium text-onedark-muted hover:text-onedark-accent hover:bg-onedark-surface/60 transition-colors cursor-pointer"
-                  >
-                    <CornerDownRight className="w-3 h-3" />
-                    <span>Reply</span>
-                  </button>
-                )}
+                {/* Right Action Buttons: Fix with Agent + Reply */}
+                <div className="flex items-center space-x-1.5">
+                  {onAskAboutComment && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const remediationPrompt = botMeta.aiPrompt || (
+                          `Please inspect and resolve the pull request review finding from @${c.author} on \`${c.path || 'active pull request'}\`${c.line ? ` (line ${c.line})` : ''}:\n\n` +
+                          `> ${(botMeta.cleanBody || c.body).slice(0, 300).replace(/\n/g, '\n> ')}\n\n` +
+                          `Review the repository code in the workspace and apply a verified fix with tests.`
+                        );
+                        onAskAboutComment(remediationPrompt);
+                      }}
+                      className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-onedark-accent hover:bg-onedark-accent/15 border border-onedark-accent/30 transition-colors cursor-pointer shadow-2xs"
+                      title="Ask Cyclode Agent to fix this issue"
+                    >
+                      <Zap className="w-3 h-3" />
+                      <span>Fix with Agent</span>
+                    </button>
+                  )}
+
+                  {task?.id && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setReplyingTo(c);
+                        const textarea = document.getElementById('pr-comment-composer-input');
+                        if (textarea) textarea.focus();
+                      }}
+                      className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-medium text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/60 transition-colors cursor-pointer"
+                    >
+                      <CornerDownRight className="w-3 h-3" />
+                      <span>Reply</span>
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           );
@@ -1237,6 +1496,7 @@ export interface PRDetailViewProps {
   task?: Task | null;
   onBack?: () => void;
   onCloneToSession?: (repoUrl: string, repoName: string) => void;
+  onAskAboutComment?: (prompt: string) => void;
 }
 
 export const PRDetailView: React.FC<PRDetailViewProps> = ({
@@ -1245,7 +1505,8 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
   prRecord,
   task,
   onBack,
-  onCloneToSession
+  onCloneToSession,
+  onAskAboutComment
 }) => {
   const [data, setData] = useState<PRReaderResponse | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -1869,6 +2130,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
               isSyncing={isSyncingComments}
               lastSyncedAt={lastSyncedAt}
               onRefreshComments={fetchCommentsOnly}
+              onAskAboutComment={onAskAboutComment}
               onJumpToDiff={() => {
                 setPrTab('diff');
               }}
