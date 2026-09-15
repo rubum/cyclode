@@ -176,19 +176,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </button>
       </div>
 
-      {/* Primary Middle Section: Recent Sessions History (Scrollable) */}
-      <div className="flex-1 overflow-y-auto px-2 py-2 space-y-1 min-h-0">
-        <div className="px-2.5 flex items-center justify-between text-[11px] font-semibold tracking-wider text-onedark-muted uppercase mb-1">
+      {/* Fixed Header Section: Recent Sessions & Clear All & Search */}
+      <div className="px-3 pt-3 pb-1 flex flex-col flex-shrink-0 select-none">
+        <div className="px-1 flex items-center justify-between text-[11px] font-semibold tracking-wider text-onedark-muted uppercase mb-1.5">
           <div className="flex items-center space-x-1.5">
             <span>Recent Sessions</span>
-            {tasks.length > 0 && (
+            {primaryTasksCount > 0 && (
               <span className="font-mono text-[10px] text-onedark-muted font-normal">
-                ({tasks.length})
+                ({primaryTasksCount})
               </span>
             )}
           </div>
           <div className="flex items-center space-x-2">
-            {tasks.length > 0 && onClearAllTasks && (
+            {primaryTasksCount > 0 && onClearAllTasks && (
               <button
                 onClick={() => setIsClearAllOpen(true)}
                 className="text-[10px] font-normal text-onedark-muted hover:text-onedark-red transition-colors capitalize tracking-normal cursor-pointer"
@@ -200,8 +200,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
-        {tasks.length > 2 && (
-          <div className="px-1 mb-2">
+        {primaryTasksCount > 2 && (
+          <div className="mb-1">
             <div className="flex items-center space-x-1.5 bg-onedark-surface/40 rounded-md px-2 py-1 border border-onedark-borderSubtle text-[11px] focus-within:border-onedark-accent/50">
               <Search className="w-3 h-3 text-onedark-muted flex-shrink-0" />
               <input
@@ -223,8 +223,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
         )}
+      </div>
 
-        {tasks.length === 0 ? (
+      {/* Primary Middle Section: Recent Sessions History (Scrollable) */}
+      <div className="flex-1 overflow-y-auto px-2 py-1 space-y-1 min-h-0">
+        {primaryTasksCount === 0 ? (
           <div className="px-3 py-6 text-center text-xs text-onedark-muted leading-relaxed">
             <Clock className="w-5 h-5 mx-auto mb-2 text-onedark-muted/60" />
             No active sessions.<br />Click New Session to begin.
