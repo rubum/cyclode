@@ -464,5 +464,6 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
         )}
       </div>
     </div>
+  </div>
   );
 };

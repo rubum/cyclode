@@ -557,6 +557,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
           </div>
         </div>
       </div>
+    </div>
 
       {/* Main Content Centered with max-w-6xl */}
       <div className="max-w-6xl mx-auto px-6 lg:px-8 py-8 space-y-6">
@@ -1030,6 +1031,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
           </div>
         )}
       </div>
+    </div>
 
       {/* Add / Edit Modal with ESC support */}
       {isAddModalOpen && (

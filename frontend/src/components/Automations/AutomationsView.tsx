@@ -504,6 +504,7 @@ export const AutomationsView: React.FC<AutomationsViewProps> = ({
           </div>
         )}
       </div>
+    </div>
 
       {/* Create Modal with ESC support */}
       {showCreateModal && (
