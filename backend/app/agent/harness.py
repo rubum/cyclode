@@ -86,6 +86,10 @@ class AntigravityHarness:
         stream_id: Optional[str] = None
     ):
         s_id = stream_id or f"msg-{int(asyncio.get_event_loop().time() * 1000)}"
+        if content:
+            cleaned = re.sub(r"\[Executed Tool:[^\]]+\]", "", content).strip()
+            if cleaned:
+                content = cleaned
         if sender == "agent" and on_stream_start and on_stream_chunk and on_stream_end:
             try:
                 if inspect.iscoroutinefunction(on_stream_start):
@@ -894,12 +898,33 @@ class AntigravityHarness:
                                         text_chunks.append(p["text"])
                                     elif "functionCall" in p:
                                         fc = p["functionCall"]
-                                        text_chunks.append(f"[Executed Tool: {fc.get('name')}({json.dumps(fc.get('args', {}))})]")
+                                        fn_name = fc.get("name", "tool")
+                                        args = fc.get("args", {})
+                                        if fn_name == "edit_file":
+                                            text_chunks.append(f"Action: Edited file '{args.get('file_path', '')}'")
+                                        elif fn_name == "read_file":
+                                            text_chunks.append(f"Action: Read file '{args.get('file_path', '')}'")
+                                        elif fn_name == "run_command":
+                                            text_chunks.append(f"Action: Executed command '{args.get('command', '')}'")
+                                        elif fn_name in ["grep_search", "search_code"]:
+                                            text_chunks.append(f"Action: Searched codebase for '{args.get('query', '')}'")
+                                        elif fn_name == "find_symbols":
+                                            text_chunks.append(f"Action: Searched symbols matching '{args.get('name_pattern', '')}'")
+                                        elif fn_name == "search_web":
+                                            text_chunks.append(f"Action: Web search for '{args.get('query', '')}'")
+                                        elif fn_name == "fetch_url":
+                                            text_chunks.append(f"Action: Fetched URL '{args.get('url', '')}'")
+                                        elif fn_name == "list_dir":
+                                            text_chunks.append(f"Action: Listed directory '{args.get('subpath', '.')}'")
+                                        else:
+                                            text_chunks.append(f"Action: Executed {fn_name}")
                                     elif "functionResponse" in p:
                                         fr = p["functionResponse"]
                                         resp_val = fr.get("response", {})
                                         resp_str = json.dumps(resp_val) if isinstance(resp_val, (dict, list)) else str(resp_val)
-                                        text_chunks.append(f"[Tool Result for {fr.get('name')}:\n{resp_str[:1500]}\n]")
+                                        if len(resp_str) > 2000:
+                                            resp_str = resp_str[:2000] + "... (truncated)"
+                                        text_chunks.append(f"Observation for {fr.get('name')}:\n{resp_str}\n")
                                 if text_chunks:
                                     text_contents.append({
                                         "role": role,
@@ -908,7 +933,7 @@ class AntigravityHarness:
                             text_contents.append({
                                 "role": "user",
                                 "parts": [{
-                                    "text": "Please provide your complete, detailed analytical final answer synthesizing all findings from the tools above. Use rich markdown with clickable links."
+                                    "text": "CRITICAL INSTRUCTION: Please provide your complete, detailed analytical final answer synthesizing all findings above. Use rich markdown with clickable citations. Do NOT output internal action traces, tool call syntax, or raw debug logs."
                                 }]
                             })
                             flat_payload = {

@@ -35,6 +35,8 @@ const MainApp: React.FC = () => {
   const [activeAuxTab, setActiveAuxTab] = useState<'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'docs' | 'preview'>('activity');
   const [sessionPreviews, setSessionPreviews] = useState<Record<string, { url: string; title?: string } | null>>({});
   const activePreviewTarget = activeTaskId ? (sessionPreviews[activeTaskId] || null) : null;
+  const [isClearingAll, setIsClearingAll] = useState<boolean>(false);
+  const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
 
   const [isSandboxModalOpen, setIsSandboxModalOpen] = useState<boolean>(false);
   const streamBufferRef = useRef<Map<string, any>>(new Map());
@@ -341,8 +343,57 @@ const MainApp: React.FC = () => {
       }
     });
 
+    const unsubToolStart = subscribe('TOOL_START', (data: any) => {
+      if (activeTaskId === data.task_id) {
+        setActiveTaskDetails((prev) => {
+          if (!prev) return prev;
+          const currentLogs = [...(prev.logs || [])];
+          const newRunningLog: TaskLog = {
+            id: `live-log-${Date.now()}`,
+            task_id: data.task_id,
+            tool_name: data.tool_name,
+            tool_input: data.tool_input || {},
+            tool_output: '',
+            exit_code: 0,
+            duration_ms: 0,
+            created_at: data.timestamp || new Date().toISOString(),
+            isRunning: true,
+          };
+          return {
+            ...prev,
+            active_tool: {
+              tool_name: data.tool_name,
+              tool_input: data.tool_input || {},
+              timestamp: data.timestamp || new Date().toISOString(),
+            },
+            logs: [...currentLogs, newRunningLog],
+          };
+        });
+      }
+    });
+
     const unsubToolEnd = subscribe('TOOL_END', (data: any) => {
       if (activeTaskId === data.task_id) {
+        setActiveTaskDetails((prev) => {
+          if (!prev) return prev;
+          const logs = (prev.logs || []).map((l) => {
+            if (l.isRunning && l.tool_name === data.tool_name) {
+              return {
+                ...l,
+                tool_output: data.tool_output,
+                exit_code: data.exit_code,
+                duration_ms: data.duration_ms,
+                isRunning: false,
+              };
+            }
+            return l;
+          });
+          return {
+            ...prev,
+            active_tool: null,
+            logs,
+          };
+        });
         fetchTaskDetails(data.task_id);
       }
     });
@@ -446,6 +497,7 @@ const MainApp: React.FC = () => {
       unsubStreamChunk();
       unsubStreamEnd();
       unsubThought();
+      unsubToolStart();
       unsubToolEnd();
       unsubDiff();
       unsubPrUpdated();
@@ -922,6 +974,7 @@ const MainApp: React.FC = () => {
   };
 
   const handleDeleteTask = async (taskId: string) => {
+    setDeletingTaskId(taskId);
     try {
       const res = await fetch(`${API_BASE}/api/tasks/${taskId}`, {
         method: 'DELETE',
@@ -936,14 +989,17 @@ const MainApp: React.FC = () => {
           delete next[taskId];
           return next;
         });
-        fetchTasks();
+        await fetchTasks();
       }
     } catch (err) {
       console.error('Error deleting task:', err);
+    } finally {
+      setDeletingTaskId(null);
     }
   };
 
   const handleClearAllTasks = async () => {
+    setIsClearingAll(true);
     try {
       const res = await fetch(`${API_BASE}/api/tasks`, {
         method: 'DELETE',
@@ -952,10 +1008,12 @@ const MainApp: React.FC = () => {
         setActiveTaskId(null);
         setActiveTaskDetails(null);
         setSessionPreviews({});
-        fetchTasks();
+        await fetchTasks();
       }
     } catch (err) {
       console.error('Error clearing all tasks:', err);
+    } finally {
+      setIsClearingAll(false);
     }
   };
 
@@ -1130,6 +1188,8 @@ const MainApp: React.FC = () => {
             onNewChat={handleNewChat}
             onDeleteTask={handleDeleteTask}
             onClearAllTasks={handleClearAllTasks}
+            isClearingAll={isClearingAll}
+            deletingTaskId={deletingTaskId}
             onUpdateTaskTitle={handleUpdateTaskTitle}
             onOpenSettings={() => setActiveView('policies')}
             activeAgentsCount={tasks.filter((t) => t.status === 'RUNNING').length}

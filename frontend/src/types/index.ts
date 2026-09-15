@@ -55,6 +55,7 @@ export interface TaskLog {
   exit_code: number;
   duration_ms: number;
   created_at: string;
+  isRunning?: boolean;
 }
 
 export interface TaskApproval {
@@ -129,6 +130,7 @@ export interface Task {
   completed_at?: string;
   messages?: TaskMessage[];
   logs?: TaskLog[];
+  active_tool?: { tool_name: string; tool_input: Record<string, any>; timestamp?: string } | null;
   approvals?: TaskApproval[];
   diffs?: TaskDiff[];
   prs?: TaskPR[];

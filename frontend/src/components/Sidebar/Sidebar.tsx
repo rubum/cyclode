@@ -22,7 +22,8 @@ import {
   FileCode2,
   CheckCircle2,
   AlertCircle,
-  ExternalLink
+  ExternalLink,
+  RefreshCw
 } from 'lucide-react';
 import { Task, TaskPR } from '../../types';
 import { useWebSocket } from '../../contexts/WebSocketContext';
@@ -38,6 +39,8 @@ interface SidebarProps {
   onNewChat: () => void;
   onDeleteTask?: (taskId: string) => void;
   onClearAllTasks?: () => void;
+  isClearingAll?: boolean;
+  deletingTaskId?: string | null;
   onUpdateTaskTitle?: (taskId: string, newTitle: string) => void;
   onOpenSettings?: () => void;
   activeAgentsCount?: number;
@@ -53,6 +56,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onNewChat,
   onDeleteTask,
   onClearAllTasks,
+  isClearingAll = false,
+  deletingTaskId = null,
   onUpdateTaskTitle,
   onOpenSettings,
   activeAgentsCount = 0,
@@ -189,13 +194,20 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
           <div className="flex items-center space-x-2">
             {primaryTasksCount > 0 && onClearAllTasks && (
-              <button
-                onClick={() => setIsClearAllOpen(true)}
-                className="text-[10px] font-normal text-onedark-muted hover:text-onedark-red transition-colors capitalize tracking-normal cursor-pointer"
-                title="Clear all recent sessions"
-              >
-                clear all
-              </button>
+              isClearingAll ? (
+                <div className="flex items-center space-x-1 text-[10px] text-onedark-red font-mono animate-pulse">
+                  <RefreshCw className="w-3 h-3 animate-spin text-onedark-red" />
+                  <span>Clearing...</span>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setIsClearAllOpen(true)}
+                  className="text-[10px] font-normal text-onedark-muted hover:text-onedark-red transition-colors capitalize tracking-normal cursor-pointer"
+                  title="Clear all recent sessions"
+                >
+                  clear all
+                </button>
+              )
             )}
           </div>
         </div>
@@ -226,7 +238,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Primary Middle Section: Recent Sessions History (Scrollable) */}
-      <div className="flex-1 overflow-y-auto px-2 py-1 space-y-1 min-h-0">
+      <div className={`flex-1 overflow-y-auto px-2 py-1 space-y-1 min-h-0 relative transition-all duration-300 ${
+        isClearingAll ? 'opacity-35 pointer-events-none select-none' : ''
+      }`}>
+        {isClearingAll && (
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-onedark-darker/60 backdrop-blur-[1px] rounded-lg">
+            <RefreshCw className="w-5 h-5 text-onedark-red animate-spin mb-1.5" />
+            <span className="text-[11px] font-mono text-onedark-fgBright">Deleting all sessions...</span>
+          </div>
+        )}
         {primaryTasksCount === 0 ? (
           <div className="px-3 py-6 text-center text-xs text-onedark-muted leading-relaxed">
             <Clock className="w-5 h-5 mx-auto mb-2 text-onedark-muted/60" />
@@ -239,14 +259,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ) : (
           filteredTasks.map((task) => {
             const isSelected = activeTaskId === task.id && activeView === 'chat';
+            const isBeingDeleted = deletingTaskId === task.id;
             return (
               <div
                 key={task.id}
                 onClick={() => {
+                  if (isBeingDeleted || isClearingAll) return;
                   onSelectTask(task.id);
                   setActiveView('chat');
                 }}
                 className={`group w-full text-left px-2.5 py-1.5 rounded-lg border transition-all cursor-pointer relative ${
+                  isBeingDeleted ? 'opacity-45 pointer-events-none cursor-not-allowed' : ''
+                } ${
                   isSelected
                     ? 'bg-onedark-surface border-onedark-border text-onedark-fgBright shadow-xs'
                     : 'bg-onedark-surface/20 border-transparent hover:bg-onedark-surface/50 text-onedark-fg'
@@ -318,17 +342,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             <Pencil className="w-3 h-3" />
                           </button>
                         )}
-                        {onDeleteTask && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setTaskToDelete(task);
-                            }}
-                            className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-onedark-red/20 text-onedark-muted hover:text-onedark-red transition-all flex-shrink-0 cursor-pointer"
-                            title="Delete session"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
+                        {isBeingDeleted ? (
+                          <div className="p-0.5 text-onedark-red flex items-center justify-center flex-shrink-0" title="Deleting session...">
+                            <RefreshCw className="w-3 h-3 animate-spin" />
+                          </div>
+                        ) : (
+                          onDeleteTask && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setTaskToDelete(task);
+                              }}
+                              className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-onedark-red/20 text-onedark-muted hover:text-onedark-red transition-all flex-shrink-0 cursor-pointer"
+                              title="Delete session"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )
                         )}
                       </div>
                     </>
@@ -443,6 +473,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Delete Single Task Confirm Modal */}
       <ConfirmModal
         isOpen={!!taskToDelete}
+        isLoading={!!deletingTaskId}
         title="Delete Agent Session"
         description={`Are you sure you want to delete session "${taskToDelete?.title || 'Untitled'}"?`}
         confirmText="Delete Session"
@@ -455,18 +486,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
         safeItems={[
           'Remote repositories and code branches are completely untouched',
         ]}
-        onConfirm={() => {
+        onConfirm={async () => {
           if (taskToDelete && onDeleteTask) {
-            onDeleteTask(taskToDelete.id);
+            await onDeleteTask(taskToDelete.id);
             setTaskToDelete(null);
           }
         }}
-        onCancel={() => setTaskToDelete(null)}
+        onCancel={() => {
+          if (!deletingTaskId) setTaskToDelete(null);
+        }}
       />
 
       {/* Clear All Tasks Confirm Modal */}
       <ConfirmModal
         isOpen={isClearAllOpen}
+        isLoading={isClearingAll}
         title="Clear All Recent Sessions"
         description={`Are you sure you want to remove all ${tasks.length} recent sessions from your workstation history?`}
         confirmText="Clear All Sessions"
@@ -480,13 +514,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
           'Your repository configurations and Vault credentials remain saved',
           'Remote codebases are NEVER modified',
         ]}
-        onConfirm={() => {
+        onConfirm={async () => {
           if (onClearAllTasks) {
-            onClearAllTasks();
+            await onClearAllTasks();
           }
           setIsClearAllOpen(false);
         }}
-        onCancel={() => setIsClearAllOpen(false)}
+        onCancel={() => {
+          if (!isClearingAll) setIsClearAllOpen(false);
+        }}
       />
     </div>
   );

@@ -115,8 +115,9 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
     // Strip standalone tracking / light-mode image badge links (e.g. https://app.coderabbit.ai/...#gh-light-mode-only)
     text = text.replace(/^https?:\/\/[^\s\n]+#gh-(?:light|dark)-mode-only\s*$/gim, '');
-    text = text.replace(/\[!\[[^\]]*\]\([^)]*#gh-light-mode-only\s*\)\]\([^)]+\)/gi, '');
-    text = text.replace(/!\[[^\]]*\]\([^)]*#gh-light-mode-only\s*\)/gi, '');
+    // Strip legacy/raw tool invocation traces
+    text = text.replace(/\[Executed Tool:[^\]]+\]/g, '');
+    text = text.replace(/\[Tool Result for [^\]]+:\s*[\s\S]*?\]/g, '');
 
     if (!isStreaming) return text;
     const codeBlockCount = (text.match(/```/g) || []).length;

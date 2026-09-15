@@ -30,7 +30,16 @@ import {
   ExternalLink,
   Loader2,
   Play,
-  LayoutGrid
+  LayoutGrid,
+  Folder,
+  Search,
+  Globe,
+  Link2,
+  GitBranch,
+  RefreshCw,
+  Brain,
+  Eye,
+  AlertCircle
 } from 'lucide-react';
 import { Task, TaskMessage, TaskLog, RepositoryConfig, TaskPR, WorkspacePreviewInfo } from '../../types';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
@@ -38,6 +47,130 @@ import { FormattedLogView } from '../Common/FormattedLogView';
 import { SandboxInspectorModal } from '../Sandbox/SandboxInspectorModal';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
+
+export const getToolActionInfo = (
+  toolName: string,
+  toolInput: Record<string, any> = {},
+  isRunning: boolean = false
+) => {
+  const input = toolInput || {};
+  switch (toolName) {
+    case 'edit_file':
+      return {
+        icon: Pencil,
+        verb: isRunning ? 'Editing' : 'Edited',
+        target: input.file_path || input.path || 'file',
+        colorClass: 'text-onedark-green',
+        badgeBg: 'bg-onedark-green/10',
+        badgeBorder: 'border-onedark-green/30',
+      };
+    case 'read_file':
+      return {
+        icon: FileCode2,
+        verb: isRunning ? 'Reading' : 'Read',
+        target: input.file_path || input.path || 'file',
+        colorClass: 'text-onedark-accent',
+        badgeBg: 'bg-onedark-accent/10',
+        badgeBorder: 'border-onedark-accent/30',
+      };
+    case 'run_command':
+      return {
+        icon: Terminal,
+        verb: isRunning ? 'Running' : 'Ran',
+        target: input.command ? `$ ${input.command}` : 'command',
+        colorClass: 'text-onedark-yellow',
+        badgeBg: 'bg-onedark-yellow/10',
+        badgeBorder: 'border-onedark-yellow/30',
+      };
+    case 'list_dir':
+      return {
+        icon: Folder,
+        verb: isRunning ? 'Listing' : 'Listed',
+        target: input.subpath || input.directory || '.',
+        colorClass: 'text-onedark-folder',
+        badgeBg: 'bg-onedark-folder/10',
+        badgeBorder: 'border-onedark-folder/30',
+      };
+    case 'grep_search':
+    case 'search_code':
+      return {
+        icon: Search,
+        verb: isRunning ? 'Searching' : 'Searched',
+        target: input.query ? `"${input.query}"` : 'codebase',
+        colorClass: 'text-onedark-yellow',
+        badgeBg: 'bg-onedark-yellow/10',
+        badgeBorder: 'border-onedark-yellow/30',
+      };
+    case 'find_symbols':
+      return {
+        icon: Code2,
+        verb: isRunning ? 'Finding symbols' : 'Found symbols',
+        target: input.name_pattern ? `"${input.name_pattern}"` : 'symbols',
+        colorClass: 'text-onedark-purple',
+        badgeBg: 'bg-onedark-purple/10',
+        badgeBorder: 'border-onedark-purple/30',
+      };
+    case 'search_web':
+      return {
+        icon: Globe,
+        verb: isRunning ? 'Searching web for' : 'Web searched',
+        target: input.query ? `"${input.query}"` : 'web',
+        colorClass: 'text-onedark-accent',
+        badgeBg: 'bg-onedark-accent/10',
+        badgeBorder: 'border-onedark-accent/30',
+      };
+    case 'fetch_url':
+      return {
+        icon: Link2,
+        verb: isRunning ? 'Fetching' : 'Fetched',
+        target: input.url || 'URL',
+        colorClass: 'text-onedark-accent',
+        badgeBg: 'bg-onedark-accent/10',
+        badgeBorder: 'border-onedark-accent/30',
+      };
+    case 'git_clone':
+    case 'connect_repository':
+      return {
+        icon: GitBranch,
+        verb: isRunning ? 'Cloning' : 'Cloned',
+        target: input.repo_url || input.url || 'repository',
+        colorClass: 'text-onedark-purple',
+        badgeBg: 'bg-onedark-purple/10',
+        badgeBorder: 'border-onedark-purple/30',
+      };
+    case 'tgrep_ast':
+      return {
+        icon: GitBranch,
+        verb: isRunning ? 'Analyzing AST for' : 'Matched AST',
+        target: input.pattern ? `"${input.pattern}"` : 'pattern',
+        colorClass: 'text-onedark-purple',
+        badgeBg: 'bg-onedark-purple/10',
+        badgeBorder: 'border-onedark-purple/30',
+      };
+    case 'get_pull_request_details':
+    case 'list_pull_requests':
+    case 'create_pull_request':
+    case 'post_pull_request_review':
+    case 'get_pull_request_diff':
+      return {
+        icon: GitPullRequest,
+        verb: isRunning ? 'Inspecting' : 'Inspected',
+        target: input.repository ? `${input.repository} PRs` : 'Pull Requests',
+        colorClass: 'text-onedark-green',
+        badgeBg: 'bg-onedark-green/10',
+        badgeBorder: 'border-onedark-green/30',
+      };
+    default:
+      return {
+        icon: Zap,
+        verb: isRunning ? 'Executing' : 'Executed',
+        target: toolName,
+        colorClass: 'text-onedark-accent',
+        badgeBg: 'bg-onedark-accent/10',
+        badgeBorder: 'border-onedark-accent/30',
+      };
+  }
+};
 
 interface ChatCanvasProps {
   task: Task | null;
@@ -171,6 +304,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const [selectedPersona, setSelectedPersona] = useState('PairProgrammer');
   const [openThoughts, setOpenThoughts] = useState<Record<string, boolean>>({});
   const [openActivities, setOpenActivities] = useState<Record<string, boolean>>({});
+  const [expandedLogIds, setExpandedLogIds] = useState<Record<string, boolean>>({});
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState<string>('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -1388,19 +1522,19 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                   </div>
                 )}
 
-                {/* 3. Turn Workspace Activity (Placed JUST ABOVE RESPONSE) */}
+                {/* 3. Turn Workspace Activity (Inline Action Stream) */}
                 {hasLogs && (() => {
                   const totalDuration = turn.logs.reduce((acc, l) => acc + (l.duration_ms || 0), 0);
-                  const uniqueTools = Array.from(new Set(turn.logs.map((l) => l.tool_name)));
                   const formattedDuration = totalDuration < 1000 
                     ? `${totalDuration}ms` 
                     : `${(totalDuration / 1000).toFixed(1)}s`;
 
                   return (
-                    <div className="rounded-xl border border-onedark-border bg-onedark-darker/60 overflow-hidden shadow-sm transition-all">
+                    <div className="rounded-xl border border-onedark-border bg-onedark-darker/60 overflow-hidden shadow-sm transition-all space-y-0">
+                      {/* Summary Header */}
                       <div
                         onClick={() => setOpenActivities((prev) => ({ ...prev, [turn.id]: !isActOpen }))}
-                        className="w-full px-3.5 py-2.5 flex items-center justify-between text-xs text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/30 transition-colors cursor-pointer select-none"
+                        className="w-full px-3.5 py-2 flex items-center justify-between text-xs text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/30 transition-colors cursor-pointer select-none"
                       >
                         <div className="flex items-center space-x-2.5 min-w-0 pr-2">
                           <div className="w-5 h-5 rounded-md bg-onedark-accent/10 border border-onedark-accent/20 flex items-center justify-center flex-shrink-0 text-onedark-accent">
@@ -1408,21 +1542,11 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                           </div>
                           <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                             <span className="font-mono text-xs font-semibold text-onedark-fgBright">
-                              Workspace Activity
+                              Workspace Actions
                             </span>
                             <span className="text-[11px] text-onedark-muted font-mono">
-                              • {turn.logs.length} tool{turn.logs.length > 1 ? 's' : ''} ({formattedDuration})
+                              • {turn.logs.length} action{turn.logs.length > 1 ? 's' : ''} ({formattedDuration})
                             </span>
-                            <div className="hidden sm:flex items-center space-x-1">
-                              {uniqueTools.map((tName) => (
-                                <span
-                                  key={tName}
-                                  className="px-1.5 py-0.2 rounded bg-onedark-surface text-[10px] font-mono text-onedark-muted border border-onedark-borderSubtle"
-                                >
-                                  {tName}
-                                </span>
-                              ))}
-                            </div>
                           </div>
                         </div>
 
@@ -1441,8 +1565,8 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                               <ExternalLink className="w-3 h-3" />
                             </button>
                           )}
-                          <span className="px-2 py-1 rounded-md bg-onedark-surface text-onedark-muted text-[11px] font-mono border border-onedark-borderSubtle flex items-center space-x-1">
-                            <span>{isActOpen ? 'Hide' : 'Show details'}</span>
+                          <span className="px-2 py-0.5 rounded-md bg-onedark-surface text-onedark-muted text-[11px] font-mono border border-onedark-borderSubtle flex items-center space-x-1">
+                            <span>{isActOpen ? 'Hide All' : 'Show All Trace'}</span>
                             {isActOpen ? (
                               <ChevronDown className="w-3.5 h-3.5 ml-0.5" />
                             ) : (
@@ -1452,26 +1576,95 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                         </div>
                       </div>
 
+                      {/* Inline Action Items Stream */}
+                      <div className="p-2 border-t border-onedark-borderSubtle/60 space-y-1.5 bg-onedark-darker/80">
+                        {turn.logs.map((log, idx) => {
+                          const logKey = log.id || `log-${turn.id}-${idx}`;
+                          const isExpanded = isActOpen || !!expandedLogIds[logKey];
+                          const actionInfo = getToolActionInfo(log.tool_name, log.tool_input, log.isRunning);
+                          const ActionIcon = actionInfo.icon;
+
+                          return (
+                            <div key={logKey} className="space-y-1">
+                              <div
+                                onClick={() => setExpandedLogIds((prev) => ({ ...prev, [logKey]: !prev[logKey] }))}
+                                className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg border text-xs font-mono transition-all cursor-pointer select-none group/action ${
+                                  log.isRunning
+                                    ? 'bg-onedark-accent/10 border-onedark-accent/40 text-onedark-fgBright shadow-xs'
+                                    : log.exit_code !== 0
+                                    ? 'bg-onedark-red/10 border-onedark-red/30 text-onedark-red'
+                                    : 'bg-onedark-surface/30 hover:bg-onedark-surface/60 border-onedark-borderSubtle/60 text-onedark-fg'
+                                }`}
+                              >
+                                <div className="flex items-center space-x-2 min-w-0 pr-2">
+                                  <div className={`p-1 rounded ${actionInfo.badgeBg} border ${actionInfo.badgeBorder} flex items-center justify-center flex-shrink-0`}>
+                                    {log.isRunning ? (
+                                      <RefreshCw className="w-3 h-3 animate-spin text-onedark-accent" />
+                                    ) : (
+                                      <ActionIcon className={`w-3 h-3 ${actionInfo.colorClass}`} />
+                                    )}
+                                  </div>
+                                  <div className="truncate flex items-center space-x-1.5 text-xs">
+                                    <span className={`font-semibold ${actionInfo.colorClass}`}>
+                                      {actionInfo.verb}
+                                    </span>
+                                    <span className="text-onedark-fgBright font-mono truncate">
+                                      {actionInfo.target}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center space-x-2 flex-shrink-0 text-[10.5px] text-onedark-muted">
+                                  {log.isRunning ? (
+                                    <span className="px-1.5 py-0.2 rounded bg-onedark-accent/20 text-onedark-accent border border-onedark-accent/30 animate-pulse">
+                                      running...
+                                    </span>
+                                  ) : (
+                                    <>
+                                      <span className="font-mono">
+                                        {log.duration_ms < 1000 ? `${log.duration_ms}ms` : `${(log.duration_ms / 1000).toFixed(1)}s`}
+                                      </span>
+                                      <span
+                                        className={`px-1.5 py-0.2 rounded text-[9.5px] border ${
+                                          log.exit_code === 0
+                                            ? 'bg-onedark-green/10 text-onedark-green border-onedark-green/20'
+                                            : 'bg-onedark-red/10 text-onedark-red border-onedark-red/20'
+                                        }`}
+                                      >
+                                        exit {log.exit_code}
+                                      </span>
+                                    </>
+                                  )}
+                                  <span className="text-onedark-muted group-hover/action:text-onedark-fg transition-colors">
+                                    {isExpanded ? (
+                                      <ChevronDown className="w-3.5 h-3.5" />
+                                    ) : (
+                                      <ChevronRight className="w-3.5 h-3.5" />
+                                    )}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Expanded Individual Log */}
+                              {isExpanded && !isActOpen && (
+                                <div className="pl-2 pt-0.5 pb-1">
+                                  <FormattedLogView log={log} initiallyExpanded={true} isExpanded={true} />
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Full Trace Accordion Body when Show All is active */}
                       {isActOpen && (
                         <div className="p-3 border-t border-onedark-borderSubtle space-y-2 bg-onedark-darker/90">
-                          {onSelectAuxTab && (
-                            <div className="flex items-center justify-between pb-1 text-[11px] font-mono text-onedark-muted border-b border-onedark-borderSubtle/60">
-                              <span>Execution Trace ({turn.logs.length} event{turn.logs.length > 1 ? 's' : ''})</span>
-                              <button
-                                type="button"
-                                onClick={() => onSelectAuxTab('activity')}
-                                className="text-onedark-accent hover:underline flex items-center space-x-1 cursor-pointer"
-                              >
-                                <span>Open full streaming logs</span>
-                                <ExternalLink className="w-3 h-3" />
-                              </button>
-                            </div>
-                          )}
                           {turn.logs.map((log, idx) => (
                             <FormattedLogView
                               key={log.id || idx}
                               log={log}
-                              initiallyExpanded={false}
+                              initiallyExpanded={true}
+                              isExpanded={true}
                             />
                           ))}
                         </div>
@@ -1481,20 +1674,59 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                 })()}
 
                 {/* 4. Live Status Indicator (Shown when turn is active) */}
-                {isTurnRunning && (
-                  <div className="flex items-center space-x-2 py-2 px-0.5 text-xs font-mono text-onedark-accent/90 select-none animate-fadeIn">
-                    <span className="w-2 h-2 rounded-full bg-onedark-accent animate-ping" />
-                    <span className="font-medium">
-                      {turn.agentMessages.some((m) => m.isStreaming)
-                        ? 'Generating response...'
-                        : turn.logs.length > 0
-                        ? 'Executing actions...'
-                        : turn.thoughts.some((t) => t.isStreaming)
-                        ? 'Analyzing request...'
-                        : 'Processing request...'}
-                    </span>
-                  </div>
-                )}
+                {isTurnRunning && (() => {
+                  let liveActionText = 'Executing actions...';
+                  let ActionIcon: React.ElementType = RefreshCw;
+                  let iconColor = 'text-onedark-accent';
+                  let isSpinning = true;
+
+                  if (turn.agentMessages.some((m) => m.isStreaming)) {
+                    liveActionText = 'Generating response...';
+                    ActionIcon = Sparkles;
+                    iconColor = 'text-onedark-accent';
+                    isSpinning = false;
+                  } else if (task?.active_tool) {
+                    const info = getToolActionInfo(task.active_tool.tool_name, task.active_tool.tool_input, true);
+                    liveActionText = `${info.verb} ${info.target}...`;
+                    ActionIcon = info.icon;
+                    iconColor = info.colorClass;
+                    isSpinning = true;
+                  } else if (turn.logs.some((l) => l.isRunning)) {
+                    const runningLog = turn.logs.find((l) => l.isRunning)!;
+                    const info = getToolActionInfo(runningLog.tool_name, runningLog.tool_input, true);
+                    liveActionText = `${info.verb} ${info.target}...`;
+                    ActionIcon = info.icon;
+                    iconColor = info.colorClass;
+                    isSpinning = true;
+                  } else if (turn.logs.length > 0) {
+                    const lastLog = turn.logs[turn.logs.length - 1];
+                    const info = getToolActionInfo(lastLog.tool_name, lastLog.tool_input, false);
+                    liveActionText = `${info.verb} ${info.target}`;
+                    ActionIcon = info.icon;
+                    iconColor = info.colorClass;
+                    isSpinning = false;
+                  } else if (turn.thoughts.some((t) => t.isStreaming)) {
+                    liveActionText = 'Analyzing request & planning actions...';
+                    ActionIcon = Brain;
+                    iconColor = 'text-onedark-purple';
+                    isSpinning = false;
+                  } else {
+                    liveActionText = 'Processing request...';
+                    ActionIcon = RefreshCw;
+                    iconColor = 'text-onedark-accent';
+                    isSpinning = true;
+                  }
+
+                  return (
+                    <div className="flex items-center space-x-2 py-2 px-1 text-xs font-mono select-none animate-fadeIn">
+                      <span className="w-2 h-2 rounded-full bg-onedark-accent animate-ping" />
+                      <div className="flex items-center space-x-2 bg-onedark-surface/60 border border-onedark-borderSubtle px-2.5 py-1 rounded-lg">
+                        <ActionIcon className={`w-3.5 h-3.5 ${isSpinning ? 'animate-spin' : 'animate-pulse'} ${iconColor}`} />
+                        <span className="font-medium text-onedark-fgBright">{liveActionText}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* 5. Agent Messages (with Token Output Metric) */}
                 {turn.agentMessages.map((m) => {
