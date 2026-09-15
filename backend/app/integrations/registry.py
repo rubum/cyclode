@@ -1,3 +1,4 @@
+import os
 from typing import Dict, Any, List
 from app.config import settings
 from app.integrations.github_client import github_client
@@ -12,6 +13,15 @@ class IntegrationRegistry:
         Returns real-time status and capabilities for all supported integrations.
         """
         return [
+            {
+                "id": "gemini",
+                "name": "Google Gemini & AI Studio",
+                "description": "Powers autonomous agent reasoning, multi-turn pair programming, and asynchronous title synthesis.",
+                "configured": bool(settings.get_api_key() or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")),
+                "auth_type": "API Key",
+                "skills": ["gemini.generate_content", "gemini.synthesize_titles"],
+                "icon": "sparkles"
+            },
             {
                 "id": "github",
                 "name": "GitHub App & Webhooks",
