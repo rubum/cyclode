@@ -129,6 +129,15 @@ class IntegrationRegistry:
                 "tools": ["test.run_suite", "test.inspect_failures"],
                 "status": "ACTIVE",
                 "category": "Verification"
+            },
+            {
+                "id": "web-research",
+                "name": "Live Web Research & Intelligence",
+                "path": ".agents/skills/web-research/SKILL.md",
+                "description": "Performs real-time web searches, scrapes technical documentation, and synthesizes analytical intelligence briefings.",
+                "tools": ["web.search", "web.fetch_page", "web.synthesize"],
+                "status": "ACTIVE",
+                "category": "Intelligence"
             }
         ]
 
