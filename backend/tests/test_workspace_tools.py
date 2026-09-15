@@ -128,7 +128,8 @@ def test_tgrep_ast_class(temp_workspace):
 
 
 @pytest.mark.asyncio
-async def test_github_pr_tools():
+async def test_github_pr_tools(monkeypatch):
+    monkeypatch.setenv("GITHUB_MOCK_TEST_MODE", "1")
     # 1. Test get_pull_request_details
     details = await WorkspaceTools.get_pull_request_details("confident-ai/deepeval", 101)
     assert details["repository"] == "confident-ai/deepeval"

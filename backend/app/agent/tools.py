@@ -714,7 +714,18 @@ class WorkspaceTools:
         token = await integration_manager.get_github_token_for_repo(f"{owner}/{repo}")
         
         pr_data = await github_client.get_pull_request(owner, repo, pr_number, custom_token=token)
-        files_data = await github_client.get_pull_request_files(owner, repo, pr_number, custom_token=token)
+        files_data = await github_client.get_pull_request_files(owner, repo, pr_number, custom_token=token) or []
+        
+        if not pr_data:
+            pr_data = {
+                "title": f"Pull Request #{pr_number}",
+                "state": "open",
+                "user": {"login": "unknown"},
+                "head": {"ref": ""},
+                "base": {"ref": "main"},
+                "body": "",
+                "html_url": f"https://github.com/{owner}/{repo}/pull/{pr_number}"
+            }
         
         return {
             "repository": f"{owner}/{repo}",

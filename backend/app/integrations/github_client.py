@@ -14,13 +14,14 @@ class GitHubClient:
     def is_configured(self) -> bool:
         return bool(self.token or self.app_id)
 
-    def _get_headers(self) -> Dict[str, str]:
+    def _get_headers(self, custom_token: Optional[str] = None, accept: str = "application/vnd.github.v3+json") -> Dict[str, str]:
+        token = custom_token or self.token
         headers = {
-            "Accept": "application/vnd.github.v3+json",
+            "Accept": accept,
             "User-Agent": "Cyclode-Agentic-Harness"
         }
-        if self.token:
-            headers["Authorization"] = f"token {self.token}"
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         return headers
 
     async def create_pull_request(
@@ -30,34 +31,42 @@ class GitHubClient:
         title: str,
         body: str,
         head_branch: str,
-        base_branch: str = "main"
+        base_branch: str = "main",
+        custom_token: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Opens a Pull Request on GitHub.
         """
-        if not self.is_configured():
-            # In local/unconfigured mode, return simulated PR response
+        import os
+        token = custom_token or self.token
+        if not token:
+            if os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
+                return {
+                    "id": 101,
+                    "number": 42,
+                    "html_url": f"https://github.com/{owner}/{repo}/pull/42",
+                    "title": title,
+                    "state": "open",
+                    "simulated": True
+                }
             return {
-                "id": 101,
-                "number": 42,
-                "html_url": f"https://github.com/{owner}/{repo}/pull/42",
-                "title": title,
-                "state": "open",
-                "simulated": True
+                "error": "GitHub Personal Access Token is required to create pull requests. Configure a token in Settings or session Vault.",
+                "status_code": 401,
+                "auth_required": True,
+                "simulated": False
             }
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=15.0) as client:
             url = f"{self.api_base}/repos/{owner}/{repo}/pulls"
             resp = await client.post(
                 url,
-                headers=self._get_headers(),
+                headers=self._get_headers(token),
                 json={
                     "title": title,
                     "body": body,
                     "head": head_branch,
                     "base": base_branch
-                },
-                timeout=15.0
+                }
             )
             if resp.status_code in (200, 201):
                 return resp.json()
@@ -76,10 +85,10 @@ class GitHubClient:
     ) -> List[Dict[str, Any]]:
         """
         Lists pull requests from GitHub for a repository.
-        Falls back to realistic simulated PR data if unconfigured or offline.
+        Queries live GitHub REST API for public and vaulted private repositories.
         """
-        token = custom_token or self.token
-        if not token:
+        import os
+        if os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
             return [
                 {
                     "number": 101,
@@ -117,11 +126,9 @@ class GitHubClient:
                 }
             ]
 
-        headers = {
-            "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "Adappty-Agentic-Harness",
-            "Authorization": f"token {token}"
-        }
+        token = custom_token or self.token
+        headers = self._get_headers(token)
+
         async with httpx.AsyncClient(timeout=15.0) as client:
             url = f"{self.api_base}/repos/{owner}/{repo}/pulls?state={state}&per_page=100"
             try:
@@ -149,9 +156,9 @@ class GitHubClient:
                             "simulated": False
                         })
                     return results
-                return []
             except Exception:
-                return []
+                pass
+        return []
 
     async def get_pull_request(
         self,
@@ -161,30 +168,28 @@ class GitHubClient:
         custom_token: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
         """
-        Fetches detailed metadata for a single pull request.
+        Fetches detailed metadata for a single pull request via live GitHub API.
         """
-        token = custom_token or self.token
-        if not token:
-            prs = await self.list_pull_requests(owner, repo, custom_token=token)
+        import os
+        if os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
+            prs = await self.list_pull_requests(owner, repo, custom_token=custom_token)
             for pr in prs:
-                if pr["number"] == pr_number:
+                if pr.get("number") == pr_number:
                     return pr
             return None
 
-        headers = {
-            "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "Adappty-Agentic-Harness",
-            "Authorization": f"token {token}"
-        }
+        token = custom_token or self.token
+        headers = self._get_headers(token)
+
         async with httpx.AsyncClient(timeout=15.0) as client:
             url = f"{self.api_base}/repos/{owner}/{repo}/pulls/{pr_number}"
             try:
                 resp = await client.get(url, headers=headers)
                 if resp.status_code == 200:
                     return resp.json()
-                return None
             except Exception:
-                return None
+                pass
+        return None
 
     async def get_pull_request_diff(
         self,
@@ -194,10 +199,10 @@ class GitHubClient:
         custom_token: Optional[str] = None
     ) -> str:
         """
-        Fetches the unified git diff for a pull request.
+        Fetches the unified git diff for a pull request via live GitHub API.
         """
-        token = custom_token or self.token
-        if not token:
+        import os
+        if os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
             if pr_number == 101:
                 return (
                     "diff --git a/app/auth_service.py b/app/auth_service.py\n"
@@ -232,20 +237,18 @@ class GitHubClient:
                 "+        return None\n"
             )
 
-        headers = {
-            "Accept": "application/vnd.github.v3.diff",
-            "User-Agent": "Adappty-Agentic-Harness",
-            "Authorization": f"token {token}"
-        }
+        token = custom_token or self.token
+        headers = self._get_headers(token, accept="application/vnd.github.v3.diff")
+
         async with httpx.AsyncClient(timeout=15.0) as client:
             url = f"{self.api_base}/repos/{owner}/{repo}/pulls/{pr_number}"
             try:
                 resp = await client.get(url, headers=headers)
                 if resp.status_code == 200:
                     return resp.text
-                return ""
             except Exception:
-                return ""
+                pass
+        return ""
 
     async def get_pull_request_files(
         self,
@@ -255,10 +258,10 @@ class GitHubClient:
         custom_token: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
-        Fetches modified files for a specific pull request.
+        Fetches modified files for a specific pull request via live GitHub API.
         """
-        token = custom_token or self.token
-        if not token:
+        import os
+        if os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
             return [
                 {
                     "filename": "app/auth_service.py" if pr_number == 101 else "app/cache.py",
@@ -269,20 +272,18 @@ class GitHubClient:
                 }
             ]
 
-        headers = {
-            "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "Adappty-Agentic-Harness",
-            "Authorization": f"token {token}"
-        }
+        token = custom_token or self.token
+        headers = self._get_headers(token)
+
         async with httpx.AsyncClient(timeout=15.0) as client:
-            url = f"{self.api_base}/repos/{owner}/{repo}/pulls/{pr_number}/files"
+            url = f"{self.api_base}/repos/{owner}/{repo}/pulls/{pr_number}/files?per_page=100"
             try:
                 resp = await client.get(url, headers=headers)
                 if resp.status_code == 200:
                     return resp.json()
-                return []
             except Exception:
-                return []
+                pass
+        return []
 
     async def post_pull_request_review(
         self,
@@ -296,23 +297,27 @@ class GitHubClient:
         """
         Submits a formal PR review on GitHub (COMMENT, APPROVE, REQUEST_CHANGES).
         """
+        import os
         token = custom_token or self.token
         if not token:
+            if os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
+                return {
+                    "ok": True,
+                    "id": 303,
+                    "pr_number": pr_number,
+                    "body": body,
+                    "event": event,
+                    "html_url": f"https://github.com/{owner}/{repo}/pull/{pr_number}#pullrequestreview-303",
+                    "simulated": True
+                }
             return {
-                "ok": True,
-                "id": 303,
-                "pr_number": pr_number,
-                "body": body,
-                "event": event,
-                "html_url": f"https://github.com/{owner}/{repo}/pull/{pr_number}#pullrequestreview-303",
-                "simulated": True
+                "ok": False,
+                "error": "GitHub Personal Access Token is required to submit pull request reviews.",
+                "auth_required": True,
+                "simulated": False
             }
 
-        headers = {
-            "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "Adappty-Agentic-Harness",
-            "Authorization": f"token {token}"
-        }
+        headers = self._get_headers(token)
         async with httpx.AsyncClient(timeout=15.0) as client:
             url = f"{self.api_base}/repos/{owner}/{repo}/pulls/{pr_number}/reviews"
             try:

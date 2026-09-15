@@ -516,6 +516,7 @@ class AntigravityHarness:
             f"{persona_instructions}\n\n"
             f"Core Operational Directives:\n"
             f"1. DIRECT TOOL INVOCATION & REASONING:\n"
+            f"   - When listing pull requests: call `list_pull_requests`. ALWAYS present all discovered PRs in your response with an itemized Markdown table or list including direct clickable links ([#<number>: <title>](https://github.com/<owner>/<repo>/pull/<number>)), author (@<author>), status (OPEN/MERGED), branch flow (<head> ➔ <base>), and diff stats (+add / -del).\n"
             f"   - When reviewing PRs or summarizing changes: call `get_pull_request_diff` and `get_pull_request_details` to analyze the exact code hunks.\n"
             f"   - When answering user questions about the workspace: use `read_file`, `search_code`, `find_symbols`, and `run_command`.\n"
             f"   - When asked to search the web: call `search_web` or `fetch_url`.\n"
