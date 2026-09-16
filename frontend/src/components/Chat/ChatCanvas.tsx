@@ -1612,7 +1612,7 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
               ? userToggledActivities[turn.id] 
               : (isTurnRunning && turn.isLatest);
             const hasThoughts = turn.thoughts.length > 0;
-            const hasLogs = turn.logs.length > 0;
+            const hasLogs = turn.logs.length > 0 || (isTurnRunning && turn.isLatest && !!task?.active_tool);
 
             return (
               <div key={turn.id || tIdx} className="space-y-4">
@@ -1778,7 +1778,7 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                   const webCount = turn.logs.filter((l) => ['search_web', 'fetch_url'].includes(l.tool_name)).length;
                   const prCount = turn.logs.filter((l) => l.tool_name.includes('pull_request') || l.tool_name.includes('connect_repository')).length;
                   const failedCount = turn.logs.filter((l) => l.exit_code !== 0 && !l.isRunning).length;
-                  const hasRunning = turn.logs.some((l) => l.isRunning);
+                  const hasRunning = turn.logs.some((l) => l.isRunning) || (isTurnRunning && turn.isLatest && !!task?.active_tool);
 
                   return (
                     <div className="rounded-xl border border-onedark-borderSubtle/60 hover:border-onedark-borderSubtle bg-onedark-darker/35 overflow-hidden transition-all space-y-0">
@@ -1844,7 +1844,7 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                             </div>
 
                             <span className="text-[10.5px] text-onedark-muted font-mono hidden sm:inline">
-                              • {turn.logs.length} total ({formattedDuration})
+                              • {turn.logs.length + (task?.active_tool && !turn.logs.some(l => l.isRunning) ? 1 : 0)} total ({formattedDuration})
                             </span>
                           </div>
                         </div>
@@ -1884,7 +1884,7 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                           )}
 
                           <span className="px-2 py-0.5 rounded-md bg-onedark-surface/40 text-onedark-muted text-[10.5px] font-mono border border-onedark-borderSubtle/60 flex items-center space-x-1 group-hover/hdr:text-onedark-fgBright transition-colors">
-                            <span>{isActOpen ? 'Hide' : `Show (${turn.logs.length})`}</span>
+                            <span>{isActOpen ? 'Hide' : `Show (${turn.logs.length + (task?.active_tool && !turn.logs.some(l => l.isRunning) ? 1 : 0)})`}</span>
                             {isActOpen ? (
                               <ChevronDown className="w-3 h-3 ml-0.5 text-onedark-muted group-hover/hdr:text-onedark-fgBright" />
                             ) : (
@@ -1973,63 +1973,57 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                               </div>
                             );
                           })}
+
+                          {/* Active executing tool if present in task but not yet in logs */}
+                          {isTurnRunning && turn.isLatest && task?.active_tool && !turn.logs.some((l) => l.isRunning) && (() => {
+                            const actionInfo = getToolActionInfo(task.active_tool.tool_name, task.active_tool.tool_input, true);
+                            const ActionIcon = actionInfo.icon;
+                            return (
+                              <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg border text-xs font-mono bg-onedark-accent/10 border-onedark-accent/40 text-onedark-fgBright shadow-xs select-none">
+                                <div className="flex items-center space-x-2 min-w-0 pr-2">
+                                  <div className={`p-1 rounded ${actionInfo.badgeBg} border ${actionInfo.badgeBorder} flex items-center justify-center flex-shrink-0`}>
+                                    <RefreshCw className="w-3 h-3 animate-spin text-onedark-accent" />
+                                  </div>
+                                  <div className="truncate flex items-center space-x-1.5 text-xs">
+                                    <span className={`font-semibold ${actionInfo.colorClass}`}>
+                                      {actionInfo.verb}
+                                    </span>
+                                    <span className="text-onedark-fgBright font-mono truncate">
+                                      {actionInfo.target}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="flex items-center space-x-2 flex-shrink-0 text-[10.5px]">
+                                  <span className="px-1.5 py-0.2 rounded bg-onedark-accent/20 text-onedark-accent border border-onedark-accent/30 animate-pulse">
+                                    running...
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
                       )}
                     </div>
                   );
                 })()}
 
-                {/* 4. Live Status Indicator (Shown when turn is active) */}
+                {/* 4. Live Status Indicator (Shown only when waiting between model/tool steps) */}
                 {isTurnRunning && (() => {
-                  let liveActionText = 'Executing actions...';
-                  let ActionIcon: React.ElementType = RefreshCw;
-                  let iconColor = 'text-onedark-accent';
-                  let isSpinning = true;
-
+                  // If messages or thoughts are streaming, or if an active tool is visible in-place in logs, suppress detached status pill
                   if (turn.agentMessages.some((m) => m.isStreaming)) {
-                    liveActionText = 'Generating response...';
-                    ActionIcon = Sparkles;
-                    iconColor = 'text-onedark-accent';
-                    isSpinning = false;
-                  } else if (task?.active_tool) {
-                    const info = getToolActionInfo(task.active_tool.tool_name, task.active_tool.tool_input, true);
-                    liveActionText = `${info.verb} ${info.target}...`;
-                    ActionIcon = info.icon;
-                    iconColor = info.colorClass;
-                    isSpinning = true;
-                  } else if (turn.logs.some((l) => l.isRunning)) {
-                    const runningLog = turn.logs.find((l) => l.isRunning)!;
-                    const info = getToolActionInfo(runningLog.tool_name, runningLog.tool_input, true);
-                    liveActionText = `${info.verb} ${info.target}...`;
-                    ActionIcon = info.icon;
-                    iconColor = info.colorClass;
-                    isSpinning = true;
-                  } else if (turn.logs.length > 0) {
-                    const lastLog = turn.logs[turn.logs.length - 1];
-                    const info = getToolActionInfo(lastLog.tool_name, lastLog.tool_input, false);
-                    liveActionText = `${info.verb} ${info.target}`;
-                    ActionIcon = info.icon;
-                    iconColor = info.colorClass;
-                    isSpinning = false;
-                  } else if (turn.thoughts.some((t) => t.isStreaming)) {
-                    liveActionText = 'Analyzing request & planning actions...';
-                    ActionIcon = Brain;
-                    iconColor = 'text-onedark-purple';
-                    isSpinning = false;
-                  } else {
-                    liveActionText = 'Processing request...';
-                    ActionIcon = RefreshCw;
-                    iconColor = 'text-onedark-accent';
-                    isSpinning = true;
+                    return null;
+                  }
+                  if (task?.active_tool || turn.logs.some((l) => l.isRunning)) {
+                    return null;
+                  }
+                  if (turn.thoughts.some((t) => t.isStreaming)) {
+                    return null;
                   }
 
                   return (
-                    <div className="flex items-center space-x-2 py-2 px-1 text-xs font-mono select-none animate-fadeIn">
-                      <span className="w-2 h-2 rounded-full bg-onedark-accent animate-ping" />
-                      <div className="flex items-center space-x-2 bg-onedark-surface/60 border border-onedark-borderSubtle px-2.5 py-1 rounded-lg">
-                        <ActionIcon className={`w-3.5 h-3.5 ${isSpinning ? 'animate-spin' : 'animate-pulse'} ${iconColor}`} />
-                        <span className="font-medium text-onedark-fgBright">{liveActionText}</span>
-                      </div>
+                    <div className="flex items-center space-x-2 py-1.5 px-1 text-xs font-mono select-none animate-fadeIn text-onedark-muted">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-onedark-accent" />
+                      <span className="font-medium text-onedark-fg">Generating response...</span>
                     </div>
                   );
                 })()}
