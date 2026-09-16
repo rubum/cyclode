@@ -89,6 +89,8 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const pollTimerRef = useRef<any>(null);
   const prevTaskIdRef = useRef<string | null>(null);
+  const prevTaskStatusRef = useRef<string | null>(null);
+  const prevBuildTimestampRef = useRef<number | null>(null);
 
   // Fetch preview inspection from backend
   const inspectPreview = useCallback(async (silent = false) => {
@@ -108,6 +110,18 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
       }
       const data: WorkspacePreviewInfo = await res.json();
       setPreviewInfo(data);
+
+      // If build timestamp changed (fresh bundle generated), trigger reactive iframe reload
+      if (
+        data.build_timestamp &&
+        prevBuildTimestampRef.current &&
+        data.build_timestamp > prevBuildTimestampRef.current
+      ) {
+        setIframeKey((prev) => prev + 1);
+      }
+      if (data.build_timestamp) {
+        prevBuildTimestampRef.current = data.build_timestamp;
+      }
 
       if (data.has_preview && data.entry_point) {
         setCurrentPath((prev) => {
@@ -143,12 +157,22 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
     const isNewTask = prevTaskIdRef.current !== task?.id;
     prevTaskIdRef.current = task?.id || null;
 
+    const prevStatus = prevTaskStatusRef.current;
+    prevTaskStatusRef.current = task?.status || null;
+
     if (isNewTask) {
       setConsoleLogs([]);
       setErrorBannerDismissed(false);
+      prevBuildTimestampRef.current = null;
       inspectPreview(false);
     } else {
-      inspectPreview(true);
+      // If task transitioned from RUNNING -> COMPLETED, auto-reload preview to reflect new build
+      if (prevStatus === 'RUNNING' && task?.status === 'COMPLETED') {
+        inspectPreview(true);
+        setIframeKey((prev) => prev + 1);
+      } else {
+        inspectPreview(true);
+      }
     }
 
     // Auto-poll when task is running or initializing
@@ -199,7 +223,9 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
   };
 
   const previewUrl = task?.id
-    ? `${API_BASE}/api/tasks/${task.id}/preview/${currentPath}`
+    ? `${API_BASE}/api/tasks/${task.id}/preview/${currentPath}${
+        previewInfo?.build_timestamp ? `?v=${previewInfo.build_timestamp}` : ''
+      }`
     : '';
 
   const handleCopyUrl = () => {
@@ -541,6 +567,45 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
                     <span>Build App</span>
                   </button>
                 )}
+                <button
+                  onClick={() => setErrorBannerDismissed(true)}
+                  className="p-1 text-onedark-muted hover:text-onedark-fg rounded transition-colors"
+                  title="Dismiss alert"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Floating Stale Build Notification Banner */}
+        {previewInfo?.is_stale && previewInfo?.build_status === 'stale' && errorCount === 0 && !errorBannerDismissed && (
+          <div className="absolute top-4 left-4 right-4 z-30 max-w-xl mx-auto animate-fadeIn">
+            <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl bg-onedark-darker/95 border border-onedark-accent/40 shadow-2xl backdrop-blur-md text-xs">
+              <div className="flex items-start space-x-2.5 min-w-0 flex-1">
+                <RotateCw className="w-4 h-4 text-onedark-accent flex-shrink-0 mt-0.5 animate-spin" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center space-x-1.5">
+                    <span className="font-semibold text-onedark-accent">
+                      New Source Changes Detected
+                    </span>
+                  </div>
+                  <div className="text-[11px] text-onedark-fg truncate mt-0.5 opacity-90">
+                    Source files were modified after the last build. Compiling new bundle for live preview...
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-1.5 flex-shrink-0">
+                <button
+                  onClick={handleReload}
+                  className="px-2.5 py-1 rounded-lg bg-onedark-accent/20 hover:bg-onedark-accent/30 text-onedark-accent border border-onedark-accent/40 text-[11px] font-medium transition-all flex items-center space-x-1 cursor-pointer shadow-xs active:scale-95"
+                  title="Reload preview"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Reload</span>
+                </button>
                 <button
                   onClick={() => setErrorBannerDismissed(true)}
                   className="p-1 text-onedark-muted hover:text-onedark-fg rounded transition-colors"

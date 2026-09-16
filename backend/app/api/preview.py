@@ -216,6 +216,42 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
     has_package_json = (ws_path / "package.json").exists() or (ws_path / "client" / "package.json").exists()
     has_vite = (ws_path / "vite.config.js").exists() or (ws_path / "client" / "vite.config.js").exists() or (ws_path / "vite.config.ts").exists() or (ws_path / "client" / "vite.config.ts").exists()
     has_dist = (ws_path / "dist" / "index.html").exists() or (ws_path / "client" / "dist" / "index.html").exists() or (ws_path / "build" / "index.html").exists()
+
+    # Find dist entry path and mtime if dist exists
+    dist_entry_path: Optional[Path] = None
+    dist_mtime: Optional[float] = None
+    for cand in ["dist/index.html", "client/dist/index.html", "build/index.html", "client/build/index.html"]:
+        p = ws_path / cand
+        if p.exists() and p.is_file():
+            dist_entry_path = p
+            dist_mtime = p.stat().st_mtime
+            break
+
+    # Scan for latest modification timestamp across source files
+    max_src_mtime = 0.0
+    ignored_subdirs = {".git", "node_modules", "dist", "build", ".next", "venv", "__pycache__", ".pytest_cache"}
+    for root, dirs, files in os.walk(ws_path):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ignored_subdirs]
+        for f in files:
+            if f.startswith("."):
+                continue
+            ext = Path(f).suffix.lower()
+            if ext in {".jsx", ".tsx", ".js", ".ts", ".mjs", ".css", ".html", ".htm", ".json", ".vue", ".svelte"}:
+                fp = Path(root) / f
+                try:
+                    if f in ("package-lock.json", "yarn.lock", "pnpm-lock.yaml"):
+                        continue
+                    m = fp.stat().st_mtime
+                    if m > max_src_mtime:
+                        max_src_mtime = m
+                except Exception:
+                    pass
+
+    is_stale = False
+    if dist_mtime and max_src_mtime > 0 and (max_src_mtime > dist_mtime + 1.0):
+        is_stale = True
+
+    build_timestamp = int(dist_mtime * 1000) if dist_mtime else (int(max_src_mtime * 1000) if max_src_mtime > 0 else None)
     
     has_jsx_tsx = False
     for root, dirs, files in os.walk(ws_path):
@@ -252,6 +288,8 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
                 "assets_count": assets_count,
                 "framework": framework,
                 "build_status": "needs_build",
+                "is_stale": True,
+                "build_timestamp": build_timestamp,
                 "issues": ["Frontend source code found (React/Vite) but no built index.html or dist bundle exists."],
                 "recommendation": "Execute 'npm run build' (or 'cd client && npm run build') to compile production dist/index.html bundle."
             }
@@ -263,6 +301,8 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
             "assets_count": assets_count,
             "framework": framework,
             "build_status": "none",
+            "is_stale": False,
+            "build_timestamp": build_timestamp,
             "issues": ["No index.html file found in workspace."],
             "recommendation": "Create a root index.html or compile frontend client."
         }
@@ -291,6 +331,8 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
             "title": extracted_title or "App Preview",
             "framework": framework,
             "build_status": build_status,
+            "is_stale": True,
+            "build_timestamp": build_timestamp,
             "issues": issues,
             "recommendation": recommendation
         }
@@ -343,6 +385,27 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
             "title": extracted_title or "App Preview",
             "framework": framework,
             "build_status": "uncompiled_css",
+            "is_stale": is_stale,
+            "build_timestamp": build_timestamp,
+            "issues": issues,
+            "recommendation": recommendation
+        }
+
+    # Stale build check: If source files were edited after dist was built
+    if is_stale:
+        issues.append("Source files were modified after the last production build (stale dist bundle).")
+        recommendation = "Execute 'npm run build' (or 'cd client && npm run build') to compile the latest source changes into the live preview bundle."
+        return {
+            "status": "needs_rebuild",
+            "has_preview": True,
+            "entry_point": primary_entry,
+            "available_entry_points": available_entry_points,
+            "assets_count": assets_count,
+            "title": extracted_title or "App Preview",
+            "framework": framework,
+            "build_status": "stale",
+            "is_stale": True,
+            "build_timestamp": build_timestamp,
             "issues": issues,
             "recommendation": recommendation
         }
@@ -359,6 +422,8 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
         "title": extracted_title or "App Preview",
         "framework": framework,
         "build_status": build_status,
+        "is_stale": False,
+        "build_timestamp": build_timestamp,
         "issues": issues,
         "recommendation": recommendation
     }
@@ -558,6 +623,8 @@ async def inspect_preview(task_id: str, db: AsyncSession = Depends(get_db)):
         "title": verification.get("title") or task.title or "App Preview",
         "framework": verification.get("framework"),
         "build_status": verification.get("build_status", "static"),
+        "is_stale": verification.get("is_stale", False),
+        "build_timestamp": verification.get("build_timestamp"),
         "assets_count": verification.get("assets_count", len(available_entries)),
         "available_entry_points": available_entries,
         "preview_url": f"/api/tasks/{task_id}/preview/{entry}" if entry else None,

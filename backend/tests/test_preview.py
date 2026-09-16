@@ -444,3 +444,89 @@ async def test_verify_workspace_preview_detects_uncompiled_css(temp_workspace: P
     assert res["build_status"] == "uncompiled_css"
     assert any("uncompiled" in issue.lower() for issue in res["issues"])
 
+
+@pytest.mark.asyncio
+async def test_verify_workspace_preview_detects_stale_build(temp_workspace: Path):
+    import time
+    from app.api.preview import verify_workspace_preview
+
+    dist_dir = temp_workspace / "dist"
+    dist_dir.mkdir(parents=True, exist_ok=True)
+    dist_file = dist_dir / "index.html"
+    dist_file.write_text("<!DOCTYPE html><html><body><h1>Old Build</h1></body></html>", encoding="utf-8")
+
+    src_dir = temp_workspace / "src"
+    src_dir.mkdir(parents=True, exist_ok=True)
+    src_file = src_dir / "App.tsx"
+    src_file.write_text("export const App = () => <div>Updated Theme</div>;", encoding="utf-8")
+
+    # Set dist_file mtime to 100 seconds ago, and src_file mtime to now
+    now = time.time()
+    os.utime(dist_file, (now - 100, now - 100))
+    os.utime(src_file, (now, now))
+
+    res = verify_workspace_preview(temp_workspace, "test-stale-task")
+    assert res["is_stale"] is True
+    assert res["status"] == "needs_rebuild"
+    assert res["build_status"] == "stale"
+    assert res["build_timestamp"] is not None
+
+
+@pytest.mark.asyncio
+async def test_verify_workspace_preview_fresh_build(temp_workspace: Path):
+    import time
+    from app.api.preview import verify_workspace_preview
+
+    src_dir = temp_workspace / "src"
+    src_dir.mkdir(parents=True, exist_ok=True)
+    src_file = src_dir / "App.tsx"
+    src_file.write_text("export const App = () => <div>App</div>;", encoding="utf-8")
+
+    dist_dir = temp_workspace / "dist"
+    dist_dir.mkdir(parents=True, exist_ok=True)
+    dist_file = dist_dir / "index.html"
+    dist_file.write_text("<!DOCTYPE html><html><body><h1>Fresh Build</h1></body></html>", encoding="utf-8")
+
+    # Set src_file mtime to 100 seconds ago, and dist_file mtime to now
+    now = time.time()
+    os.utime(src_file, (now - 100, now - 100))
+    os.utime(dist_file, (now, now))
+
+    res = verify_workspace_preview(temp_workspace, "test-fresh-task")
+    assert res["is_stale"] is False
+    assert res["status"] == "ready"
+    assert res["build_status"] == "compiled"
+    assert res["build_timestamp"] is not None
+
+
+@pytest.mark.asyncio
+async def test_inspect_preview_exposes_stale_and_build_timestamp(temp_workspace: Path):
+    import time
+    dist_dir = temp_workspace / "dist"
+    dist_dir.mkdir(parents=True, exist_ok=True)
+    (dist_dir / "index.html").write_text("<!DOCTYPE html><html><body><h1>App</h1></body></html>", encoding="utf-8")
+
+    task_id = f"test-stale-api-{uuid.uuid4()}"
+    async with async_session_factory() as session:
+        task = TaskModel(
+            id=task_id,
+            title="Inspect Metadata Test",
+            description="Testing is_stale and build_timestamp",
+            persona="AppBuilder",
+            model_name="gemini-3.7-flash",
+            status="RUNNING",
+            workspace_path=str(temp_workspace),
+        )
+        session.add(task)
+        await session.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        resp = await ac.get(f"/api/tasks/{task_id}/preview/inspect")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "is_stale" in data
+        assert "build_timestamp" in data
+        assert data["is_stale"] is False
+        assert data["build_timestamp"] is not None
+
+

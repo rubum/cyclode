@@ -1030,9 +1030,13 @@ class AntigravityHarness:
                         or (workspace_path / "client" / "index.html").exists()
                     )
 
-                    # If uncompiled frontend or needs build, autonomously execute production build fallback
-                    if is_app_task and has_workspace_source and (post_verification.get("status") in ["needs_build", "uncompiled_css", "missing_entry_point"]):
-                        logger.info(f"Triggering post-loop autonomous build fallback on task {task_id} (current status: {post_verification.get('status')})...")
+                    # If uncompiled frontend, needs build, or stale bundle after new changes, autonomously execute production build fallback
+                    needs_build_or_recompile = (
+                        post_verification.get("status") in ["needs_build", "needs_rebuild", "stale_build", "uncompiled_css", "missing_entry_point"]
+                        or post_verification.get("is_stale", False)
+                    )
+                    if is_app_task and has_workspace_source and needs_build_or_recompile:
+                        logger.info(f"Triggering post-loop autonomous build fallback on task {task_id} (current status: {post_verification.get('status')}, stale: {post_verification.get('is_stale')})...")
                         client_pkg = workspace_path / "client" / "package.json"
                         root_pkg = workspace_path / "package.json"
                         if client_pkg.exists():
