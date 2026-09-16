@@ -152,3 +152,11 @@ Consult the companion reference files for ready-to-use tokens, code guardrails, 
 * [Iconography & Motion Physics Reference](file:///Users/macken/Documents/antigravity/epic-rutherford/.agents/skills/ui-ux-design/references/iconography-motion.md)
 * [Color Palettes Reference](file:///Users/macken/Documents/antigravity/epic-rutherford/.agents/skills/ui-ux-design/references/color-palettes.md)
 * [Component Recipes Reference](file:///Users/macken/Documents/antigravity/epic-rutherford/.agents/skills/ui-ux-design/references/component-recipes.md)
+
+---
+
+## 9. Reference Architectures & Examples
+
+Study the complete, standalone reference application for master-detail audio and synchronized transcription:
+* [VoxScribe Audio Studio Reference App](file:///Users/macken/Documents/antigravity/epic-rutherford/.agents/skills/ui-ux-design/examples/audio-studio/index.html) — Demonstrates canvas audio waveforms, synchronized word-seeking diarization, collapsible 48px recording dock, and single-accent Obsidian Dark craft.
+

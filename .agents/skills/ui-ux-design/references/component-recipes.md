@@ -207,3 +207,134 @@ Production-ready, highly polished component patterns for HTML, Tailwind CSS, and
   <div class="text-[11px] text-zinc-500 leading-none">Compared to 1,605,200 last cycle</div>
 </div>
 ```
+
+---
+
+## 7. Interactive Audio Waveform Scrubber with Bookmarks
+
+```html
+<div class="p-5 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-4 shadow-sm">
+  <!-- Header / Now Playing -->
+  <div class="flex items-center justify-between">
+    <div class="flex items-center space-x-3">
+      <button 
+        type="button" 
+        id="play-btn"
+        class="w-10 h-10 rounded-full bg-orange-600 hover:bg-orange-500 active:scale-95 text-white flex items-center justify-center transition-all shadow-md shadow-orange-600/20 cursor-pointer"
+        aria-label="Play audio"
+      >
+        <i data-lucide="play" class="w-4 h-4 fill-current ml-0.5" aria-hidden="true"></i>
+      </button>
+      <div>
+        <div class="text-sm font-semibold text-zinc-100 tracking-tight">Q3 Architecture Review</div>
+        <div class="text-xs text-zinc-400 font-mono tabular-nums">00:04 <span class="text-zinc-600">/</span> 00:19</div>
+      </div>
+    </div>
+
+    <!-- Speed Multiplier -->
+    <div class="flex items-center space-x-2">
+      <button class="px-2 py-1 rounded-md bg-zinc-800 hover:bg-zinc-700 text-xs font-mono text-zinc-300 transition-colors">1.0x</button>
+      <button class="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors" aria-label="More options">
+        <i data-lucide="more-horizontal" class="w-4 h-4 stroke-[1.5]"></i>
+      </button>
+    </div>
+  </div>
+
+  <!-- Interactive Waveform Canvas Container -->
+  <div class="relative w-full h-16 bg-zinc-950/60 rounded-xl border border-zinc-800/80 overflow-hidden cursor-pointer group">
+    <!-- Visual Waveform Canvas -->
+    <canvas id="waveform-canvas" class="w-full h-full block"></canvas>
+    
+    <!-- Hover Playhead Line -->
+    <div id="hover-line" class="absolute top-0 bottom-0 w-px bg-white/40 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity"></div>
+  </div>
+
+  <!-- Bookmark Chips Pinned to Audio Timecodes -->
+  <div class="flex items-center space-x-2 overflow-x-auto pb-1 text-xs">
+    <button class="px-2.5 py-1 rounded-lg bg-zinc-800/90 hover:bg-zinc-700/90 text-zinc-300 border border-zinc-700/50 flex items-center space-x-1.5 shrink-0 transition-colors cursor-pointer">
+      <span class="font-mono text-[10px] text-orange-400 tabular-nums">00:00</span>
+      <span>Problem Scope</span>
+    </button>
+    <button class="px-2.5 py-1 rounded-lg bg-zinc-800/90 hover:bg-zinc-700/90 text-zinc-300 border border-zinc-700/50 flex items-center space-x-1.5 shrink-0 transition-colors cursor-pointer">
+      <span class="font-mono text-[10px] text-orange-400 tabular-nums">00:06</span>
+      <span>Kubernetes Ingestion</span>
+    </button>
+    <button class="px-2.5 py-1 rounded-lg bg-zinc-800/90 hover:bg-zinc-700/90 text-zinc-300 border border-zinc-700/50 flex items-center space-x-1.5 shrink-0 transition-colors cursor-pointer">
+      <span class="font-mono text-[10px] text-orange-400 tabular-nums">00:12</span>
+      <span>Failover Staging</span>
+    </button>
+  </div>
+</div>
+```
+
+---
+
+## 8. Synchronized Diarization Transcript with Click-to-Seek
+
+```html
+<div class="p-5 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-4">
+  <div class="flex items-center justify-between border-b border-zinc-800/80 pb-3">
+    <div class="flex items-center space-x-2">
+      <i data-lucide="file-text" class="w-4 h-4 text-zinc-400 stroke-[1.5]"></i>
+      <span class="text-xs font-semibold uppercase tracking-wider text-zinc-300 font-mono">Synchronized Transcript</span>
+    </div>
+    <span class="text-xs font-mono text-zinc-500 tabular-nums">54 words · 175 WPM</span>
+  </div>
+
+  <!-- Diarized Paragraph Block -->
+  <div class="space-y-3 text-sm leading-relaxed">
+    <div class="space-y-1.5">
+      <div class="flex items-center space-x-2">
+        <span class="text-xs font-semibold text-orange-400">Sarah Chen</span>
+        <span class="text-[11px] font-mono text-zinc-500 tabular-nums">00:00</span>
+      </div>
+      <p class="text-zinc-300 cursor-pointer select-text">
+        <span class="hover:bg-zinc-800 hover:text-white px-0.5 rounded transition-colors text-white font-medium bg-orange-500/20" data-seek="0.0">We</span>
+        <span class="hover:bg-zinc-800 hover:text-white px-0.5 rounded transition-colors" data-seek="0.4">need</span>
+        <span class="hover:bg-zinc-800 hover:text-white px-0.5 rounded transition-colors" data-seek="0.8">to</span>
+        <span class="hover:bg-zinc-800 hover:text-white px-0.5 rounded transition-colors" data-seek="1.1">migrate</span>
+        <span class="hover:bg-zinc-800 hover:text-white px-0.5 rounded transition-colors" data-seek="1.6">our</span>
+        <span class="hover:bg-zinc-800 hover:text-white px-0.5 rounded transition-colors" data-seek="2.0">background</span>
+        <span class="hover:bg-zinc-800 hover:text-white px-0.5 rounded transition-colors" data-seek="2.6">worker</span>
+        <span class="hover:bg-zinc-800 hover:text-white px-0.5 rounded transition-colors" data-seek="3.1">pool.</span>
+      </p>
+    </div>
+  </div>
+</div>
+```
+
+---
+
+## 9. Compact Floating Recording Dock with Live VU Meter
+
+```html
+<div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 px-4 py-2.5 rounded-full bg-zinc-900/95 backdrop-blur-md border border-zinc-700/80 shadow-2xl flex items-center space-x-4">
+  <!-- Record Trigger with Pulse Halo -->
+  <button 
+    type="button"
+    class="w-8 h-8 rounded-full bg-rose-600 hover:bg-rose-500 active:scale-95 text-white flex items-center justify-center transition-all shadow-md shadow-rose-600/30 cursor-pointer shrink-0"
+    aria-label="Start recording"
+  >
+    <div class="w-2.5 h-2.5 rounded-full bg-white animate-ping"></div>
+  </button>
+
+  <!-- Live Audio Level VU Meter -->
+  <div class="flex items-center space-x-1 h-4">
+    <div class="w-1 bg-rose-500 rounded-full h-2 animate-pulse"></div>
+    <div class="w-1 bg-rose-500 rounded-full h-4 animate-pulse delay-75"></div>
+    <div class="w-1 bg-rose-500 rounded-full h-3 animate-pulse delay-150"></div>
+    <div class="w-1 bg-rose-500 rounded-full h-1 animate-pulse"></div>
+  </div>
+
+  <!-- Digital Timer -->
+  <div class="text-xs font-mono font-medium text-zinc-100 tabular-nums">00:04.82</div>
+
+  <!-- Divider -->
+  <div class="w-px h-4 bg-zinc-700"></div>
+
+  <!-- Stop / Finish Button -->
+  <button class="text-xs font-medium text-zinc-300 hover:text-white transition-colors cursor-pointer">
+    Save Note
+  </button>
+</div>
+
