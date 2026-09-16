@@ -252,8 +252,8 @@ def test_generate_initial_plan_qa_intent():
 
     assert plan["intent_category"] == "qa_research"
     assert len(plan["steps"]) == 3
-    assert "Search live documentation" in plan["steps"][0]["title"]
-    assert "analytical briefing" in plan["steps"][2]["title"]
+    assert "Analyze core architectural primitives" in plan["steps"][0]["title"]
+    assert "comprehensive technical guide" in plan["steps"][2]["title"]
 
 
 def test_generate_initial_plan_debugging():
@@ -349,7 +349,7 @@ async def test_dynamic_plan_fallback_on_error(monkeypatch):
 
     assert plan["intent_category"] == "qa_research"
     assert len(plan["steps"]) == 3
-    assert "Search live documentation" in plan["steps"][0]["title"]
+    assert "Analyze core architectural primitives" in plan["steps"][0]["title"]
 
 
 @pytest.mark.asyncio
@@ -408,5 +408,141 @@ async def test_qa_task_evaluation_accomplished_without_preview(monkeypatch, tmp_
     assert all(s["status"] == "completed" for s in final_plan["steps"])
     assert any(c["name"] == "Analytical Synthesis" and c["passed"] for c in final_plan["evaluation"]["checks"])
     assert not any(c["name"] == "Live Application Preview" for c in final_plan["evaluation"]["checks"])
+
+
+def test_generate_fallback_plan_grafana_explanation():
+    harness = AntigravityHarness()
+    plan = harness._generate_initial_plan(
+        title="Explain grafana alert rules",
+        prompt="Explain grafana alert rules, datasource queries, and notification policies",
+        persona_name="PairProgrammer"
+    )
+
+    assert plan["intent_category"] == "qa_research"
+    assert len(plan["steps"]) == 3
+    assert "alert rule query architecture" in plan["steps"][0]["title"]
+    assert "alert states" in plan["steps"][1]["title"]
+    assert "notification policies" in plan["steps"][2]["title"]
+
+
+def test_generate_fallback_plan_comparison():
+    harness = AntigravityHarness()
+    plan = harness._generate_initial_plan(
+        title="Compare Vite vs Webpack",
+        prompt="Compare Vite vs Webpack for modern frontend build performance",
+        persona_name="PairProgrammer"
+    )
+
+    assert plan["intent_category"] == "qa_research"
+    assert len(plan["steps"]) == 3
+    assert "architectural trade-offs" in plan["steps"][0]["title"]
+    assert "decision matrix" in plan["steps"][2]["title"]
+
+
+@pytest.mark.asyncio
+async def test_dynamic_plan_model_cascade_on_404(monkeypatch):
+    harness = AntigravityHarness(model_name="unsupported-model-404")
+
+    class MockCascadeResponse:
+        def __init__(self, status_code, data_text=""):
+            self.status_code = status_code
+            self._text = data_text
+
+        def json(self):
+            return {
+                "candidates": [{
+                    "content": {
+                        "parts": [{
+                            "text": self._text
+                        }]
+                    }
+                }]
+            }
+
+    import httpx
+    async def mock_post(self, url, **kwargs):
+        if "unsupported-model-404" in url:
+            return MockCascadeResponse(404, "")
+        return MockCascadeResponse(
+            200,
+            '{"intent_category": "qa_research", "objective": "Explain Grafana alert rules", "steps": [{"id": "step-1", "title": "Analyze Mimir and Prometheus alert queries", "status": "in_progress"}, {"id": "step-2", "title": "Break down Alerting and Pending state intervals", "status": "pending"}, {"id": "step-3", "title": "Synthesize Contact Points and Notification Policies", "status": "pending"}]}'
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    async with httpx.AsyncClient() as client:
+        plan = await harness._generate_dynamic_plan(
+            client=client,
+            api_key="AIzaSyTestKey",
+            model_name="unsupported-model-404",
+            title="Explain grafana alert rules",
+            prompt="Explain grafana alert rules",
+            persona_name="PairProgrammer"
+        )
+
+    assert plan["intent_category"] == "qa_research"
+    assert plan["objective"] == "Explain Grafana alert rules"
+    assert len(plan["steps"]) == 3
+    assert "Mimir and Prometheus" in plan["steps"][0]["title"]
+    assert "Contact Points" in plan["steps"][2]["title"]
+
+
+@pytest.mark.asyncio
+async def test_qa_explanation_evaluation_zero_tools_passes(monkeypatch, tmp_path):
+    harness = AntigravityHarness()
+    emitted_plans = []
+    emitted_messages = []
+
+    async def mock_on_plan(p):
+        emitted_plans.append(p)
+
+    async def mock_on_message(sender, content, plan=None):
+        emitted_messages.append({"sender": sender, "content": content, "plan": plan})
+
+    class MockGrafanaResponse:
+        status_code = 200
+        def json(self):
+            return {
+                "candidates": [{
+                    "content": {
+                        "parts": [{
+                            "text": "### Grafana Alert Rules\n\nGrafana Alert Rules consist of rule definitions, evaluation groups, and conditions that transition between Normal, Pending, and Alerting states. Notifications are dispatched via Notification Policies to Contact Points."
+                        }]
+                    }
+                }]
+            }
+
+    import httpx
+    async def mock_post(self, url, **kwargs):
+        return MockGrafanaResponse()
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    async def noop(*args, **kwargs):
+        pass
+
+    result = await harness.execute_task(
+        task_id="task-grafana-qa",
+        workspace_path=tmp_path,
+        title="Explain grafana alert rules",
+        description="Explain grafana alert rules",
+        persona_name="PairProgrammer",
+        on_thought=noop,
+        on_tool_start=noop,
+        on_tool_end=noop,
+        on_message=mock_on_message,
+        on_approval_required=noop,
+        on_diff_updated=noop,
+        on_plan=mock_on_plan
+    )
+
+    assert result["status"] == "COMPLETED"
+    assert len(emitted_plans) >= 1
+    final_plan = emitted_plans[-1]
+    assert final_plan["evaluation"]["status"] == "accomplished"
+    assert all(s["status"] == "completed" for s in final_plan["steps"])
+    assert any(c["name"] == "Analytical Synthesis" and c["passed"] for c in final_plan["evaluation"]["checks"])
+    assert not any(c["name"] == "Live Application Preview" for c in final_plan["evaluation"]["checks"])
+    assert not any(c["name"] == "Tool Execution" and not c["passed"] for c in final_plan["evaluation"]["checks"])
 
 

@@ -248,18 +248,45 @@ class AntigravityHarness:
                 {"id": "step-2", "title": "Analyze code changes for bugs, regressions, and syntax", "status": "pending"},
                 {"id": "step-3", "title": "Submit review synthesis and inline feedback", "status": "pending"}
             ]
-        # 2. Q&A and Web Research (evaluated before generic app keywords to avoid false app scaffolding on questions)
+        # 2. DevOps & Infrastructure Explanations and Monitoring (e.g. Grafana, Prometheus, Kubernetes alerts/queries)
         elif (
-            any(prompt_lower.strip().startswith(prefix) for prefix in ["what is", "what are", "how does", "how do", "how to", "why is", "why does", "explain", "describe", "compare", "tell me about"])
-            or re.search(r"\b(?:search|research|news|trend|trends|documentation|article|paper|overview|deep dive)\b", prompt_lower)
+            re.search(r"\b(?:grafana|prometheus|loki|mimir|alertmanager|alert rules?|alerting|alert policy)\b", prompt_lower)
+            and any(prompt_lower.strip().startswith(prefix) for prefix in ["what is", "what are", "how does", "how do", "how to", "why is", "why does", "explain", "describe", "tell me about"])
         ):
             intent = "qa_research"
             steps = [
-                {"id": "step-1", "title": "Search live documentation, web, and technical context", "status": "in_progress"},
+                {"id": "step-1", "title": "Analyze alert rule query architecture, evaluation intervals, and datasources", "status": "in_progress"},
+                {"id": "step-2", "title": "Break down alert states (Normal, Pending, Alerting) and threshold conditions", "status": "pending"},
+                {"id": "step-3", "title": "Synthesize notification policies, contact points, and practical rule examples", "status": "pending"}
+            ]
+        # 3. Comparative Analysis
+        elif (
+            any(prompt_lower.strip().startswith(prefix) for prefix in ["compare", "contrast", "difference between"])
+            or re.search(r"\b(?:vs|versus|compared to|tradeoffs? of)\b", prompt_lower)
+        ):
+            intent = "qa_research"
+            steps = [
+                {"id": "step-1", "title": "Analyze architectural trade-offs and core design paradigms", "status": "in_progress"},
+                {"id": "step-2", "title": "Evaluate feature parity, performance benchmarks, and ecosystem ergonomics", "status": "pending"},
+                {"id": "step-3", "title": "Synthesize comparative decision matrix and recommendations", "status": "pending"}
+            ]
+        # 4. General Conceptual Explanation & Architecture Deep Dives
+        elif any(prompt_lower.strip().startswith(prefix) for prefix in ["what is", "what are", "how does", "how do", "how to", "why is", "why does", "explain", "describe", "tell me about"]):
+            intent = "qa_research"
+            steps = [
+                {"id": "step-1", "title": "Analyze core architectural primitives and execution mechanics", "status": "in_progress"},
+                {"id": "step-2", "title": "Break down lifecycle states, configurations, and edge cases", "status": "pending"},
+                {"id": "step-3", "title": "Synthesize comprehensive technical guide with practical examples", "status": "pending"}
+            ]
+        # 5. Live Web Intelligence & Research
+        elif re.search(r"\b(?:search|research|news|trend|trends|documentation|article|paper|overview|deep dive)\b", prompt_lower):
+            intent = "qa_research"
+            steps = [
+                {"id": "step-1", "title": "Search live documentation, web sources, and technical context", "status": "in_progress"},
                 {"id": "step-2", "title": "Synthesize architectural findings and compare capabilities", "status": "pending"},
                 {"id": "step-3", "title": "Deliver analytical briefing with hyperlinked citations", "status": "pending"}
             ]
-        # 3. Debugging & Error Diagnosis
+        # 6. Debugging & Error Diagnosis
         elif re.search(r"\b(?:fix error|debug|traceback|exception|syntaxerror|typeerror|failing test|crash|segfault|500 error)\b", prompt_lower):
             intent = "debugging"
             steps = [
@@ -267,7 +294,7 @@ class AntigravityHarness:
                 {"id": "step-2", "title": "Implement targeted bug fix and edge case handling", "status": "pending"},
                 {"id": "step-3", "title": "Verify fix against test suites and execution logs", "status": "pending"}
             ]
-        # 4. DevOps & Infrastructure
+        # 7. DevOps & Infrastructure Configuration
         elif re.search(r"\b(?:docker|dockerfile|docker-compose|k8s|kubernetes|ci/cd|github action|nginx|deploy|helm)\b", prompt_lower):
             intent = "devops"
             steps = [
@@ -275,7 +302,7 @@ class AntigravityHarness:
                 {"id": "step-2", "title": "Configure infrastructure manifests and automation scripts", "status": "pending"},
                 {"id": "step-3", "title": "Verify container build, health checks, and service readiness", "status": "pending"}
             ]
-        # 5. App Building (Chat / Messaging, Games, Calculators, E-commerce, Web Apps)
+        # 8. App Building (Chat / Messaging, Games, Calculators, E-commerce, Web Apps)
         elif re.search(r"\b(?:chat|message|messaging|slack|discord|inbox)\b", prompt_lower):
             intent = "app_building"
             steps = [
@@ -348,7 +375,7 @@ class AntigravityHarness:
         """
         Dynamically synthesizes a bespoke 3-step execution plan and classifies task intent
         using a fast structured JSON call to Gemini before tool loop execution.
-        Falls back seamlessly to semantic plan on timeout, network error, or invalid payload.
+        Cascades through candidate models with graceful fallback to semantic plan.
         """
         fallback_plan = self._generate_fallback_plan(title, prompt, persona_name)
         if not api_key:
@@ -361,7 +388,7 @@ class AntigravityHarness:
             f"Prompt: {prompt}\n\n"
             f"Allowed intent_category values: ['qa_research', 'app_building', 'code_modification', 'review_audit', 'debugging', 'devops']\n"
             f"Guidelines:\n"
-            f"- If the prompt is asking a question, conceptual explanation, or research (e.g. 'What is Redis LangCache'), set intent_category='qa_research'. Do NOT scaffold web apps for Q&A queries.\n"
+            f"- If the prompt is asking a question, conceptual explanation, or research (e.g. 'What is Redis LangCache', 'Explain grafana alert rules'), set intent_category='qa_research'. Do NOT scaffold web apps for Q&A queries.\n"
             f"- If the prompt asks to build an interactive web app, frontend, UI, dashboard, game, or calculator, set intent_category='app_building'.\n"
             f"- If the prompt asks to review PR, diff, or code audit, set intent_category='review_audit'.\n"
             f"- If the prompt asks to fix an error or debug code, set intent_category='debugging'.\n"
@@ -379,52 +406,58 @@ class AntigravityHarness:
             f"}}"
         )
 
-        dynamic_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
-        payload = {
-            "contents": [{"role": "user", "parts": [{"text": plan_prompt}]}],
-            "generationConfig": {
-                "response_mime_type": "application/json",
-                "temperature": 0.2
+        candidate_models = list(dict.fromkeys([model_name, "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"]))
+
+        for active_model in candidate_models:
+            if not active_model:
+                continue
+            dynamic_url = f"https://generativelanguage.googleapis.com/v1beta/models/{active_model}:generateContent?key={api_key}"
+            payload = {
+                "contents": [{"role": "user", "parts": [{"text": plan_prompt}]}],
+                "generationConfig": {
+                    "response_mime_type": "application/json",
+                    "temperature": 0.2
+                }
             }
-        }
 
-        try:
-            resp = await asyncio.wait_for(
-                client.post(dynamic_url, json=payload),
-                timeout=3.5
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                candidates = data.get("candidates", [])
-                if candidates:
-                    parts = candidates[0].get("content", {}).get("parts", [])
-                    raw_text = "".join(p.get("text", "") for p in parts if "text" in p).strip()
-                    if raw_text:
-                        parsed = json.loads(raw_text)
-                        intent_cat = parsed.get("intent_category", fallback_plan["intent_category"])
-                        if intent_cat not in ["qa_research", "app_building", "code_modification", "review_audit", "debugging", "devops"]:
-                            intent_cat = fallback_plan["intent_category"]
+            try:
+                resp = await asyncio.wait_for(
+                    client.post(dynamic_url, json=payload),
+                    timeout=4.0
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    candidates = data.get("candidates", [])
+                    if candidates:
+                        parts = candidates[0].get("content", {}).get("parts", [])
+                        raw_text = "".join(p.get("text", "") for p in parts if "text" in p).strip()
+                        if raw_text:
+                            parsed = json.loads(raw_text)
+                            intent_cat = parsed.get("intent_category", fallback_plan["intent_category"])
+                            if intent_cat not in ["qa_research", "app_building", "code_modification", "review_audit", "debugging", "devops"]:
+                                intent_cat = fallback_plan["intent_category"]
 
-                        obj = parsed.get("objective") or fallback_plan["objective"]
-                        raw_steps = parsed.get("steps", [])
-                        if isinstance(raw_steps, list) and len(raw_steps) >= 2:
-                            steps = []
-                            for idx, s in enumerate(raw_steps):
-                                s_title = s.get("title", f"Step {idx+1}") if isinstance(s, dict) else str(s)
-                                s_id = f"step-{idx+1}"
-                                s_status = "in_progress" if idx == 0 else "pending"
-                                steps.append({"id": s_id, "title": s_title, "status": s_status})
-                            return {
-                                "intent_category": intent_cat,
-                                "objective": obj,
-                                "steps": steps,
-                                "evaluation": {
-                                    "status": "pending",
-                                    "summary": "Dynamic plan formulated. Execution in progress."
+                            obj = parsed.get("objective") or fallback_plan["objective"]
+                            raw_steps = parsed.get("steps", [])
+                            if isinstance(raw_steps, list) and len(raw_steps) >= 2:
+                                steps = []
+                                for idx, s in enumerate(raw_steps):
+                                    s_title = s.get("title", f"Step {idx+1}") if isinstance(s, dict) else str(s)
+                                    s_id = f"step-{idx+1}"
+                                    s_status = "in_progress" if idx == 0 else "pending"
+                                    steps.append({"id": s_id, "title": s_title, "status": s_status})
+                                return {
+                                    "intent_category": intent_cat,
+                                    "objective": obj,
+                                    "steps": steps,
+                                    "evaluation": {
+                                        "status": "pending",
+                                        "summary": "Dynamic plan formulated. Execution in progress."
+                                    }
                                 }
-                            }
-        except Exception as e:
-            logger.debug(f"Dynamic plan generation exception (falling back to semantic plan): {e}")
+            except Exception as e:
+                logger.debug(f"Dynamic plan generation exception on model {active_model}: {e}")
+                continue
 
         return fallback_plan
 
@@ -800,7 +833,7 @@ class AntigravityHarness:
             f"   - If the user asks follow-up questions about specific lines, files, or diff hunks, reason directly on the code."
         )
 
-        model_candidates = [self.model_name, "gemini-2.5-flash", "gemini-1.5-flash", "gemini-1.5-pro"]
+        model_candidates = [self.model_name, "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"]
         unique_models = list(dict.fromkeys(m for m in model_candidates if m))
 
         contents: List[Dict[str, Any]] = []
@@ -1063,10 +1096,7 @@ class AntigravityHarness:
                                 if s.get("status") != "failed":
                                     s["status"] = "completed"
 
-                            checks = [
-                                {"name": "Workspace State", "passed": True},
-                                {"name": "Tool Execution", "passed": tool_call_count > 0 or bool(final_agent_text)}
-                            ]
+                            checks = [{"name": "Workspace State", "passed": True}]
                             if is_app_task:
                                 from app.api.preview import verify_workspace_preview
                                 verification = verify_workspace_preview(workspace_path, task_id)
@@ -1075,10 +1105,25 @@ class AntigravityHarness:
                                     "name": "Live Application Preview",
                                     "passed": preview_ok
                                 })
+                                checks.append({
+                                    "name": "Tool Execution",
+                                    "passed": tool_call_count > 0 or bool(final_agent_text)
+                                })
                             elif intent_category == "qa_research":
+                                has_synthesis = bool(final_agent_text and len(final_agent_text.strip()) > 30)
                                 checks.append({
                                     "name": "Analytical Synthesis",
-                                    "passed": bool(final_agent_text and len(final_agent_text.strip()) > 30)
+                                    "passed": has_synthesis
+                                })
+                                if tool_call_count > 0:
+                                    checks.append({
+                                        "name": "Tool Execution",
+                                        "passed": True
+                                    })
+                            else:
+                                checks.append({
+                                    "name": "Tool Execution",
+                                    "passed": tool_call_count > 0 or bool(final_agent_text)
                                 })
 
                             all_checks_passed = all(c.get("passed", False) for c in checks)
@@ -1809,20 +1854,32 @@ class AntigravityHarness:
                     )
 
                     # Autonomous Plan Self-Evaluation Audit
-                    checks = [
-                        {"name": "Workspace State", "passed": True},
-                        {"name": "Tool Execution", "passed": tool_call_count > 0 or model_succeeded}
-                    ]
+                    checks = [{"name": "Workspace State", "passed": True}]
                     if is_app_task:
                         preview_ok = post_verification.get("status") in ["ready", "compiled", "static"]
                         checks.append({
                             "name": "Live Application Preview",
                             "passed": preview_ok
                         })
+                        checks.append({
+                            "name": "Tool Execution",
+                            "passed": tool_call_count > 0 or model_succeeded
+                        })
                     elif intent_category == "qa_research":
+                        has_synthesis = bool(final_agent_text and len(final_agent_text.strip()) > 30) or model_succeeded
                         checks.append({
                             "name": "Analytical Synthesis",
-                            "passed": bool(final_agent_text and len(final_agent_text.strip()) > 30) or model_succeeded
+                            "passed": has_synthesis
+                        })
+                        if tool_call_count > 0:
+                            checks.append({
+                                "name": "Tool Execution",
+                                "passed": True
+                            })
+                    else:
+                        checks.append({
+                            "name": "Tool Execution",
+                            "passed": tool_call_count > 0 or model_succeeded
                         })
 
                     all_checks_passed = all(c.get("passed", False) for c in checks)
