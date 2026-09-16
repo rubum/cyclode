@@ -162,15 +162,22 @@ async def test_permission_denied_403_plan_evaluation(monkeypatch, tmp_path):
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
 
-    result = await harness.run_task(
+    async def noop(*args, **kwargs):
+        pass
+
+    result = await harness.execute_task(
         task_id="task-403-test",
         workspace_path=tmp_path,
         title="Create a messaging app",
-        prompt="Create a messaging app",
+        description="Create a messaging app",
         persona_name="PairProgrammer",
-        credentials={"gemini_api_key": "AIzaSyFakeKey403"},
-        on_plan=mock_on_plan,
-        on_message=mock_on_message
+        on_thought=noop,
+        on_tool_start=noop,
+        on_tool_end=noop,
+        on_message=mock_on_message,
+        on_approval_required=noop,
+        on_diff_updated=noop,
+        on_plan=mock_on_plan
     )
 
     assert result["status"] == "FAILED"
@@ -207,15 +214,22 @@ async def test_quota_depleted_429_plan_evaluation(monkeypatch, tmp_path):
 
     monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
 
-    result = await harness.run_task(
+    async def noop(*args, **kwargs):
+        pass
+
+    result = await harness.execute_task(
         task_id="task-429-test",
         workspace_path=tmp_path,
         title="Create a game",
-        prompt="Create a snake game",
+        description="Create a snake game",
         persona_name="AppBuilder",
-        credentials={"gemini_api_key": "AIzaSyFakeKey429"},
-        on_plan=mock_on_plan,
-        on_message=mock_on_message
+        on_thought=noop,
+        on_tool_start=noop,
+        on_tool_end=noop,
+        on_message=mock_on_message,
+        on_approval_required=noop,
+        on_diff_updated=noop,
+        on_plan=mock_on_plan
     )
 
     assert result["status"] == "FAILED"
@@ -226,4 +240,5 @@ async def test_quota_depleted_429_plan_evaluation(monkeypatch, tmp_path):
     assert final_plan["steps"][0]["status"] == "failed"
     assert any(c["name"] == "API Connection" and not c["passed"] for c in final_plan["evaluation"]["checks"])
     assert any("Google Gemini API Quota Notice (429)" in m["content"] for m in emitted_messages)
+
 

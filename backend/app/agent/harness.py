@@ -1306,92 +1306,312 @@ class AntigravityHarness:
                             has_vue = "Vue" in js_sample or "createApp" in js_sample
                             has_react = "React" in js_sample or "ReactDOM" in js_sample or "useState" in js_sample
                             has_lucide = "lucide" in js_sample.lower()
-                            has_dom_mount = any(k in js_sample for k in ["createApp", "createRoot", "ReactDOM", "innerHTML", "appendChild", "document.createElement", "document.getElementById", "document.querySelector", ".textContent", ".innerText"])
+                            root_mount_patterns = [
+                                r"createApp\b",
+                                r"createRoot\b",
+                                r"ReactDOM\.render\b",
+                                r"Alpine\.start\b",
+                                r"document\.(?:getElementById|querySelector)\s*\(\s*['\"](?:#?app|#?root|#?container|#?main)['\"]\s*\)\s*\.(?:innerHTML|replaceChildren|appendChild)",
+                                r"document\.body\.(?:innerHTML|appendChild|replaceChildren)",
+                                r"function\s+render\b",
+                                r"const\s+render\s*=",
+                                r"let\s+render\s*=",
+                                r"\brenderApp\b",
+                                r"\bmountApp\b"
+                            ]
+                            has_dom_mount = any(re.search(p, js_sample, re.IGNORECASE) for p in root_mount_patterns)
 
                             css_links_html = "\n".join(f'  <link rel="stylesheet" href="./{f.relative_to(workspace_path).as_posix()}" />' for f in css_files)
                             js_scripts_html = "\n".join(f'  <script src="./{f.relative_to(workspace_path).as_posix()}"></script>' for f in js_files)
 
-                            cdn_headers = ['  <script src="https://cdn.tailwindcss.com"></script>']
+                            cdn_headers = [
+                                '  <script src="https://cdn.tailwindcss.com"></script>',
+                                '  <script src="https://unpkg.com/lucide@latest"></script>'
+                            ]
                             if has_vue:
                                 cdn_headers.append('  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>')
                             if has_react:
                                 cdn_headers.append('  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>')
                                 cdn_headers.append('  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>')
-                            if has_lucide:
-                                cdn_headers.append('  <script src="https://unpkg.com/lucide@latest"></script>')
 
                             cdn_block = "\n".join(cdn_headers)
                             app_title = title or "Live Application"
+
+                            is_msg_app = bool(re.search(r"\b(?:message|messaging|chat|slack|discord|pulsechat|inbox|conversations?)\b", prompt_title_lower)) or "Store" in js_sample or "ChatEngine" in js_sample
+                            is_game_app = bool(re.search(r"\b(?:game|snake|arcade|tetris|pong|canvas|score)\b", prompt_title_lower))
+                            is_calc_app = bool(re.search(r"\b(?:calc|calculator|math|arithmetic)\b", prompt_title_lower))
 
                             auto_mount_script = ""
                             if not has_dom_mount:
                                 auto_mount_script = f"""
   <script>
     window.addEventListener('DOMContentLoaded', () => {{
-      const appEl = document.getElementById('app');
-      if (appEl && (!appEl.innerHTML.trim() || appEl.children.length === 0)) {{
-        const isCalc = {str(any(k in prompt_title_lower for k in ["calc", "math", "calculator"])).lower()} || window.MathEngine;
-        if (isCalc) {{
-          appEl.innerHTML = `
-            <div class="max-w-md mx-auto p-6 mt-8 rounded-2xl bg-zinc-900/90 border border-zinc-800 shadow-2xl backdrop-blur-xl">
-              <div class="flex items-center justify-between mb-4">
-                <h1 class="text-base font-semibold tracking-tight text-zinc-200">${{document.title || 'OmniCalc Studio'}}</h1>
-                <span class="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">Live</span>
+      const appEl = document.getElementById('app') || document.getElementById('root');
+      if (!appEl || appEl.children.length > 0 || appEl.innerHTML.trim().length > 30) return;
+
+      const isMessaging = {str(is_msg_app).lower()} || window.appStore || window.chatEngine;
+      const isGame = {str(is_game_app).lower()};
+      const isCalc = {str(is_calc_app).lower()} || window.MathEngine;
+
+      if (isMessaging) {{
+        // Interactive Messaging App Auto-Mount
+        const store = window.appStore || {{
+          state: {{
+            currentUser: {{ name: "Alex Morgan", avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80" }},
+            channels: [
+              {{ id: "chan_general", name: "general", unread: 0 }},
+              {{ id: "chan_dev", name: "dev-stream", unread: 2 }},
+              {{ id: "chan_product", name: "product-design", unread: 0 }}
+            ],
+            directMessages: [
+              {{ id: "dm_bot", name: "PulseBot AI", online: true, avatar: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150&auto=format&fit=crop&q=80" }},
+              {{ id: "dm_sarah", name: "Sarah Chen", online: true, avatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80" }},
+              {{ id: "dm_marcus", name: "Marcus Vance", online: false, avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80" }}
+            ],
+            messages: {{
+              chan_general: [
+                {{ id: "m1", senderName: "PulseBot AI", senderAvatar: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150&auto=format&fit=crop&q=80", content: "Welcome to PulseChat! Real-time messaging and peer collaboration are online.", timestamp: Date.now() - 3600000 }},
+                {{ id: "m2", senderName: "Sarah Chen", senderAvatar: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80", content: "Hey team, the latest client update has been deployed to staging.", timestamp: Date.now() - 1800000 }}
+              ]
+            }},
+            activeChatId: "chan_general"
+          }},
+          getCurrentChat() {{
+            return this.state.channels.find(c => c.id === this.state.activeChatId) || this.state.directMessages.find(d => d.id === this.state.activeChatId) || this.state.channels[0];
+          }},
+          getMessages() {{
+            return this.state.messages[this.state.activeChatId] || [];
+          }},
+          setActiveChat(id) {{
+            this.state.activeChatId = id;
+            if (this.notify) this.notify();
+          }},
+          addMessage(chatId, msg) {{
+            if (!this.state.messages[chatId]) this.state.messages[chatId] = [];
+            this.state.messages[chatId].push({{ id: "m_" + Date.now(), timestamp: Date.now(), ...msg }});
+            if (this.notify) this.notify();
+          }},
+          subscribe(fn) {{
+            this.notify = fn;
+          }}
+        }};
+
+        if (!window.chatEngine && typeof ChatEngine !== 'undefined') {{
+          window.chatEngine = new ChatEngine(store);
+        }}
+
+        appEl.innerHTML = `
+          <div class="flex h-screen bg-zinc-950 text-zinc-100 font-sans antialiased overflow-hidden">
+            <!-- Sidebar -->
+            <div class="w-64 border-r border-zinc-800 bg-zinc-900/60 flex flex-col shrink-0 select-none">
+              <div class="p-4 border-b border-zinc-800 flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <div class="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center font-bold text-white text-sm shadow-md shadow-indigo-600/30">P</div>
+                  <span class="font-semibold tracking-tight text-white text-sm">PulseChat</span>
+                </div>
+                <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
               </div>
-              <div class="p-4 rounded-xl bg-zinc-950 border border-zinc-800 mb-5 text-right">
-                <div id="calc-expr" class="text-xs text-zinc-500 font-mono h-4 overflow-hidden mb-1"></div>
-                <div id="calc-display" class="text-3xl font-bold font-mono tracking-tight text-white select-all">0</div>
+              <div class="flex-1 overflow-y-auto p-3 space-y-4 text-xs">
+                <div>
+                  <div class="px-2 pb-1.5 font-medium text-zinc-500 uppercase tracking-wider text-[10px]">Channels</div>
+                  <div id="channels-list" class="space-y-0.5"></div>
+                </div>
+                <div>
+                  <div class="px-2 pb-1.5 font-medium text-zinc-500 uppercase tracking-wider text-[10px]">Direct Messages</div>
+                  <div id="dms-list" class="space-y-0.5"></div>
+                </div>
               </div>
-              <div class="grid grid-cols-4 gap-2.5 font-medium">
-                <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-amber-400 active:scale-95 transition-all" data-val="C">C</button>
-                <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 active:scale-95 transition-all" data-val="(">(</button>
-                <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 active:scale-95 transition-all" data-val=")">)</button>
-                <button class="calc-btn p-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white active:scale-95 transition-all font-bold" data-val="/">÷</button>
-                
-                <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 text-zinc-100 active:scale-95 transition-all" data-val="7">7</button>
-                <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 text-zinc-100 active:scale-95 transition-all" data-val="8">8</button>
-                <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 text-zinc-100 active:scale-95 transition-all" data-val="9">9</button>
-                <button class="calc-btn p-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white active:scale-95 transition-all font-bold" data-val="*">×</button>
-                
-                <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 text-zinc-100 active:scale-95 transition-all" data-val="4">4</button>
-                <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 text-zinc-100 active:scale-95 transition-all" data-val="5">5</button>
-                <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 text-zinc-100 active:scale-95 transition-all" data-val="6">6</button>
-                <button class="calc-btn p-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white active:scale-95 transition-all font-bold" data-val="-">−</button>
-                
-                <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 text-zinc-100 active:scale-95 transition-all" data-val="1">1</button>
-                <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 text-zinc-100 active:scale-95 transition-all" data-val="2">2</button>
-                <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 text-zinc-100 active:scale-95 transition-all" data-val="3">3</button>
-                <button class="calc-btn p-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white active:scale-95 transition-all font-bold" data-val="+">+</button>
-                
-                <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 text-zinc-100 active:scale-95 transition-all" data-val="0">0</button>
-                <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 text-zinc-100 active:scale-95 transition-all" data-val=".">.</button>
-                <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 text-zinc-100 active:scale-95 transition-all font-mono text-sm" data-val="π">π</button>
-                <button class="calc-btn p-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white active:scale-95 transition-all font-bold shadow-lg shadow-emerald-900/30" data-val="=">=</button>
+              <div class="p-3 border-t border-zinc-800 bg-zinc-950/40 flex items-center gap-2.5">
+                <img src="${{store.state.currentUser.avatar}}" class="w-7 h-7 rounded-full object-cover border border-zinc-700" />
+                <div class="flex-1 min-w-0">
+                  <div class="text-xs font-medium text-zinc-200 truncate">${{store.state.currentUser.name}}</div>
+                  <div class="text-[10px] text-emerald-400 font-mono">Active Now</div>
+                </div>
               </div>
             </div>
-          `;
-          let curVal = '0';
-          let prevExp = '';
-          const disp = document.getElementById('calc-display');
-          const exprDisp = document.getElementById('calc-expr');
-          document.querySelectorAll('.calc-btn').forEach(b => {{
-            b.addEventListener('click', () => {{
-              const v = b.getAttribute('data-val');
-              if (v === 'C') {{ curVal = '0'; prevExp = ''; }}
-              else if (v === '=') {{
-                try {{
-                  prevExp = curVal + ' =';
-                  let evalStr = curVal.replace(/π/g, 'Math.PI').replace(/×/g, '*').replace(/÷/g, '/').replace(/−/g, '-');
-                  curVal = String(Function('"use strict";return (' + evalStr + ')')());
-                }} catch(e) {{ curVal = 'Error'; }}
-              }} else {{
-                if (curVal === '0' && !isNaN(v)) curVal = v;
-                else curVal += v;
-              }}
-              disp.innerText = curVal;
-              exprDisp.innerText = prevExp;
-            }});
+
+            <!-- Main Chat View -->
+            <div class="flex-1 flex flex-col min-w-0 bg-zinc-950">
+              <div class="h-14 px-5 border-b border-zinc-800 flex items-center justify-between bg-zinc-900/30 backdrop-blur-sm shrink-0">
+                <div class="flex items-center gap-2">
+                  <span class="text-zinc-400 font-mono text-base font-semibold" id="chat-prefix">#</span>
+                  <span class="font-semibold text-zinc-100 text-sm" id="chat-title">general</span>
+                  <span class="text-xs text-zinc-500 ml-2 border-l border-zinc-800 pl-2">Real-time collaboration</span>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="px-2 py-0.5 rounded-full bg-zinc-800 border border-zinc-700 text-[11px] text-zinc-300 font-mono">3 Members</span>
+                </div>
+              </div>
+
+              <!-- Message Stream -->
+              <div id="messages-container" class="flex-1 overflow-y-auto p-5 space-y-4"></div>
+
+              <div id="typing-indicator" class="px-5 text-xs text-zinc-500 italic h-4"></div>
+
+              <!-- Message Input Composer -->
+              <div class="p-4 border-t border-zinc-800 bg-zinc-900/20 shrink-0">
+                <form id="msg-form" class="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 focus-within:border-indigo-500 transition-colors shadow-lg">
+                  <input id="msg-input" type="text" placeholder="Type a message or @pulsebot..." class="flex-1 bg-transparent text-sm text-zinc-100 placeholder-zinc-500 focus:outline-none" autocomplete="off" />
+                  <button type="submit" class="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white active:scale-95 transition-all text-xs font-medium px-3 flex items-center gap-1.5 shadow-md shadow-indigo-600/20">
+                    <span>Send</span>
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+        `;
+
+        function render() {{
+          const active = store.getCurrentChat();
+          const chatPrefixEl = document.getElementById('chat-prefix');
+          const chatTitleEl = document.getElementById('chat-title');
+          if (chatPrefixEl) chatPrefixEl.innerText = active.name ? '#' : '@';
+          if (chatTitleEl) chatTitleEl.innerText = active.name || 'Chat';
+
+          const chList = document.getElementById('channels-list');
+          if (chList) {{
+            chList.innerHTML = store.state.channels.map(c => `
+              <button class="w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center justify-between ${{c.id === store.state.activeChatId ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30' : 'text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200'}}" onclick="window.appStore.setActiveChat('${{c.id}}')">
+                <span class="truncate"># ${{c.name}}</span>
+              </button>
+            `).join('');
+          }}
+
+          const dmList = document.getElementById('dms-list');
+          if (dmList) {{
+            dmList.innerHTML = store.state.directMessages.map(d => `
+              <button class="w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-2 ${{d.id === store.state.activeChatId ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30' : 'text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200'}}" onclick="window.appStore.setActiveChat('${{d.id}}')">
+                <img src="${{d.avatar}}" class="w-4 h-4 rounded-full" />
+                <span class="truncate flex-1">${{d.name}}</span>
+              </button>
+            `).join('');
+          }}
+
+          const msgsEl = document.getElementById('messages-container');
+          if (msgsEl) {{
+            const msgs = store.getMessages();
+            msgsEl.innerHTML = msgs.map(m => `
+              <div class="flex items-start gap-3 group">
+                <img src="${{m.senderAvatar || store.state.currentUser.avatar}}" class="w-8 h-8 rounded-full object-cover border border-zinc-800 shrink-0 mt-0.5" />
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2 mb-1">
+                    <span class="font-semibold text-xs text-zinc-200">${{m.senderName || 'User'}}</span>
+                    <span class="text-[10px] text-zinc-500 font-mono">${{new Date(m.timestamp || Date.now()).toLocaleTimeString([], {{hour: '2-digit', minute:'2-digit'}})}}</span>
+                  </div>
+                  <div class="text-sm text-zinc-300 leading-relaxed break-words bg-zinc-900/60 border border-zinc-800/80 rounded-xl p-3 inline-block max-w-2xl shadow-sm">
+                    ${{m.content}}
+                  </div>
+                </div>
+              </div>
+            `).join('');
+            msgsEl.scrollTop = msgsEl.scrollHeight;
+          }}
+        }}
+
+        store.subscribe(render);
+        render();
+
+        const form = document.getElementById('msg-form');
+        const input = document.getElementById('msg-input');
+        if (form && input) {{
+          form.addEventListener('submit', (e) => {{
+            e.preventDefault();
+            const text = input.value.trim();
+            if (!text) return;
+            input.value = '';
+
+            if (window.chatEngine && typeof window.chatEngine.handleUserMessage === 'function') {{
+              window.chatEngine.handleUserMessage(store.state.activeChatId, text);
+            }} else {{
+              store.addMessage(store.state.activeChatId, {{
+                senderName: store.state.currentUser.name,
+                senderAvatar: store.state.currentUser.avatar,
+                content: text
+              }});
+            }}
           }});
+        }}
+      }} else if (isCalc) {{
+        // Interactive Calculator Auto-Mount
+        appEl.innerHTML = `
+          <div class="max-w-md mx-auto p-6 mt-8 rounded-2xl bg-zinc-900/90 border border-zinc-800 shadow-2xl backdrop-blur-xl">
+            <div class="flex items-center justify-between mb-4">
+              <h1 class="text-base font-semibold tracking-tight text-zinc-200">${{document.title || 'OmniCalc Studio'}}</h1>
+              <span class="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">Live</span>
+            </div>
+            <div class="p-4 rounded-xl bg-zinc-950 border border-zinc-800 mb-5 text-right">
+              <div id="calc-expr" class="text-xs text-zinc-500 font-mono h-4 overflow-hidden mb-1"></div>
+              <div id="calc-display" class="text-3xl font-bold font-mono tracking-tight text-white select-all">0</div>
+            </div>
+            <div class="grid grid-cols-4 gap-2.5 font-medium">
+              <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-amber-400 active:scale-95 transition-all" data-val="C">C</button>
+              <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 active:scale-95 transition-all" data-val="(">(</button>
+              <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 active:scale-95 transition-all" data-val=")">)</button>
+              <button class="calc-btn p-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white active:scale-95 transition-all font-bold" data-val="/">÷</button>
+              <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 text-zinc-100 active:scale-95 transition-all" data-val="7">7</button>
+              <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 text-zinc-100 active:scale-95 transition-all" data-val="8">8</button>
+              <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 text-zinc-100 active:scale-95 transition-all" data-val="9">9</button>
+              <button class="calc-btn p-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white active:scale-95 transition-all font-bold" data-val="*">×</button>
+              <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 text-zinc-100 active:scale-95 transition-all" data-val="4">4</button>
+              <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 text-zinc-100 active:scale-95 transition-all" data-val="5">5</button>
+              <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 text-zinc-100 active:scale-95 transition-all" data-val="6">6</button>
+              <button class="calc-btn p-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white active:scale-95 transition-all font-bold" data-val="-">−</button>
+              <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 text-zinc-100 active:scale-95 transition-all" data-val="1">1</button>
+              <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 text-zinc-100 active:scale-95 transition-all" data-val="2">2</button>
+              <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 text-zinc-100 active:scale-95 transition-all" data-val="3">3</button>
+              <button class="calc-btn p-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white active:scale-95 transition-all font-bold" data-val="+">+</button>
+              <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 text-zinc-100 active:scale-95 transition-all" data-val="0">0</button>
+              <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 text-zinc-100 active:scale-95 transition-all" data-val=".">.</button>
+              <button class="calc-btn p-3.5 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 text-zinc-100 active:scale-95 transition-all font-mono text-sm" data-val="π">π</button>
+              <button class="calc-btn p-3.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white active:scale-95 transition-all font-bold shadow-lg shadow-emerald-900/30" data-val="=">=</button>
+            </div>
+          </div>
+        `;
+        let curVal = '0';
+        let prevExp = '';
+        const disp = document.getElementById('calc-display');
+        const exprDisp = document.getElementById('calc-expr');
+        document.querySelectorAll('.calc-btn').forEach(b => {{
+          b.addEventListener('click', () => {{
+            const v = b.getAttribute('data-val');
+            if (v === 'C') {{ curVal = '0'; prevExp = ''; }}
+            else if (v === '=') {{
+              try {{
+                prevExp = curVal + ' =';
+                let evalStr = curVal.replace(/π/g, 'Math.PI').replace(/×/g, '*').replace(/÷/g, '/').replace(/−/g, '-');
+                curVal = String(Function('"use strict";return (' + evalStr + ')')());
+              }} catch(e) {{ curVal = 'Error'; }}
+            }} else {{
+              if (curVal === '0' && !isNaN(v)) curVal = v;
+              else curVal += v;
+            }}
+            disp.innerText = curVal;
+            exprDisp.innerText = prevExp;
+          }});
+        }});
+      }} else if (isGame) {{
+        // Retro Arcade Game Auto-Mount
+        appEl.innerHTML = `
+          <div class="max-w-lg mx-auto p-6 mt-8 rounded-2xl bg-zinc-900/90 border border-zinc-800 shadow-2xl backdrop-blur-xl text-center">
+            <div class="flex items-center justify-between mb-4">
+              <h1 class="text-base font-semibold tracking-tight text-zinc-200">${{document.title || 'Retro Arcade Game'}}</h1>
+              <span id="score-badge" class="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">Score: 0</span>
+            </div>
+            <div class="relative bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden flex items-center justify-center p-2 mb-4">
+              <canvas id="game-canvas" width="400" height="300" class="bg-zinc-950 rounded-lg"></canvas>
+            </div>
+            <div class="flex items-center justify-center gap-3">
+              <button id="btn-start" class="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg shadow-indigo-600/30 active:scale-95 transition-all">Start Game</button>
+              <span class="text-xs text-zinc-500 font-mono">Use Arrow Keys or WASD</span>
+            </div>
+          </div>
+        `;
+        const canvas = document.getElementById('game-canvas');
+        if (canvas) {{
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#6366f1';
+          ctx.font = '14px monospace';
+          ctx.fillText('Press Start to Play', 130, 150);
         }}
       }}
     }});

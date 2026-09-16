@@ -6,7 +6,7 @@
 
 [![Frontend](https://img.shields.io/badge/frontend-React%2018%20%7C%20Vite%20%7C%20Tailwind-38bdf8.svg)](frontend/)
 [![Backend](https://img.shields.io/badge/backend-FastAPI%20%7C%20Python%203.11-10b981.svg)](backend/)
-[![Tests](https://img.shields.io/badge/tests-90%20passing-brightgreen.svg)](backend/tests/)
+[![Tests](https://img.shields.io/badge/tests-92%20passing-brightgreen.svg)](backend/tests/)
 [![License](https://img.shields.io/badge/license-Proprietary-amber.svg)](LICENSE)
 
 </div>
@@ -211,7 +211,7 @@ cyclode/
 │   │   ├── core/              # Event router, worktrees, policies, and sandboxes
 │   │   ├── db/                # SQLAlchemy async models, migrations, and session
 │   │   └── integrations/      # GitHub, Slack, AppSignal, and Vault Interceptor
-│   └── tests/                 # Comprehensive pytest test suite (90 passing)
+│   └── tests/                 # Comprehensive pytest test suite (92 passing)
 ├── frontend/
 │   ├── public/                # Favicon suite (SVG, ICO, 16px, 32px, 180px, 512px)
 │   ├── src/

@@ -440,6 +440,19 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
     has_interactive_dom = bool(re.search(r'<(button|input|select|textarea|canvas|form|table|ul|ol|h[1-6]|p|a|svg|main|section|article|nav|header|footer)\b', clean_body, re.IGNORECASE))
 
     has_dom_mounting = False
+    root_mount_patterns = [
+        r"createApp\b",
+        r"createRoot\b",
+        r"ReactDOM\.render\b",
+        r"Alpine\.start\b",
+        r"document\.(?:getElementById|querySelector)\s*\(\s*['\"](?:#?app|#?root|#?container|#?main)['\"]\s*\)\s*\.(?:innerHTML|replaceChildren|appendChild)",
+        r"document\.body\.(?:innerHTML|appendChild|replaceChildren)",
+        r"function\s+render\b",
+        r"const\s+render\s*=",
+        r"let\s+render\s*=",
+        r"\brenderApp\b",
+        r"\bmountApp\b"
+    ]
     for js_ref in js_scripts:
         clean_js = js_ref.split('?')[0].lstrip('./').lstrip('/')
         js_path = entry_file.parent / clean_js
@@ -448,7 +461,7 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
         if js_path.exists() and js_path.is_file():
             try:
                 js_txt = js_path.read_text(encoding="utf-8", errors="ignore")
-                if any(k in js_txt for k in ["createApp", "createRoot", "ReactDOM", "innerHTML", "appendChild", "document.createElement", "document.getElementById", "document.querySelector", ".textContent", ".innerText", "Alpine.data", "Vue.", "document.body"]):
+                if any(re.search(p, js_txt, re.IGNORECASE) for p in root_mount_patterns):
                     has_dom_mounting = True
                     break
             except Exception:
@@ -456,7 +469,7 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
 
     inline_scripts = re.findall(r'<script\b[^>]*>([\s\S]*?)</script>', html_text, re.IGNORECASE)
     for scr in inline_scripts:
-        if any(k in scr for k in ["createApp", "createRoot", "ReactDOM", "innerHTML", "appendChild", "document.createElement", "document.getElementById", "document.querySelector", ".textContent", ".innerText", "Alpine.data", "Vue.", "document.body"]):
+        if any(re.search(p, scr, re.IGNORECASE) for p in root_mount_patterns):
             has_dom_mounting = True
             break
 
