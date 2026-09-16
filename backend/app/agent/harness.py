@@ -596,7 +596,7 @@ class AntigravityHarness:
                     break
                 api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{active_model}:generateContent?key={api_key}"
                 turn = 0
-                max_turns = 16
+                max_turns = 45
                 guardrail_corrections = 0
                 max_guardrail_corrections = 2
                 model_succeeded = False
