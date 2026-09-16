@@ -62,6 +62,14 @@ app.include_router(reader_router)
 app.include_router(linear_router)
 app.include_router(preview_router)
 
+from app.agent.providers.factory import get_model_catalog
+
+
+@app.get("/api/models")
+async def list_model_catalog():
+    return get_model_catalog()
+
+
 
 # WebSocket Gateway
 @app.websocket("/ws/live")

@@ -78,23 +78,28 @@ async def generate_ai_title(
     api_key: Optional[str] = None
 ) -> Optional[str]:
     """
-    Invokes Google Gemini API with a fast, lightweight call to generate a concise,
-    professional 3 to 6 word session title. Falls back to None on quota, offline, or timeout.
+    Invokes the active AI model provider with a fast, lightweight call to generate a concise,
+    professional 3 to 6 word session title. Falls back gracefully on quota, offline, or timeout.
     """
-    # Resolve API key
-    if not api_key:
-        try:
-            from app.config import settings
-            from app.integrations.manager import integration_manager
-            gemini_creds = integration_manager._custom_credentials.get("gemini", {})
-            api_key = gemini_creds.get("api_key") or settings.get_api_key()
-        except Exception:
-            pass
+    from app.config import settings
+    from app.agent.providers.factory import get_provider_for_model
 
-    if not api_key:
+    provider = get_provider_for_model(settings.ANTIGRAVITY_MODEL)
+    
+    # Check if active provider has a configured key, otherwise try alternatives
+    if not provider.get_api_key():
+        from app.agent.providers.gemini import GeminiProvider
+        from app.agent.providers.claude import ClaudeProvider
+        from app.agent.providers.openai import OpenAIProvider
+
+        for cand_prov in [GeminiProvider(), ClaudeProvider(), OpenAIProvider()]:
+            if cand_prov.get_api_key():
+                provider = cand_prov
+                break
+
+    if not provider.get_api_key():
         return None
 
-    # Strip excessive length from prompt before sending
     trimmed_prompt = prompt[:400].strip()
     system_instruction = (
         "You are an AI session title generator for a software engineering workstation. "
@@ -110,56 +115,40 @@ async def generate_ai_title(
         "- 'How do I configure docker compose for local postgres?' -> Docker Compose Postgres Setup"
     )
 
-    request_payload = {
-        "contents": [
-            {
-                "role": "user",
-                "parts": [
-                    {
-                        "text": (
-                            f"Generate a 3 to 5 word session title for this task:\n"
-                            f"Request: {trimmed_prompt}\n"
-                            f"Repository: {repo_name or 'None'}\n\n"
-                            f"Title:"
-                        )
-                    }
-                ]
-            }
-        ],
-        "system_instruction": {
-            "parts": [{"text": system_instruction}]
-        },
-        "generationConfig": {
-            "maxOutputTokens": 20,
-            "temperature": 0.2
-        }
-    }
+    user_text = (
+        f"Generate a 3 to 5 word session title for this task:\n"
+        f"Request: {trimmed_prompt}\n"
+        f"Repository: {repo_name or 'None'}\n\n"
+        f"Title:"
+    )
 
-    candidate_models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-3.7-flash"]
     async with httpx.AsyncClient(timeout=8.0) as client:
-        for model in candidate_models:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+        # Determine candidate models based on provider
+        if provider.provider_id == "anthropic":
+            cand_models = ["claude-3-5-haiku-20241022", "claude-3-5-sonnet-20241022"]
+        elif provider.provider_id == "openai":
+            cand_models = ["gpt-4o-mini", "gpt-4o"]
+        else:
+            cand_models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"]
+
+        for model in cand_models:
             try:
-                resp = await client.post(url, json=request_payload)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    candidates = data.get("candidates", [])
-                    if candidates:
-                        raw_parts = candidates[0].get("content", {}).get("parts", [])
-                        if raw_parts and "text" in raw_parts[0]:
-                            title = raw_parts[0]["text"].strip()
-                            # Clean surrounding quotes or markdown
-                            title = re.sub(r'^["\'`#*]+|["\'`#*]+$', '', title).strip()
-                            # Clean trailing periods or colons
-                            title = re.sub(r'[:;.\-?!]+$', '', title).strip()
-                            if 3 <= len(title) <= 65 and not title.lower().startswith("title:"):
-                                return title
-                elif resp.status_code in (404, 429):
-                    continue
-                else:
-                    logger.debug(f"Title generator API notice ({resp.status_code}): {resp.text[:100]}")
+                resp = await provider.generate_response(
+                    messages=[{"role": "user", "parts": [{"text": user_text}]}],
+                    tools=None,
+                    system_instruction=system_instruction,
+                    model_name=model,
+                    client=client
+                )
+                if resp.is_success and resp.content:
+                    title = resp.content.strip()
+                    title = re.sub(r'^["\'`#*]+|["\'`#*]+$', '', title).strip()
+                    title = re.sub(r'[:;.\-?!]+$', '', title).strip()
+                    if 3 <= len(title) <= 65 and not title.lower().startswith("title:"):
+                        return title
             except Exception as e:
                 logger.debug(f"Title generation error on {model}: {e}")
                 continue
 
     return None
+

@@ -24,6 +24,24 @@ class IntegrationRegistry:
                 "icon": "sparkles"
             },
             {
+                "id": "anthropic",
+                "name": "Anthropic Claude",
+                "description": "Powers deep reasoning, Claude 3.7 Sonnet hybrid thinking, and extended coding agents.",
+                "configured": bool(settings.get_anthropic_api_key()),
+                "auth_type": "API Key",
+                "skills": ["claude.messages_stream", "claude.hybrid_thinking"],
+                "icon": "bot"
+            },
+            {
+                "id": "openai",
+                "name": "OpenAI & Codex",
+                "description": "Powers GPT-4o, Codex coding workflows, and o1/o3-mini reasoning loops.",
+                "configured": bool(settings.get_openai_api_key()),
+                "auth_type": "API Key",
+                "skills": ["openai.chat_completions", "openai.reasoning_effort"],
+                "icon": "cpu"
+            },
+            {
                 "id": "github",
                 "name": "GitHub App & Webhooks",
                 "description": "Automated branch creation, pull requests, issue comment updates, and webhook ingestion.",

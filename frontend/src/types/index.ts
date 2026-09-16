@@ -343,4 +343,16 @@ export interface WorkspacePreviewInfo {
   build_timestamp?: number;
 }
 
+export interface ModelItem {
+  id: string;
+  name: string;
+  badge: string;
+  recommended?: boolean;
+}
 
+export interface ProviderModelGroup {
+  provider: string;
+  provider_name: string;
+  configured: boolean;
+  models: ModelItem[];
+}

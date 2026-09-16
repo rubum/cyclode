@@ -19,6 +19,8 @@ from app.agent.personas import get_persona
 from app.integrations.github_client import github_client
 from app.integrations.manager import integration_manager
 from app.agent.vault_interceptor import VaultInterceptor
+from app.agent.providers.factory import get_provider_for_model
+
 
 
 class AntigravityHarness:
@@ -262,22 +264,36 @@ class AntigravityHarness:
     ) -> Dict[str, Any]:
         """
         Dynamically synthesizes a bespoke execution plan and classifies task intent
-        using a fast structured JSON call to Gemini before tool loop execution.
-        Surfaces authentic error diagnostics if dynamic formulation fails across candidate models.
+        using structured JSON output from the selected provider (Gemini, Claude, or OpenAI)
+        before tool loop execution. Surfaces authentic error diagnostics if dynamic formulation fails.
         """
         objective = title or prompt[:100]
-        if not api_key:
+        provider = get_provider_for_model(model_name)
+        
+        # Check API key presence for the specific provider
+        if api_key is not None and api_key != "":
+            prov_key = api_key
+        elif api_key == "":
+            prov_key = None
+        else:
+            prov_key = provider.get_api_key() if hasattr(provider, "get_api_key") else None
+
+        if hasattr(provider, "_api_key") and prov_key:
+            provider._api_key = prov_key
+
+        if not prov_key:
+            provider_label = "Anthropic Claude" if provider.provider_id == "anthropic" else ("OpenAI / Codex" if provider.provider_id == "openai" else "Google Gemini")
             return {
                 "intent_category": "app_building" if persona_name == "AppBuilder" else "qa_research",
                 "objective": objective,
                 "steps": [
-                    {"id": "step-1", "title": "Plan Generation Failed: Gemini API Key is missing or unconfigured", "status": "failed"}
+                    {"id": "step-1", "title": f"Plan Generation Failed: {provider_label} API Key is missing or unconfigured", "status": "failed"}
                 ],
                 "evaluation": {
                     "status": "needs_revision",
-                    "summary": "Dynamic execution plan generation failed: Gemini API Key is missing or unconfigured.",
+                    "summary": f"Dynamic execution plan generation failed: {provider_label} API Key is missing or unconfigured.",
                     "checks": [
-                        {"name": "Dynamic Plan Generation", "passed": False, "message": "Gemini API Key is missing or unconfigured"}
+                        {"name": "Dynamic Plan Generation", "passed": False, "message": f"{provider_label} API Key is missing or unconfigured"}
                     ]
                 }
             }
@@ -307,70 +323,39 @@ class AntigravityHarness:
             f"}}"
         )
 
-        candidate_models = list(dict.fromkeys([model_name, "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"]))
-        last_error = "Model response unavailable"
+        plan_res = await provider.generate_structured_plan(
+            prompt=plan_prompt,
+            system_instruction="You are the Cyclode Master Execution Planner.",
+            model_name=model_name,
+            client=client
+        )
 
-        for active_model in candidate_models:
-            if not active_model:
-                continue
-            dynamic_url = f"https://generativelanguage.googleapis.com/v1beta/models/{active_model}:generateContent?key={api_key}"
-            payload = {
-                "contents": [{"role": "user", "parts": [{"text": plan_prompt}]}],
-                "generationConfig": {
-                    "response_mime_type": "application/json",
-                    "temperature": 0.2
+        if plan_res.get("result"):
+            parsed = plan_res["result"]
+            intent_cat = parsed.get("intent_category", "qa_research")
+            if intent_cat not in ["qa_research", "app_building", "code_modification", "review_audit", "debugging", "devops"]:
+                intent_cat = "qa_research"
+
+            obj = parsed.get("objective") or objective
+            raw_steps = parsed.get("steps", [])
+            if isinstance(raw_steps, list) and len(raw_steps) >= 1:
+                steps = []
+                for idx, s in enumerate(raw_steps):
+                    s_title = s.get("title", f"Step {idx+1}") if isinstance(s, dict) else str(s)
+                    s_id = f"step-{idx+1}"
+                    s_status = "in_progress" if idx == 0 else "pending"
+                    steps.append({"id": s_id, "title": s_title, "status": s_status})
+                return {
+                    "intent_category": intent_cat,
+                    "objective": obj,
+                    "steps": steps,
+                    "evaluation": {
+                        "status": "pending",
+                        "summary": "Dynamic plan formulated. Execution in progress."
+                    }
                 }
-            }
 
-            try:
-                resp = await asyncio.wait_for(
-                    client.post(dynamic_url, json=payload),
-                    timeout=5.0
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    candidates = data.get("candidates", [])
-                    if candidates:
-                        parts = candidates[0].get("content", {}).get("parts", [])
-                        raw_text = "".join(p.get("text", "") for p in parts if "text" in p).strip()
-                        if raw_text:
-                            parsed = json.loads(raw_text)
-                            intent_cat = parsed.get("intent_category", "qa_research")
-                            if intent_cat not in ["qa_research", "app_building", "code_modification", "review_audit", "debugging", "devops"]:
-                                intent_cat = "qa_research"
-
-                            obj = parsed.get("objective") or objective
-                            raw_steps = parsed.get("steps", [])
-                            if isinstance(raw_steps, list) and len(raw_steps) >= 1:
-                                steps = []
-                                for idx, s in enumerate(raw_steps):
-                                    s_title = s.get("title", f"Step {idx+1}") if isinstance(s, dict) else str(s)
-                                    s_id = f"step-{idx+1}"
-                                    s_status = "in_progress" if idx == 0 else "pending"
-                                    steps.append({"id": s_id, "title": s_title, "status": s_status})
-                                return {
-                                    "intent_category": intent_cat,
-                                    "objective": obj,
-                                    "steps": steps,
-                                    "evaluation": {
-                                        "status": "pending",
-                                        "summary": "Dynamic plan formulated. Execution in progress."
-                                    }
-                                }
-                else:
-                    err_msg = f"HTTP {resp.status_code}"
-                    try:
-                        err_json = resp.json()
-                        err_msg = err_json.get("error", {}).get("message", resp.text[:120])
-                    except Exception:
-                        if resp.text:
-                            err_msg = resp.text[:120]
-                    last_error = f"Model {active_model} returned HTTP {resp.status_code}: {err_msg}"
-            except Exception as e:
-                last_error = f"Model {active_model} call error: {type(e).__name__} ({str(e)[:100]})"
-                logger.debug(f"Dynamic plan generation exception on model {active_model}: {e}")
-                continue
-
+        last_error = plan_res.get("error") or "Plan generation failed across candidate models."
         return {
             "intent_category": "app_building" if persona_name == "AppBuilder" else "qa_research",
             "objective": objective,
@@ -385,6 +370,7 @@ class AntigravityHarness:
                 ]
             }
         }
+
 
     def _generate_initial_plan(self, title: str, prompt: str, persona_name: str = "") -> Dict[str, Any]:
         """
@@ -420,8 +406,18 @@ class AntigravityHarness:
         # 1. Pre-process secrets into Vault and mask them
         sanitized_prompt, extracted_creds = await VaultInterceptor.process_prompt(raw_prompt)
 
-        gemini_creds = integration_manager._custom_credentials.get("gemini", {})
-        api_key = extracted_creds.get("gemini_api_key") or gemini_creds.get("api_key") or settings.get_api_key()
+        provider = get_provider_for_model(self.model_name)
+        provider_id = provider.provider_id
+        provider_label = "Anthropic Claude" if provider_id == "anthropic" else ("OpenAI / Codex" if provider_id == "openai" else "Google Gemini")
+        env_var_name = "ANTHROPIC_API_KEY" if provider_id == "anthropic" else ("OPENAI_API_KEY" if provider_id == "openai" else "GEMINI_API_KEY")
+
+        custom_creds = integration_manager._custom_credentials.get(provider_id, {})
+        api_key = (
+            extracted_creds.get(f"{provider_id}_api_key")
+            or custom_creds.get("api_key")
+            or (provider.get_api_key() if hasattr(provider, "get_api_key") else None)
+            or (settings.get_api_key() if provider_id == "google" else None)
+        )
 
         # Ensure workspace directory exists
         workspace_path.mkdir(parents=True, exist_ok=True)
@@ -431,17 +427,17 @@ class AntigravityHarness:
             guidance_msg = (
                 f"### LLM Model Configuration Required\n\n"
                 f"To run autonomous code reviews, synthesize PR diffs, and orchestrate workspace tools, please configure an LLM provider:\n\n"
-                f"1. **Gemini API Key**: Set `GEMINI_API_KEY` in your `.env` file or configure it in **Settings > Integrations**.\n"
+                f"1. **{provider_label} API Key**: Set `{env_var_name}` in your `.env` file or configure it in **Settings > Integrations**.\n"
                 f"2. **Real-time Tool Orchestration**: Tools (`read_file`, `search_code`, `run_command`, `search_web`, `create_pull_request`) execute automatically once an API key is connected."
             )
             await self._emit_streamed_thought(
-                "API credentials missing. Please set GEMINI_API_KEY in environment or Integrations Settings.",
+                f"API credentials missing. Please set {env_var_name} in environment or Integrations Settings.",
                 on_thought, on_stream_start, on_stream_chunk, on_stream_end
             )
             await self._emit_streamed_message(
                 "agent", guidance_msg, on_message, on_stream_start, on_stream_chunk, on_stream_end
             )
-            return {"status": "AWAITING_INPUT", "summary": "Awaiting LLM API Key configuration."}
+            return {"status": "AWAITING_INPUT", "summary": f"Awaiting {provider_label} API Key configuration."}
 
         # 3. Execute with LLM ReAct function calling loop
         return await self._execute_with_llm(
@@ -758,7 +754,16 @@ class AntigravityHarness:
             f"   - If the user asks follow-up questions about specific lines, files, or diff hunks, reason directly on the code."
         )
 
-        model_candidates = [self.model_name, "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"]
+        provider = get_provider_for_model(self.model_name)
+        if provider.provider_id == "anthropic":
+            model_candidates = [self.model_name, "claude-3-7-sonnet", "claude-3-5-sonnet", "claude-3-5-haiku"]
+            provider_label = "Anthropic Claude"
+        elif provider.provider_id == "openai":
+            model_candidates = [self.model_name, "gpt-4o", "gpt-4o-mini", "o3-mini", "codex"]
+            provider_label = "OpenAI / Codex"
+        else:
+            model_candidates = [self.model_name, "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"]
+            provider_label = "Google Gemini"
         unique_models = list(dict.fromkeys(m for m in model_candidates if m))
 
         # 0. Check Semantic Vector Cache for Q&A / Research queries (Tier 4)
@@ -845,11 +850,11 @@ class AntigravityHarness:
         if not contents or contents[-1].get("role") != "user":
             contents.append({"role": "user", "parts": [{"text": prompt}]})
 
-        logger.info(f"Connecting to Gemini API using model {self.model_name}...")
+        logger.info(f"Connecting to {provider_label} API using model {self.model_name}...")
 
         client_timeout = httpx.Timeout(120.0, connect=15.0, read=120.0)
         async with httpx.AsyncClient(timeout=client_timeout) as client:
-            # Formulate dynamic execution plan using fast structured Gemini call (with automatic semantic fallback)
+            # Formulate dynamic execution plan using fast structured provider call
             primary_model = unique_models[0] if unique_models else self.model_name
             dynamic_plan = await self._generate_dynamic_plan(
                 client=client,
@@ -868,7 +873,7 @@ class AntigravityHarness:
             for active_model in unique_models:
                 if quota_exhausted:
                     break
-                api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{active_model}:generateContent?key={api_key}"
+                active_provider = get_provider_for_model(active_model)
                 turn = 0
                 max_turns = 45
                 guardrail_corrections = 0
@@ -932,18 +937,17 @@ class AntigravityHarness:
                         else:
                             active_tools_def = tools_def
 
-                        # Tier 1: Static Prefix Stabilization (System Instruction + Tools)
-                        payload = {
-                            "contents": optimized_contents,
-                            "system_instruction": {"parts": [{"text": system_instruction}]},
-                        }
-                        if active_tools_def:
-                            payload["tools"] = active_tools_def
-
-                        resp = None
+                        # Execute turn with active provider
+                        provider_resp = None
                         for retry_idx in range(2):
                             try:
-                                resp = await client.post(api_url, json=payload)
+                                provider_resp = await active_provider.generate_response(
+                                    messages=optimized_contents,
+                                    tools=active_tools_def,
+                                    system_instruction=system_instruction,
+                                    model_name=active_model,
+                                    client=client
+                                )
                                 break
                             except (httpx.TimeoutException, httpx.NetworkError) as net_err:
                                 logger.warning(f"Transient network notice on turn {turn} model {active_model} (attempt {retry_idx+1}): {net_err}")
@@ -952,22 +956,17 @@ class AntigravityHarness:
                                 else:
                                     raise
 
-                        if not resp:
+                        if not provider_resp:
                             break
-                        if resp.status_code == 404:
+                        if provider_resp.status_code == 404:
                             break
-                        if resp.status_code == 429:
-                            err_text = "Your prepayment credits are depleted or quota limit reached in Google AI Studio."
-                            try:
-                                err_data = resp.json()
-                                err_text = err_data.get("error", {}).get("message", err_text)
-                            except Exception:
-                                pass
-                            logger.warning(f"Google AI Studio Quota Notice (429): {err_text}")
+                        if provider_resp.status_code == 429:
+                            err_text = provider_resp.error_message or "API quota limit reached or credits depleted."
+                            logger.warning(f"{provider_label} Quota Notice (429): {err_text}")
                             quota_exhausted = True
                             quota_thought = (
-                                f"**Google Gemini API Quota Notice (429)**: {err_text}\n\n"
-                                f"*Please configure prepayment credits at https://ai.studio/projects or paste a new API key (`AIzaSy...`) in chat.*"
+                                f"**{provider_label} API Quota Notice (429)**: {err_text}\n\n"
+                                f"*Please verify billing limits or configure a fresh API key in Settings > Integrations.*"
                             )
                             await self._emit_streamed_thought(
                                 quota_thought, on_thought, on_stream_start, on_stream_chunk, on_stream_end
@@ -979,7 +978,7 @@ class AntigravityHarness:
                                     s["status"] = "failed"
                             current_plan["evaluation"] = {
                                 "status": "needs_revision",
-                                "summary": f"Execution halted: Google Gemini API Quota Depleted (429). {err_text}",
+                                "summary": f"Execution halted: {provider_label} API Quota Depleted (429). {err_text}",
                                 "checks": [
                                     {"name": "API Connection", "passed": False, "message": "Prepayment credits depleted (429)"},
                                     {"name": "Tool Execution", "passed": False}
@@ -988,27 +987,22 @@ class AntigravityHarness:
                             await self._emit_plan(current_plan, on_plan)
 
                             quota_user_msg = (
-                                f"### Google Gemini API Quota Notice (429)\n\n"
+                                f"### {provider_label} API Quota Notice (429)\n\n"
                                 f"**{err_text}**\n\n"
                                 f"To resume autonomous agent execution:\n"
-                                f"1. **Prepayment Credits**: Configure your billing project at [Google AI Studio](https://ai.studio/projects).\n"
-                                f"2. **Alternative API Key**: Provide a fresh Gemini API key (`AIzaSy...`) in chat or configure **Settings > Integrations**."
+                                f"1. **Prepayment / Credits**: Configure your billing project for {provider_label}.\n"
+                                f"2. **Alternative API Key**: Provide an active API key in chat or configure **Settings > Integrations**."
                             )
                             await self._emit_streamed_message(
                                 "agent", quota_user_msg, on_message, on_stream_start, on_stream_chunk, on_stream_end
                             )
                             return {"status": "FAILED", "summary": f"Quota Depleted (429): {err_text[:100]}"}
-                        if resp.status_code in [401, 403]:
-                            err_text = "Your Google Cloud project or API key has been denied access or is unauthenticated."
-                            try:
-                                err_data = resp.json()
-                                err_text = err_data.get("error", {}).get("message", err_text)
-                            except Exception:
-                                pass
-                            logger.warning(f"Google Gemini API Access Notice ({resp.status_code}): {err_text}")
+                        if provider_resp.status_code in [401, 403]:
+                            err_text = provider_resp.error_message or "API key has been denied access or is unauthenticated."
+                            logger.warning(f"{provider_label} API Access Notice ({provider_resp.status_code}): {err_text}")
                             perm_thought = (
-                                f"**Google Gemini API Access Notice ({resp.status_code})**: {err_text}\n\n"
-                                f"*Please verify your project permissions at https://ai.studio/projects or provide a valid API key (`AIzaSy...`) in chat.*"
+                                f"**{provider_label} API Access Notice ({provider_resp.status_code})**: {err_text}\n\n"
+                                f"*Please verify your project permissions or provide a valid API key in Settings > Integrations.*"
                             )
                             await self._emit_streamed_thought(
                                 perm_thought, on_thought, on_stream_start, on_stream_chunk, on_stream_end
@@ -1019,44 +1013,41 @@ class AntigravityHarness:
                                     s["status"] = "failed"
                             current_plan["evaluation"] = {
                                 "status": "needs_revision",
-                                "summary": f"Execution halted: Google Gemini API Permission Denied ({resp.status_code}). {err_text}",
+                                "summary": f"Execution halted: {provider_label} API Permission Denied ({provider_resp.status_code}). {err_text}",
                                 "checks": [
-                                    {"name": "API Connection", "passed": False, "message": f"Access denied ({resp.status_code})"},
+                                    {"name": "API Connection", "passed": False, "message": f"Access denied ({provider_resp.status_code})"},
                                     {"name": "Tool Execution", "passed": False}
                                 ]
                             }
                             await self._emit_plan(current_plan, on_plan)
 
                             perm_user_msg = (
-                                f"### Google Gemini API Access Notice ({resp.status_code})\n\n"
+                                f"### {provider_label} API Access Notice ({provider_resp.status_code})\n\n"
                                 f"**{err_text}**\n\n"
-                                f"The configured Google Cloud project or Gemini API key was denied access by the AI provider.\n\n"
+                                f"The configured {provider_label} API key was denied access by the AI provider.\n\n"
                                 f"To resume autonomous agent execution:\n"
-                                f"1. **Generate New Key**: Obtain a fresh API key at [Google AI Studio](https://ai.studio/projects).\n"
-                                f"2. **Update Key**: Paste your fresh Gemini API key (`AIzaSy...`) directly in chat or configure **Settings > Integrations**."
+                                f"1. **Generate New Key**: Obtain a fresh API key for {provider_label}.\n"
+                                f"2. **Update Key**: Configure your API key in **Settings > Integrations**."
                             )
                             await self._emit_streamed_message(
                                 "agent", perm_user_msg, on_message, on_stream_start, on_stream_chunk, on_stream_end
                             )
-                            return {"status": "FAILED", "summary": f"Access Denied ({resp.status_code}): {err_text[:100]}"}
-                        if resp.status_code != 200:
-                            err_msg = resp.text[:200]
-                            last_api_error_code = resp.status_code
+                            return {"status": "FAILED", "summary": f"Access Denied ({provider_resp.status_code}): {err_text[:100]}"}
+                        if not provider_resp.is_success:
+                            err_msg = provider_resp.error_message or f"HTTP {provider_resp.status_code}"
+                            last_api_error_code = provider_resp.status_code
                             last_api_error_text = err_msg
-                            logger.warning(f"API notice on turn {turn} model {active_model} ({resp.status_code}): {err_msg}")
+                            logger.warning(f"API notice on turn {turn} model {active_model} ({provider_resp.status_code}): {err_msg}")
                             break
 
                         model_succeeded = True
-                        data = resp.json()
-                        candidates = data.get("candidates", [])
-                        if not candidates:
-                            break
+                        if provider_resp.thought:
+                            await self._emit_streamed_thought(
+                                provider_resp.thought, on_thought, on_stream_start, on_stream_chunk, on_stream_end
+                            )
 
-                        candidate = candidates[0]
-                        parts = candidate.get("content", {}).get("parts", [])
-
-                        function_calls = [p["functionCall"] for p in parts if "functionCall" in p]
-                        text_parts = [p["text"] for p in parts if "text" in p]
+                        function_calls = [{"name": tc.tool_name, "args": tc.tool_args, "id": tc.call_id} for tc in provider_resp.tool_calls]
+                        text_parts = [provider_resp.content] if provider_resp.content else []
 
                         if text_parts:
                             combined_text = "\n".join(text_parts).strip()
@@ -1069,6 +1060,7 @@ class AntigravityHarness:
                                 await self._emit_streamed_message(
                                     "agent", combined_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
                                 )
+
 
                         if not function_calls:
                             # Autonomous Pre-Completion Verification Guardrail
@@ -1103,9 +1095,17 @@ class AntigravityHarness:
                                         f"**Pre-Completion Guardrail**: Verifying application preview... Status: {status_val}. {rec_text}",
                                         on_thought, on_stream_start, on_stream_chunk, on_stream_end
                                     )
+                                    model_parts = []
+                                    if provider_resp.thought:
+                                        model_parts.append({"thought": provider_resp.thought})
+                                    if provider_resp.content:
+                                        model_parts.append({"text": provider_resp.content})
+                                    for fc in function_calls:
+                                        model_parts.append({"functionCall": fc})
+
                                     contents.append({
                                         "role": "model",
-                                        "parts": parts if parts else [{"text": "Scaffolding initialized."}]
+                                        "parts": model_parts if model_parts else [{"text": "Scaffolding initialized."}]
                                     })
                                     contents.append({
                                         "role": "user",
@@ -1177,10 +1177,19 @@ class AntigravityHarness:
                                     logger.debug(f"Semantic cache store notice: {cache_store_err}")
                             return {"status": "COMPLETED", "summary": final_text[:120]}
 
+                        model_parts = []
+                        if provider_resp.thought:
+                            model_parts.append({"thought": provider_resp.thought})
+                        if provider_resp.content:
+                            model_parts.append({"text": provider_resp.content})
+                        for fc in function_calls:
+                            model_parts.append({"functionCall": fc})
+
                         contents.append({
                             "role": "model",
-                            "parts": parts
+                            "parts": model_parts if model_parts else [{"text": "Processed."}]
                         })
+
 
                         response_parts = []
                         for call in function_calls:

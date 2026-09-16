@@ -75,9 +75,13 @@ class Settings(BaseSettings):
     DATABASE_URL: str = Field(default_factory=_default_database_url)
     STATIC_DIR: Optional[str] = None
 
-    # Antigravity & Gemini configuration
-    GEMINI_API_KEY: Optional[str] = Field(default_factory=lambda: _USER_CFG.get("gemini_api_key"))
-    GOOGLE_API_KEY: Optional[str] = None
+    # LLM Provider configuration
+    GEMINI_API_KEY: Optional[str] = Field(default_factory=lambda: _USER_CFG.get("gemini_api_key") or os.environ.get("GEMINI_API_KEY"))
+    GOOGLE_API_KEY: Optional[str] = Field(default_factory=lambda: os.environ.get("GOOGLE_API_KEY"))
+    ANTHROPIC_API_KEY: Optional[str] = Field(default_factory=lambda: _USER_CFG.get("anthropic_api_key") or os.environ.get("ANTHROPIC_API_KEY"))
+    OPENAI_API_KEY: Optional[str] = Field(default_factory=lambda: _USER_CFG.get("openai_api_key") or os.environ.get("OPENAI_API_KEY"))
+    OPENAI_BASE_URL: Optional[str] = Field(default_factory=lambda: _USER_CFG.get("openai_base_url") or os.environ.get("OPENAI_BASE_URL"))
+
     ANTIGRAVITY_MODEL: str = Field(default_factory=lambda: str(_USER_CFG.get("model", "gemini-3.7-flash")))
     ANTIGRAVITY_ENABLE_THINKING: bool = True
     ANTIGRAVITY_MAX_PARALLEL_WORKERS: int = 5
@@ -115,6 +119,13 @@ class Settings(BaseSettings):
     def get_api_key(self) -> Optional[str]:
         return self.GEMINI_API_KEY or self.GOOGLE_API_KEY
 
+    def get_anthropic_api_key(self) -> Optional[str]:
+        return self.ANTHROPIC_API_KEY or os.environ.get("ANTHROPIC_API_KEY")
+
+    def get_openai_api_key(self) -> Optional[str]:
+        return self.OPENAI_API_KEY or os.environ.get("OPENAI_API_KEY")
+
 
 settings = Settings()
+
 

@@ -21,7 +21,9 @@ import {
   Activity,
   AlertTriangle,
   Zap,
-  Lock
+  Lock,
+  Bot,
+  Cpu
 } from 'lucide-react';
 import { Integration, SkillCatalogItem, WebhookEndpoint } from '../../types';
 
@@ -96,6 +98,10 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
     } else if (selectedIntegration.id === 'appsignal') {
       payload.api_key = tokenInput.trim();
     } else if (selectedIntegration.id === 'gemini') {
+      payload.api_key = tokenInput.trim();
+    } else if (selectedIntegration.id === 'anthropic') {
+      payload.api_key = tokenInput.trim();
+    } else if (selectedIntegration.id === 'openai') {
       payload.api_key = tokenInput.trim();
     } else if (selectedIntegration.id === 'linear') {
       payload.token = tokenInput.trim();
@@ -203,6 +209,10 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
     switch (id) {
       case 'gemini':
         return <Sparkles className="w-5 h-5 text-cyan-400" />;
+      case 'anthropic':
+        return <Bot className="w-5 h-5 text-amber-400" />;
+      case 'openai':
+        return <Cpu className="w-5 h-5 text-emerald-400" />;
       case 'github':
         return <FolderGit2 className="w-5 h-5 text-purple-400" />;
       case 'linear':
@@ -222,6 +232,10 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
     switch (id) {
       case 'gemini':
         return 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400';
+      case 'anthropic':
+        return 'bg-amber-500/10 border-amber-500/30 text-amber-400';
+      case 'openai':
+        return 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400';
       case 'github':
         return 'bg-purple-500/10 border-purple-500/30 text-purple-400';
       case 'linear':
@@ -650,6 +664,8 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                      selectedIntegration.id === 'slack' ? 'Slack Bot User OAuth Token (xoxb-)' :
                      selectedIntegration.id === 'appsignal' ? 'AppSignal Push API Key' :
                      selectedIntegration.id === 'gemini' ? 'Google AI Studio / Gemini API Key' :
+                     selectedIntegration.id === 'anthropic' ? 'Anthropic API Key (sk-ant-...)' :
+                     selectedIntegration.id === 'openai' ? 'OpenAI API Key (sk-...)' :
                      selectedIntegration.id === 'linear' ? 'Linear API Key / Personal API Key (lin_api_...)' :
                      selectedIntegration.id === 'sentry' ? 'Sentry Auth Token' : 'API Token'}
                   </span>
@@ -663,6 +679,8 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                     selectedIntegration.id === 'github' ? 'ghp_xxxxxxxxxxxxxxxxxxxx' :
                     selectedIntegration.id === 'slack' ? 'xoxb-xxxxxxxxxxxxxxxxxxxx' :
                     selectedIntegration.id === 'gemini' ? 'AIzaSyxxxxxxxxxxxxxxxxxxxx' :
+                    selectedIntegration.id === 'anthropic' ? 'sk-ant-xxxxxxxxxxxxxxxxxxxx' :
+                    selectedIntegration.id === 'openai' ? 'sk-xxxxxxxxxxxxxxxxxxxx' :
                     selectedIntegration.id === 'linear' ? 'lin_api_xxxxxxxxxxxxxxxxxxxx' :
                     selectedIntegration.id === 'sentry' ? 'sntrys_xxxxxxxxxxxxxxxxxxxx' : 'Enter secret key...'
                   }

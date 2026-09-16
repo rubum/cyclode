@@ -43,7 +43,9 @@ import {
   Clock,
   HelpCircle,
   ListOrdered,
-  Circle
+  Circle,
+  Bot,
+  Cpu
 } from 'lucide-react';
 import { Task, TaskMessage, TaskLog, RepositoryConfig, TaskPR, WorkspacePreviewInfo, TaskPlan, LayoutPreset } from '../../types';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
@@ -182,7 +184,7 @@ interface ChatCanvasProps {
   onSendMessage: (content: string) => void;
   onApprove: (feedback?: string) => void;
   onReject: (feedback?: string) => void;
-  onNewChatWithPrompt?: (prompt: string, persona: string) => void;
+  onNewChatWithPrompt?: (prompt: string, persona: string, modelName?: string) => void;
   onEditMessage?: (messageId: string, newContent: string) => void;
   onRetryTask?: (fromMessageId?: string) => void;
   onStopTask?: () => void;
@@ -513,6 +515,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [selectedPersona, setSelectedPersona] = useState('PairProgrammer');
+  const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash');
   const [openThoughts, setOpenThoughts] = useState<Record<string, boolean>>({});
   const [userToggledPlans, setUserToggledPlans] = useState<Record<string, boolean>>({});
   const [userToggledActivities, setUserToggledActivities] = useState<Record<string, boolean>>({});
@@ -982,7 +985,7 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
       if (task) {
         await onSendMessage(trimmed);
       } else if (onNewChatWithPrompt) {
-        await onNewChatWithPrompt(trimmed, selectedPersona);
+        await onNewChatWithPrompt(trimmed, selectedPersona, selectedModel);
       }
       setInputValue('');
     } catch (err) {
@@ -1160,6 +1163,35 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
     { id: 'APMTriage', label: 'APM Triage (Sentry / AppSignal)' },
   ];
 
+  const modelOptions = [
+    {
+      group: 'Google Gemini',
+      models: [
+        { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Default)' },
+        { id: 'gemini-2.0-pro', label: 'Gemini 2.0 Pro' },
+        { id: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
+        { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash' },
+      ],
+    },
+    {
+      group: 'Anthropic Claude',
+      models: [
+        { id: 'claude-3-7-sonnet', label: 'Claude 3.7 Sonnet (Thinking)' },
+        { id: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet' },
+        { id: 'claude-3-5-haiku', label: 'Claude 3.5 Haiku' },
+      ],
+    },
+    {
+      group: 'OpenAI / Codex',
+      models: [
+        { id: 'gpt-4o', label: 'GPT-4o' },
+        { id: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+        { id: 'o3-mini', label: 'o3-mini' },
+        { id: 'codex', label: 'Codex / GPT-4o' },
+      ],
+    },
+  ];
+
   const contentMaxWidth = currentPreset === 'fullscreen'
     ? 'max-w-7xl 2xl:max-w-[1750px] px-2 sm:px-6'
     : currentPreset === 'wide'
@@ -1311,6 +1343,26 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                       <option key={p.id} value={p.id} className="bg-onedark-darker text-onedark-fg">
                         {p.label}
                       </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Model Selector Pill */}
+                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-surface border border-onedark-border text-xs text-onedark-fg font-mono shadow-sm flex-shrink-0">
+                  <Bot className="w-3.5 h-3.5 text-onedark-accent" />
+                  <select
+                    value={selectedModel}
+                    onChange={(e) => setSelectedModel(e.target.value)}
+                    className="bg-transparent text-onedark-fg focus:outline-none cursor-pointer text-xs"
+                  >
+                    {modelOptions.map((g) => (
+                      <optgroup key={g.group} label={g.group} className="bg-onedark-darker text-onedark-muted font-bold">
+                        {g.models.map((m) => (
+                          <option key={m.id} value={m.id} className="bg-onedark-darker text-onedark-fg">
+                            {m.label}
+                          </option>
+                        ))}
+                      </optgroup>
                     ))}
                   </select>
                 </div>
@@ -1493,8 +1545,31 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
           )}
         </div>
 
-        {/* Right: Sandbox, Status Badge, Presets, Retry */}
+        {/* Right: Sandbox, Model Badge, Status Badge, Presets, Retry */}
         <div className="flex items-center space-x-1.5 flex-shrink-0">
+          {/* Model Badge */}
+          {task.model_name && (
+            <div 
+              className={`hidden sm:flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10.5px] font-mono border ${
+                task.model_name.startsWith('claude') 
+                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                  : task.model_name.startsWith('gpt') || task.model_name.startsWith('o') || task.model_name.startsWith('codex')
+                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                  : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
+              }`}
+              title={`Active Model: ${task.model_name}`}
+            >
+              {task.model_name.startsWith('claude') ? (
+                <Bot className="w-3 h-3" />
+              ) : task.model_name.startsWith('gpt') || task.model_name.startsWith('o') || task.model_name.startsWith('codex') ? (
+                <Cpu className="w-3 h-3" />
+              ) : (
+                <Sparkles className="w-3 h-3" />
+              )}
+              <span className="truncate max-w-[110px]">{task.model_name}</span>
+            </div>
+          )}
+
           {/* Status Badge */}
           <div className="flex items-center space-x-1 flex-shrink-0">
             <span

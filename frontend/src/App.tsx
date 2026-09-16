@@ -601,7 +601,11 @@ const MainApp: React.FC = () => {
     }
   };
 
-  const handleNewChatWithPrompt = async (prompt: string, persona: string = 'PairProgrammer') => {
+  const handleNewChatWithPrompt = async (
+    prompt: string,
+    persona: string = 'PairProgrammer',
+    modelName: string = 'gemini-2.5-flash'
+  ) => {
     const tempId = `temp-${Date.now()}`;
     const initialTitle = getCleanInitialTitle(prompt);
     const tempTask: Task = {
@@ -610,7 +614,7 @@ const MainApp: React.FC = () => {
       custom_title: false,
       description: prompt,
       persona: persona || 'PairProgrammer',
-      model_name: 'gemini-2.5-flash',
+      model_name: modelName || 'gemini-2.5-flash',
       status: 'INITIALIZING',
       sandbox_status: 'PROVISIONING',
       workspace_path: '/workspaces/default',
@@ -643,15 +647,20 @@ const MainApp: React.FC = () => {
           title: initialTitle,
           description: prompt,
           persona: persona || 'PairProgrammer',
+          model_name: modelName || 'gemini-2.5-flash',
         }),
       });
       if (res.ok) {
         const data = await res.json();
         if (activeTaskIdRef.current === tempId) {
-          setActiveTaskId(data.task_id);
-          fetchTaskDetails(data.task_id);
+          setActiveTaskId(data.id);
+          setActiveTaskDetails(data);
+          activeTaskIdRef.current = data.id;
         }
-        fetchTasks();
+        setTasks((prev) =>
+          prev.map((t) => (t.id === tempId ? { ...t, ...data } : t))
+        );
+        fetchTaskDetails(data.id);
       }
     } catch (err) {
       console.error('Error creating task:', err);

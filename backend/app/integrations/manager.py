@@ -73,6 +73,17 @@ class IntegrationManager:
                 if "api_key" in credentials:
                     os.environ["GEMINI_API_KEY"] = credentials["api_key"]
                     settings.GEMINI_API_KEY = credentials["api_key"]
+            elif provider == "anthropic":
+                if "api_key" in credentials:
+                    os.environ["ANTHROPIC_API_KEY"] = credentials["api_key"]
+                    settings.ANTHROPIC_API_KEY = credentials["api_key"]
+            elif provider == "openai":
+                if "api_key" in credentials:
+                    os.environ["OPENAI_API_KEY"] = credentials["api_key"]
+                    settings.OPENAI_API_KEY = credentials["api_key"]
+                if "base_url" in credentials:
+                    os.environ["OPENAI_BASE_URL"] = credentials["base_url"]
+                    settings.OPENAI_BASE_URL = credentials["base_url"]
 
         return {
             "provider": provider,
@@ -148,7 +159,7 @@ class IntegrationManager:
                     return {"valid": True, "message": f"Linear API returned status {resp.status_code}"}
 
             elif provider == "gemini":
-                key = credentials.get("api_key") or settings.GEMINI_API_KEY
+                key = credentials.get("api_key") or settings.get_api_key()
                 if not key:
                     return {"valid": False, "message": "Gemini API key is empty"}
                 async with httpx.AsyncClient(timeout=10.0) as client:
@@ -156,6 +167,51 @@ class IntegrationManager:
                     if resp.status_code == 200:
                         return {"valid": True, "message": "Gemini API key verified successfully"}
                     return {"valid": False, "message": f"Gemini API returned status {resp.status_code}"}
+
+            elif provider == "anthropic":
+                key = credentials.get("api_key") or settings.get_anthropic_api_key()
+                if not key:
+                    return {"valid": False, "message": "Anthropic API key is empty"}
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    # Probe with dummy request or minimal messages call
+                    resp = await client.post(
+                        "https://api.anthropic.com/v1/messages",
+                        headers={
+                            "x-api-key": key,
+                            "anthropic-version": "2023-06-01",
+                            "content-type": "application/json"
+                        },
+                        json={
+                            "model": "claude-3-5-haiku-20241022",
+                            "max_tokens": 1,
+                            "messages": [{"role": "user", "content": "ping"}]
+                        }
+                    )
+                    if resp.status_code == 200:
+                        return {"valid": True, "message": "Anthropic API key verified successfully"}
+                    elif resp.status_code == 401:
+                        return {"valid": False, "message": "Invalid Anthropic API key (401 Unauthorized)"}
+                    elif resp.status_code == 400 and "credit balance" in resp.text.lower():
+                        return {"valid": False, "message": "Anthropic credit balance is too low"}
+                    elif resp.status_code in [400, 429]:
+                        return {"valid": True, "message": "Anthropic API key authenticated"}
+                    return {"valid": False, "message": f"Anthropic API returned status {resp.status_code}"}
+
+            elif provider == "openai":
+                key = credentials.get("api_key") or settings.get_openai_api_key()
+                base_url = (credentials.get("base_url") or settings.OPENAI_BASE_URL or "https://api.openai.com/v1").rstrip("/")
+                if not key:
+                    return {"valid": False, "message": "OpenAI API key is empty"}
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.get(
+                        f"{base_url}/models",
+                        headers={"Authorization": f"Bearer {key}"}
+                    )
+                    if resp.status_code == 200:
+                        return {"valid": True, "message": "OpenAI API key verified successfully"}
+                    elif resp.status_code == 401:
+                        return {"valid": False, "message": "Invalid OpenAI API key (401 Unauthorized)"}
+                    return {"valid": False, "message": f"OpenAI API returned status {resp.status_code}"}
 
             return {"valid": True, "message": f"Credentials saved for {provider}"}
         except Exception as e:
