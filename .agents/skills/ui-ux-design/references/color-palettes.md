@@ -1,10 +1,14 @@
 # UI/UX Design System Color Palettes
 
-Ready-to-use Tailwind CSS configuration presets for modern web applications.
+Ready-to-use, production-grade Tailwind CSS configuration presets for modern web applications. These palettes deliberately avoid generic "AI purple/indigo neon glow" clichés in favor of domain-crafted aesthetic harmonies.
 
 ---
 
-## 1. Obsidian Minimalist Dark (Linear / Raycast Preset)
+## 1. Warm Editorial Craft (Terracotta & Stone)
+* **Best For**: Knowledge repositories, publishing tools, research engines, luxury e-commerce, architectural journals.
+* **Canvas Backdrop**: `#fcfbf9` (Warm Paper) or `#181614` (Deep Charcoal Dark).
+* **Surfaces**: `#f4f1ea` (Card Surface) / `#221f1b` (Dark Card Surface).
+* **Accent**: `#c2410c` (Terracotta / Burnt Orange) or `#854d0e` (Warm Ochre).
 
 ```javascript
 tailwind.config = {
@@ -12,26 +16,156 @@ tailwind.config = {
   theme: {
     extend: {
       colors: {
-        canvas: '#09090b',
-        surface: {
-          DEFAULT: '#18181b',
-          elevated: '#27272a',
-          hover: '#3f3f46',
+        craft: {
+          bg: '#fcfbf9',
+          card: '#f4f1ea',
+          cardHover: '#ebe7dd',
+          border: '#e6e2d8',
+          ink: '#2d2a26',
+          muted: '#78716c',
+          terracotta: '#c2410c',
+          ochre: '#854d0e',
+          sage: '#4d7c0f',
         },
-        border: {
-          subtle: 'rgba(255, 255, 255, 0.08)',
-          DEFAULT: 'rgba(255, 255, 255, 0.14)',
-          active: 'rgba(255, 255, 255, 0.24)',
-        },
-        brand: {
-          50: '#eef2ff',
-          100: '#e0e7ff',
-          500: '#6366f1',
-          600: '#4f46e5',
-          700: '#4338ca',
-        },
-        accent: {
-          cyan: '#06b6d4',
+        craftDark: {
+          bg: '#141210',
+          card: '#1e1b18',
+          cardHover: '#282420',
+          border: 'rgba(255, 255, 255, 0.08)',
+          ink: '#f5f5f4',
+          muted: '#a8a29e',
+          terracotta: '#ea580c',
+          ochre: '#d97706',
+        }
+      }
+    }
+  }
+};
+```
+
+---
+
+## 2. Japanese Ink & Hanko Vermillion (Sumi Black)
+* **Best For**: High-precision engineering suites, terminal companions, audio workstations, command dashboards.
+* **Canvas Backdrop**: `#121214` (Deep Sumi Ink).
+* **Surfaces**: `#1a1a1d` (Primary Card), `#242428` (Elevated / Popover).
+* **Borders**: `rgba(255, 255, 255, 0.07)` (Subtle hairline grid).
+* **Accent**: `#e11d48` (Hanko Seal Vermillion) or `#f59e0b` (Warm Lantern Amber).
+
+```javascript
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        sumi: {
+          canvas: '#121214',
+          card: '#1a1a1d',
+          cardElevated: '#242428',
+          cardHover: '#2e2e34',
+          borderSubtle: 'rgba(255, 255, 255, 0.07)',
+          borderHover: 'rgba(255, 255, 255, 0.16)',
+          inkLight: '#f4f4f5',
+          inkMuted: '#a1a1aa',
+          vermillion: '#e11d48',
+          vermillionHover: '#f43f5e',
+          amber: '#f59e0b',
+        }
+      }
+    }
+  }
+};
+```
+
+---
+
+## 3. Botanical & Nordic Pine (Deep Forest & Sage)
+* **Best For**: Climate tech, environmental metrics, health & wellness platforms, scientific dashboards.
+* **Canvas Backdrop**: `#0a0f0d` (Midnight Forest) or `#f3f6f4` (Light Nordic Dew).
+* **Surfaces**: `#111a16` (Pine Card) / `#ffffff` (Light Card).
+* **Borders**: `#1b2923` (Dark Border) / `#dbe4de` (Light Border).
+* **Accent**: `#10b981` (Vibrant Emerald) or `#84cc16` (Nordic Lime).
+
+```javascript
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        botanical: {
+          bg: '#0a0f0d',
+          card: '#111a16',
+          cardHover: '#18241f',
+          border: '#1f2e27',
+          pine: '#2dd4bf',
+          emerald: '#10b981',
+          sage: '#86efac',
+          moss: '#84cc16',
+          text: '#ecfdf5',
+          textMuted: '#6ee7b7',
+        }
+      }
+    }
+  }
+};
+```
+
+---
+
+## 4. Swiss Minimalist Monochrome (International Klein Blue Accent)
+* **Best For**: High-frequency financial terminals, SQL browsers, data matrices, telemetry viewers.
+* **Canvas Backdrop**: `#000000` (Pitch Black) or `#ffffff` (Stark White).
+* **Surfaces**: `#0e0e10` (Surface) / `#fafafa` (Light Surface).
+* **Borders**: `#222226` (Geometric Wireframe).
+* **Single Spot Accent**: `#2563eb` (International Klein Blue) or `#e11d48` (Precision Red).
+
+```javascript
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        swiss: {
+          canvas: '#000000',
+          surface: '#0e0e10',
+          surfaceHover: '#18181c',
+          border: '#222226',
+          borderLight: '#33333a',
+          text: '#ffffff',
+          textMuted: '#71717a',
+          kleinBlue: '#2563eb',
+          kleinBlueHover: '#3b82f6',
+        }
+      }
+    }
+  }
+};
+```
+
+---
+
+## 5. Refined Obsidian Minimalist Dark (True Neutral Zinc)
+* **Best For**: Productivity suites, issue trackers (Linear-style), task graphs.
+* **Canvas Backdrop**: `#09090b` (True Neutral Zinc Canvas).
+* **Surfaces**: `#141416` (Card), `#1f1f23` (Elevated Layer).
+* **Borders**: `rgba(255, 255, 255, 0.08)` (Never opaque solid gray).
+* **Functional Accents**: `#3b82f6` (Blue links), `#10b981` (Success), `#f59e0b` (Pending), `#f43f5e` (Failed).
+
+```javascript
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        obsidian: {
+          canvas: '#09090b',
+          card: '#141416',
+          cardElevated: '#1f1f23',
+          cardHover: '#28282e',
+          borderSubtle: 'rgba(255, 255, 255, 0.08)',
+          borderActive: 'rgba(255, 255, 255, 0.18)',
+          text: '#fafafa',
+          textMuted: '#a1a1aa',
+          accent: '#3b82f6',
           emerald: '#10b981',
           amber: '#f59e0b',
           rose: '#f43f5e',
@@ -44,7 +178,8 @@ tailwind.config = {
 
 ---
 
-## 2. OneDark Pro Theme (VS Code / Atom Dev Preset)
+## 6. OneDark Pro Theme (Dev-Centric Code & Workbench Preset)
+* **Best For**: Code sandboxes, diff viewers, log stream analyzers.
 
 ```javascript
 tailwind.config = {
@@ -68,39 +203,6 @@ tailwind.config = {
           yellow: '#e5c07b',
           red: '#e06c75',
           cyan: '#56b6c2',
-        }
-      }
-    }
-  }
-};
-```
-
----
-
-## 3. Crisp Editorial SaaS Light Preset
-
-```javascript
-tailwind.config = {
-  theme: {
-    extend: {
-      colors: {
-        slate: {
-          50: '#f8fafc',
-          100: '#f1f5f9',
-          200: '#e2e8f0',
-          300: '#cbd5e1',
-          400: '#94a3b8',
-          500: '#64748b',
-          600: '#475569',
-          700: '#334155',
-          800: '#1e293b',
-          900: '#0f172a',
-        },
-        primary: {
-          50: '#eef2ff',
-          500: '#6366f1',
-          600: '#4f46e5',
-          700: '#4338ca',
         }
       }
     }
