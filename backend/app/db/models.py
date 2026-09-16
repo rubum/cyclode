@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import uuid
 from typing import Optional, Dict, Any, List
-from sqlalchemy import String, Text, Boolean, Integer, DateTime, JSON, ForeignKey
+from sqlalchemy import String, Text, Boolean, Integer, Float, DateTime, JSON, ForeignKey
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -220,4 +220,21 @@ class DocPageCacheModel(Base):
     headings_json: Mapped[str] = mapped_column(Text, default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now, onupdate=get_utc_now)
+
+
+class SemanticCacheModel(Base):
+    __tablename__ = "semantic_cache"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    query_text: Mapped[str] = mapped_column(Text, nullable=False)
+    query_norm: Mapped[str] = mapped_column(String(500), index=True, nullable=False)
+    intent_category: Mapped[str] = mapped_column(String(50), default="qa_research", index=True)
+    embedding_json: Mapped[str] = mapped_column(Text, nullable=False)  # JSON-serialized list of floats
+    plan_json: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    response_text: Mapped[str] = mapped_column(Text, nullable=False)
+    similarity_threshold: Mapped[float] = mapped_column(Float, default=0.90)
+    hit_count: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
+    last_hit_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
+
 
