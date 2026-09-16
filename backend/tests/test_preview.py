@@ -546,3 +546,36 @@ async def test_verify_workspace_preview_detects_unlinked_assets(temp_workspace: 
     assert res["status"] == "unlinked_assets"
     assert res["has_preview"] is False
     assert "CSS and JavaScript assets exist" in res["issues"][0]
+
+
+@pytest.mark.asyncio
+async def test_verify_workspace_preview_detects_empty_ui(temp_workspace: Path):
+    from app.api.preview import verify_workspace_preview
+
+    css_dir = temp_workspace / "css"
+    css_dir.mkdir(parents=True, exist_ok=True)
+    (css_dir / "styles.css").write_text("body { background: #000; }", encoding="utf-8")
+
+    (temp_workspace / "index.html").write_text("""<!DOCTYPE html>
+<html>
+<head>
+  <link rel="stylesheet" href="./css/styles.css" />
+</head>
+<body>
+  <div id="app"></div>
+  <script src="./js/audio.js"></script>
+  <script src="./js/engine.js"></script>
+</body>
+</html>""", encoding="utf-8")
+
+    js_dir = temp_workspace / "js"
+    js_dir.mkdir(parents=True, exist_ok=True)
+    (js_dir / "audio.js").write_text("class AudioFX { constructor() {} }", encoding="utf-8")
+    (js_dir / "engine.js").write_text("class MathEngine { constructor() {} }", encoding="utf-8")
+
+    res = verify_workspace_preview(temp_workspace, "test-empty-ui")
+    assert res["status"] == "empty_ui"
+    assert res["has_preview"] is True
+    assert any("empty container (<div id=\"app\">)" in iss for iss in res["issues"])
+
+

@@ -102,9 +102,32 @@ if static_dir_path and static_dir_path.exists():
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
         if full_path.startswith("api/") or full_path.startswith("ws/"):
-            return None
-        file_path = static_dir_path / full_path
-        if file_path.exists() and file_path.is_file():
-            return FileResponse(file_path)
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Not Found")
+
+        # Security: Prevent directory traversal outside static directory
+        try:
+            target_path = (static_dir_path / full_path).resolve()
+            if not str(target_path).startswith(str(static_dir_path.resolve())):
+                from fastapi import HTTPException
+                raise HTTPException(status_code=403, detail="Forbidden")
+        except Exception:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        if target_path.exists() and target_path.is_file():
+            return FileResponse(target_path)
+
+        # Reject common system directory paths or path traversal artifacts
+        first_segment = Path(full_path).parts[0] if Path(full_path).parts else ""
+        if first_segment in ("etc", "var", "tmp", "usr", "bin", "sbin", "dev", "proc", "sys", "home", "root"):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Not Found")
+
+        # If a specific static asset with extension was requested but missing on disk, return 404
+        if "." in Path(full_path).name and not full_path.endswith(".html"):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Asset not found")
+
         return FileResponse(static_dir_path / "index.html")
 

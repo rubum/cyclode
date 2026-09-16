@@ -415,7 +415,6 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
             "recommendation": recommendation
         }
 
-    # Stale build check: If source files were edited after dist was built
     if is_stale:
         issues.append("Source files were modified after the last production build (stale dist bundle).")
         recommendation = "Execute 'npm run build' (or 'cd client && npm run build') to compile the latest source changes into the live preview bundle."
@@ -428,6 +427,51 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
             "title": extracted_title or "App Preview",
             "framework": framework,
             "build_status": "stale",
+            "is_stale": True,
+            "build_timestamp": build_timestamp,
+            "issues": issues,
+            "recommendation": recommendation
+        }
+
+    # Check for empty DOM shell where JS does not mount any UI
+    clean_body = re.sub(r'<script[\s\S]*?</script>', '', html_text, flags=re.IGNORECASE)
+    clean_body = re.sub(r'<style[\s\S]*?</style>', '', clean_body, flags=re.IGNORECASE)
+    stripped_dom = re.sub(r'<[^>]+>', '', clean_body).strip()
+    has_interactive_dom = bool(re.search(r'<(button|input|select|textarea|canvas|form|table|ul|ol|h[1-6]|p|a|svg|main|section|article|nav|header|footer)\b', clean_body, re.IGNORECASE))
+
+    has_dom_mounting = False
+    for js_ref in js_scripts:
+        clean_js = js_ref.split('?')[0].lstrip('./').lstrip('/')
+        js_path = entry_file.parent / clean_js
+        if not js_path.exists():
+            js_path = ws_path / clean_js
+        if js_path.exists() and js_path.is_file():
+            try:
+                js_txt = js_path.read_text(encoding="utf-8", errors="ignore")
+                if any(k in js_txt for k in ["createApp", "createRoot", "ReactDOM", "innerHTML", "appendChild", "document.createElement", "document.getElementById", "document.querySelector", ".textContent", ".innerText", "Alpine.data", "Vue.", "document.body"]):
+                    has_dom_mounting = True
+                    break
+            except Exception:
+                pass
+
+    inline_scripts = re.findall(r'<script\b[^>]*>([\s\S]*?)</script>', html_text, re.IGNORECASE)
+    for scr in inline_scripts:
+        if any(k in scr for k in ["createApp", "createRoot", "ReactDOM", "innerHTML", "appendChild", "document.createElement", "document.getElementById", "document.querySelector", ".textContent", ".innerText", "Alpine.data", "Vue.", "document.body"]):
+            has_dom_mounting = True
+            break
+
+    if not has_interactive_dom and not has_dom_mounting and len(stripped_dom) < 20 and not has_dist:
+        issues.append("HTML entry point contains an empty container (<div id=\"app\">) with no interactive DOM elements, and linked scripts do not mount any UI.")
+        recommendation = "Implement the UI components, interactive DOM buttons, displays, or JavaScript mounting logic to render the application interface."
+        return {
+            "status": "empty_ui",
+            "has_preview": True,
+            "entry_point": primary_entry,
+            "available_entry_points": available_entry_points,
+            "assets_count": assets_count,
+            "title": extracted_title or "App Preview",
+            "framework": framework,
+            "build_status": "empty_ui",
             "is_stale": True,
             "build_timestamp": build_timestamp,
             "issues": issues,

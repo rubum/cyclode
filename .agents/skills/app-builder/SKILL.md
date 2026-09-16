@@ -11,8 +11,10 @@ Use this skill whenever asked to build, scaffold, prototype, or code complete we
 
 ## 1. Core Operating Invariants
 
-1. **Zero-Dependency Instant Preview Invariant**:
-   - **ALWAYS** create a root `index.html` (or `public/index.html`) as the primary visual entry point.
+1. **Zero-Dependency Instant Preview & UI-First Invariant**:
+   - **Construct Visible UI Elements FIRST**: Always build the complete visible DOM layout, interactive buttons/inputs, state display screen, and layout in your FIRST turns.
+   - **Strict Anti-Overengineering Rule**: **NEVER** waste turns creating auxiliary sound effect synthesizers (Web Audio API / `AudioFX`), complex background audio engines, or heavy headless utility classes before the visible UI is rendered and working in Live Preview.
+   - **ALWAYS** create a root `index.html` (or `public/index.html`) as the primary visual entry point with complete interactive elements.
    - **NEVER** run long-running, fragile package manager installs (e.g. `apt-get install nodejs npm`) in sandboxes when standalone CDN/ESM can deliver a fully functional, beautiful app instantly.
    - Load modern UI dependencies directly over CDN:
      - **Tailwind CSS**: `<script src="https://cdn.tailwindcss.com"></script>`
