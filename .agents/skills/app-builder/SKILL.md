@@ -40,6 +40,9 @@ Use this skill whenever asked to build, scaffold, prototype, or code complete we
      - `backend/app/seed.py`: Initial sample data seeder.
    - Write automated `pytest` test suites in `backend/tests/` to verify REST endpoints.
 
+4. **UI/UX Design Craft Standard**:
+   - Consult the `ui-ux-design` skill ([`SKILL.md`](file:///Users/macken/Documents/antigravity/epic-rutherford/.agents/skills/ui-ux-design/SKILL.md)) for curated theme palettes (Obsidian Dark, OneDark Pro, Crisp SaaS Light), shimmer loading skeletons, rich empty states, and responsive touch targets (≥40px). Ensure interfaces feel handcrafted and production-grade.
+
 ---
 
 ## 2. Standard Single-File SPA Template Pattern (`index.html`)
