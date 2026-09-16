@@ -335,26 +335,26 @@ const InquiryCard: React.FC<InquiryCardProps> = ({ taskId, approval, onResolved 
   const progressPercent = Math.min(100, Math.max(0, (remainingSeconds / totalSeconds) * 100));
 
   return (
-    <div className="rounded-2xl border border-onedark-accent/40 bg-onedark-darker/95 p-5 space-y-4 shadow-xl overflow-hidden relative">
+    <div className="rounded-xl border border-onedark-border bg-onedark-darker/95 p-4 sm:p-5 space-y-3.5 shadow-md overflow-hidden relative transition-all">
       {/* Top Animated Countdown Bar */}
-      <div className="absolute top-0 left-0 right-0 h-1 bg-onedark-surface">
+      <div className="absolute top-0 left-0 right-0 h-0.5 bg-onedark-surface/60">
         <div
-          className="h-full bg-gradient-to-r from-onedark-accent via-onedark-purple to-onedark-green transition-all duration-500 ease-linear"
+          className="h-full bg-onedark-accent/60 transition-all duration-500 ease-linear"
           style={{ width: `${progressPercent}%` }}
         />
       </div>
 
       {/* Header */}
-      <div className="flex items-center justify-between pt-1">
+      <div className="flex items-center justify-between pt-0.5">
         <div className="flex items-center space-x-2.5">
-          <div className="w-6 h-6 rounded-lg bg-onedark-accent/15 border border-onedark-accent/30 flex items-center justify-center text-onedark-accent flex-shrink-0">
+          <div className="w-5.5 h-5.5 rounded-md bg-onedark-accent/10 border border-onedark-accent/20 flex items-center justify-center text-onedark-accent flex-shrink-0">
             <Sparkles className="w-3.5 h-3.5" />
           </div>
           <div>
-            <span className="text-xs font-bold text-onedark-fgBright">
+            <span className="text-xs font-semibold text-onedark-fgBright">
               Interactive Inquiry & Configuration
             </span>
-            <div className="text-[10.5px] text-onedark-muted font-mono">
+            <div className="text-[10px] text-onedark-muted font-mono">
               Autonomous Assistant Decision Point
             </div>
           </div>
@@ -362,10 +362,10 @@ const InquiryCard: React.FC<InquiryCardProps> = ({ taskId, approval, onResolved 
 
         <div className="flex items-center space-x-2">
           <span
-            className={`px-2.5 py-1 rounded-full text-[11px] font-mono border flex items-center space-x-1.5 ${
+            className={`px-2 py-0.5 rounded-full text-[10.5px] font-mono border flex items-center space-x-1.5 ${
               remainingSeconds <= 5
                 ? 'bg-onedark-red/10 border-onedark-red/30 text-onedark-red animate-pulse'
-                : 'bg-onedark-yellow/10 border-onedark-yellow/30 text-onedark-yellow'
+                : 'bg-onedark-surface border-onedark-borderSubtle text-onedark-muted'
             }`}
           >
             <Clock className="w-3 h-3" />
@@ -379,13 +379,13 @@ const InquiryCard: React.FC<InquiryCardProps> = ({ taskId, approval, onResolved 
       </div>
 
       {/* Question Text */}
-      <div className="p-3.5 rounded-xl bg-onedark-surface/40 border border-onedark-borderSubtle text-sm text-onedark-fg font-sans leading-relaxed">
+      <div className="p-3 rounded-lg bg-onedark-surface/30 border border-onedark-borderSubtle text-xs text-onedark-fg font-sans leading-relaxed">
         <MarkdownRenderer content={question} />
       </div>
 
       {/* Selectable Options Grid */}
       {options.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {options.map((option) => {
             const isSelected = selectedId === option.id;
             const isDefault = option.id === defaultOptionId;
@@ -399,36 +399,36 @@ const InquiryCard: React.FC<InquiryCardProps> = ({ taskId, approval, onResolved 
                   handleSubmit(option.id);
                 }}
                 disabled={submitting}
-                className={`p-3 rounded-xl border text-left transition-all cursor-pointer select-none relative group ${
+                className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer select-none relative group ${
                   isSelected
-                    ? 'bg-onedark-accent/15 border-onedark-accent text-onedark-fgBright shadow-sm ring-1 ring-onedark-accent/40'
-                    : 'bg-onedark-surface/30 hover:bg-onedark-surface/70 border-onedark-borderSubtle text-onedark-fg'
+                    ? 'bg-onedark-accent/10 border-onedark-accent/50 text-onedark-fgBright shadow-xs'
+                    : 'bg-onedark-surface/20 hover:bg-onedark-surface/60 border-onedark-borderSubtle text-onedark-fg'
                 }`}
               >
                 <div className="flex items-start justify-between gap-2">
-                  <div className="space-y-1 min-w-0">
+                  <div className="space-y-0.5 min-w-0">
                     <div className="flex items-center space-x-1.5 flex-wrap">
-                      <span className="text-xs font-semibold">{option.label}</span>
+                      <span className="text-xs font-medium">{option.label}</span>
                       {isDefault && (
-                        <span className="px-1.5 py-0.2 rounded bg-onedark-accent/10 border border-onedark-accent/20 text-onedark-accent text-[9.5px] font-mono font-medium">
+                        <span className="px-1.5 py-0.2 rounded bg-onedark-surface border border-onedark-borderSubtle text-onedark-muted text-[9px] font-mono font-medium">
                           Recommended
                         </span>
                       )}
                     </div>
                     {option.description && (
-                      <p className="text-[11px] text-onedark-muted line-clamp-2 leading-relaxed">
+                      <p className="text-[10.5px] text-onedark-muted line-clamp-2 leading-relaxed">
                         {option.description}
                       </p>
                     )}
                   </div>
                   <div
-                    className={`w-4 h-4 rounded-full border flex items-center justify-center flex-shrink-0 mt-0.5 ${
+                    className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center flex-shrink-0 mt-0.5 ${
                       isSelected
                         ? 'border-onedark-accent bg-onedark-accent text-onedark-darker'
-                        : 'border-onedark-muted/40 group-hover:border-onedark-muted'
+                        : 'border-onedark-muted/30 group-hover:border-onedark-muted'
                     }`}
                   >
-                    {isSelected && <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                    {isSelected && <Check className="w-2 h-2 stroke-[3]" />}
                   </div>
                 </div>
               </button>
