@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cyclode-ai"
+version = "1.0.0"
+description = "Event-Driven Autonomous Multi-Agent Orchestrator & Live App Builder"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [
+    {name = "Mburun", email = "mburun.dev@gmail.com"}
+]
+keywords = ["ai-agent", "developer-tools", "gemini", "antigravity", "app-builder", "orchestrator"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.28.0",
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.2.0",
+    "websockets>=12.0",
+    "sqlalchemy>=2.0.28",
+    "aiosqlite>=0.20.0",
+    "httpx>=0.27.0",
+    "pyjwt>=2.8.0",
+    "cryptography>=42.0.0",
+    "python-multipart>=0.0.9",
+    "python-dotenv>=1.0.1",
+    "beautifulsoup4>=4.12.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.1.0",
+    "pytest-asyncio>=0.23.0",
+    "build>=1.0.0",
+    "twine>=5.0.0",
+]
+
+[project.scripts]
+cyclode = "cyclode.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "backend"}
+
+[tool.setuptools.packages.find]
+where = ["backend"]
+include = ["app*", "cyclode*"]
+
+[tool.setuptools.package-data]
+"cyclode" = ["static/**/*", "skills/**/*", "templates/**/*"]
+"app" = ["static/**/*"]

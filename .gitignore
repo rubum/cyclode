@@ -50,6 +50,10 @@ frontend/dist/
 dist/
 .npm
 *.tsbuildinfo
+backend/cyclode/static/
+backend/app/static/
+backend/cyclode/skills/
+
 
 # Logs & Temporary
 *.log

@@ -1,14 +1,57 @@
+import os
+import json
 from enum import Enum
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
+
+
+def _load_cyclode_user_config() -> Dict[str, Any]:
+    env_home = os.environ.get("CYCLODE_HOME")
+    config_file = (Path(env_home).resolve() if env_home else Path.home() / ".cyclode") / "config.json"
+    if config_file.exists():
+        try:
+            with open(config_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+_USER_CFG = _load_cyclode_user_config()
 
 
 class PolicyLevel(str, Enum):
     AUTO_ALLOW = "auto"
     REQUIRE_APPROVAL = "require_approval"
     DISABLED = "disabled"
+
+
+def _default_database_url() -> str:
+    if os.environ.get("DATABASE_URL"):
+        return os.environ["DATABASE_URL"]
+    env_home = os.environ.get("CYCLODE_HOME")
+    if env_home:
+        home = Path(env_home).resolve()
+        return f"sqlite+aiosqlite:///{home / 'data' / 'cyclode.db'}"
+    if Path("/data").exists() and Path("/data").is_dir():
+        return "sqlite+aiosqlite:////data/cyclode.db"
+    home = Path.home() / ".cyclode"
+    return f"sqlite+aiosqlite:///{home / 'data' / 'cyclode.db'}"
+
+
+def _default_workspace_root() -> str:
+    if os.environ.get("WORKSPACE_ROOT"):
+        return os.environ["WORKSPACE_ROOT"]
+    env_home = os.environ.get("CYCLODE_HOME")
+    if env_home:
+        home = Path(env_home).resolve()
+        return str(home / "workspaces")
+    if Path("/workspaces").exists() and Path("/workspaces").is_dir():
+        return "/workspaces"
+    home = Path.home() / ".cyclode"
+    return str(home / "workspaces")
 
 
 class Settings(BaseSettings):
@@ -19,23 +62,23 @@ class Settings(BaseSettings):
     )
 
     # Server settings
-    PORT: int = 8000
+    PORT: int = Field(default_factory=lambda: int(_USER_CFG.get("port", 8000)))
     FRONTEND_PORT: int = 5174
-    HOST: str = "0.0.0.0"
+    HOST: str = Field(default_factory=lambda: str(_USER_CFG.get("host", "0.0.0.0")))
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
     SECRET_KEY: str = "cyclode-secret-key-12345"
 
     # Workspace and DB
-    WORKSPACE_ROOT: str = "/workspaces"
+    WORKSPACE_ROOT: str = Field(default_factory=_default_workspace_root)
     HOST_WORKSPACE_ROOT: Optional[str] = None
-    DATABASE_URL: str = "sqlite+aiosqlite:////data/cyclode.db"
+    DATABASE_URL: str = Field(default_factory=_default_database_url)
     STATIC_DIR: Optional[str] = None
 
     # Antigravity & Gemini configuration
-    GEMINI_API_KEY: Optional[str] = None
+    GEMINI_API_KEY: Optional[str] = Field(default_factory=lambda: _USER_CFG.get("gemini_api_key"))
     GOOGLE_API_KEY: Optional[str] = None
-    ANTIGRAVITY_MODEL: str = "gemini-3.7-flash"
+    ANTIGRAVITY_MODEL: str = Field(default_factory=lambda: str(_USER_CFG.get("model", "gemini-3.7-flash")))
     ANTIGRAVITY_ENABLE_THINKING: bool = True
     ANTIGRAVITY_MAX_PARALLEL_WORKERS: int = 5
     ANTIGRAVITY_EXECUTION_TIMEOUT_SECONDS: int = 600
@@ -67,10 +110,11 @@ class Settings(BaseSettings):
     SENTRY_ORGANIZATION: Optional[str] = None
     SENTRY_PROJECT: Optional[str] = None
 
-    LINEAR_API_KEY: Optional[str] = None
+    LINEAR_API_KEY: Optional[str] = Field(default_factory=lambda: _USER_CFG.get("linear_api_key"))
 
     def get_api_key(self) -> Optional[str]:
         return self.GEMINI_API_KEY or self.GOOGLE_API_KEY
 
 
 settings = Settings()
+

@@ -1,6 +1,7 @@
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -76,14 +77,34 @@ async def websocket_endpoint(websocket: WebSocket):
         ws_manager.disconnect(websocket)
 
 
-# Mount Static Files in Production
-static_dir = os.environ.get("STATIC_DIR") or settings.STATIC_DIR
-if static_dir and Path(static_dir).exists():
-    app.mount("/assets", StaticFiles(directory=f"{static_dir}/assets"), name="assets")
+# Mount Static Files in Packaged Wheel, Docker, or Local Monorepo
+def _resolve_static_dir() -> Optional[Path]:
+    env_dir = os.environ.get("STATIC_DIR") or settings.STATIC_DIR
+    if env_dir and Path(env_dir).exists():
+        return Path(env_dir)
+    candidates = [
+        Path(__file__).parent / "static",
+        Path(__file__).parent.parent / "cyclode" / "static",
+        Path(__file__).parent.parent.parent / "frontend" / "dist",
+    ]
+    for c in candidates:
+        if c.exists() and (c / "index.html").exists():
+            return c
+    return None
+
+
+static_dir_path = _resolve_static_dir()
+if static_dir_path and static_dir_path.exists():
+    assets_dir = static_dir_path / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
 
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
-        file_path = Path(static_dir) / full_path
+        if full_path.startswith("api/") or full_path.startswith("ws/"):
+            return None
+        file_path = static_dir_path / full_path
         if file_path.exists() and file_path.is_file():
             return FileResponse(file_path)
-        return FileResponse(f"{static_dir}/index.html")
+        return FileResponse(static_dir_path / "index.html")
+
