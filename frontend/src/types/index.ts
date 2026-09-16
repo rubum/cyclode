@@ -8,6 +8,7 @@ export type TaskStatus =
   | 'COMPLETED'
   | 'FAILED'
   | 'CANCELLED';
+export type LayoutPreset = 'split' | 'preview' | 'wide' | 'fullscreen' | 'standard';
 export type PlanStepStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
 export type PlanEvaluationStatus = 'pending' | 'evaluating' | 'accomplished' | 'needs_revision';
 

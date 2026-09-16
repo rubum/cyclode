@@ -9,7 +9,7 @@ import {
   Play
 } from 'lucide-react';
 import { useWebSocket } from '../../contexts/WebSocketContext';
-import { Task, WorkspacePreviewInfo } from '../../types';
+import { Task, WorkspacePreviewInfo, LayoutPreset } from '../../types';
 import { ThemeColorPicker } from '../Theme/ThemeColorPicker';
 import { CyclodeIcon } from '../Common/CyclodeIcon';
 
@@ -18,8 +18,8 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
 interface HeaderProps {
   activeTask: Task | null;
   activeAgentsCount: number;
-  currentPreset?: 'standard' | 'wide' | 'fullscreen';
-  onSetPreset?: (preset: 'standard' | 'wide' | 'fullscreen') => void;
+  currentPreset?: LayoutPreset;
+  onSetPreset?: (preset: LayoutPreset) => void;
   onOpenSandboxModal?: () => void;
   onOpenPreview?: () => void;
   onRetryTask?: () => void;
@@ -31,7 +31,7 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   activeTask,
   activeAgentsCount,
-  currentPreset = 'standard',
+  currentPreset = 'split',
   onSetPreset,
   onOpenSandboxModal,
   onOpenPreview,

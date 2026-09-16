@@ -12,7 +12,7 @@ import { PolicySettings } from './components/Policies/PolicySettings';
 import { IntegrationsView } from './components/Integrations/IntegrationsView';
 import { RepositoriesView } from './components/Repositories/RepositoriesView';
 import { SandboxInspectorModal } from './components/Sandbox/SandboxInspectorModal';
-import { Task, TaskMessage, TaskLog, EventItem, PolicyMap, Integration, AutomationRule, SkillCatalogItem, WebhookEndpoint, RepositoryConfig } from './types';
+import { Task, TaskMessage, TaskLog, EventItem, PolicyMap, Integration, AutomationRule, SkillCatalogItem, WebhookEndpoint, RepositoryConfig, LayoutPreset } from './types';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -31,7 +31,17 @@ const MainApp: React.FC = () => {
   const [skillsCatalog, setSkillsCatalog] = useState<SkillCatalogItem[]>([]);
   const [webhookEndpoints, setWebhookEndpoints] = useState<WebhookEndpoint[]>([]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
-  const [currentPreset, setCurrentPreset] = useState<'standard' | 'wide' | 'fullscreen'>('standard');
+  const [currentPreset, setCurrentPreset] = useState<LayoutPreset>(() => {
+    try {
+      const saved = localStorage.getItem('cyclode_layout_preset');
+      if (saved && ['split', 'preview', 'wide', 'fullscreen', 'standard'].includes(saved)) {
+        return (saved === 'standard' ? 'split' : saved) as LayoutPreset;
+      }
+    } catch {
+      // ignore
+    }
+    return 'split';
+  });
   const [activeAuxTab, setActiveAuxTab] = useState<'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'docs' | 'preview'>('activity');
   const [sessionPreviews, setSessionPreviews] = useState<Record<string, { url: string; title?: string } | null>>({});
   const activePreviewTarget = activeTaskId ? (sessionPreviews[activeTaskId] || null) : null;
@@ -1139,15 +1149,21 @@ const MainApp: React.FC = () => {
   const handleSelectAuxTab = (tab: 'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'docs' | 'preview') => {
     setActiveAuxTab(tab);
     if (currentPreset === 'fullscreen') {
-      handleSetPreset('standard');
+      handleSetPreset('split');
     }
   };
 
-  const handleSetPreset = (preset: 'standard' | 'wide' | 'fullscreen') => {
-    setCurrentPreset(preset);
-    if (preset === 'standard') {
+  const handleSetPreset = (preset: LayoutPreset) => {
+    const normalized: LayoutPreset = preset === 'standard' ? 'split' : preset;
+    setCurrentPreset(normalized);
+    try {
+      localStorage.setItem('cyclode_layout_preset', normalized);
+    } catch {
+      // ignore
+    }
+    if (normalized === 'split') {
       setIsSidebarCollapsed(false);
-    } else if (preset === 'wide' || preset === 'fullscreen') {
+    } else if (normalized === 'preview' || normalized === 'wide' || normalized === 'fullscreen') {
       setIsSidebarCollapsed(true);
     }
   };
@@ -1164,7 +1180,7 @@ const MainApp: React.FC = () => {
       }));
     }
     if (currentPreset === 'fullscreen') {
-      handleSetPreset('standard');
+      handleSetPreset('split');
     }
   };
 

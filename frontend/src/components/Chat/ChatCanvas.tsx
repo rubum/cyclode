@@ -45,7 +45,7 @@ import {
   ListOrdered,
   Circle
 } from 'lucide-react';
-import { Task, TaskMessage, TaskLog, RepositoryConfig, TaskPR, WorkspacePreviewInfo, TaskPlan } from '../../types';
+import { Task, TaskMessage, TaskLog, RepositoryConfig, TaskPR, WorkspacePreviewInfo, TaskPlan, LayoutPreset } from '../../types';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { FormattedLogView } from '../Common/FormattedLogView';
 import { SandboxInspectorModal } from '../Sandbox/SandboxInspectorModal';
@@ -189,8 +189,8 @@ interface ChatCanvasProps {
   onUpdateTaskTitle?: (taskId: string, newTitle: string) => void;
   isSidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
-  currentPreset?: 'standard' | 'wide' | 'fullscreen';
-  onSetPreset?: (preset: 'standard' | 'wide' | 'fullscreen') => void;
+  currentPreset?: LayoutPreset;
+  onSetPreset?: (preset: LayoutPreset) => void;
   onOpenSandboxModal?: () => void;
   onSelectAuxTab?: (tab: 'docs' | 'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'preview') => void;
   onOpenPreview?: (url: string, title?: string) => void;
@@ -1166,12 +1166,16 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
     ? 'max-w-7xl 2xl:max-w-[1750px] px-2 sm:px-6'
     : currentPreset === 'wide'
     ? 'max-w-6xl 2xl:max-w-[1500px] px-2 sm:px-4'
-    : 'max-w-4xl xl:max-w-5xl px-2 sm:px-4';
+    : currentPreset === 'preview'
+    ? 'max-w-2xl 2xl:max-w-3xl px-2 sm:px-3'
+    : 'max-w-3xl xl:max-w-4xl px-2 sm:px-4';
 
   const userMsgMaxWidth = currentPreset === 'fullscreen'
     ? 'max-w-4xl'
     : currentPreset === 'wide'
     ? 'max-w-3xl'
+    : currentPreset === 'preview'
+    ? 'max-w-xl'
     : 'max-w-2xl';
 
   // Empty State / New Task Launcher
@@ -1196,14 +1200,26 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
           {onSetPreset && (
             <div className="flex items-center space-x-0.5 bg-onedark-surface/60 p-0.5 rounded-lg border border-onedark-borderSubtle font-mono text-[10.5px]">
               <button
-                onClick={() => onSetPreset('standard')}
+                onClick={() => onSetPreset('split')}
                 className={`px-2 py-0.5 rounded-md transition-all ${
-                  currentPreset === 'standard'
+                  currentPreset === 'split' || currentPreset === 'standard'
                     ? 'bg-onedark-darker text-onedark-fgBright font-semibold shadow-xs'
                     : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-darker/40'
                 }`}
+                title="Split Studio (Default - 48% Auxiliary Pane)"
               >
-                Standard
+                Split
+              </button>
+              <button
+                onClick={() => onSetPreset('preview')}
+                className={`px-2 py-0.5 rounded-md transition-all ${
+                  currentPreset === 'preview'
+                    ? 'bg-onedark-darker text-onedark-fgBright font-semibold shadow-xs'
+                    : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-darker/40'
+                }`}
+                title="Preview Focus (60% Auxiliary Pane)"
+              >
+                Preview
               </button>
               <button
                 onClick={() => onSetPreset('wide')}
@@ -1212,6 +1228,7 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                     ? 'bg-onedark-darker text-onedark-fgBright font-semibold shadow-xs'
                     : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-darker/40'
                 }`}
+                title="Wide Chat (25% Auxiliary Pane)"
               >
                 Wide
               </button>
@@ -1222,8 +1239,9 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                     ? 'bg-onedark-darker text-onedark-fgBright font-semibold shadow-xs'
                     : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-darker/40'
                 }`}
+                title="Zen View (Canvas only)"
               >
-                Zen ⛶
+                Zen
               </button>
             </div>
           )}
@@ -1564,17 +1582,28 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
 
           {/* Presets */}
           {onSetPreset && (
-            <div className="hidden 2xl:flex items-center space-x-0.5 bg-onedark-surface/60 p-0.5 rounded-lg border border-onedark-borderSubtle font-mono text-[10.5px] flex-shrink-0">
+            <div className="hidden xl:flex items-center space-x-0.5 bg-onedark-surface/60 p-0.5 rounded-lg border border-onedark-borderSubtle font-mono text-[10.5px] flex-shrink-0">
               <button
-                onClick={() => onSetPreset('standard')}
+                onClick={() => onSetPreset('split')}
                 className={`px-2 py-0.5 rounded-md transition-all ${
-                  currentPreset === 'standard'
+                  currentPreset === 'split' || currentPreset === 'standard'
                     ? 'bg-onedark-darker text-onedark-fgBright font-semibold shadow-xs'
                     : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-darker/40'
                 }`}
-                title="Standard (Sidebar + Main + Aux)"
+                title="Split Studio (Default - 48% Auxiliary Pane)"
               >
-                Standard
+                Split
+              </button>
+              <button
+                onClick={() => onSetPreset('preview')}
+                className={`px-2 py-0.5 rounded-md transition-all ${
+                  currentPreset === 'preview'
+                    ? 'bg-onedark-darker text-onedark-fgBright font-semibold shadow-xs'
+                    : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-darker/40'
+                }`}
+                title="Preview Focus (60% Auxiliary Pane)"
+              >
+                Preview
               </button>
               <button
                 onClick={() => onSetPreset('wide')}
@@ -1583,7 +1612,7 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                     ? 'bg-onedark-darker text-onedark-fgBright font-semibold shadow-xs'
                     : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-darker/40'
                 }`}
-                title="Wide (Collapsed Sidebar)"
+                title="Wide Chat (25% Auxiliary Pane)"
               >
                 Wide
               </button>
@@ -1594,9 +1623,9 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                     ? 'bg-onedark-darker text-onedark-fgBright font-semibold shadow-xs'
                     : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-darker/40'
                 }`}
-                title="Zen View (Canvas only)"
+                title="Zen View (Full Canvas)"
               >
-                Zen ⛶
+                Zen
               </button>
             </div>
           )}

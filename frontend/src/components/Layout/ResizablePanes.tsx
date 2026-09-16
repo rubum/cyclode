@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { LayoutPreset } from '../../types';
 
 interface ResizablePanesProps {
   sidebar: React.ReactNode;
@@ -7,8 +8,8 @@ interface ResizablePanesProps {
   activeView: string;
   isSidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
-  currentPreset?: 'standard' | 'wide' | 'fullscreen';
-  onSetPreset?: (preset: 'standard' | 'wide' | 'fullscreen') => void;
+  currentPreset?: LayoutPreset;
+  onSetPreset?: (preset: LayoutPreset) => void;
 }
 
 export const ResizablePanes: React.FC<ResizablePanesProps> = ({
@@ -21,9 +22,32 @@ export const ResizablePanes: React.FC<ResizablePanesProps> = ({
   currentPreset: controlledPreset,
   onSetPreset: controlledSetPreset,
 }) => {
-  const [sidebarWidth, setSidebarWidth] = useState<number>(260);
+  const [sidebarWidth, setSidebarWidth] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('cyclode_layout_sidebar_w');
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed) && parsed >= 180 && parsed <= 450) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return 240;
+  });
+
   const [internalSidebarCollapsed, setInternalSidebarCollapsed] = useState<boolean>(false);
-  const [auxiliaryWidthPercent, setAuxiliaryWidthPercent] = useState<number>(35);
+  const [auxiliaryWidthPercent, setAuxiliaryWidthPercent] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('cyclode_layout_aux_pct');
+      if (saved) {
+        const parsed = parseFloat(saved);
+        if (!isNaN(parsed) && parsed >= 15 && parsed <= 75) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return 48;
+  });
   const [isAuxCollapsed, setIsAuxCollapsed] = useState<boolean>(false);
 
   const isSidebarCollapsed = controlledSidebarCollapsed !== undefined ? controlledSidebarCollapsed : internalSidebarCollapsed;
@@ -32,22 +56,48 @@ export const ResizablePanes: React.FC<ResizablePanesProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const isDraggingSidebar = useRef<boolean>(false);
   const isDraggingAux = useRef<boolean>(false);
+  const sidebarWidthRef = useRef<number>(sidebarWidth);
+  const auxWidthPercentRef = useRef<number>(auxiliaryWidthPercent);
+
+  useEffect(() => {
+    sidebarWidthRef.current = sidebarWidth;
+  }, [sidebarWidth]);
+
+  useEffect(() => {
+    auxWidthPercentRef.current = auxiliaryWidthPercent;
+  }, [auxiliaryWidthPercent]);
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isDraggingSidebar.current) {
         const newWidth = Math.max(180, Math.min(450, e.clientX));
         setSidebarWidth(newWidth);
+        sidebarWidthRef.current = newWidth;
       }
       if (isDraggingAux.current && containerRef.current) {
         const rect = containerRef.current.getBoundingClientRect();
         const distanceFromRight = rect.right - e.clientX;
-        const newPercent = Math.max(15, Math.min(65, (distanceFromRight / rect.width) * 100));
+        const newPercent = Math.max(15, Math.min(75, (distanceFromRight / rect.width) * 100));
         setAuxiliaryWidthPercent(newPercent);
+        auxWidthPercentRef.current = newPercent;
       }
     };
 
     const handleMouseUp = () => {
+      if (isDraggingSidebar.current) {
+        try {
+          localStorage.setItem('cyclode_layout_sidebar_w', String(sidebarWidthRef.current));
+        } catch {
+          // ignore
+        }
+      }
+      if (isDraggingAux.current) {
+        try {
+          localStorage.setItem('cyclode_layout_aux_pct', String(auxWidthPercentRef.current));
+        } catch {
+          // ignore
+        }
+      }
       isDraggingSidebar.current = false;
       isDraggingAux.current = false;
       document.body.style.cursor = 'default';
@@ -64,9 +114,12 @@ export const ResizablePanes: React.FC<ResizablePanesProps> = ({
 
   useEffect(() => {
     if (!controlledPreset) return;
-    if (controlledPreset === 'standard') {
+    if (controlledPreset === 'split' || controlledPreset === 'standard') {
       setIsAuxCollapsed(false);
-      setAuxiliaryWidthPercent(35);
+      setAuxiliaryWidthPercent(48);
+    } else if (controlledPreset === 'preview') {
+      setIsAuxCollapsed(false);
+      setAuxiliaryWidthPercent(60);
     } else if (controlledPreset === 'wide') {
       setIsAuxCollapsed(false);
       setAuxiliaryWidthPercent(25);
@@ -75,15 +128,20 @@ export const ResizablePanes: React.FC<ResizablePanesProps> = ({
     }
   }, [controlledPreset]);
 
-  const setPreset = (preset: 'standard' | 'wide' | 'fullscreen') => {
+  const setPreset = (preset: LayoutPreset) => {
     if (controlledSetPreset) {
       controlledSetPreset(preset);
     }
-    if (preset === 'standard') {
+    if (preset === 'split' || preset === 'standard') {
       if (controlledToggleSidebar && isSidebarCollapsed) controlledToggleSidebar();
       setInternalSidebarCollapsed(false);
       setIsAuxCollapsed(false);
-      setAuxiliaryWidthPercent(35);
+      setAuxiliaryWidthPercent(48);
+    } else if (preset === 'preview') {
+      if (controlledToggleSidebar && !isSidebarCollapsed) controlledToggleSidebar();
+      setInternalSidebarCollapsed(true);
+      setIsAuxCollapsed(false);
+      setAuxiliaryWidthPercent(60);
     } else if (preset === 'wide') {
       if (controlledToggleSidebar && !isSidebarCollapsed) controlledToggleSidebar();
       setInternalSidebarCollapsed(true);
@@ -96,11 +154,13 @@ export const ResizablePanes: React.FC<ResizablePanesProps> = ({
     }
   };
 
-  const computedPreset = controlledPreset || (isAuxCollapsed
+  const computedPreset: LayoutPreset = controlledPreset || (isAuxCollapsed
     ? 'fullscreen'
-    : auxiliaryWidthPercent <= 25
+    : auxiliaryWidthPercent >= 55
+    ? 'preview'
+    : auxiliaryWidthPercent <= 30
     ? 'wide'
-    : 'standard');
+    : 'split');
 
   return (
     <div ref={containerRef} className="flex h-full w-full overflow-hidden bg-onedark-bg">
