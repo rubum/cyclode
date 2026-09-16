@@ -232,134 +232,22 @@ class AntigravityHarness:
         except Exception as e:
             logger.debug(f"Emit plan callback notice: {e}")
 
-    def _generate_fallback_plan(self, title: str, prompt: str, persona_name: str) -> Dict[str, Any]:
+    def _create_initial_plan_placeholder(self, title: str, prompt: str, persona_name: str = "") -> Dict[str, Any]:
         """
-        Formulates a deterministic semantic fallback plan and classifies intent
-        when LLM dynamic planning is unavailable or times out.
+        Emits a lightweight dynamic formulation placeholder while the AI model synthesizes the bespoke plan.
+        No hardcoded steps or regex keyword templates.
         """
         objective = title or prompt[:100]
-        prompt_lower = (prompt + " " + title).lower()
-
-        # 1. Review & Audit
-        if persona_name == "CodeReviewer" or re.search(r"\b(?:pr|prs|pull request|pull requests|diff hunk|diff hunks|code review)\b", prompt_lower):
-            intent = "review_audit"
-            steps = [
-                {"id": "step-1", "title": "Inspect pull request metadata and diff hunks", "status": "in_progress"},
-                {"id": "step-2", "title": "Analyze code changes for bugs, regressions, and syntax", "status": "pending"},
-                {"id": "step-3", "title": "Submit review synthesis and inline feedback", "status": "pending"}
-            ]
-        # 2. DevOps & Infrastructure Explanations and Monitoring (e.g. Grafana, Prometheus, Kubernetes alerts/queries)
-        elif (
-            re.search(r"\b(?:grafana|prometheus|loki|mimir|alertmanager|alert rules?|alerting|alert policy)\b", prompt_lower)
-            and any(prompt_lower.strip().startswith(prefix) for prefix in ["what is", "what are", "how does", "how do", "how to", "why is", "why does", "explain", "describe", "tell me about"])
-        ):
-            intent = "qa_research"
-            steps = [
-                {"id": "step-1", "title": "Analyze alert rule query architecture, evaluation intervals, and datasources", "status": "in_progress"},
-                {"id": "step-2", "title": "Break down alert states (Normal, Pending, Alerting) and threshold conditions", "status": "pending"},
-                {"id": "step-3", "title": "Synthesize notification policies, contact points, and practical rule examples", "status": "pending"}
-            ]
-        # 3. Comparative Analysis
-        elif (
-            any(prompt_lower.strip().startswith(prefix) for prefix in ["compare", "contrast", "difference between"])
-            or re.search(r"\b(?:vs|versus|compared to|tradeoffs? of)\b", prompt_lower)
-        ):
-            intent = "qa_research"
-            steps = [
-                {"id": "step-1", "title": "Analyze architectural trade-offs and core design paradigms", "status": "in_progress"},
-                {"id": "step-2", "title": "Evaluate feature parity, performance benchmarks, and ecosystem ergonomics", "status": "pending"},
-                {"id": "step-3", "title": "Synthesize comparative decision matrix and recommendations", "status": "pending"}
-            ]
-        # 4. General Conceptual Explanation & Architecture Deep Dives
-        elif any(prompt_lower.strip().startswith(prefix) for prefix in ["what is", "what are", "how does", "how do", "how to", "why is", "why does", "explain", "describe", "tell me about"]):
-            intent = "qa_research"
-            steps = [
-                {"id": "step-1", "title": "Analyze core architectural primitives and execution mechanics", "status": "in_progress"},
-                {"id": "step-2", "title": "Break down lifecycle states, configurations, and edge cases", "status": "pending"},
-                {"id": "step-3", "title": "Synthesize comprehensive technical guide with practical examples", "status": "pending"}
-            ]
-        # 5. Live Web Intelligence & Research
-        elif re.search(r"\b(?:search|research|news|trend|trends|documentation|article|paper|overview|deep dive)\b", prompt_lower):
-            intent = "qa_research"
-            steps = [
-                {"id": "step-1", "title": "Search live documentation, web sources, and technical context", "status": "in_progress"},
-                {"id": "step-2", "title": "Synthesize architectural findings and compare capabilities", "status": "pending"},
-                {"id": "step-3", "title": "Deliver analytical briefing with hyperlinked citations", "status": "pending"}
-            ]
-        # 6. Debugging & Error Diagnosis
-        elif re.search(r"\b(?:fix error|debug|traceback|exception|syntaxerror|typeerror|failing test|crash|segfault|500 error)\b", prompt_lower):
-            intent = "debugging"
-            steps = [
-                {"id": "step-1", "title": "Diagnose runtime error stack trace and reproduce failure", "status": "in_progress"},
-                {"id": "step-2", "title": "Implement targeted bug fix and edge case handling", "status": "pending"},
-                {"id": "step-3", "title": "Verify fix against test suites and execution logs", "status": "pending"}
-            ]
-        # 7. DevOps & Infrastructure Configuration
-        elif re.search(r"\b(?:docker|dockerfile|docker-compose|k8s|kubernetes|ci/cd|github action|nginx|deploy|helm)\b", prompt_lower):
-            intent = "devops"
-            steps = [
-                {"id": "step-1", "title": "Inspect environment configuration and container specifications", "status": "in_progress"},
-                {"id": "step-2", "title": "Configure infrastructure manifests and automation scripts", "status": "pending"},
-                {"id": "step-3", "title": "Verify container build, health checks, and service readiness", "status": "pending"}
-            ]
-        # 8. App Building (Chat / Messaging, Games, Calculators, E-commerce, Web Apps)
-        elif re.search(r"\b(?:chat|message|messaging|slack|discord|inbox)\b", prompt_lower):
-            intent = "app_building"
-            steps = [
-                {"id": "step-1", "title": "Scaffold messaging UI layout, channel sidebar, and active user state", "status": "in_progress"},
-                {"id": "step-2", "title": "Implement reactive chat stream, message store, and composer controls", "status": "pending"},
-                {"id": "step-3", "title": "Verify live messaging preview and interactive DOM message flow", "status": "pending"}
-            ]
-        elif re.search(r"\b(?:game|games|snake|tetris|arcade|canvas|puzzle|pong)\b", prompt_lower):
-            intent = "app_building"
-            steps = [
-                {"id": "step-1", "title": "Scaffold viewport canvas, game loop state, and scoreboard", "status": "in_progress"},
-                {"id": "step-2", "title": "Implement player controls, physics engine, and collision mechanics", "status": "pending"},
-                {"id": "step-3", "title": "Verify 60fps render loop and interactive game preview", "status": "pending"}
-            ]
-        elif re.search(r"\b(?:calc|calculator|math|finance)\b", prompt_lower):
-            intent = "app_building"
-            steps = [
-                {"id": "step-1", "title": "Scaffold responsive layout grid, input display, and keypad controls", "status": "in_progress"},
-                {"id": "step-2", "title": "Implement core calculation engine, state store, and history log", "status": "pending"},
-                {"id": "step-3", "title": "Verify arithmetic precision and live DOM application preview", "status": "pending"}
-            ]
-        elif any(k in prompt_lower for k in ["store", "shop", "cart", "checkout", "ecommerce", "product"]):
-            intent = "app_building"
-            steps = [
-                {"id": "step-1", "title": "Scaffold product catalog grid, category filters, and cart drawer", "status": "in_progress"},
-                {"id": "step-2", "title": "Implement cart state store, quantity modifiers, and mock checkout", "status": "pending"},
-                {"id": "step-3", "title": "Verify responsive catalog preview and interactive checkout flow", "status": "pending"}
-            ]
-        elif persona_name in ["AppBuilder"] or any(k in prompt_lower for k in ["app", "build", "frontend", "ui", "preview", "react", "vite", "page", "component", "site", "web app"]):
-            intent = "app_building"
-            steps = [
-                {"id": "step-1", "title": "Scaffold application layout and workspace structure", "status": "in_progress"},
-                {"id": "step-2", "title": "Implement interactive components and core state logic", "status": "pending"},
-                {"id": "step-3", "title": "Verify application preview and DOM mount integrity", "status": "pending"}
-            ]
-        elif re.search(r"\b(?:test|pytest|tests|spec|specs|unittest)\b", prompt_lower):
-            intent = "code_modification"
-            steps = [
-                {"id": "step-1", "title": "Inspect codebase structure and existing test suites", "status": "in_progress"},
-                {"id": "step-2", "title": "Implement test cases and fix identified issues", "status": "pending"},
-                {"id": "step-3", "title": "Execute test suites and verify exit status", "status": "pending"}
-            ]
-        else:
-            intent = "code_modification"
-            steps = [
-                {"id": "step-1", "title": "Analyze task requirements and workspace environment", "status": "in_progress"},
-                {"id": "step-2", "title": "Execute implementation changes and core logic", "status": "pending"},
-                {"id": "step-3", "title": "Verify workspace integrity and deliver final results", "status": "pending"}
-            ]
-
+        intent = "app_building" if persona_name == "AppBuilder" else "qa_research"
         return {
             "intent_category": intent,
             "objective": objective,
-            "steps": steps,
+            "steps": [
+                {"id": "step-1", "title": "Synthesizing dynamic execution plan with AI model...", "status": "in_progress"}
+            ],
             "evaluation": {
                 "status": "pending",
-                "summary": "Plan formulated. Execution in progress."
+                "summary": "Formulating execution plan with AI model..."
             }
         }
 
@@ -373,13 +261,26 @@ class AntigravityHarness:
         persona_name: str
     ) -> Dict[str, Any]:
         """
-        Dynamically synthesizes a bespoke 3-step execution plan and classifies task intent
+        Dynamically synthesizes a bespoke execution plan and classifies task intent
         using a fast structured JSON call to Gemini before tool loop execution.
-        Cascades through candidate models with graceful fallback to semantic plan.
+        Surfaces authentic error diagnostics if dynamic formulation fails across candidate models.
         """
-        fallback_plan = self._generate_fallback_plan(title, prompt, persona_name)
+        objective = title or prompt[:100]
         if not api_key:
-            return fallback_plan
+            return {
+                "intent_category": "app_building" if persona_name == "AppBuilder" else "qa_research",
+                "objective": objective,
+                "steps": [
+                    {"id": "step-1", "title": "Plan Generation Failed: Gemini API Key is missing or unconfigured", "status": "failed"}
+                ],
+                "evaluation": {
+                    "status": "needs_revision",
+                    "summary": "Dynamic execution plan generation failed: Gemini API Key is missing or unconfigured.",
+                    "checks": [
+                        {"name": "Dynamic Plan Generation", "passed": False, "message": "Gemini API Key is missing or unconfigured"}
+                    ]
+                }
+            }
 
         plan_prompt = (
             f"You are the Cyclode Master Execution Planner. Formulate a crisp, bespoke 3-step execution plan for the following task.\n\n"
@@ -407,6 +308,7 @@ class AntigravityHarness:
         )
 
         candidate_models = list(dict.fromkeys([model_name, "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"]))
+        last_error = "Model response unavailable"
 
         for active_model in candidate_models:
             if not active_model:
@@ -423,7 +325,7 @@ class AntigravityHarness:
             try:
                 resp = await asyncio.wait_for(
                     client.post(dynamic_url, json=payload),
-                    timeout=4.0
+                    timeout=5.0
                 )
                 if resp.status_code == 200:
                     data = resp.json()
@@ -433,13 +335,13 @@ class AntigravityHarness:
                         raw_text = "".join(p.get("text", "") for p in parts if "text" in p).strip()
                         if raw_text:
                             parsed = json.loads(raw_text)
-                            intent_cat = parsed.get("intent_category", fallback_plan["intent_category"])
+                            intent_cat = parsed.get("intent_category", "qa_research")
                             if intent_cat not in ["qa_research", "app_building", "code_modification", "review_audit", "debugging", "devops"]:
-                                intent_cat = fallback_plan["intent_category"]
+                                intent_cat = "qa_research"
 
-                            obj = parsed.get("objective") or fallback_plan["objective"]
+                            obj = parsed.get("objective") or objective
                             raw_steps = parsed.get("steps", [])
-                            if isinstance(raw_steps, list) and len(raw_steps) >= 2:
+                            if isinstance(raw_steps, list) and len(raw_steps) >= 1:
                                 steps = []
                                 for idx, s in enumerate(raw_steps):
                                     s_title = s.get("title", f"Step {idx+1}") if isinstance(s, dict) else str(s)
@@ -455,17 +357,40 @@ class AntigravityHarness:
                                         "summary": "Dynamic plan formulated. Execution in progress."
                                     }
                                 }
+                else:
+                    err_msg = f"HTTP {resp.status_code}"
+                    try:
+                        err_json = resp.json()
+                        err_msg = err_json.get("error", {}).get("message", resp.text[:120])
+                    except Exception:
+                        if resp.text:
+                            err_msg = resp.text[:120]
+                    last_error = f"Model {active_model} returned HTTP {resp.status_code}: {err_msg}"
             except Exception as e:
+                last_error = f"Model {active_model} call error: {type(e).__name__} ({str(e)[:100]})"
                 logger.debug(f"Dynamic plan generation exception on model {active_model}: {e}")
                 continue
 
-        return fallback_plan
+        return {
+            "intent_category": "app_building" if persona_name == "AppBuilder" else "qa_research",
+            "objective": objective,
+            "steps": [
+                {"id": "step-1", "title": f"Plan Generation Failed: {last_error}", "status": "failed"}
+            ],
+            "evaluation": {
+                "status": "needs_revision",
+                "summary": f"Could not generate dynamic execution plan: {last_error}",
+                "checks": [
+                    {"name": "Dynamic Plan Generation", "passed": False, "message": last_error}
+                ]
+            }
+        }
 
-    def _generate_initial_plan(self, title: str, prompt: str, persona_name: str) -> Dict[str, Any]:
+    def _generate_initial_plan(self, title: str, prompt: str, persona_name: str = "") -> Dict[str, Any]:
         """
-        Formulates a structured 3-step execution plan prior to tool actions.
+        Formulates the initial formulating placeholder prior to AI model execution.
         """
-        return self._generate_fallback_plan(title, prompt, persona_name)
+        return self._create_initial_plan_placeholder(title, prompt, persona_name)
 
     async def execute_task(
         self,
