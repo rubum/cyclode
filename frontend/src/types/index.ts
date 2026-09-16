@@ -298,14 +298,17 @@ export interface LinearIssue {
 
 export interface WorkspacePreviewInfo {
   has_preview: boolean;
-  type?: 'static' | 'dev_server' | null;
+  type?: 'static' | 'dev_server' | 'diagnostic' | null;
   entry_point?: string | null;
   title?: string | null;
   framework?: string | null;
+  build_status?: 'compiled' | 'needs_build' | 'static' | 'none';
   assets_count?: number;
   available_entry_points?: string[];
   preview_url?: string | null;
   viewport_recommended?: 'desktop' | 'tablet' | 'mobile';
+  issues?: string[];
+  recommendation?: string;
 }
 
 

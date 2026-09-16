@@ -348,3 +348,76 @@ async def test_inquiry_respond_api_and_resolution():
         app_record = res.scalars().first()
         assert app_record is not None
         assert app_record.status == "APPROVED"
+
+
+@pytest.mark.asyncio
+async def test_verify_workspace_preview_needs_build(temp_workspace: Path):
+    from app.api.preview import verify_workspace_preview
+    # Scaffold an unbuilt Vite app in client/
+    client_dir = temp_workspace / "client"
+    client_dir.mkdir(parents=True, exist_ok=True)
+    (client_dir / "package.json").write_text('{"name": "client", "scripts": {"build": "vite build"}}', encoding="utf-8")
+    (client_dir / "index.html").write_text(
+        '<!DOCTYPE html><html><body><div id="root"></div><script type="module" src="/src/main.jsx"></script></body></html>',
+        encoding="utf-8"
+    )
+
+    res = verify_workspace_preview(temp_workspace, "test-task-1")
+    assert res["has_preview"] is True
+    assert res["status"] == "needs_build"
+    assert res["build_status"] == "needs_build"
+    assert "uncompiled development template" in res["issues"][0].lower()
+
+
+@pytest.mark.asyncio
+async def test_verify_workspace_preview_ready_with_dist(temp_workspace: Path):
+    from app.api.preview import verify_workspace_preview
+    # Create built client/dist/index.html
+    dist_dir = temp_workspace / "client" / "dist"
+    dist_dir.mkdir(parents=True, exist_ok=True)
+    (dist_dir / "index.html").write_text(
+        '<!DOCTYPE html><html><head><title>Built Social App</title></head><body><div id="root"></div><script src="/assets/index.js"></script></body></html>',
+        encoding="utf-8"
+    )
+
+    res = verify_workspace_preview(temp_workspace, "test-task-2")
+    assert res["has_preview"] is True
+    assert res["status"] == "ready"
+    assert res["build_status"] == "compiled"
+    assert res["entry_point"] == "client/dist/index.html"
+    assert res["title"] == "Built Social App"
+
+
+@pytest.mark.asyncio
+async def test_preview_smart_bundle_redirection_and_base(temp_workspace: Path):
+    # Both client/index.html and client/dist/index.html exist
+    client_dir = temp_workspace / "client"
+    dist_dir = client_dir / "dist"
+    dist_dir.mkdir(parents=True, exist_ok=True)
+    (client_dir / "index.html").write_text('<html><body>Raw Template</body></html>', encoding="utf-8")
+    (dist_dir / "index.html").write_text('<!DOCTYPE html><html><head><title>Prod App</title></head><body><script src="/assets/main.js"></script><h1>Prod Build</h1></body></html>', encoding="utf-8")
+
+    task_id = f"test-bundle-{uuid.uuid4()}"
+    async with async_session_factory() as session:
+        task = TaskModel(
+            id=task_id,
+            title="Smart Bundle Test",
+            description="Testing smart bundle resolution",
+            persona="AppBuilder",
+            model_name="gemini-3.7-flash",
+            status="RUNNING",
+            workspace_path=str(temp_workspace),
+        )
+        session.add(task)
+        await session.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        # Requesting client/index.html should serve the compiled bundle from client/dist/index.html
+        resp = await ac.get(f"/api/tasks/{task_id}/preview/client/index.html")
+        assert resp.status_code == 200
+        assert "Prod Build" in resp.text
+        # Base href must be correctly nested to client/dist/
+        assert f'<base href="/api/tasks/{task_id}/preview/client/dist/">' in resp.text
+        # /assets/main.js must be rewritten to ./assets/main.js
+        assert 'src="./assets/main.js"' in resp.text
+

@@ -530,6 +530,14 @@ class AntigravityHarness:
                             },
                             "required": ["question", "options", "default_option_id"]
                         }
+                    },
+                    {
+                        "name": "verify_app_preview",
+                        "description": "Inspect and verify the live web application preview in the workspace. Checks whether an entry point exists (e.g. index.html, client/dist/index.html), whether scripts and assets resolve properly, whether Vite/React bundles have been compiled, and returns actionable feedback so you can fix errors before completing.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {}
+                        }
                     }
                 ]
             }
@@ -588,7 +596,9 @@ class AntigravityHarness:
                     break
                 api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{active_model}:generateContent?key={api_key}"
                 turn = 0
-                max_turns = 12
+                max_turns = 16
+                guardrail_corrections = 0
+                max_guardrail_corrections = 2
                 model_succeeded = False
                 final_agent_text = ""
 
@@ -651,6 +661,47 @@ class AntigravityHarness:
                                 )
 
                         if not function_calls:
+                            # Autonomous Pre-Completion Verification Guardrail
+                            prompt_title_lower = (prompt + " " + title).lower()
+                            is_app_task = (
+                                persona_name in ["AppBuilder", "PairProgrammer"]
+                                or any(k in prompt_title_lower for k in ["app", "social", "build", "frontend", "ui", "preview", "react", "vite", "dashboard", "store", "website", "web page"])
+                            )
+                            if is_app_task and guardrail_corrections < max_guardrail_corrections:
+                                from app.api.preview import verify_workspace_preview
+                                verification = verify_workspace_preview(workspace_path, task_id)
+                                status_val = verification.get("status")
+                                has_workspace_source = (
+                                    (workspace_path / "package.json").exists()
+                                    or (workspace_path / "client" / "package.json").exists()
+                                    or (workspace_path / "index.html").exists()
+                                    or (workspace_path / "client" / "index.html").exists()
+                                )
+                                if status_val == "needs_build" or (status_val == "missing_entry_point" and has_workspace_source):
+                                    guardrail_corrections += 1
+                                    issues_text = "\n".join(f"- {i}" for i in verification.get("issues", []))
+                                    rec_text = verification.get("recommendation", "Please implement the complete component views and run 'npm run build' to generate the production preview bundle.")
+                                    guardrail_prompt = (
+                                        f"Autonomous Pre-Completion Verification Notice:\n"
+                                        f"{issues_text}\n"
+                                        f"Required Action: {rec_text}\n\n"
+                                        f"CRITICAL DIRECTIVE: Do NOT conclude the task after initial scaffolding. Implement the full component hierarchy, write all UI views, run the production build command (e.g. 'cd client && npm run build' or 'npm run build'), and call `verify_app_preview` to confirm the application renders before writing your final response."
+                                    )
+                                    logger.info(f"Triggering Pre-Completion Guardrail on task {task_id} (correction {guardrail_corrections})")
+                                    await self._emit_streamed_thought(
+                                        f"⚙️ **Pre-Completion Guardrail**: Verifying application preview... The frontend was scaffolded but has not been compiled (`dist/index.html` missing). Continuing autonomous iteration to implement components and execute build.",
+                                        on_thought, on_stream_start, on_stream_chunk, on_stream_end
+                                    )
+                                    contents.append({
+                                        "role": "model",
+                                        "parts": parts if parts else [{"text": "Scaffolding initialized."}]
+                                    })
+                                    contents.append({
+                                        "role": "user",
+                                        "parts": [{"text": guardrail_prompt}]
+                                    })
+                                    continue
+
                             final_text = "\n".join(text_parts) if text_parts else "Task execution completed."
                             return {"status": "COMPLETED", "summary": final_text[:120]}
 
@@ -883,6 +934,29 @@ class AntigravityHarness:
                                     out_str = f"Auto-proceeded after {timeout_arg}s timeout with recommended default: '{sel_label}' (ID: {tool_result.get('selected_option_id')})"
                                 else:
                                     out_str = f"User selected: '{sel_label}' (ID: {tool_result.get('selected_option_id')})"
+                            elif fn_name == "verify_app_preview":
+                                from app.api.preview import verify_workspace_preview
+                                tool_result = verify_workspace_preview(workspace_path, task_id)
+                                status_str = tool_result.get("status", "unknown")
+                                fw_str = tool_result.get("framework", "unknown")
+                                entry_str = tool_result.get("entry_point") or "None"
+                                build_st = tool_result.get("build_status", "none")
+                                issues_list = tool_result.get("issues", [])
+                                rec_str = tool_result.get("recommendation", "")
+
+                                out_lines = [
+                                    f"Preview Status: {status_str.upper()}",
+                                    f"Framework: {fw_str}",
+                                    f"Entry Point: {entry_str}",
+                                    f"Build Status: {build_st}"
+                                ]
+                                if issues_list:
+                                    out_lines.append("Issues Detected:")
+                                    for iss in issues_list:
+                                        out_lines.append(f"  - {iss}")
+                                if rec_str:
+                                    out_lines.append(f"Recommendation: {rec_str}")
+                                out_str = "\n".join(out_lines)
                             else:
                                 tool_result = {"error": f"Unknown tool: {fn_name}"}
                                 exit_code = 1

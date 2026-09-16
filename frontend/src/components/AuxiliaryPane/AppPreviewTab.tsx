@@ -361,6 +361,12 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
               {previewInfo.framework}
             </span>
           )}
+
+          {previewInfo.build_status === 'needs_build' && (
+            <span className="hidden lg:inline-flex items-center px-1.5 py-0.5 rounded bg-onedark-yellow/15 border border-onedark-yellow/30 text-[10px] font-mono text-onedark-yellow font-medium">
+              Needs Build
+            </span>
+          )}
         </div>
 
         {/* Center: Viewport Mode Switcher */}
@@ -493,6 +499,48 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
                 >
                   Inspect
                 </button>
+                <button
+                  onClick={() => setErrorBannerDismissed(true)}
+                  className="p-1 text-onedark-muted hover:text-onedark-fg rounded transition-colors"
+                  title="Dismiss alert"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Floating Uncompiled Template Warning Banner */}
+        {previewInfo?.build_status === 'needs_build' && errorCount === 0 && !errorBannerDismissed && (
+          <div className="absolute top-4 left-4 right-4 z-30 max-w-xl mx-auto animate-fadeIn">
+            <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 rounded-xl bg-onedark-darker/95 border border-onedark-yellow/40 shadow-2xl backdrop-blur-md text-xs">
+              <div className="flex items-start space-x-2.5 min-w-0 flex-1">
+                <AlertCircle className="w-4 h-4 text-onedark-yellow flex-shrink-0 mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center space-x-1.5">
+                    <span className="font-semibold text-onedark-yellow">
+                      Uncompiled Frontend Template
+                    </span>
+                    <span className="text-[10px] text-onedark-muted">({previewInfo.entry_point || 'client/index.html'})</span>
+                  </div>
+                  <div className="text-[11px] text-onedark-fg truncate mt-0.5 opacity-90">
+                    Production bundle is missing. Run <code className="text-onedark-accent font-mono">npm run build</code> to compile for live preview.
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-1.5 flex-shrink-0">
+                {onAskAgent && (
+                  <button
+                    onClick={() => onAskAgent('Please execute npm run build (or cd client && npm run build) to compile the client application into a production dist/index.html bundle so it renders in the live preview.')}
+                    className="px-2.5 py-1 rounded-lg bg-onedark-yellow/20 hover:bg-onedark-yellow/30 text-onedark-yellow border border-onedark-yellow/40 text-[11px] font-medium transition-all flex items-center space-x-1 cursor-pointer shadow-xs active:scale-95"
+                    title="Ask agent to build frontend bundle"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    <span>Build App</span>
+                  </button>
+                )}
                 <button
                   onClick={() => setErrorBannerDismissed(true)}
                   className="p-1 text-onedark-muted hover:text-onedark-fg rounded transition-colors"

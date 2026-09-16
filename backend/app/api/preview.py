@@ -73,10 +73,24 @@ def _extract_html_title(html_file: Path) -> Optional[str]:
     return None
 
 
+def _rewrite_asset_paths_for_preview(html_text: str) -> str:
+    """
+    Rewrites root-relative asset URLs (e.g. src="/assets/..." or href="/assets/...") to relative "./assets/..."
+    so that browser asset loading works reliably inside the scoped preview sub-path.
+    """
+    # Rewrite /assets/... -> ./assets/...
+    html_text = re.sub(r'(src|href)=["\']/(assets/[^"\']*)["\']', r'\1="./\2"', html_text, flags=re.IGNORECASE)
+    # Rewrite /favicon... -> ./favicon...
+    html_text = re.sub(r'(src|href)=["\']/(favicon[^"\']*)["\']', r'\1="./\2"', html_text, flags=re.IGNORECASE)
+    return html_text
+
+
 def _inject_html_telemetry_and_base(html_text: str, base_href: str) -> str:
     """
     Injects `<base href="...">` and an iframe telemetry/console capture script into HTML content.
     """
+    html_text = _rewrite_asset_paths_for_preview(html_text)
+
     telemetry_script = (
         "\n<script id=\"cyclode-preview-telemetry\">\n"
         "(function() {\n"
@@ -106,10 +120,15 @@ def _inject_html_telemetry_and_base(html_text: str, base_href: str) -> str:
         "  console.error = function() { send('error', arguments); if (origErr) origErr.apply(console, arguments); };\n"
         "  console.info = function() { send('info', arguments); if (origInfo) origInfo.apply(console, arguments); };\n"
         "  window.addEventListener('error', function(e) {\n"
+        "    if (e.target && (e.target.tagName === 'SCRIPT' || e.target.tagName === 'LINK' || e.target.tagName === 'IMG')) {\n"
+        "      var resUrl = e.target.src || e.target.href || 'resource';\n"
+        "      send('error', ['Failed to load resource (404/Network Error): ' + resUrl]);\n"
+        "      return;\n"
+        "    }\n"
         "    var loc = (e.filename || '') + (e.lineno ? ':' + e.lineno : '') + (e.colno ? ':' + e.colno : '');\n"
         "    var stack = e.error && e.error.stack ? '\\n' + e.error.stack : '';\n"
         "    send('error', [(e.message || 'Uncaught Error') + (loc ? ' (' + loc + ')' : '') + stack]);\n"
-        "  });\n"
+        "  }, true);\n"
         "  window.addEventListener('unhandledrejection', function(e) {\n"
         "    var reason = e.reason;\n"
         "    var msg = reason instanceof Error ? (reason.message + (reason.stack ? '\\n' + reason.stack : '')) : String(reason);\n"
@@ -128,6 +147,169 @@ def _inject_html_telemetry_and_base(html_text: str, base_href: str) -> str:
         return re.sub(r"(<html[^>]*>)", r"\1\n<head>" + injection + "</head>", html_text, count=1, flags=re.IGNORECASE)
     else:
         return f"<!DOCTYPE html>\n<html><head>{injection}</head><body>{html_text}</body></html>"
+
+
+def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict[str, Any]:
+    """
+    Evaluates workspace files to verify preview completeness, build status, and asset integrity.
+    Used by both the Preview API and the agent harness `verify_app_preview` tool.
+    """
+    if not ws_path or not ws_path.exists() or not ws_path.is_dir():
+        return {
+            "status": "missing_workspace",
+            "has_preview": False,
+            "entry_point": None,
+            "framework": "None",
+            "build_status": "none",
+            "issues": ["Workspace directory does not exist on disk."],
+            "recommendation": "Initialize the workspace files and create a web application entry point."
+        }
+
+    # Priority-ordered entry point search (built bundles prioritized over raw templates)
+    entry_candidates = [
+        "dist/index.html",
+        "client/dist/index.html",
+        "build/index.html",
+        "client/build/index.html",
+        "public/index.html",
+        "app/dist/index.html",
+        "index.html",
+        "client/index.html",
+        "src/index.html",
+        "app/index.html",
+        "main.html",
+    ]
+
+    available_entry_points: List[str] = []
+    primary_entry: Optional[str] = None
+    extracted_title: Optional[str] = None
+
+    for candidate in entry_candidates:
+        cand_path = (ws_path / candidate).resolve()
+        try:
+            cand_path.relative_to(ws_path)
+            if cand_path.exists() and cand_path.is_file():
+                available_entry_points.append(candidate)
+                if not primary_entry:
+                    primary_entry = candidate
+                    extracted_title = _extract_html_title(cand_path)
+        except ValueError:
+            continue
+
+    # Fallback search for any html file
+    if not primary_entry:
+        for root, dirs, files in os.walk(ws_path):
+            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "venv", "__pycache__", ".git")]
+            for f in files:
+                if f.lower().endswith((".html", ".htm")):
+                    full_p = Path(root) / f
+                    try:
+                        rel = str(full_p.relative_to(ws_path))
+                        available_entry_points.append(rel)
+                        if not primary_entry:
+                            primary_entry = rel
+                            extracted_title = _extract_html_title(full_p)
+                    except ValueError:
+                        continue
+
+    # Framework & source discovery
+    has_package_json = (ws_path / "package.json").exists() or (ws_path / "client" / "package.json").exists()
+    has_vite = (ws_path / "vite.config.js").exists() or (ws_path / "client" / "vite.config.js").exists() or (ws_path / "vite.config.ts").exists() or (ws_path / "client" / "vite.config.ts").exists()
+    has_dist = (ws_path / "dist" / "index.html").exists() or (ws_path / "client" / "dist" / "index.html").exists() or (ws_path / "build" / "index.html").exists()
+    
+    has_jsx_tsx = False
+    for root, dirs, files in os.walk(ws_path):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "venv", "__pycache__", ".git")]
+        if any(f.endswith((".jsx", ".tsx")) for f in files):
+            has_jsx_tsx = True
+            break
+
+    framework = "Static Web"
+    if has_vite or (has_package_json and has_jsx_tsx):
+        framework = "React (Vite)" if has_vite else "React / Single Page App"
+    elif (ws_path / "requirements.txt").exists() or (ws_path / "pyproject.toml").exists():
+        framework = "Python Backend API"
+
+    asset_extensions = {".html", ".htm", ".css", ".js", ".mjs", ".jsx", ".ts", ".tsx", ".svg", ".png", ".jpg", ".jpeg", ".json", ".wasm"}
+    assets_count = 0
+    for root, dirs, files in os.walk(ws_path):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "venv", "__pycache__", ".git")]
+        for f in files:
+            if Path(f).suffix.lower() in asset_extensions:
+                assets_count += 1
+
+    issues: List[str] = []
+    recommendation = "Preview is verified and ready to render."
+    build_status = "static"
+
+    if not primary_entry:
+        if has_package_json and has_jsx_tsx:
+            return {
+                "status": "needs_build",
+                "has_preview": False,
+                "entry_point": None,
+                "available_entry_points": [],
+                "assets_count": assets_count,
+                "framework": framework,
+                "build_status": "needs_build",
+                "issues": ["Frontend source code found (React/Vite) but no built index.html or dist bundle exists."],
+                "recommendation": "Execute 'npm run build' (or 'cd client && npm run build') to compile production dist/index.html bundle."
+            }
+        return {
+            "status": "missing_entry_point",
+            "has_preview": False,
+            "entry_point": None,
+            "available_entry_points": [],
+            "assets_count": assets_count,
+            "framework": framework,
+            "build_status": "none",
+            "issues": ["No index.html file found in workspace."],
+            "recommendation": "Create a root index.html or compile frontend client."
+        }
+
+    # Inspect the entry point
+    entry_file = ws_path / primary_entry
+    html_text = ""
+    try:
+        html_text = entry_file.read_text(encoding="utf-8", errors="ignore")
+    except Exception as e:
+        issues.append(f"Could not read entry point '{primary_entry}': {e}")
+
+    # Detect uncompiled development template (e.g. <script type="module" src="/src/main.jsx"> when no dist exists)
+    is_uncompiled_template = bool(re.search(r'<script[^>]+src=["\']/?src/main\.(jsx|tsx|ts)["\']', html_text, re.IGNORECASE))
+
+    if is_uncompiled_template and not has_dist:
+        issues.append(f"Entry point '{primary_entry}' is an uncompiled development template referencing raw '/src/main.jsx' without a production build.")
+        recommendation = "Execute 'npm run build' (or 'cd client && npm run build') to generate compiled bundle, or write a self-contained single-page application."
+        build_status = "needs_build"
+        return {
+            "status": "needs_build",
+            "has_preview": True,
+            "entry_point": primary_entry,
+            "available_entry_points": available_entry_points,
+            "assets_count": assets_count,
+            "title": extracted_title or "App Preview",
+            "framework": framework,
+            "build_status": build_status,
+            "issues": issues,
+            "recommendation": recommendation
+        }
+
+    if has_dist:
+        build_status = "compiled"
+
+    return {
+        "status": "ready" if not issues else "issues_found",
+        "has_preview": True,
+        "entry_point": primary_entry,
+        "available_entry_points": available_entry_points,
+        "assets_count": assets_count,
+        "title": extracted_title or "App Preview",
+        "framework": framework,
+        "build_status": build_status,
+        "issues": issues,
+        "recommendation": recommendation
+    }
 
 
 def _generate_diagnostic_html(task_id: str, task_title: str, ws_path: Optional[Path]) -> str:
@@ -281,111 +463,54 @@ async def inspect_preview(task_id: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Task not found")
 
     ws_path = _get_workspace_path(task)
-    if not ws_path:
+    verification = verify_workspace_preview(ws_path, task_id)
+
+    if not ws_path or not verification.get("has_preview"):
+        pkg_json_file = (ws_path / "package.json") if ws_path else None
+        has_package_json = pkg_json_file and pkg_json_file.exists() and pkg_json_file.is_file()
+        if has_package_json:
+            return {
+                "has_preview": True,
+                "type": "dev_server",
+                "entry_point": "package.json",
+                "title": task.title or "Dev Server App",
+                "framework": verification.get("framework", "Node.js"),
+                "build_status": "needs_build",
+                "assets_count": 0,
+                "available_entry_points": [],
+                "preview_url": None,
+                "issues": verification.get("issues", []),
+                "recommendation": verification.get("recommendation", "")
+            }
         return {
             "has_preview": False,
             "type": None,
             "entry_point": None,
             "title": None,
+            "framework": None,
+            "build_status": "none",
             "assets_count": 0,
             "available_entry_points": [],
             "preview_url": None,
+            "issues": verification.get("issues", []),
+            "recommendation": verification.get("recommendation", "")
         }
 
-    entry_candidates = [
-        "index.html",
-        "public/index.html",
-        "dist/index.html",
-        "build/index.html",
-        "src/index.html",
-        "app/index.html",
-        "main.html",
-    ]
-
-    available_entry_points: List[str] = []
-    primary_entry: Optional[str] = None
-    extracted_title: Optional[str] = None
-
-    for candidate in entry_candidates:
-        candidate_file = (ws_path / candidate).resolve()
-        try:
-            candidate_file.relative_to(ws_path)
-            if candidate_file.exists() and candidate_file.is_file():
-                available_entry_points.append(candidate)
-                if not primary_entry:
-                    primary_entry = candidate
-                    extracted_title = _extract_html_title(candidate_file)
-        except ValueError:
-            continue
-
-    if not primary_entry:
-        for root, dirs, files in os.walk(ws_path):
-            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "venv", "__pycache__", ".git")]
-            for f in files:
-                if f.lower().endswith((".html", ".htm")):
-                    full_p = Path(root) / f
-                    try:
-                        rel = str(full_p.relative_to(ws_path))
-                        available_entry_points.append(rel)
-                        if not primary_entry:
-                            primary_entry = rel
-                            extracted_title = _extract_html_title(full_p)
-                    except ValueError:
-                        continue
-
-    asset_extensions = {".html", ".htm", ".css", ".js", ".mjs", ".jsx", ".ts", ".tsx", ".svg", ".png", ".jpg", ".jpeg", ".json", ".wasm"}
-    assets_count = 0
-    discovered_files: List[str] = []
-    for root, dirs, files in os.walk(ws_path):
-        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "venv", "__pycache__", ".git")]
-        for f in files:
-            if Path(f).suffix.lower() in asset_extensions:
-                assets_count += 1
-            rel_f = str((Path(root) / f).relative_to(ws_path))
-            discovered_files.append(rel_f)
-
-    pkg_json_file = ws_path / "package.json"
-    has_package_json = pkg_json_file.exists() and pkg_json_file.is_file()
-
-    if primary_entry:
-        return {
-            "has_preview": True,
-            "type": "static",
-            "entry_point": primary_entry,
-            "title": extracted_title or "App Preview",
-            "assets_count": assets_count,
-            "available_entry_points": available_entry_points,
-            "preview_url": f"/api/tasks/{task_id}/preview/{primary_entry}",
-        }
-    elif has_package_json:
-        return {
-            "has_preview": True,
-            "type": "dev_server",
-            "entry_point": "package.json",
-            "title": task.title or "Dev Server App",
-            "assets_count": assets_count,
-            "available_entry_points": [],
-            "preview_url": None,
-        }
-    elif assets_count > 0:
-        return {
-            "has_preview": True,
-            "type": "diagnostic",
-            "entry_point": "index.html",
-            "title": task.title or "App Preview Diagnostics",
-            "assets_count": assets_count,
-            "available_entry_points": [],
-            "preview_url": f"/api/tasks/{task_id}/preview/index.html",
-        }
+    entry = verification.get("entry_point")
+    available_entries = verification.get("available_entry_points", [])
 
     return {
-        "has_preview": False,
-        "type": None,
-        "entry_point": None,
-        "title": None,
-        "assets_count": assets_count,
-        "available_entry_points": [],
-        "preview_url": None,
+        "has_preview": True,
+        "type": "static",
+        "entry_point": entry,
+        "title": verification.get("title") or task.title or "App Preview",
+        "framework": verification.get("framework"),
+        "build_status": verification.get("build_status", "static"),
+        "assets_count": verification.get("assets_count", len(available_entries)),
+        "available_entry_points": available_entries,
+        "preview_url": f"/api/tasks/{task_id}/preview/{entry}" if entry else None,
+        "issues": verification.get("issues", []),
+        "recommendation": verification.get("recommendation", "")
     }
 
 
@@ -406,9 +531,12 @@ async def get_preview_diagnostics(task_id: str, db: AsyncSession = Depends(get_d
             "task_id": task_id,
             "workspace_exists": False,
             "framework": "None",
+            "build_status": "none",
             "files": [],
             "suggestions": ["Task workspace has not been created on disk yet."]
         }
+
+    verification = verify_workspace_preview(ws_path, task_id)
 
     files: List[Dict[str, Any]] = []
     for root, dirs, files_list in os.walk(ws_path):
@@ -420,27 +548,21 @@ async def get_preview_diagnostics(task_id: str, db: AsyncSession = Depends(get_d
                 files.append({
                     "path": rel,
                     "size": fp.stat().st_size,
-                    "is_entry": rel in ["index.html", "public/index.html", "dist/index.html"]
+                    "is_entry": rel in ["index.html", "public/index.html", "dist/index.html", "client/dist/index.html"]
                 })
             except Exception:
                 continue
 
-    framework = "Static Web (HTML/JS)"
-    suggestions = []
-    file_paths = [f["path"] for f in files]
-
-    if any(p.endswith((".tsx", ".jsx")) for p in file_paths):
-        framework = "React / Vite / TSX"
-        if not any(p == "index.html" or "dist/index.html" in p for p in file_paths):
-            suggestions.append("Found React/TSX source without built bundle. Generate a zero-dependency CDN index.html for instant preview.")
-    elif any(p.endswith(".py") for p in file_paths):
-        framework = "Python Backend API"
-        suggestions.append("FastAPI / Python backend detected. Verify REST endpoints or pair with a frontend index.html.")
+    framework = verification.get("framework", "Static Web")
+    suggestions = list(verification.get("issues", []))
+    if verification.get("recommendation"):
+        suggestions.append(verification["recommendation"])
 
     return {
         "task_id": task_id,
         "workspace_exists": True,
         "framework": framework,
+        "build_status": verification.get("build_status", "static"),
         "files_count": len(files),
         "files": files[:50],
         "suggestions": suggestions
@@ -471,6 +593,14 @@ async def serve_preview_file(task_id: str, file_path: str = "", db: AsyncSession
     elif clean_rel.startswith(ws_path.name + "\\"):
         clean_rel = clean_rel[len(ws_path.name) + 1:]
 
+    # Smart fallback / compiled bundle preference
+    # If client/index.html or index.html is requested but a compiled bundle exists at client/dist/index.html or dist/index.html:
+    if clean_rel in ["client/index.html", "index.html"]:
+        if (ws_path / "client" / "dist" / "index.html").exists() and clean_rel == "client/index.html":
+            clean_rel = "client/dist/index.html"
+        elif (ws_path / "dist" / "index.html").exists() and clean_rel == "index.html":
+            clean_rel = "dist/index.html"
+
     target_file = (ws_path / clean_rel).resolve()
 
     try:
@@ -488,17 +618,18 @@ async def serve_preview_file(task_id: str, file_path: str = "", db: AsyncSession
     }
 
     if target_file.exists() and target_file.is_dir():
-        index_candidate = target_file / "index.html"
-        if index_candidate.exists() and index_candidate.is_file():
-            target_file = index_candidate
+        # Check dist/index.html first, then index.html
+        if (target_file / "dist" / "index.html").exists():
+            target_file = target_file / "dist" / "index.html"
+        elif (target_file / "index.html").exists():
+            target_file = target_file / "index.html"
         else:
-            # Generate diagnostic page for this folder
             diag_html = _generate_diagnostic_html(task_id, task.title or "Preview", ws_path)
             return Response(content=diag_html, media_type="text/html; charset=utf-8", headers=headers)
 
     # If index.html requested but does not exist on disk, render diagnostic landing page!
     if not target_file.exists() or not target_file.is_file():
-        if clean_rel in ["index.html", "public/index.html"]:
+        if clean_rel in ["index.html", "public/index.html", "client/index.html"]:
             diag_html = _generate_diagnostic_html(task_id, task.title or "Preview", ws_path)
             return Response(content=diag_html, media_type="text/html; charset=utf-8", headers=headers)
         raise HTTPException(status_code=404, detail=f"File '{clean_rel}' not found")
@@ -513,7 +644,12 @@ async def serve_preview_file(task_id: str, file_path: str = "", db: AsyncSession
     if ext in [".html", ".htm"]:
         try:
             raw_html = target_file.read_text(encoding="utf-8", errors="ignore")
-            base_href = f"/api/tasks/{task_id}/preview/"
+            parent_rel = str(target_file.parent.relative_to(ws_path)).replace("\\", "/")
+            if parent_rel == ".":
+                base_href = f"/api/tasks/{task_id}/preview/"
+            else:
+                base_href = f"/api/tasks/{task_id}/preview/{parent_rel}/"
+
             injected_html = _inject_html_telemetry_and_base(raw_html, base_href)
             return Response(
                 content=injected_html,
