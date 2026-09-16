@@ -421,3 +421,26 @@ async def test_preview_smart_bundle_redirection_and_base(temp_workspace: Path):
         # /assets/main.js must be rewritten to ./assets/main.js
         assert 'src="./assets/main.js"' in resp.text
 
+
+@pytest.mark.asyncio
+async def test_verify_workspace_preview_detects_uncompiled_css(temp_workspace: Path):
+    from app.api.preview import verify_workspace_preview
+    dist_dir = temp_workspace / "dist"
+    assets_dir = dist_dir / "assets"
+    assets_dir.mkdir(parents=True, exist_ok=True)
+    
+    (dist_dir / "index.html").write_text(
+        '<!DOCTYPE html><html><head><link rel="stylesheet" href="./assets/index.css"></head><body><h1>Broken CSS</h1></body></html>',
+        encoding="utf-8"
+    )
+    # Write uncompiled @tailwind directive into CSS asset
+    (assets_dir / "index.css").write_text(
+        '@tailwind base;\n@tailwind components;\n@tailwind utilities;\n',
+        encoding="utf-8"
+    )
+
+    res = verify_workspace_preview(temp_workspace, "test-uncompiled-css")
+    assert res["status"] == "uncompiled_css"
+    assert res["build_status"] == "uncompiled_css"
+    assert any("uncompiled" in issue.lower() for issue in res["issues"])
+

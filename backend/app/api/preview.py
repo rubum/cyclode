@@ -295,6 +295,58 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
             "recommendation": recommendation
         }
 
+    # Inspect linked stylesheets and script assets for bundle integrity
+    css_links = re.findall(r'<link[^>]+href=["\']([^"\']+\.css(?:\?[^"\']*)?)["\']', html_text, re.IGNORECASE)
+    js_scripts = re.findall(r'<script[^>]+src=["\']([^"\']+\.(?:js|mjs)(?:\?[^"\']*)?)["\']', html_text, re.IGNORECASE)
+
+    uncompiled_styling = False
+    for css_ref in css_links:
+        clean_ref = css_ref.split('?')[0].lstrip('./').lstrip('/')
+        # Look relative to entry_file dir and workspace root
+        css_path = entry_file.parent / clean_ref
+        if not css_path.exists():
+            css_path = ws_path / clean_ref
+        
+        if css_path.exists() and css_path.is_file():
+            try:
+                css_content = css_path.read_text(encoding="utf-8", errors="ignore")
+                # Detect uncompiled directives like raw @tailwind or @apply that browsers cannot interpret natively
+                if re.search(r'@tailwind\s+(base|components|utilities)', css_content) or re.search(r'@apply\s+[\w\-]+', css_content):
+                    uncompiled_styling = True
+                    issues.append(f"Stylesheet '{clean_ref}' contains uncompiled styling directives (@tailwind / @apply).")
+            except Exception as e:
+                logger.debug(f"Could not read stylesheet {css_path}: {e}")
+        else:
+            issues.append(f"Linked stylesheet '{css_ref}' was not found on disk.")
+
+    # Also check any generated CSS in dist/assets or client/dist/assets
+    assets_dirs = [ws_path / "dist" / "assets", ws_path / "client" / "dist" / "assets", ws_path / "build" / "assets"]
+    for a_dir in assets_dirs:
+        if a_dir.exists() and a_dir.is_dir():
+            for f in a_dir.glob("*.css"):
+                try:
+                    css_c = f.read_text(encoding="utf-8", errors="ignore")
+                    if re.search(r'@tailwind\s+(base|components|utilities)', css_c):
+                        uncompiled_styling = True
+                        issues.append(f"Compiled asset '{f.name}' contains uncompiled '@tailwind' directives.")
+                except Exception:
+                    pass
+
+    if uncompiled_styling:
+        recommendation = "Verify CSS bundler plugins (e.g. Vite Tailwind/PostCSS configuration) and rebuild with 'npm run build' so styling directives are compiled into standard CSS."
+        return {
+            "status": "uncompiled_css",
+            "has_preview": True,
+            "entry_point": primary_entry,
+            "available_entry_points": available_entry_points,
+            "assets_count": assets_count,
+            "title": extracted_title or "App Preview",
+            "framework": framework,
+            "build_status": "uncompiled_css",
+            "issues": issues,
+            "recommendation": recommendation
+        }
+
     if has_dist:
         build_status = "compiled"
 

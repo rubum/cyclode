@@ -679,12 +679,45 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
       }
     });
 
-    // Distribute logs to turns
+    // Distribute logs strictly to the turn during which they executed (per-turn traceability)
     if (result.length > 0) {
-      allLogs.forEach((log) => {
-        result[result.length - 1].logs.push(log);
-      });
       result[result.length - 1].isLatest = true;
+
+      // Pre-compute turn start timestamps for chronological window assignment
+      const turnWindows = result.map((turn, idx) => {
+        const startTime = turn.userMessage?.created_at
+          ? new Date(turn.userMessage.created_at).getTime()
+          : (task.created_at ? new Date(task.created_at).getTime() : 0);
+        return { idx, turn, startTime };
+      });
+
+      allLogs.forEach((log) => {
+        // Direct matching if log has a message_id or turn_id
+        if ((log as any).message_id) {
+          const matchedTurn = result.find((t) => t.userMessage?.id === (log as any).message_id);
+          if (matchedTurn) {
+            matchedTurn.logs.push(log);
+            return;
+          }
+        }
+
+        const logTime = log.created_at ? new Date(log.created_at).getTime() : 0;
+        if (!logTime || turnWindows.length === 1) {
+          result[result.length - 1].logs.push(log);
+          return;
+        }
+
+        // Locate the active turn window for this log
+        let targetTurnIdx = 0;
+        for (let i = 0; i < turnWindows.length; i++) {
+          if (logTime >= turnWindows[i].startTime) {
+            targetTurnIdx = i;
+          } else {
+            break;
+          }
+        }
+        result[targetTurnIdx].logs.push(log);
+      });
     }
 
     return result;

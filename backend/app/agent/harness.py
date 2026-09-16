@@ -677,19 +677,19 @@ class AntigravityHarness:
                                     or (workspace_path / "index.html").exists()
                                     or (workspace_path / "client" / "index.html").exists()
                                 )
-                                if status_val == "needs_build" or (status_val == "missing_entry_point" and has_workspace_source):
+                                if status_val in ["needs_build", "uncompiled_css"] or (status_val == "missing_entry_point" and has_workspace_source):
                                     guardrail_corrections += 1
                                     issues_text = "\n".join(f"- {i}" for i in verification.get("issues", []))
                                     rec_text = verification.get("recommendation", "Please implement the complete component views and run 'npm run build' to generate the production preview bundle.")
                                     guardrail_prompt = (
-                                        f"Autonomous Pre-Completion Verification Notice:\n"
+                                        f"Autonomous Pre-Completion Verification Notice ({status_val}):\n"
                                         f"{issues_text}\n"
                                         f"Required Action: {rec_text}\n\n"
-                                        f"CRITICAL DIRECTIVE: Do NOT conclude the task after initial scaffolding. Implement the full component hierarchy, write all UI views, run the production build command (e.g. 'cd client && npm run build' or 'npm run build'), and call `verify_app_preview` to confirm the application renders before writing your final response."
+                                        f"CRITICAL DIRECTIVE: Do NOT conclude the task without a functioning application. Implement the full component hierarchy, write all UI views, ensure styling directives compile into valid CSS, run the production build command (e.g. 'cd client && npm run build' or 'npm run build'), and call `verify_app_preview` to confirm the application renders before writing your final response."
                                     )
-                                    logger.info(f"Triggering Pre-Completion Guardrail on task {task_id} (correction {guardrail_corrections})")
+                                    logger.info(f"Triggering Pre-Completion Guardrail on task {task_id} (correction {guardrail_corrections}, status {status_val})")
                                     await self._emit_streamed_thought(
-                                        f"⚙️ **Pre-Completion Guardrail**: Verifying application preview... The frontend was scaffolded but has not been compiled (`dist/index.html` missing). Continuing autonomous iteration to implement components and execute build.",
+                                        f"⚙️ **Pre-Completion Guardrail**: Verifying application preview... Status: {status_val}. {rec_text}",
                                         on_thought, on_stream_start, on_stream_chunk, on_stream_end
                                     )
                                     contents.append({
