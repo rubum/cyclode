@@ -245,17 +245,41 @@ class AntigravityHarness:
                 {"id": "step-2", "title": "Analyze code changes for bugs, regressions, and syntax", "status": "pending"},
                 {"id": "step-3", "title": "Submit review synthesis and inline feedback", "status": "pending"}
             ]
-        elif persona_name in ["AppBuilder", "PairProgrammer"] or any(k in prompt_lower for k in ["app", "build", "frontend", "ui", "preview", "react", "vite", "page", "calculator", "game", "dashboard", "component"]):
+        elif any(k in prompt_lower for k in ["chat", "message", "messaging", "slack", "discord", "inbox"]):
             steps = [
-                {"id": "step-1", "title": "Scaffold application layout and workspace structure", "status": "in_progress"},
-                {"id": "step-2", "title": "Implement interactive components and core state logic", "status": "pending"},
-                {"id": "step-3", "title": "Verify application preview and DOM mount integrity", "status": "pending"}
+                {"id": "step-1", "title": "Scaffold messaging UI layout, channel sidebar, and active user state", "status": "in_progress"},
+                {"id": "step-2", "title": "Implement reactive chat stream, message store, and composer controls", "status": "pending"},
+                {"id": "step-3", "title": "Verify live messaging preview and interactive DOM message flow", "status": "pending"}
             ]
-        elif any(k in prompt_lower for k in ["search", "find", "research", "news", "trend"]):
+        elif re.search(r"\b(?:game|games|snake|tetris|arcade|canvas|puzzle|pong)\b", prompt_lower):
+            steps = [
+                {"id": "step-1", "title": "Scaffold viewport canvas, game loop state, and scoreboard", "status": "in_progress"},
+                {"id": "step-2", "title": "Implement player controls, physics engine, and collision mechanics", "status": "pending"},
+                {"id": "step-3", "title": "Verify 60fps render loop and interactive game preview", "status": "pending"}
+            ]
+        elif re.search(r"\b(?:calc|calculator|math|finance)\b", prompt_lower):
+            steps = [
+                {"id": "step-1", "title": "Scaffold responsive layout grid, input display, and keypad controls", "status": "in_progress"},
+                {"id": "step-2", "title": "Implement core calculation engine, state store, and history log", "status": "pending"},
+                {"id": "step-3", "title": "Verify arithmetic precision and live DOM application preview", "status": "pending"}
+            ]
+        elif any(k in prompt_lower for k in ["store", "shop", "cart", "checkout", "ecommerce", "product"]):
+            steps = [
+                {"id": "step-1", "title": "Scaffold product catalog grid, category filters, and cart drawer", "status": "in_progress"},
+                {"id": "step-2", "title": "Implement cart state store, quantity modifiers, and mock checkout", "status": "pending"},
+                {"id": "step-3", "title": "Verify responsive catalog preview and interactive checkout flow", "status": "pending"}
+            ]
+        elif any(k in prompt_lower for k in ["search", "find", "research", "news", "trend", "documentation", "article"]):
             steps = [
                 {"id": "step-1", "title": "Search live documentation, web, and AST symbols", "status": "in_progress"},
                 {"id": "step-2", "title": "Synthesize findings and structure analysis", "status": "pending"},
                 {"id": "step-3", "title": "Deliver analytical briefing with hyperlinked citations", "status": "pending"}
+            ]
+        elif persona_name in ["AppBuilder", "PairProgrammer"] or any(k in prompt_lower for k in ["app", "build", "frontend", "ui", "preview", "react", "vite", "page", "component", "site", "web app"]):
+            steps = [
+                {"id": "step-1", "title": "Scaffold application layout and workspace structure", "status": "in_progress"},
+                {"id": "step-2", "title": "Implement interactive components and core state logic", "status": "pending"},
+                {"id": "step-3", "title": "Verify application preview and DOM mount integrity", "status": "pending"}
             ]
         elif re.search(r"\b(?:test|pytest|tests|spec|specs|unittest)\b", prompt_lower):
             steps = [
@@ -748,7 +772,32 @@ class AntigravityHarness:
                             await self._emit_streamed_thought(
                                 quota_thought, on_thought, on_stream_start, on_stream_chunk, on_stream_end
                             )
-                            break
+
+                            # Fail active plan steps & mark evaluation as needs_revision
+                            for s in current_plan.get("steps", []):
+                                if s.get("status") == "in_progress":
+                                    s["status"] = "failed"
+                            current_plan["evaluation"] = {
+                                "status": "needs_revision",
+                                "summary": f"Execution halted: Google Gemini API Quota Depleted (429). {err_text}",
+                                "checks": [
+                                    {"name": "API Connection", "passed": False, "message": "Prepayment credits depleted (429)"},
+                                    {"name": "Tool Execution", "passed": False}
+                                ]
+                            }
+                            await self._emit_plan(current_plan, on_plan)
+
+                            quota_user_msg = (
+                                f"### ⚠️ Google Gemini API Quota Notice (429)\n\n"
+                                f"**{err_text}**\n\n"
+                                f"To resume autonomous agent execution:\n"
+                                f"1. **Prepayment Credits**: Configure your billing project at [Google AI Studio](https://ai.studio/projects).\n"
+                                f"2. **Alternative API Key**: Provide a fresh Gemini API key (`AIzaSy...`) in chat or configure **Settings > Integrations**."
+                            )
+                            await self._emit_streamed_message(
+                                "agent", quota_user_msg, on_message, on_stream_start, on_stream_chunk, on_stream_end
+                            )
+                            return {"status": "FAILED", "summary": f"Quota Depleted (429): {err_text[:100]}"}
                         if resp.status_code != 200:
                             err_msg = resp.text[:200]
                             logger.warning(f"API notice on turn {turn} model {active_model} ({resp.status_code}): {err_msg}")
@@ -1337,13 +1386,9 @@ class AntigravityHarness:
                     )
 
                     # Autonomous Plan Self-Evaluation Audit
-                    for s in current_plan.get("steps", []):
-                        if s.get("status") != "failed":
-                            s["status"] = "completed"
-
                     checks = [
                         {"name": "Workspace State", "passed": True},
-                        {"name": "Tool Execution", "passed": True}
+                        {"name": "Tool Execution", "passed": tool_call_count > 0 or model_succeeded}
                     ]
                     if is_app_task:
                         preview_ok = post_verification.get("status") in ["ready", "compiled", "static"]
@@ -1352,9 +1397,24 @@ class AntigravityHarness:
                             "passed": preview_ok
                         })
 
+                    all_checks_passed = all(c.get("passed", False) for c in checks)
+                    if not all_checks_passed or not model_succeeded:
+                        eval_status = "needs_revision"
+                        failed_names = [c["name"] for c in checks if not c.get("passed", False)]
+                        eval_summary = f"Plan execution requires revision: {', '.join(failed_names) if failed_names else 'Execution did not produce expected output'}."
+                        for s in current_plan.get("steps", []):
+                            if s.get("status") == "in_progress":
+                                s["status"] = "failed"
+                    else:
+                        eval_status = "accomplished"
+                        eval_summary = "All execution plan steps verified successfully against workspace telemetry."
+                        for s in current_plan.get("steps", []):
+                            if s.get("status") != "failed":
+                                s["status"] = "completed"
+
                     current_plan["evaluation"] = {
-                        "status": "accomplished",
-                        "summary": "All execution plan steps verified successfully against workspace telemetry.",
+                        "status": eval_status,
+                        "summary": eval_summary,
                         "checks": checks
                     }
                     await self._emit_plan(current_plan, on_plan)

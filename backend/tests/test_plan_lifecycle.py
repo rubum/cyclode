@@ -6,12 +6,12 @@ from app.db.models import TaskModel, TaskMessageModel
 def test_generate_initial_plan_app_builder():
     harness = AntigravityHarness()
     plan = harness._generate_initial_plan(
-        title="Build OmniCalc Web App",
-        prompt="Create a scientific calculator application with Tailwind CSS",
+        title="Build Modern Web App",
+        prompt="Create a responsive web application dashboard with Tailwind CSS",
         persona_name="AppBuilder"
     )
 
-    assert plan["objective"] == "Build OmniCalc Web App"
+    assert plan["objective"] == "Build Modern Web App"
     assert len(plan["steps"]) == 3
     assert plan["steps"][0]["status"] == "in_progress"
     assert plan["steps"][1]["status"] == "pending"
@@ -63,6 +63,48 @@ async def test_emit_plan_callback():
 
     assert len(emitted) == 1
     assert emitted[0]["objective"] == "Test Plan"
+
+
+def test_generate_initial_plan_messaging_app():
+    harness = AntigravityHarness()
+    plan = harness._generate_initial_plan(
+        title="Create a messaging app",
+        prompt="Build a real-time messaging chat app with channels",
+        persona_name="PairProgrammer"
+    )
+
+    assert plan["objective"] == "Create a messaging app"
+    assert len(plan["steps"]) == 3
+    assert "messaging UI layout" in plan["steps"][0]["title"]
+    assert "reactive chat stream" in plan["steps"][1]["title"]
+    assert "live messaging preview" in plan["steps"][2]["title"]
+
+
+def test_generate_initial_plan_game():
+    harness = AntigravityHarness()
+    plan = harness._generate_initial_plan(
+        title="Build Retro Arcade Game",
+        prompt="Create a classic snake game with canvas and sound effects",
+        persona_name="AppBuilder"
+    )
+
+    assert len(plan["steps"]) == 3
+    assert "canvas" in plan["steps"][0]["title"]
+    assert "player controls" in plan["steps"][1]["title"]
+    assert "60fps render loop" in plan["steps"][2]["title"]
+
+
+def test_generate_initial_plan_calculator():
+    harness = AntigravityHarness()
+    plan = harness._generate_initial_plan(
+        title="OmniCalc Studio",
+        prompt="Scientific calculator with history log",
+        persona_name="AppBuilder"
+    )
+
+    assert len(plan["steps"]) == 3
+    assert "keypad controls" in plan["steps"][0]["title"]
+    assert "calculation engine" in plan["steps"][1]["title"]
 
 
 def test_database_models_plan_column():
