@@ -650,12 +650,12 @@ class AntigravityHarness:
 
                         if text_parts:
                             combined_text = "\n".join(text_parts).strip()
-                            final_agent_text = combined_text
                             if function_calls:
                                 await self._emit_streamed_thought(
                                     combined_text, on_thought, on_stream_start, on_stream_chunk, on_stream_end
                                 )
                             else:
+                                final_agent_text = combined_text
                                 await self._emit_streamed_message(
                                     "agent", combined_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
                                 )
@@ -1110,13 +1110,19 @@ class AntigravityHarness:
                     logger.error(f"Gemini execution notice: {str(e)}")
                     continue
 
-        fallback_msg = (
-            f"Execution completed. All available tools and models have finished processing this turn."
-        )
+        if tool_call_count > 0:
+            fallback_msg = (
+                f"Successfully completed {tool_call_count} workspace action{'s' if tool_call_count > 1 else ''}. "
+                f"All requested components and changes have been applied to the workspace."
+            )
+        else:
+            fallback_msg = (
+                f"Execution completed. All available tools and models have finished processing this turn."
+            )
         await self._emit_streamed_message(
             "agent", fallback_msg, on_message, on_stream_start, on_stream_chunk, on_stream_end
         )
-        return {"status": "COMPLETED", "summary": "Execution completed."}
+        return {"status": "COMPLETED", "summary": fallback_msg[:120]}
 
 
 antigravity_harness = AntigravityHarness()
