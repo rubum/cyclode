@@ -9,10 +9,16 @@ Use this skill whenever designing, styling, prototyping, or refactoring user int
 
 ---
 
-## 1. The Anti-AI Cliché Invariant
+## 1. The Anti-AI Cliché & Domain Signature Invariants
 
 > [!IMPORTANT]
 > **Ban on "AI Purple/Indigo Slop"**: Never default to glowing electric indigo/purple gradients (`#6366f1` / `#a855f7`) on pitch black backdrops with oversized centered hero text and low-density empty cards. Every application must adopt a deliberate, domain-appropriate aesthetic archetype with tailored typography, custom color tokens, and intentional information density.
+
+### The Domain Signature Invariant
+Before generating code for any interface, establish:
+1. **Domain Metaphor**: What physical or professional world does this product inhabit? (e.g. trading desk, printing press, laboratory journal, terminal workbench).
+2. **Signature Element**: One distinct visual, structural, or interactive element tailored strictly to this product (e.g. an integrated telemetry ticker, a contextual command drawer, or a split diff viewer).
+3. **Defaults to Reject**: Name 3 predictable layout clichés to avoid for this interface type (e.g. rejecting a generic 3-card metric top bar or an unmotivated centered search bar).
 
 ---
 
@@ -127,9 +133,21 @@ Always import curated Google Fonts or Fontshare fonts rather than relying on gen
 
 ---
 
-## 7. Design System Reference Guides
+## 7. Pre-Delivery Critique & Self-Audit
 
-Consult the companion reference files for ready-to-use tokens and copy-paste component recipes:
+Before finalizing an interface or completing a task, conduct the 4-step self-review:
+1. **The Squint Test**: Blurring your vision must still reveal the top 3 dominant focal points clearly.
+2. **Reading Path Continuity**: Visual flow travels naturally from Primary Title $\rightarrow$ Work Canvas $\rightarrow$ Actions.
+3. **Single Depth Strategy**: Maintain one unified depth model (clean flat borders OR soft layered ambient shadows).
+4. **6-State Matrix**: Verify `Default`, `Hover`, `Active/Press`, `Focus-Visible`, `Loading/Skeleton`, and `Empty/Error` states.
+
+---
+
+## 8. Design System Reference Guides
+
+Consult the companion reference files for ready-to-use tokens, code guardrails, and component recipes:
+* [Critique Protocol & Self-Audit](file:///Users/macken/Documents/antigravity/epic-rutherford/.agents/skills/ui-ux-design/references/critique-protocol.md)
+* [AI Frontend Anti-Patterns](file:///Users/macken/Documents/antigravity/epic-rutherford/.agents/skills/ui-ux-design/references/anti-patterns.md)
 * [Typography & Fonts Reference](file:///Users/macken/Documents/antigravity/epic-rutherford/.agents/skills/ui-ux-design/references/typography-fonts.md)
 * [Iconography & Motion Physics Reference](file:///Users/macken/Documents/antigravity/epic-rutherford/.agents/skills/ui-ux-design/references/iconography-motion.md)
 * [Color Palettes Reference](file:///Users/macken/Documents/antigravity/epic-rutherford/.agents/skills/ui-ux-design/references/color-palettes.md)

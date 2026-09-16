@@ -209,3 +209,33 @@ tailwind.config = {
   }
 };
 ```
+
+---
+
+## 7. OKLCH Perceptual Scale & Brand-Tinted Neutrals
+
+The `oklch` (Lightness, Chroma, Hue) color model produces **perceptually uniform lightness steps**, ensuring equal lightness values look equally bright to the human eye regardless of hue.
+
+### Tinting Neutrals for Visual Cohesion
+Never use completely desaturated dead grays (`#71717a` or `oklch(0.5 0 0)`). Tint the neutral scale with $0.005$ to $0.012$ chroma matching your primary brand hue:
+
+```css
+:root {
+  /* Slate neutrals tinted with subtle slate-blue (Hue: 250, Chroma: 0.008) */
+  --neutral-50:  oklch(0.98 0.005 250);
+  --neutral-100: oklch(0.95 0.006 250);
+  --neutral-200: oklch(0.90 0.008 250);
+  --neutral-300: oklch(0.82 0.009 250);
+  --neutral-400: oklch(0.68 0.010 250);
+  --neutral-500: oklch(0.54 0.012 250);
+  --neutral-600: oklch(0.42 0.012 250);
+  --neutral-700: oklch(0.32 0.011 250);
+  --neutral-800: oklch(0.22 0.010 250);
+  --neutral-900: oklch(0.14 0.008 250);
+  --neutral-950: oklch(0.09 0.006 250);
+}
+```
+
+### Dark Mode Chroma Reduction Rule
+In dark mode interfaces, reduce the chroma (saturation) of accent colors by **15%–20%** compared to light mode. High-chroma saturated colors on pitch dark backdrops cause visual vibration and optical glare.
+
