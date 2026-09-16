@@ -54,15 +54,12 @@ class ClaudeProvider(BaseLLMProvider):
         Anthropic requires strictly alternating user/assistant turns and tool_use / tool_result blocks.
         """
         anthropic_msgs = []
-        pending_tool_results = []
 
         for m in messages:
             role = m.get("role", "user")
-            # Map system to user or skip if passed as system param
             if role == "system":
                 continue
-            
-            # If parts list format (Gemini-style)
+
             parts = m.get("parts", [])
             if parts:
                 content_blocks = []
@@ -83,7 +80,7 @@ class ClaudeProvider(BaseLLMProvider):
                         call_id = fr.get("id") or f"call_{fr.get('name')}"
                         resp_obj = fr.get("response", {})
                         content_str = resp_obj.get("output") or resp_obj.get("stdout") or json.dumps(resp_obj)
-                        pending_tool_results.append({
+                        content_blocks.append({
                             "type": "tool_result",
                             "tool_use_id": call_id,
                             "content": str(content_str)
@@ -91,13 +88,8 @@ class ClaudeProvider(BaseLLMProvider):
 
                 if content_blocks:
                     anthropic_role = "assistant" if role in ["model", "assistant"] else "user"
-                    # Merge with pending tool results if user turn
-                    if anthropic_role == "user" and pending_tool_results:
-                        content_blocks = pending_tool_results + content_blocks
-                        pending_tool_results = []
                     anthropic_msgs.append({"role": anthropic_role, "content": content_blocks})
             else:
-                # Standard content string
                 text_content = m.get("content", "")
                 thought_content = m.get("thought", "")
                 blocks = []
@@ -105,19 +97,12 @@ class ClaudeProvider(BaseLLMProvider):
                     blocks.append({"type": "text", "text": f"<thought>{thought_content}</thought>"})
                 if text_content:
                     blocks.append({"type": "text", "text": text_content})
-                
-                anthropic_role = "assistant" if role in ["model", "assistant", "agent"] else "user"
-                if anthropic_role == "user" and pending_tool_results:
-                    blocks = pending_tool_results + blocks
-                    pending_tool_results = []
+
                 if blocks:
+                    anthropic_role = "assistant" if role in ["model", "assistant", "agent"] else "user"
                     anthropic_msgs.append({"role": anthropic_role, "content": blocks})
 
-        # Flush any trailing tool results into a final user turn
-        if pending_tool_results:
-            anthropic_msgs.append({"role": "user", "content": pending_tool_results})
-
-        # Ensure turns alternate properly
+        # Ensure turns strictly alternate by merging adjacent same-role turns
         merged_msgs = []
         for msg in anthropic_msgs:
             if merged_msgs and merged_msgs[-1]["role"] == msg["role"]:
@@ -128,7 +113,9 @@ class ClaudeProvider(BaseLLMProvider):
                 elif isinstance(prev_c, str) and isinstance(curr_c, str):
                     merged_msgs[-1]["content"] = prev_c + "\n" + curr_c
                 else:
-                    merged_msgs[-1]["content"] = prev_c + (curr_c if isinstance(curr_c, list) else [{"type": "text", "text": str(curr_c)}])
+                    prev_list = prev_c if isinstance(prev_c, list) else [{"type": "text", "text": str(prev_c)}]
+                    curr_list = curr_c if isinstance(curr_c, list) else [{"type": "text", "text": str(curr_c)}]
+                    merged_msgs[-1]["content"] = prev_list + curr_list
             else:
                 merged_msgs.append(msg)
 

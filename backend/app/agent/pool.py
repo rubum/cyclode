@@ -148,7 +148,8 @@ class AgentTaskPool:
                 self._generate_and_update_title(
                     task_id=task_id,
                     prompt=description or initial_title,
-                    repo_name=repo_name
+                    repo_name=repo_name,
+                    model_name=chosen_model
                 )
             )
 
@@ -172,16 +173,17 @@ class AgentTaskPool:
         self,
         task_id: str,
         prompt: str,
-        repo_name: Optional[str] = None
+        repo_name: Optional[str] = None,
+        model_name: Optional[str] = None
     ):
         """
-        Asynchronously generates a concise 3-6 word AI title using Gemini and updates
+        Asynchronously generates a concise 3-6 word AI title using the active model provider and updates
         the task title in the database & broadcasts via WebSocket, respecting user custom titles.
         """
         try:
             # Yield control so worker starts first
             await asyncio.sleep(0.1)
-            ai_title = await generate_ai_title(prompt, repo_name)
+            ai_title = await generate_ai_title(prompt, repo_name, model_name=model_name)
             if not ai_title:
                 return
 
@@ -328,9 +330,13 @@ class AgentTaskPool:
                 commit_sha=commit_sha
             )
             workspace_path = sandbox_ctx.workspace_path
+            task_model_name = settings.ANTIGRAVITY_MODEL
 
-            # Update status to RUNNING and sandbox to ACTIVE
+            # Update status to RUNNING, sandbox to ACTIVE, and fetch model_name
             async with async_session_factory() as session:
+                task_rec = await session.get(TaskModel, task_id)
+                if task_rec and task_rec.model_name:
+                    task_model_name = task_rec.model_name
                 await session.execute(
                     update(TaskModel)
                     .where(TaskModel.id == task_id)
@@ -652,8 +658,10 @@ class AgentTaskPool:
                     "timed_out": timed_out
                 }
 
-            # Execute via Antigravity Harness
-            result = await antigravity_harness.execute_task(
+            # Execute via Antigravity Harness configured for the task's model
+            from app.agent.harness import AntigravityHarness
+            task_harness = AntigravityHarness(model_name=task_model_name)
+            result = await task_harness.execute_task(
                 task_id=task_id,
                 title=title,
                 description=description,
@@ -1166,7 +1174,12 @@ class AgentTaskPool:
 
             return {"ok": False, "error": f"Unknown action '{action}'"}
 
-    async def send_user_message(self, task_id: str, message_text: str) -> Dict[str, Any]:
+    async def send_user_message(
+        self,
+        task_id: str,
+        message_text: str,
+        model_name: Optional[str] = None
+    ) -> Dict[str, Any]:
         """
         Injects a user message into a task chat thread and executes the agentic follow-up.
         """
@@ -1191,10 +1204,15 @@ class AgentTaskPool:
                 tokens=u_tokens
             )
             session.add(user_msg)
+
+            update_vals: Dict[str, Any] = {"total_tokens": TaskModel.total_tokens + u_tokens}
+            if model_name:
+                update_vals["model_name"] = model_name
+
             await session.execute(
                 update(TaskModel)
                 .where(TaskModel.id == task_id)
-                .values(total_tokens=TaskModel.total_tokens + u_tokens)
+                .values(**update_vals)
             )
             await session.commit()
 

@@ -79,29 +79,51 @@ async def generate_query_embedding(
     client: Optional[httpx.AsyncClient] = None
 ) -> List[float]:
     """
-    Generates a dense vector embedding using Gemini text-embedding-004 if API key is provided,
-    otherwise gracefully falls back to deterministic n-gram vectorization.
+    Generates a dense vector embedding using Gemini text-embedding-004 or OpenAI text-embedding-3-small
+    if an API key is provided, otherwise gracefully falls back to deterministic n-gram vectorization.
     """
     if api_key and client:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={api_key}"
-        payload = {
-            "model": "models/text-embedding-004",
-            "content": {
-                "parts": [{"text": text[:1000]}]
+        # Check if OpenAI key
+        if api_key.startswith("sk-"):
+            url = "https://api.openai.com/v1/embeddings"
+            payload = {
+                "model": "text-embedding-3-small",
+                "input": text[:1000]
             }
-        }
-        try:
-            resp = await client.post(url, json=payload, timeout=4.0)
-            if resp.status_code == 200:
-                data = resp.json()
-                values = data.get("embedding", {}).get("values", [])
-                if values and isinstance(values, list):
-                    mag = math.sqrt(sum(v * v for v in values))
-                    if mag > 0:
-                        return [v / mag for v in values]
-                    return values
-        except Exception as e:
-            logger.debug(f"Gemini embedding endpoint exception, falling back to local vectorizer: {e}")
+            headers = {"Authorization": f"Bearer {api_key}"}
+            try:
+                resp = await client.post(url, json=payload, headers=headers, timeout=4.0)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    emb_list = data.get("data", [])
+                    if emb_list and "embedding" in emb_list[0]:
+                        values = emb_list[0]["embedding"]
+                        mag = math.sqrt(sum(v * v for v in values))
+                        if mag > 0:
+                            return [v / mag for v in values]
+                        return values
+            except Exception as e:
+                logger.debug(f"OpenAI embedding endpoint exception, falling back to local vectorizer: {e}")
+        else:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key={api_key}"
+            payload = {
+                "model": "models/text-embedding-004",
+                "content": {
+                    "parts": [{"text": text[:1000]}]
+                }
+            }
+            try:
+                resp = await client.post(url, json=payload, timeout=4.0)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    values = data.get("embedding", {}).get("values", [])
+                    if values and isinstance(values, list):
+                        mag = math.sqrt(sum(v * v for v in values))
+                        if mag > 0:
+                            return [v / mag for v in values]
+                        return values
+            except Exception as e:
+                logger.debug(f"Gemini embedding endpoint exception, falling back to local vectorizer: {e}")
 
     return compute_fallback_embedding(text)
 

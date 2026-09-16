@@ -181,7 +181,7 @@ export const getToolActionInfo = (
 interface ChatCanvasProps {
   task: Task | null;
   repositories?: RepositoryConfig[];
-  onSendMessage: (content: string) => void;
+  onSendMessage: (content: string, modelName?: string) => void;
   onApprove: (feedback?: string) => void;
   onReject: (feedback?: string) => void;
   onNewChatWithPrompt?: (prompt: string, persona: string, modelName?: string) => void;
@@ -556,6 +556,12 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     const interval = setInterval(checkPreviewStatus, 5000);
     return () => clearInterval(interval);
   }, [checkPreviewStatus]);
+
+  useEffect(() => {
+    if (task?.model_name) {
+      setSelectedModel(task.model_name);
+    }
+  }, [task?.id, task?.model_name]);
 
   const handleStartEditTitle = () => {
     if (!task) return;
@@ -983,7 +989,7 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
 
     try {
       if (task) {
-        await onSendMessage(trimmed);
+        await onSendMessage(trimmed, selectedModel);
       } else if (onNewChatWithPrompt) {
         await onNewChatWithPrompt(trimmed, selectedPersona, selectedModel);
       }

@@ -139,3 +139,53 @@ async def test_missing_api_keys_surface_honest_diagnostics():
     resp_openai = await openai.generate_response([], None, "", "gpt-4o")
     assert resp_openai.status_code == 401
     assert "OpenAI API Key is missing or unconfigured" in resp_openai.error_message
+
+
+def test_claude_multi_round_tool_conversation():
+    provider = ClaudeProvider(api_key="mock-key")
+    multi_round_history = [
+        {"role": "user", "parts": [{"text": "First turn prompt"}]},
+        {"role": "model", "parts": [
+            {"functionCall": {"name": "read_file", "args": {"path": "a.txt"}, "id": "call_a"}}
+        ]},
+        {"role": "user", "parts": [
+            {"functionResponse": {"name": "read_file", "id": "call_a", "response": {"output": "content a"}}}
+        ]},
+        {"role": "model", "parts": [
+            {"functionCall": {"name": "edit_file", "args": {"path": "a.txt", "content": "new"}, "id": "call_b"}}
+        ]},
+        {"role": "user", "parts": [
+            {"functionResponse": {"name": "edit_file", "id": "call_b", "response": {"output": "edited"}}}
+        ]}
+    ]
+
+    converted = provider._convert_messages(multi_round_history)
+    assert len(converted) == 5
+    roles = [m["role"] for m in converted]
+    assert roles == ["user", "assistant", "user", "assistant", "user"]
+    assert converted[1]["content"][0]["type"] == "tool_use"
+    assert converted[2]["content"][0]["type"] == "tool_result"
+    assert converted[3]["content"][0]["type"] == "tool_use"
+    assert converted[4]["content"][0]["type"] == "tool_result"
+
+
+@pytest.mark.asyncio
+async def test_semantic_cache_openai_embedding_routing():
+    from app.agent.semantic_cache import generate_query_embedding
+    import httpx
+    from unittest.mock import AsyncMock, MagicMock
+
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "data": [{"embedding": [0.3, 0.4, 0.5]}]
+    }
+    mock_client.post.return_value = mock_resp
+
+    emb = await generate_query_embedding("Test OpenAI Query", api_key="sk-test-openai-key", client=mock_client)
+    assert len(emb) == 3
+    assert mock_client.post.call_count == 1
+    call_args = mock_client.post.call_args
+    assert "https://api.openai.com/v1/embeddings" in call_args[0][0]
+

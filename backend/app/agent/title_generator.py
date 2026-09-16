@@ -75,7 +75,8 @@ def generate_heuristic_title(prompt: str, repo_name: Optional[str] = None) -> st
 async def generate_ai_title(
     prompt: str,
     repo_name: Optional[str] = None,
-    api_key: Optional[str] = None
+    api_key: Optional[str] = None,
+    model_name: Optional[str] = None
 ) -> Optional[str]:
     """
     Invokes the active AI model provider with a fast, lightweight call to generate a concise,
@@ -84,7 +85,9 @@ async def generate_ai_title(
     from app.config import settings
     from app.agent.providers.factory import get_provider_for_model
 
-    provider = get_provider_for_model(settings.ANTIGRAVITY_MODEL)
+    provider = get_provider_for_model(model_name or settings.ANTIGRAVITY_MODEL)
+    if api_key and hasattr(provider, "_api_key"):
+        provider._api_key = api_key
     
     # Check if active provider has a configured key, otherwise try alternatives
     if not provider.get_api_key():

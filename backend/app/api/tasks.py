@@ -36,6 +36,7 @@ class UpdateTaskTitleRequest(BaseModel):
 
 class UserMessageRequest(BaseModel):
     content: str
+    model_name: Optional[str] = None
 
 
 class EditMessageRequest(BaseModel):
@@ -254,7 +255,7 @@ async def update_task_title(
 
 @router.post("/{task_id}/message")
 async def send_message_to_task(task_id: str, req: UserMessageRequest):
-    res = await agent_pool.send_user_message(task_id, req.content)
+    res = await agent_pool.send_user_message(task_id, req.content, req.model_name)
     return res
 
 

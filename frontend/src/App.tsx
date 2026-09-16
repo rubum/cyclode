@@ -667,7 +667,7 @@ const MainApp: React.FC = () => {
     }
   };
 
-  const handleSendMessage = async (content: string) => {
+  const handleSendMessage = async (content: string, modelName?: string) => {
     if (!activeTaskId) return;
     const optMsgId = `opt-user-${Date.now()}`;
     const optimisticMsg: TaskMessage = {
@@ -685,20 +685,21 @@ const MainApp: React.FC = () => {
         ? {
             ...prev,
             status: 'RUNNING',
+            model_name: modelName || prev.model_name,
             messages: [...(prev.messages || []), optimisticMsg],
           }
         : prev
     );
 
     setTasks((prev) =>
-      prev.map((t) => (t.id === activeTaskId ? { ...t, status: 'RUNNING' } : t))
+      prev.map((t) => (t.id === activeTaskId ? { ...t, status: 'RUNNING', model_name: modelName || t.model_name } : t))
     );
 
     try {
       await fetch(`${API_BASE}/api/tasks/${activeTaskId}/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, model_name: modelName }),
       });
     } catch (err) {
       console.error('Error sending message:', err);
