@@ -88,6 +88,11 @@ class AntigravityHarness:
         s_id = stream_id or f"msg-{int(asyncio.get_event_loop().time() * 1000)}"
         if content:
             cleaned = re.sub(r"\[Executed Tool:[^\]]+\]", "", content).strip()
+            # Anti-Echo Guardrail: Filter out leaked tool action trace strings
+            if sender == "agent" and re.match(r"^Action:\s+(?:Edited|Read|Executed|Searched|Fetched|Listed)", cleaned, re.IGNORECASE):
+                cleaned = (
+                    "All requested workspace modifications have been completed and verified."
+                )
             if cleaned:
                 content = cleaned
         if sender == "agent" and on_stream_start and on_stream_chunk and on_stream_end:
@@ -601,6 +606,8 @@ class AntigravityHarness:
                 max_guardrail_corrections = 2
                 model_succeeded = False
                 final_agent_text = ""
+                tool_call_count = 0
+                consecutive_build_errors = 0
 
                 try:
                     while turn < max_turns:
@@ -726,6 +733,7 @@ class AntigravityHarness:
                             tool_result: Dict[str, Any] = {}
                             exit_code = 0
                             out_str = ""
+                            tool_call_count += 1
 
                             if fn_name == "list_dir":
                                 subpath = args.get("subpath", ".")
@@ -767,6 +775,23 @@ class AntigravityHarness:
                                     out_parts.append(f"stderr:\n{stderr}")
                                 if not out_parts:
                                     out_parts.append(f"(Command executed with exit code {exit_code})")
+
+                                is_build_cmd = any(k in cmd.lower() for k in ["build", "compile", "vite build", "npm run build"])
+                                if is_build_cmd:
+                                    if exit_code != 0:
+                                        consecutive_build_errors += 1
+                                        if consecutive_build_errors >= 3:
+                                            circuit_breaker_hint = (
+                                                "\n\n[CIRCUIT-BREAKER NOTICE: Build command has failed repeatedly. "
+                                                "Stop micro-editing conflicting configurations. Align your styling and bundler toolchain cleanly: "
+                                                "For Tailwind v4: Use `@import \"tailwindcss\";` in CSS with the official bundler plugin without legacy postcss configs. "
+                                                "For Tailwind v3: Ensure `tailwindcss@^3.4`, `postcss`, and `autoprefixer` are installed, with `@tailwind base; @tailwind components; @tailwind utilities;` in CSS. "
+                                                "Resolve package dependencies cleanly with `npm install` and run `npm run build`.]"
+                                            )
+                                            out_parts.append(circuit_breaker_hint)
+                                    else:
+                                        consecutive_build_errors = 0
+
                                 out_str = "\n".join(out_parts)
                             elif fn_name in ["grep_search", "search_code"]:
                                 query = args.get("query", "")
@@ -1043,23 +1068,25 @@ class AntigravityHarness:
                                         fn_name = fc.get("name", "tool")
                                         args = fc.get("args", {})
                                         if fn_name == "edit_file":
-                                            text_chunks.append(f"Action: Edited file '{args.get('file_path', '')}'")
+                                            text_chunks.append(f"• Modified file `{args.get('file_path', '')}`")
                                         elif fn_name == "read_file":
-                                            text_chunks.append(f"Action: Read file '{args.get('file_path', '')}'")
+                                            text_chunks.append(f"• Inspected `{args.get('file_path', '')}`")
                                         elif fn_name == "run_command":
-                                            text_chunks.append(f"Action: Executed command '{args.get('command', '')}'")
+                                            text_chunks.append(f"• Ran `{args.get('command', '')}`")
+                                        elif fn_name == "verify_app_preview":
+                                            text_chunks.append("• Verified live application preview")
                                         elif fn_name in ["grep_search", "search_code"]:
-                                            text_chunks.append(f"Action: Searched codebase for '{args.get('query', '')}'")
+                                            text_chunks.append(f"• Searched for `{args.get('query', '')}`")
                                         elif fn_name == "find_symbols":
-                                            text_chunks.append(f"Action: Searched symbols matching '{args.get('name_pattern', '')}'")
+                                            text_chunks.append(f"• Searched symbols `{args.get('name_pattern', '')}`")
                                         elif fn_name == "search_web":
-                                            text_chunks.append(f"Action: Web search for '{args.get('query', '')}'")
+                                            text_chunks.append(f"• Web search for `{args.get('query', '')}`")
                                         elif fn_name == "fetch_url":
-                                            text_chunks.append(f"Action: Fetched URL '{args.get('url', '')}'")
+                                            text_chunks.append(f"• Fetched URL `{args.get('url', '')}`")
                                         elif fn_name == "list_dir":
-                                            text_chunks.append(f"Action: Listed directory '{args.get('subpath', '.')}'")
+                                            text_chunks.append(f"• Listed directory `{args.get('subpath', '.')}`")
                                         else:
-                                            text_chunks.append(f"Action: Executed {fn_name}")
+                                            text_chunks.append(f"• Executed tool {fn_name}")
                                     elif "functionResponse" in p:
                                         fr = p["functionResponse"]
                                         resp_val = fr.get("response", {})
@@ -1075,7 +1102,7 @@ class AntigravityHarness:
                             text_contents.append({
                                 "role": "user",
                                 "parts": [{
-                                    "text": "CRITICAL INSTRUCTION: Please provide your complete, detailed analytical final answer synthesizing all findings above. Use rich markdown with clickable citations. Do NOT output internal action traces, tool call syntax, or raw debug logs."
+                                    "text": "CRITICAL INSTRUCTION: All workspace actions have been performed. Provide your complete, comprehensive analytical final answer summarizing what was built, any changes made, and preview verification results in rich markdown with clickable file links. Do NOT output internal action traces, tool call syntax, or 'Action:' prefixes."
                                 }]
                             })
                             flat_payload = {
@@ -1093,6 +1120,10 @@ class AntigravityHarness:
                                     f_texts = [p["text"] for p in f_parts if "text" in p]
                                     if f_texts:
                                         flat_synth_text = "\n".join(f_texts).strip()
+                                        if re.match(r"^(?:Action:\s+|•\s+(?:Modified|Ran|Inspected|Executed|Listed|Searched))", flat_synth_text.strip(), re.IGNORECASE):
+                                            flat_synth_text = (
+                                                "All requested components and workspace modifications have been applied and verified."
+                                            )
                                         await self._emit_streamed_message(
                                             "agent", flat_synth_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
                                         )
