@@ -89,7 +89,7 @@ class AntigravityHarness:
         if content:
             cleaned = re.sub(r"\[Executed Tool:[^\]]+\]", "", content).strip()
             # Anti-Echo Guardrail: Filter out leaked tool action trace strings
-            if sender == "agent" and re.match(r"^Action:\s+(?:Edited|Read|Executed|Searched|Fetched|Listed)", cleaned, re.IGNORECASE):
+            if sender == "agent" and re.match(r"^(?:Action:\s+|•\s+(?:Modified|Ran|Inspected|Executed|Listed|Searched|Edited|Read|Fetched))", cleaned, re.IGNORECASE):
                 cleaned = (
                     "All requested workspace modifications have been completed and verified."
                 )
@@ -1015,6 +1015,46 @@ class AntigravityHarness:
                             "parts": response_parts
                         })
 
+                    # Post-loop autonomous application build verification & compilation
+                    prompt_title_lower = (prompt + " " + title).lower()
+                    is_app_task = (
+                        persona_name in ["AppBuilder", "PairProgrammer"]
+                        or any(k in prompt_title_lower for k in ["app", "social", "build", "frontend", "ui", "preview", "react", "vite", "dashboard", "store", "website", "web page"])
+                    )
+                    from app.api.preview import verify_workspace_preview
+                    post_verification = verify_workspace_preview(workspace_path, task_id)
+                    has_workspace_source = (
+                        (workspace_path / "package.json").exists()
+                        or (workspace_path / "client" / "package.json").exists()
+                        or (workspace_path / "index.html").exists()
+                        or (workspace_path / "client" / "index.html").exists()
+                    )
+
+                    # If uncompiled frontend or needs build, autonomously execute production build fallback
+                    if is_app_task and has_workspace_source and (post_verification.get("status") in ["needs_build", "uncompiled_css", "missing_entry_point"]):
+                        logger.info(f"Triggering post-loop autonomous build fallback on task {task_id} (current status: {post_verification.get('status')})...")
+                        client_pkg = workspace_path / "client" / "package.json"
+                        root_pkg = workspace_path / "package.json"
+                        if client_pkg.exists():
+                            build_cmd = "cd client && (npm run build || npx vite build)"
+                        elif root_pkg.exists():
+                            build_cmd = "npm run build || npx vite build"
+                        else:
+                            build_cmd = "npx vite build"
+
+                        build_res = WorkspaceTools.run_command(workspace_path, build_cmd)
+                        logger.info(f"Post-loop build result on {task_id}: exit code {build_res.get('exit_code')}")
+                        post_verification = verify_workspace_preview(workspace_path, task_id)
+
+                    preview_status_note = (
+                        f"\n\nVERIFIED PREVIEW STATUS (Fact-Grounded):\n"
+                        f"- Status: {post_verification.get('status')}\n"
+                        f"- Build Status: {post_verification.get('build_status')}\n"
+                        f"- Entry Point: {post_verification.get('entry_point')}\n"
+                        f"- Issues: {post_verification.get('issues', [])}\n"
+                        f"CRITICAL DIRECTIVE: Ground your response strictly in the verified preview status above. Only report that the application is compiled and renderable if status is 'ready' or 'compiled'. Direct the user to the '▶ Preview' tab."
+                    )
+
                     if model_succeeded:
                         # Perform a guaranteed synthesis turn without further tool executions.
                         # Supply tools_def so prior functionResponse entries pass schema validation,
@@ -1023,7 +1063,7 @@ class AntigravityHarness:
                             "contents": contents,
                             "system_instruction": {
                                 "parts": [{
-                                    "text": system_instruction + "\n\nCRITICAL DIRECTIVE: You have completed all tool executions. Synthesize your comprehensive, fluid analytical response answering the user directly in rich markdown format with clickable citations. Do not call any further tools."
+                                    "text": system_instruction + preview_status_note + "\n\nCRITICAL DIRECTIVE: You have completed all tool executions. Synthesize your comprehensive, fluid analytical response answering the user directly in rich markdown format with clickable citations. Do not call any further tools."
                                 }]
                             },
                             "tools": tools_def,
@@ -1108,7 +1148,7 @@ class AntigravityHarness:
                             flat_payload = {
                                 "contents": text_contents,
                                 "system_instruction": {
-                                    "parts": [{"text": system_instruction}]
+                                    "parts": [{"text": system_instruction + preview_status_note}]
                                 }
                             }
                             flat_resp = await client.post(api_url, json=flat_payload)

@@ -70,7 +70,7 @@ PERSONAS: Dict[str, Dict[str, Any]] = {
             "Autonomous App & Feature Building Mandate:\n"
             "- When building web applications, single-page apps, or fullstack prototypes, you must complete the full implementation end-to-end. "
             "- NEVER stop after merely running scaffolding commands (e.g. `npm create` or initial dependencies). "
-            "- If using bundlers (Vite, React, etc.), ALWAYS implement the UI components, run `npm run build` (or `cd client && npm run build`) to generate the compiled `dist/index.html` bundle, and call `verify_app_preview` to confirm the preview renders cleanly before providing your final summary."
+            "- If using bundlers (Vite, React, etc.), ALWAYS implement the UI components, run `npm run build` (or `cd client && npm run build`, or `npx vite build`) to generate the compiled `dist/index.html` bundle, and call `verify_app_preview` to confirm the preview renders cleanly before providing your final summary."
             + BASE_STYLE_DIRECTIVES
         ),
         "default_model": "gemini-3.7-flash"
@@ -89,7 +89,7 @@ PERSONAS: Dict[str, Dict[str, Any]] = {
             "   - Code all views, interactive components, state hooks, and style tokens. Never leave placeholder stubs or default templates unedited.\n"
             "   - Pre-populate realistic, comprehensive seed data into a client-side `localStorage` or memory store so the app is immediately interactive with filters, forms, charts, and navigation.\n"
             "3. Production Compilation & Bundling:\n"
-            "   - If using Vite / React / Vue (`client/` or `./`), execute `npm run build` (or `cd client && npm run build`) to produce the compiled `dist/index.html` bundle.\n"
+            "   - If using Vite / React / Vue (`client/` or `./`), execute `npm run build` (or `cd client && npm run build`) to produce the compiled `dist/index.html` bundle. If strict `tsc -b` fails on non-fatal unused imports, fix imports or execute `npx vite build` so compilation completes cleanly.\n"
             "   - If using zero-dependency single-page apps (Tailwind CSS CDN, React 18 + Babel or Vue 3, Lucide Icons CDN), ensure the root `index.html` is complete, self-contained, and valid.\n"
             "4. Automated Testing & Preview Self-Verification:\n"
             "   - Call `verify_app_preview` to inspect the preview status. Ensure it returns status 'READY' and that all assets resolve without errors.\n"
