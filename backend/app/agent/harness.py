@@ -340,7 +340,7 @@ class AntigravityHarness:
         # 2. Check for configured LLM API Key
         if not api_key:
             guidance_msg = (
-                f"### 🤖 LLM Model Configuration Required\n\n"
+                f"### LLM Model Configuration Required\n\n"
                 f"To run autonomous code reviews, synthesize PR diffs, and orchestrate workspace tools, please configure an LLM provider:\n\n"
                 f"1. **Gemini API Key**: Set `GEMINI_API_KEY` in your `.env` file or configure it in **Settings > Integrations**.\n"
                 f"2. **Real-time Tool Orchestration**: Tools (`read_file`, `search_code`, `run_command`, `search_web`, `create_pull_request`) execute automatically once an API key is connected."
@@ -695,6 +695,8 @@ class AntigravityHarness:
         client_timeout = httpx.Timeout(120.0, connect=15.0, read=120.0)
         async with httpx.AsyncClient(timeout=client_timeout) as client:
             quota_exhausted = False
+            last_api_error_code = None
+            last_api_error_text = ""
             for active_model in unique_models:
                 if quota_exhausted:
                     break
@@ -766,8 +768,8 @@ class AntigravityHarness:
                             logger.warning(f"Google AI Studio Quota Notice (429): {err_text}")
                             quota_exhausted = True
                             quota_thought = (
-                                f"⚠️ **Google Gemini API Quota Notice (429)**: {err_text}\n\n"
-                                f"💡 *Please configure prepayment credits at https://ai.studio/projects or paste a new API key (`AIzaSy...`) in chat.*"
+                                f"**Google Gemini API Quota Notice (429)**: {err_text}\n\n"
+                                f"*Please configure prepayment credits at https://ai.studio/projects or paste a new API key (`AIzaSy...`) in chat.*"
                             )
                             await self._emit_streamed_thought(
                                 quota_thought, on_thought, on_stream_start, on_stream_chunk, on_stream_end
@@ -788,7 +790,7 @@ class AntigravityHarness:
                             await self._emit_plan(current_plan, on_plan)
 
                             quota_user_msg = (
-                                f"### ⚠️ Google Gemini API Quota Notice (429)\n\n"
+                                f"### Google Gemini API Quota Notice (429)\n\n"
                                 f"**{err_text}**\n\n"
                                 f"To resume autonomous agent execution:\n"
                                 f"1. **Prepayment Credits**: Configure your billing project at [Google AI Studio](https://ai.studio/projects).\n"
@@ -798,8 +800,51 @@ class AntigravityHarness:
                                 "agent", quota_user_msg, on_message, on_stream_start, on_stream_chunk, on_stream_end
                             )
                             return {"status": "FAILED", "summary": f"Quota Depleted (429): {err_text[:100]}"}
+                        if resp.status_code in [401, 403]:
+                            err_text = "Your Google Cloud project or API key has been denied access or is unauthenticated."
+                            try:
+                                err_data = resp.json()
+                                err_text = err_data.get("error", {}).get("message", err_text)
+                            except Exception:
+                                pass
+                            logger.warning(f"Google Gemini API Access Notice ({resp.status_code}): {err_text}")
+                            perm_thought = (
+                                f"**Google Gemini API Access Notice ({resp.status_code})**: {err_text}\n\n"
+                                f"*Please verify your project permissions at https://ai.studio/projects or provide a valid API key (`AIzaSy...`) in chat.*"
+                            )
+                            await self._emit_streamed_thought(
+                                perm_thought, on_thought, on_stream_start, on_stream_chunk, on_stream_end
+                            )
+
+                            for s in current_plan.get("steps", []):
+                                if s.get("status") == "in_progress":
+                                    s["status"] = "failed"
+                            current_plan["evaluation"] = {
+                                "status": "needs_revision",
+                                "summary": f"Execution halted: Google Gemini API Permission Denied ({resp.status_code}). {err_text}",
+                                "checks": [
+                                    {"name": "API Connection", "passed": False, "message": f"Access denied ({resp.status_code})"},
+                                    {"name": "Tool Execution", "passed": False}
+                                ]
+                            }
+                            await self._emit_plan(current_plan, on_plan)
+
+                            perm_user_msg = (
+                                f"### Google Gemini API Access Notice ({resp.status_code})\n\n"
+                                f"**{err_text}**\n\n"
+                                f"The configured Google Cloud project or Gemini API key was denied access by the AI provider.\n\n"
+                                f"To resume autonomous agent execution:\n"
+                                f"1. **Generate New Key**: Obtain a fresh API key at [Google AI Studio](https://ai.studio/projects).\n"
+                                f"2. **Update Key**: Paste your fresh Gemini API key (`AIzaSy...`) directly in chat or configure **Settings > Integrations**."
+                            )
+                            await self._emit_streamed_message(
+                                "agent", perm_user_msg, on_message, on_stream_start, on_stream_chunk, on_stream_end
+                            )
+                            return {"status": "FAILED", "summary": f"Access Denied ({resp.status_code}): {err_text[:100]}"}
                         if resp.status_code != 200:
                             err_msg = resp.text[:200]
+                            last_api_error_code = resp.status_code
+                            last_api_error_text = err_msg
                             logger.warning(f"API notice on turn {turn} model {active_model} ({resp.status_code}): {err_msg}")
                             break
 
@@ -860,7 +905,7 @@ class AntigravityHarness:
                                     )
                                     logger.info(f"Triggering Pre-Completion Guardrail on task {task_id} (correction {guardrail_corrections}, status {status_val})")
                                     await self._emit_streamed_thought(
-                                        f"⚙️ **Pre-Completion Guardrail**: Verifying application preview... Status: {status_val}. {rec_text}",
+                                        f"**Pre-Completion Guardrail**: Verifying application preview... Status: {status_val}. {rec_text}",
                                         on_thought, on_stream_start, on_stream_chunk, on_stream_end
                                     )
                                     contents.append({
@@ -932,7 +977,7 @@ class AntigravityHarness:
                                 items = tool_result.get("items", [])
                                 if items:
                                     out_str = "\n".join(
-                                        f"{'📁' if i.get('is_dir') else '📄'} {i.get('name')}" +
+                                        f"{'[dir]' if i.get('is_dir') else '[file]'} {i.get('name')}" +
                                         (f" ({i.get('size')} B)" if i.get('size') is not None else "")
                                         for i in items
                                     )
@@ -1382,7 +1427,7 @@ class AntigravityHarness:
                         f"- Build Status: {post_verification.get('build_status')}\n"
                         f"- Entry Point: {post_verification.get('entry_point')}\n"
                         f"- Issues: {post_verification.get('issues', [])}\n"
-                        f"CRITICAL DIRECTIVE: Ground your response strictly in the verified preview status above. Only report that the application is compiled and renderable if status is 'ready' or 'compiled'. Direct the user to the '▶ Preview' tab."
+                        f"CRITICAL DIRECTIVE: Ground your response strictly in the verified preview status above. Only report that the application is compiled and renderable if status is 'ready' or 'compiled'. Direct the user to the Preview tab."
                     )
 
                     # Autonomous Plan Self-Evaluation Audit
@@ -1550,14 +1595,24 @@ class AntigravityHarness:
                 f"Successfully completed {tool_call_count} workspace action{'s' if tool_call_count > 1 else ''}. "
                 f"All requested components and changes have been applied to the workspace."
             )
+            return_status = "COMPLETED"
         else:
-            fallback_msg = (
-                f"Execution completed. All available tools and models have finished processing this turn."
-            )
+            if last_api_error_text:
+                fallback_msg = (
+                    f"### Model Execution Notice\n\n"
+                    f"Unable to execute actions due to an upstream model API response ({last_api_error_code or 'error'}):\n"
+                    f"**{last_api_error_text}**\n\n"
+                    f"Please verify your API key and provider configuration in **Settings > Integrations** or provide a fresh Gemini API key (`AIzaSy...`) in chat."
+                )
+            else:
+                fallback_msg = (
+                    f"Execution could not be completed. The AI provider did not return actionable tool calls or responses for this turn."
+                )
+            return_status = "FAILED"
         await self._emit_streamed_message(
             "agent", fallback_msg, on_message, on_stream_start, on_stream_chunk, on_stream_end
         )
-        return {"status": "COMPLETED", "summary": fallback_msg[:120]}
+        return {"status": return_status, "summary": fallback_msg[:120]}
 
 
 antigravity_harness = AntigravityHarness()

@@ -136,3 +136,94 @@ def test_database_models_plan_column():
     )
     assert msg.plan == plan_data
     assert len(msg.plan["steps"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_permission_denied_403_plan_evaluation(monkeypatch, tmp_path):
+    harness = AntigravityHarness()
+    emitted_plans = []
+    emitted_messages = []
+
+    async def mock_on_plan(p):
+        emitted_plans.append(p)
+
+    async def mock_on_message(sender, content, plan=None):
+        emitted_messages.append({"sender": sender, "content": content, "plan": plan})
+
+    class Mock403Response:
+        status_code = 403
+        text = '{"error": {"code": 403, "message": "Your project has been denied access.", "status": "PERMISSION_DENIED"}}'
+        def json(self):
+            return {"error": {"code": 403, "message": "Your project has been denied access.", "status": "PERMISSION_DENIED"}}
+
+    import httpx
+    async def mock_post(self, url, **kwargs):
+        return Mock403Response()
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    result = await harness.run_task(
+        task_id="task-403-test",
+        workspace_path=tmp_path,
+        title="Create a messaging app",
+        prompt="Create a messaging app",
+        persona_name="PairProgrammer",
+        credentials={"gemini_api_key": "AIzaSyFakeKey403"},
+        on_plan=mock_on_plan,
+        on_message=mock_on_message
+    )
+
+    assert result["status"] == "FAILED"
+    assert "Permission Denied" in result["summary"] or "Access Denied" in result["summary"]
+    assert len(emitted_plans) >= 2
+    final_plan = emitted_plans[-1]
+    assert final_plan["evaluation"]["status"] == "needs_revision"
+    assert final_plan["steps"][0]["status"] == "failed"
+    assert any(c["name"] == "API Connection" and not c["passed"] for c in final_plan["evaluation"]["checks"])
+    assert any("Google Gemini API Access Notice (403)" in m["content"] for m in emitted_messages)
+
+
+@pytest.mark.asyncio
+async def test_quota_depleted_429_plan_evaluation(monkeypatch, tmp_path):
+    harness = AntigravityHarness()
+    emitted_plans = []
+    emitted_messages = []
+
+    async def mock_on_plan(p):
+        emitted_plans.append(p)
+
+    async def mock_on_message(sender, content, plan=None):
+        emitted_messages.append({"sender": sender, "content": content, "plan": plan})
+
+    class Mock429Response:
+        status_code = 429
+        text = '{"error": {"code": 429, "message": "Resource has been exhausted (e.g. check quota)."}}'
+        def json(self):
+            return {"error": {"code": 429, "message": "Resource has been exhausted (e.g. check quota)."}}
+
+    import httpx
+    async def mock_post(self, url, **kwargs):
+        return Mock429Response()
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    result = await harness.run_task(
+        task_id="task-429-test",
+        workspace_path=tmp_path,
+        title="Create a game",
+        prompt="Create a snake game",
+        persona_name="AppBuilder",
+        credentials={"gemini_api_key": "AIzaSyFakeKey429"},
+        on_plan=mock_on_plan,
+        on_message=mock_on_message
+    )
+
+    assert result["status"] == "FAILED"
+    assert "Quota Depleted" in result["summary"]
+    assert len(emitted_plans) >= 2
+    final_plan = emitted_plans[-1]
+    assert final_plan["evaluation"]["status"] == "needs_revision"
+    assert final_plan["steps"][0]["status"] == "failed"
+    assert any(c["name"] == "API Connection" and not c["passed"] for c in final_plan["evaluation"]["checks"])
+    assert any("Google Gemini API Quota Notice (429)" in m["content"] for m in emitted_messages)
+
