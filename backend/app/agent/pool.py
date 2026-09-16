@@ -349,7 +349,26 @@ class AgentTaskPool:
                 "workspace_path": str(workspace_path)
             })
 
+            active_plan: Optional[Dict[str, Any]] = None
+
             # Define telemetry callbacks
+            async def on_plan(plan_data: Dict[str, Any]):
+                nonlocal active_plan
+                active_plan = plan_data
+                try:
+                    async with async_session_factory() as session:
+                        await session.execute(
+                            update(TaskModel).where(TaskModel.id == task_id).values(plan=plan_data)
+                        )
+                        await session.commit()
+                except Exception as e:
+                    logger.debug(f"Plan db update note: {e}")
+
+                await ws_manager.broadcast("TASK_PLAN_UPDATED", {
+                    "task_id": task_id,
+                    "plan": plan_data
+                })
+
             async def on_thought(thought_text: str):
                 t_tokens = estimate_tokens(thought_text)
                 async with async_session_factory() as session:
@@ -408,6 +427,7 @@ class AgentTaskPool:
                         task_id=task_id,
                         sender=sender,
                         content=content,
+                        plan=active_plan if sender == "agent" else None,
                         tokens=m_tokens
                     )
                     session.add(msg)
@@ -422,6 +442,7 @@ class AgentTaskPool:
                     "task_id": task_id,
                     "sender": sender,
                     "content": content,
+                    "plan": active_plan if sender == "agent" else None,
                     "tokens": m_tokens,
                     "timestamp": datetime.now(timezone.utc).isoformat()
                 })
@@ -648,7 +669,8 @@ class AgentTaskPool:
                 on_stream_start=on_stream_start,
                 on_stream_chunk=on_stream_chunk,
                 on_stream_end=on_stream_end,
-                on_inquiry=on_inquiry
+                on_inquiry=on_inquiry,
+                on_plan=on_plan
             )
 
             # Determine final status

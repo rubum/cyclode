@@ -55,6 +55,7 @@ class TaskModel(Base):
     git_branch: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     total_tokens: Mapped[int] = mapped_column(Integer, default=0)
     result_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    plan: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
     
     is_subsession: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     parent_task_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=True, index=True)
@@ -116,6 +117,7 @@ class TaskMessageModel(Base):
     sender: Mapped[str] = mapped_column(String(30), nullable=False)  # user, agent, system
     content: Mapped[str] = mapped_column(Text, nullable=False)
     thought: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Gemini 3.7 Flash reasoning
+    plan: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)  # First-class execution plan & evaluation
     tokens: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
 

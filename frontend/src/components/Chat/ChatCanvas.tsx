@@ -41,9 +41,11 @@ import {
   Eye,
   AlertCircle,
   Clock,
-  HelpCircle
+  HelpCircle,
+  ListOrdered,
+  Circle
 } from 'lucide-react';
-import { Task, TaskMessage, TaskLog, RepositoryConfig, TaskPR, WorkspacePreviewInfo } from '../../types';
+import { Task, TaskMessage, TaskLog, RepositoryConfig, TaskPR, WorkspacePreviewInfo, TaskPlan } from '../../types';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { FormattedLogView } from '../Common/FormattedLogView';
 import { SandboxInspectorModal } from '../Sandbox/SandboxInspectorModal';
@@ -207,6 +209,7 @@ interface ConversationTurn {
   thoughts: { id: string; thought: string; created_at: string; tokens?: number; isStreaming?: boolean }[];
   logs: TaskLog[];
   agentMessages: TaskMessage[];
+  plan?: TaskPlan | null;
   isLatest: boolean;
 }
 
@@ -511,6 +514,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const [inputValue, setInputValue] = useState('');
   const [selectedPersona, setSelectedPersona] = useState('PairProgrammer');
   const [openThoughts, setOpenThoughts] = useState<Record<string, boolean>>({});
+  const [openPlans, setOpenPlans] = useState<Record<string, boolean>>({});
+  const [userToggledPlans, setUserToggledPlans] = useState<Record<string, boolean>>({});
   const [userToggledActivities, setUserToggledActivities] = useState<Record<string, boolean>>({});
   const [expandedLogIds, setExpandedLogIds] = useState<Record<string, boolean>>({});
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
@@ -718,17 +723,29 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
         }
         result[targetTurnIdx].logs.push(log);
       });
+
+      // Attach plan to each turn
+      result.forEach((turn, idx) => {
+        const isLatestTurn = idx === result.length - 1;
+        const msgWithPlan = turn.agentMessages.find((m) => !!m.plan);
+        if (msgWithPlan?.plan) {
+          turn.plan = msgWithPlan.plan;
+        } else if (isLatestTurn && task.plan) {
+          turn.plan = task.plan;
+        }
+      });
     }
 
     return result;
   }, [task]);
 
-  // Handle thought accordions: auto open latest if running, auto collapse when done
+  // Handle thought and plan accordions: auto open latest if running, auto collapse when done
   useEffect(() => {
     if (!task) return;
     if (isRunning && turns.length > 0) {
       const latestTurnId = turns[turns.length - 1].id;
       setOpenThoughts((prev) => ({ ...prev, [latestTurnId]: true }));
+      setOpenPlans((prev) => ({ ...prev, [latestTurnId]: true }));
     } else if (!isRunning) {
       setOpenThoughts({});
     }
@@ -1613,6 +1630,14 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
               : (isTurnRunning && turn.isLatest);
             const hasThoughts = turn.thoughts.length > 0;
             const hasLogs = turn.logs.length > 0 || (isTurnRunning && turn.isLatest && !!task?.active_tool);
+            const hasPlan = !!turn.plan && turn.plan.steps && turn.plan.steps.length > 0;
+            const isPlanOpen = userToggledPlans[turn.id] !== undefined 
+              ? userToggledPlans[turn.id] 
+              : (openPlans[turn.id] ?? (isTurnRunning && turn.isLatest));
+
+            const completedSteps = turn.plan?.steps?.filter((s) => s.status === 'completed').length || 0;
+            const totalSteps = turn.plan?.steps?.length || 0;
+            const evalStatus = turn.plan?.evaluation?.status || 'pending';
 
             return (
               <div key={turn.id || tIdx} className="space-y-4">
@@ -1711,7 +1736,173 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                   </div>
                 )}
 
-                {/* 2. Reasoning Process Accordion (Placed JUST ABOVE EACH RESPONSE) */}
+                {/* 2. Execution Plan Accordion (Situated ABOVE Reasoning & Activity) */}
+                {hasPlan && (
+                  <div className="rounded-xl border border-onedark-border bg-onedark-darker/70 overflow-hidden shadow-sm transition-all">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUserToggledPlans((prev) => ({ ...prev, [turn.id]: !isPlanOpen }));
+                        setOpenPlans((prev) => ({ ...prev, [turn.id]: !isPlanOpen }));
+                      }}
+                      className="w-full px-3.5 py-2.5 flex items-center justify-between text-xs text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/30 transition-colors cursor-pointer select-none"
+                    >
+                      <div className="flex items-center space-x-2 min-w-0 pr-2">
+                        <ListOrdered className="w-3.5 h-3.5 text-onedark-accent shrink-0" />
+                        <span className="font-mono text-xs font-medium text-onedark-fg">
+                          Execution Plan
+                        </span>
+                        <span className="text-[11px] text-onedark-muted font-mono">
+                          ({completedSteps}/{totalSteps} steps)
+                        </span>
+
+                        {evalStatus === 'accomplished' ? (
+                          <span className="px-1.5 py-0.2 rounded bg-onedark-green/10 text-onedark-green border border-onedark-green/20 text-[10px] font-mono flex items-center space-x-1">
+                            <CheckCircle2 className="w-2.5 h-2.5" />
+                            <span>Accomplished</span>
+                          </span>
+                        ) : evalStatus === 'evaluating' ? (
+                          <span className="px-1.5 py-0.2 rounded bg-onedark-accent/10 text-onedark-accent border border-onedark-accent/20 text-[10px] font-mono flex items-center space-x-1">
+                            <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                            <span>Evaluating</span>
+                          </span>
+                        ) : evalStatus === 'needs_revision' ? (
+                          <span className="px-1.5 py-0.2 rounded bg-onedark-yellow/10 text-onedark-yellow border border-onedark-yellow/20 text-[10px] font-mono flex items-center space-x-1">
+                            <AlertCircle className="w-2.5 h-2.5" />
+                            <span>Revision</span>
+                          </span>
+                        ) : null}
+                      </div>
+
+                      <div className="flex items-center space-x-2 shrink-0">
+                        {isTurnRunning && turn.isLatest ? (
+                          <span className="px-2 py-0.5 rounded-full bg-onedark-yellow/10 text-onedark-yellow text-[10.5px] font-mono border border-onedark-yellow/30 flex items-center space-x-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-onedark-yellow animate-pulse" />
+                            <span>Executing...</span>
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded-md bg-onedark-surface text-onedark-muted text-[10.5px] font-mono border border-onedark-borderSubtle">
+                            {isPlanOpen ? 'Hide' : 'Show steps'}
+                          </span>
+                        )}
+                        {isPlanOpen ? (
+                          <ChevronDown className="w-4 h-4 text-onedark-muted" />
+                        ) : (
+                          <ChevronRight className="w-4 h-4 text-onedark-muted" />
+                        )}
+                      </div>
+                    </button>
+
+                    {isPlanOpen && (
+                      <div className="p-3.5 border-t border-onedark-borderSubtle space-y-3 text-xs bg-onedark-darker/90">
+                        {turn.plan?.objective && (
+                          <div className="p-2.5 rounded-lg bg-onedark-surface/40 border border-onedark-borderSubtle text-[11.5px] font-sans text-onedark-fg leading-relaxed">
+                            <span className="font-semibold font-mono text-[10px] uppercase tracking-wider block mb-0.5 text-onedark-muted">
+                              Goal
+                            </span>
+                            {turn.plan.objective}
+                          </div>
+                        )}
+
+                        <div className="space-y-1.5">
+                          {turn.plan?.steps?.map((step, sIdx) => {
+                            const isDone = step.status === 'completed';
+                            const isInProgress = step.status === 'in_progress';
+                            const isFailed = step.status === 'failed';
+
+                            return (
+                              <div
+                                key={step.id || sIdx}
+                                className={`flex items-start space-x-2.5 px-2.5 py-1.5 rounded-lg border text-xs font-mono transition-all ${
+                                  isInProgress
+                                    ? 'bg-onedark-accent/10 border-onedark-accent/40 text-onedark-fgBright shadow-xs'
+                                    : isDone
+                                    ? 'bg-onedark-surface/20 border-onedark-borderSubtle/50 text-onedark-fg'
+                                    : isFailed
+                                    ? 'bg-onedark-red/10 border-onedark-red/30 text-onedark-red'
+                                    : 'bg-transparent border-transparent text-onedark-muted'
+                                }`}
+                              >
+                                <div className="pt-0.5 shrink-0">
+                                  {isDone ? (
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-onedark-green" />
+                                  ) : isInProgress ? (
+                                    <Loader2 className="w-3.5 h-3.5 text-onedark-accent animate-spin" />
+                                  ) : isFailed ? (
+                                    <AlertCircle className="w-3.5 h-3.5 text-onedark-red" />
+                                  ) : (
+                                    <Circle className="w-3.5 h-3.5 text-onedark-muted/40" />
+                                  )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className={`leading-tight ${isInProgress ? 'font-semibold text-onedark-fgBright' : isDone ? 'text-onedark-fg' : 'text-onedark-muted'}`}>
+                                    {step.title}
+                                  </div>
+                                  {step.details && (
+                                    <div className="text-[10.5px] text-onedark-muted mt-0.5 font-sans leading-normal">
+                                      {step.details}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        {turn.plan?.evaluation && turn.plan.evaluation.status !== 'pending' && (
+                          <div className={`p-2.5 rounded-lg border text-xs font-mono space-y-1.5 ${
+                            turn.plan.evaluation.status === 'accomplished'
+                              ? 'bg-onedark-green/5 border-onedark-green/30 text-onedark-green'
+                              : turn.plan.evaluation.status === 'needs_revision'
+                              ? 'bg-onedark-yellow/5 border-onedark-yellow/30 text-onedark-yellow'
+                              : 'bg-onedark-accent/5 border-onedark-accent/30 text-onedark-accent'
+                          }`}>
+                            <div className="flex items-center space-x-2">
+                              {turn.plan.evaluation.status === 'accomplished' ? (
+                                <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-onedark-green" />
+                              ) : turn.plan.evaluation.status === 'needs_revision' ? (
+                                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-onedark-yellow" />
+                              ) : (
+                                <Loader2 className="w-3.5 h-3.5 shrink-0 text-onedark-accent animate-spin" />
+                              )}
+                              <span className="font-semibold font-mono text-[11px]">
+                                {turn.plan.evaluation.status === 'accomplished'
+                                  ? 'Plan Evaluation: Accomplished'
+                                  : turn.plan.evaluation.status === 'needs_revision'
+                                  ? 'Plan Evaluation: Revision Required'
+                                  : 'Plan Evaluation: In Progress'}
+                              </span>
+                            </div>
+                            {turn.plan.evaluation.summary && (
+                              <p className="text-[11px] font-sans text-onedark-fg pl-5 leading-relaxed">
+                                {turn.plan.evaluation.summary}
+                              </p>
+                            )}
+                            {turn.plan.evaluation.checks && turn.plan.evaluation.checks.length > 0 && (
+                              <div className="flex items-center space-x-1.5 pl-5 pt-0.5 flex-wrap gap-1">
+                                {turn.plan.evaluation.checks.map((chk, cIdx) => (
+                                  <span
+                                    key={cIdx}
+                                    className={`px-1.5 py-0.2 rounded text-[10px] font-mono border flex items-center space-x-1 ${
+                                      chk.passed
+                                        ? 'bg-onedark-green/10 text-onedark-green border-onedark-green/25'
+                                        : 'bg-onedark-red/10 text-onedark-red border-onedark-red/25'
+                                    }`}
+                                  >
+                                    {chk.passed ? <Check className="w-2.5 h-2.5" /> : <AlertCircle className="w-2.5 h-2.5" />}
+                                    <span>{chk.name}</span>
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* 3. Reasoning Process Accordion */}
                 {hasThoughts && (
                   <div className="rounded-xl border border-onedark-border bg-onedark-darker/60 overflow-hidden shadow-sm transition-all">
                     <button

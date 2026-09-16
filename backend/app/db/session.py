@@ -77,6 +77,7 @@ def _migrate_db(connection):
         ("custom_title", "BOOLEAN DEFAULT 0"),
         ("is_subsession", "BOOLEAN DEFAULT 0"),
         ("parent_task_id", "VARCHAR(36)"),
+        ("plan", "JSON"),
     ]
     for col_name, col_type in new_task_columns:
         if col_name not in tasks_cols:
@@ -86,6 +87,8 @@ def _migrate_db(connection):
     msg_cols = [row[1] for row in connection.exec_driver_sql("PRAGMA table_info(task_messages)").fetchall()]
     if "tokens" not in msg_cols:
         connection.exec_driver_sql("ALTER TABLE task_messages ADD COLUMN tokens INTEGER DEFAULT 0")
+    if "plan" not in msg_cols:
+        connection.exec_driver_sql("ALTER TABLE task_messages ADD COLUMN plan JSON")
 
     # Check task_prs table columns
     prs_cols = [row[1] for row in connection.exec_driver_sql("PRAGMA table_info(task_prs)").fetchall()]

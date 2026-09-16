@@ -8,6 +8,33 @@ export type TaskStatus =
   | 'COMPLETED'
   | 'FAILED'
   | 'CANCELLED';
+export type PlanStepStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
+export type PlanEvaluationStatus = 'pending' | 'evaluating' | 'accomplished' | 'needs_revision';
+
+export interface PlanStep {
+  id: string;
+  title: string;
+  status: PlanStepStatus;
+  details?: string;
+}
+
+export interface PlanCheck {
+  name: string;
+  passed: boolean;
+  message?: string;
+}
+
+export interface PlanEvaluation {
+  status: PlanEvaluationStatus;
+  summary?: string;
+  checks?: PlanCheck[];
+}
+
+export interface TaskPlan {
+  objective: string;
+  steps: PlanStep[];
+  evaluation?: PlanEvaluation;
+}
 
 export interface TaskMessage {
   id: string;
@@ -15,6 +42,7 @@ export interface TaskMessage {
   sender: 'user' | 'agent' | 'system';
   content: string;
   thought?: string;
+  plan?: TaskPlan | null;
   tokens?: number;
   created_at: string;
   isOptimistic?: boolean;
@@ -123,6 +151,7 @@ export interface Task {
   git_branch?: string;
   total_tokens?: number;
   result_summary?: string;
+  plan?: TaskPlan | null;
   is_subsession?: boolean;
   parent_task_id?: string | null;
   created_at: string;

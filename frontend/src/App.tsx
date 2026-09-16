@@ -429,6 +429,12 @@ const MainApp: React.FC = () => {
       }
     });
 
+    const unsubPlanUpdated = subscribe('TASK_PLAN_UPDATED', (data: any) => {
+      if (activeTaskId === data.task_id) {
+        setActiveTaskDetails((prev) => (prev ? { ...prev, plan: data.plan } : prev));
+      }
+    });
+
     const unsubChat = subscribe('CHAT_MESSAGE', (data: any) => {
       if (activeTaskId === data.task_id) {
         setActiveTaskDetails((prev) => {
@@ -504,6 +510,7 @@ const MainApp: React.FC = () => {
       unsubPrTestCompleted();
       unsubPrReviewed();
       unsubApproval();
+      unsubPlanUpdated();
       unsubChat();
       unsubEventReceived();
     };
