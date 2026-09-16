@@ -242,3 +242,171 @@ async def test_quota_depleted_429_plan_evaluation(monkeypatch, tmp_path):
     assert any("Google Gemini API Quota Notice (429)" in m["content"] for m in emitted_messages)
 
 
+def test_generate_initial_plan_qa_intent():
+    harness = AntigravityHarness()
+    plan = harness._generate_initial_plan(
+        title="What is Redis LangCache",
+        prompt="Explain Redis LangCache architecture and its performance characteristics",
+        persona_name="PairProgrammer"
+    )
+
+    assert plan["intent_category"] == "qa_research"
+    assert len(plan["steps"]) == 3
+    assert "Search live documentation" in plan["steps"][0]["title"]
+    assert "analytical briefing" in plan["steps"][2]["title"]
+
+
+def test_generate_initial_plan_debugging():
+    harness = AntigravityHarness()
+    plan = harness._generate_initial_plan(
+        title="Fix TypeError in auth",
+        prompt="Fix error: TypeError: cannot read property 'token' of undefined",
+        persona_name="PairProgrammer"
+    )
+
+    assert plan["intent_category"] == "debugging"
+    assert "Diagnose runtime error" in plan["steps"][0]["title"]
+    assert "test suites" in plan["steps"][2]["title"]
+
+
+def test_generate_initial_plan_devops():
+    harness = AntigravityHarness()
+    plan = harness._generate_initial_plan(
+        title="Setup Docker containers",
+        prompt="Configure docker-compose and deploy nginx reverse proxy",
+        persona_name="PairProgrammer"
+    )
+
+    assert plan["intent_category"] == "devops"
+    assert "container" in plan["steps"][0]["title"]
+
+
+@pytest.mark.asyncio
+async def test_dynamic_plan_llm_synthesis(monkeypatch):
+    harness = AntigravityHarness()
+
+    class MockPlanResponse:
+        status_code = 200
+        def json(self):
+            return {
+                "candidates": [{
+                    "content": {
+                        "parts": [{
+                            "text": '{"intent_category": "qa_research", "objective": "Explain Redis LangCache caching architecture", "steps": [{"id": "step-1", "title": "Analyze Redis LangCache cache-aside semantics", "status": "in_progress"}, {"id": "step-2", "title": "Evaluate latency benchmarks and eviction strategies", "status": "pending"}, {"id": "step-3", "title": "Synthesize comprehensive architectural guide", "status": "pending"}]}'
+                        }]
+                    }
+                }]
+            }
+
+    import httpx
+    async def mock_post(self, url, **kwargs):
+        return MockPlanResponse()
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    async with httpx.AsyncClient() as client:
+        plan = await harness._generate_dynamic_plan(
+            client=client,
+            api_key="AIzaSyTestKey",
+            model_name="gemini-2.5-flash",
+            title="What is Redis LangCache",
+            prompt="Explain Redis LangCache architecture",
+            persona_name="PairProgrammer"
+        )
+
+    assert plan["intent_category"] == "qa_research"
+    assert plan["objective"] == "Explain Redis LangCache caching architecture"
+    assert len(plan["steps"]) == 3
+    assert plan["steps"][0]["title"] == "Analyze Redis LangCache cache-aside semantics"
+    assert plan["steps"][1]["title"] == "Evaluate latency benchmarks and eviction strategies"
+
+
+@pytest.mark.asyncio
+async def test_dynamic_plan_fallback_on_error(monkeypatch):
+    harness = AntigravityHarness()
+
+    class MockErrorResponse:
+        status_code = 500
+        text = "Internal Server Error"
+        def json(self):
+            return {"error": "Server error"}
+
+    import httpx
+    async def mock_post(self, url, **kwargs):
+        return MockErrorResponse()
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    async with httpx.AsyncClient() as client:
+        plan = await harness._generate_dynamic_plan(
+            client=client,
+            api_key="AIzaSyTestKey",
+            model_name="gemini-2.5-flash",
+            title="What is Redis LangCache",
+            prompt="Explain Redis LangCache architecture",
+            persona_name="PairProgrammer"
+        )
+
+    assert plan["intent_category"] == "qa_research"
+    assert len(plan["steps"]) == 3
+    assert "Search live documentation" in plan["steps"][0]["title"]
+
+
+@pytest.mark.asyncio
+async def test_qa_task_evaluation_accomplished_without_preview(monkeypatch, tmp_path):
+    harness = AntigravityHarness()
+    emitted_plans = []
+    emitted_messages = []
+
+    async def mock_on_plan(p):
+        emitted_plans.append(p)
+
+    async def mock_on_message(sender, content, plan=None):
+        emitted_messages.append({"sender": sender, "content": content, "plan": plan})
+
+    class MockQAResponse:
+        status_code = 200
+        def json(self):
+            return {
+                "candidates": [{
+                    "content": {
+                        "parts": [{
+                            "text": "Redis LangCache is an intelligent caching layer designed for LLM prompts and vector embeddings, reducing inference latency by up to 80%."
+                        }]
+                    }
+                }]
+            }
+
+    import httpx
+    async def mock_post(self, url, **kwargs):
+        return MockQAResponse()
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    async def noop(*args, **kwargs):
+        pass
+
+    result = await harness.execute_task(
+        task_id="task-qa-test",
+        workspace_path=tmp_path,
+        title="What is Redis LangCache",
+        description="Explain Redis LangCache and how it works",
+        persona_name="PairProgrammer",
+        on_thought=noop,
+        on_tool_start=noop,
+        on_tool_end=noop,
+        on_message=mock_on_message,
+        on_approval_required=noop,
+        on_diff_updated=noop,
+        on_plan=mock_on_plan
+    )
+
+    assert result["status"] == "COMPLETED"
+    assert len(emitted_plans) >= 1
+    final_plan = emitted_plans[-1]
+    assert final_plan["evaluation"]["status"] == "accomplished"
+    assert all(s["status"] == "completed" for s in final_plan["steps"])
+    assert any(c["name"] == "Analytical Synthesis" and c["passed"] for c in final_plan["evaluation"]["checks"])
+    assert not any(c["name"] == "Live Application Preview" for c in final_plan["evaluation"]["checks"])
+
+

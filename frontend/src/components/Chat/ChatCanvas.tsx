@@ -738,13 +738,12 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     return result;
   }, [task]);
 
-  // Handle thought and plan accordions: auto open latest if running, auto collapse when done
+  // Handle thought accordions: auto open latest if running, auto collapse when done
   useEffect(() => {
     if (!task) return;
     if (isRunning && turns.length > 0) {
       const latestTurnId = turns[turns.length - 1].id;
       setOpenThoughts((prev) => ({ ...prev, [latestTurnId]: true }));
-      setOpenPlans((prev) => ({ ...prev, [latestTurnId]: true }));
     } else if (!isRunning) {
       setOpenThoughts({});
     }
