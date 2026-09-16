@@ -514,7 +514,6 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const [inputValue, setInputValue] = useState('');
   const [selectedPersona, setSelectedPersona] = useState('PairProgrammer');
   const [openThoughts, setOpenThoughts] = useState<Record<string, boolean>>({});
-  const [openPlans, setOpenPlans] = useState<Record<string, boolean>>({});
   const [userToggledPlans, setUserToggledPlans] = useState<Record<string, boolean>>({});
   const [userToggledActivities, setUserToggledActivities] = useState<Record<string, boolean>>({});
   const [expandedLogIds, setExpandedLogIds] = useState<Record<string, boolean>>({});
@@ -1662,7 +1661,7 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
             const hasPlan = !!turn.plan && turn.plan.steps && turn.plan.steps.length > 0;
             const isPlanOpen = userToggledPlans[turn.id] !== undefined 
               ? userToggledPlans[turn.id] 
-              : (openPlans[turn.id] ?? (isTurnRunning && turn.isLatest));
+              : (isTurnRunning && turn.isLatest);
 
             const completedSteps = turn.plan?.steps?.filter((s) => s.status === 'completed').length || 0;
             const totalSteps = turn.plan?.steps?.length || 0;
@@ -1772,7 +1771,6 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                       type="button"
                       onClick={() => {
                         setUserToggledPlans((prev) => ({ ...prev, [turn.id]: !isPlanOpen }));
-                        setOpenPlans((prev) => ({ ...prev, [turn.id]: !isPlanOpen }));
                       }}
                       className="w-full px-3.5 py-2.5 flex items-center justify-between text-xs text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/30 transition-colors cursor-pointer select-none"
                     >
