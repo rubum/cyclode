@@ -582,6 +582,9 @@ class AntigravityHarness:
         unique_models = list(dict.fromkeys(m for m in model_candidates if m))
 
         contents: List[Dict[str, Any]] = []
+        tool_call_count = 0
+        consecutive_build_errors = 0
+
         if history:
             for msg in history:
                 role = "user" if msg.get("sender") == "user" else "model"
@@ -594,7 +597,8 @@ class AntigravityHarness:
 
         logger.info(f"Connecting to Gemini API using model {self.model_name}...")
 
-        async with httpx.AsyncClient(timeout=45.0) as client:
+        client_timeout = httpx.Timeout(120.0, connect=15.0, read=120.0)
+        async with httpx.AsyncClient(timeout=client_timeout) as client:
             quota_exhausted = False
             for active_model in unique_models:
                 if quota_exhausted:
@@ -606,19 +610,55 @@ class AntigravityHarness:
                 max_guardrail_corrections = 2
                 model_succeeded = False
                 final_agent_text = ""
-                tool_call_count = 0
-                consecutive_build_errors = 0
 
                 try:
                     while turn < max_turns:
                         turn += 1
+
+                        # Optimize older bulky edit_file content payloads in conversation history
+                        optimized_contents = []
+                        total_entries = len(contents)
+                        for idx, entry in enumerate(contents):
+                            if idx >= total_entries - 4:
+                                optimized_contents.append(entry)
+                                continue
+                            parts = entry.get("parts", [])
+                            new_parts = []
+                            for p in parts:
+                                if "functionCall" in p and p["functionCall"].get("name") == "edit_file":
+                                    fc = dict(p["functionCall"])
+                                    args = dict(fc.get("args", {}))
+                                    c_str = args.get("content", "")
+                                    if len(c_str) > 4000:
+                                        args["content"] = c_str[:500] + f"\n\n... [Historical file write content omitted ({len(c_str)} bytes total)]"
+                                        fc["args"] = args
+                                        new_parts.append({"functionCall": fc})
+                                    else:
+                                        new_parts.append(p)
+                                else:
+                                    new_parts.append(p)
+                            optimized_contents.append({"role": entry.get("role", "user"), "parts": new_parts})
+
                         payload = {
-                            "contents": contents,
+                            "contents": optimized_contents,
                             "system_instruction": {"parts": [{"text": system_instruction}]},
                             "tools": tools_def
                         }
 
-                        resp = await client.post(api_url, json=payload)
+                        resp = None
+                        for retry_idx in range(2):
+                            try:
+                                resp = await client.post(api_url, json=payload)
+                                break
+                            except (httpx.TimeoutException, httpx.NetworkError) as net_err:
+                                logger.warning(f"Transient network notice on turn {turn} model {active_model} (attempt {retry_idx+1}): {net_err}")
+                                if retry_idx < 1:
+                                    await asyncio.sleep(2.0)
+                                else:
+                                    raise
+
+                        if not resp:
+                            break
                         if resp.status_code == 404:
                             break
                         if resp.status_code == 429:
@@ -1049,6 +1089,64 @@ class AntigravityHarness:
                         build_res = WorkspaceTools.run_command(workspace_path, build_cmd)
                         logger.info(f"Post-loop build result on {task_id}: exit code {build_res.get('exit_code')}")
                         post_verification = verify_workspace_preview(workspace_path, task_id)
+
+                    # If unlinked assets or missing index.html but CSS/JS exist, autonomously synthesize host HTML shell
+                    if is_app_task and (post_verification.get("status") in ["missing_entry_point", "unlinked_assets"]):
+                        css_candidates = list(workspace_path.glob("css/*.css")) + list(workspace_path.glob("*.css"))
+                        js_candidates = list(workspace_path.glob("js/*.js")) + list(workspace_path.glob("*.js"))
+                        
+                        css_files = [f for f in css_candidates if "node_modules" not in str(f) and ".git" not in str(f) and not f.name.startswith(".")]
+                        js_files = [f for f in js_candidates if "node_modules" not in str(f) and ".git" not in str(f) and not f.name.startswith(".")]
+                        
+                        if css_files or js_files:
+                            logger.info(f"Synthesizing autonomous index.html host shell on task {task_id} for unlinked assets ({len(css_files)} CSS, {len(js_files)} JS)...")
+                            js_sample = ""
+                            for jf in js_files:
+                                try:
+                                    js_sample += jf.read_text(encoding="utf-8", errors="ignore")[:4000]
+                                except Exception:
+                                    pass
+                            
+                            has_vue = "Vue" in js_sample or "createApp" in js_sample
+                            has_react = "React" in js_sample or "ReactDOM" in js_sample or "useState" in js_sample
+                            has_lucide = "lucide" in js_sample.lower()
+
+                            css_links_html = "\n".join(f'  <link rel="stylesheet" href="./{f.relative_to(workspace_path).as_posix()}" />' for f in css_files)
+                            js_scripts_html = "\n".join(f'  <script src="./{f.relative_to(workspace_path).as_posix()}"></script>' for f in js_files)
+
+                            cdn_headers = ['  <script src="https://cdn.tailwindcss.com"></script>']
+                            if has_vue:
+                                cdn_headers.append('  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>')
+                            if has_react:
+                                cdn_headers.append('  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>')
+                                cdn_headers.append('  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>')
+                            if has_lucide:
+                                cdn_headers.append('  <script src="https://unpkg.com/lucide@latest"></script>')
+
+                            cdn_block = "\n".join(cdn_headers)
+                            app_title = title or "Live Application"
+
+                            synthesized_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{app_title}</title>
+{cdn_block}
+{css_links_html}
+</head>
+<body class="bg-zinc-950 text-zinc-100 min-h-screen antialiased">
+  <div id="app"></div>
+  <div id="root"></div>
+{js_scripts_html}
+  <script>
+    if (window.lucide) {{ try {{ lucide.createIcons(); }} catch(e) {{}} }}
+  </script>
+</body>
+</html>
+"""
+                            (workspace_path / "index.html").write_text(synthesized_html, encoding="utf-8")
+                            post_verification = verify_workspace_preview(workspace_path, task_id)
 
                     preview_status_note = (
                         f"\n\nVERIFIED PREVIEW STATUS (Fact-Grounded):\n"

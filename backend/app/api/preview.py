@@ -293,6 +293,30 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
                 "issues": ["Frontend source code found (React/Vite) but no built index.html or dist bundle exists."],
                 "recommendation": "Execute 'npm run build' (or 'cd client && npm run build') to compile production dist/index.html bundle."
             }
+
+        # Check if unlinked standalone CSS/JS assets exist
+        has_unlinked_assets = False
+        for root, dirs, files in os.walk(ws_path):
+            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "venv", "__pycache__", ".git")]
+            if any(f.endswith((".js", ".mjs", ".css")) for f in files):
+                has_unlinked_assets = True
+                break
+
+        if has_unlinked_assets:
+            return {
+                "status": "unlinked_assets",
+                "has_preview": False,
+                "entry_point": None,
+                "available_entry_points": [],
+                "assets_count": assets_count,
+                "framework": "Standalone Web Assets",
+                "build_status": "missing_host_html",
+                "is_stale": True,
+                "build_timestamp": build_timestamp,
+                "issues": ["CSS and JavaScript assets exist on disk but no host index.html entry point links them."],
+                "recommendation": "Create a root index.html linking the discovered stylesheet and script files."
+            }
+
         return {
             "status": "missing_entry_point",
             "has_preview": False,
