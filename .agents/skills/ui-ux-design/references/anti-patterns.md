@@ -143,3 +143,138 @@ Never guess Tailwind classes that are not part of standard Tailwind core without
 * ❌ `glow`, `glow-indigo` (Use `shadow-[0_0_20px_rgba(99,102,241,0.25)]` or `ring-2 ring-indigo-500/30`)
 * ❌ `flex-center` (Use `flex items-center justify-center`)
 * ❌ `p-18`, `gap-18` (Tailwind standard spacing jumps from 16 to 20: use `p-16`, `p-20`, or arbitrary `p-[72px]`)
+
+---
+
+## 8. The "Multi-Color Rainbow" Trap
+
+> [!CAUTION]
+> **Never assign separate saturated accent colors across adjacent UI controls**: Stacking purple buttons, green badges, glowing red indicators, and blue borders simultaneously destroys visual hierarchy and immediately signals an AI-generated interface.
+
+### ❌ Anti-Pattern (Color Clutter):
+```html
+<!-- FAILS: 4 saturated primary accents competing on the same card -->
+<div class="p-4 bg-slate-900 border border-blue-500 rounded-xl">
+  <button class="bg-purple-600 text-white">AI Summary</button>
+  <button class="bg-green-600 text-white">Backup</button>
+  <button class="bg-red-600 text-white shadow-lg shadow-red-500/50">Record</button>
+</div>
+```
+
+### ✅ Correct Pattern (Strict Single Accent Hierarchy):
+```html
+<!-- PASSES: Single signature accent (amber) with subtle neutral secondary actions -->
+<div class="p-4 bg-zinc-900 border border-zinc-800 rounded-2xl flex items-center justify-between">
+  <button class="px-3.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-300 border border-zinc-700/60 transition-colors">
+    AI Summary
+  </button>
+  <button class="px-3.5 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-300 border border-zinc-700/60 transition-colors">
+    Backup
+  </button>
+  <button class="px-4 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 active:scale-[0.98] text-xs font-semibold text-zinc-950 transition-all shadow-xs">
+    Record
+  </button>
+</div>
+```
+
+---
+
+## 9. The "Dominant Creation Box" Crushing Sidebar Lists
+
+> [!WARNING]
+> When a sidebar contains both a creation tool (e.g. recording widget, filter builder) and a resource list, letting the creation box occupy $>20\%$ of vertical space squishes the primary navigation list into an unusable sliver.
+
+### ❌ Anti-Pattern:
+```html
+<!-- FAILS: 300px static recorder card taking half the sidebar height -->
+<aside class="w-80 h-full flex flex-col p-4">
+  <div class="h-[320px] bg-zinc-900 rounded-2xl p-6">...Huge Recorder...</div>
+  <div class="flex-1 overflow-y-auto mt-4">...Only 2 notes fit here...</div>
+</aside>
+```
+
+### ✅ Correct Pattern (The 80/20 Sidebar Content Ratio):
+```html
+<!-- PASSES: Compact 48px header or floating bottom dock, reserving 80%+ for list stream -->
+<aside class="w-80 h-full flex flex-col bg-zinc-900 border-r border-zinc-800">
+  <!-- Compact sticky top bar (< 20% height) -->
+  <div class="p-3 border-b border-zinc-800 flex items-center justify-between">
+    <span class="text-xs font-semibold text-zinc-200">Recordings (24)</span>
+    <button class="px-2.5 py-1 rounded-md bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-100 flex items-center space-x-1.5">
+      <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+      <span>New</span>
+    </button>
+  </div>
+  <!-- Primary scrollable resource stream (>= 80% height) -->
+  <div class="flex-1 overflow-y-auto p-3 space-y-2">
+    <!-- Clean list items -->
+  </div>
+</aside>
+```
+
+---
+
+## 10. The Disconnected Data Visualizer & Scrubber
+
+AI models frequently render audio waveforms, stock charts, or video timelines as static decorative SVG bars with a standard HTML `<input type="range">` slider floating awkwardly below.
+
+### ❌ Anti-Pattern:
+```html
+<!-- FAILS: Static decorative bars disconnected from playback slider -->
+<div class="space-y-2">
+  <div class="flex items-center space-x-1 h-12 bg-zinc-900 p-2">...Static SVG Bars...</div>
+  <input type="range" class="w-full" />
+</div>
+```
+
+### ✅ Correct Pattern (Integrated Scrubber Track):
+* The visualizer **must be the interactive scrub track itself**. The playback head and progress fill overlay directly across the waveform bars, with hover timecode tooltips (see [component-recipes.md](file:///Users/macken/Documents/antigravity/epic-rutherford/.agents/skills/ui-ux-design/references/component-recipes.md)).
+
+---
+
+## 11. Raw `<textarea>` Dump for Structured Media Transcripts
+
+Placing speech transcripts, LLM reasoning steps, or audit logs into an unformatted, resizable `<textarea>` looks crude and lacks media synchronization.
+
+### ❌ Anti-Pattern:
+```html
+<!-- FAILS: Plain textarea with resize handle -->
+<textarea class="w-full h-64 bg-zinc-900 text-zinc-300 p-4 rounded-xl resize">
+  We need to migrate our worker pool...
+</textarea>
+```
+
+### ✅ Correct Pattern (Synchronized Speaker Diarization Stream):
+* Transcripts must be rendered as **structured DOM speaker blocks** with speaker avatar, timestamp pill, and clickable word spans for synchronized audio seeking.
+
+---
+
+## 12. Raw Unicode Emoji Pollution in System Navigation
+
+Sprinkling OS emojis (`💡`, `🚀`, `🔥`, `📁`) into pill tags, table headers, and sidebar items causes visual clutter and renders inconsistently across platforms (macOS Apple Color Emoji vs Windows Segoe UI Emoji).
+
+### ❌ Anti-Pattern:
+```html
+<!-- FAILS: Raw emojis render with mismatched styles and colors -->
+<div class="flex space-x-2">
+  <span>💡 Ideas</span>
+  <span>👥 Meetings</span>
+  <span>💼 Lectures</span>
+</div>
+```
+
+### ✅ Correct Pattern (Unified Vector Icons):
+```html
+<!-- PASSES: Pure Lucide SVG icons with uniform stroke and subtle container styling -->
+<div class="flex items-center space-x-1.5">
+  <span class="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-zinc-800/80 border border-zinc-700/60 text-xs font-medium text-zinc-300">
+    <i data-lucide="lightbulb" class="w-3.5 h-3.5 stroke-[1.5] text-zinc-400" aria-hidden="true"></i>
+    <span>Ideas</span>
+  </span>
+  <span class="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-zinc-800/80 border border-zinc-700/60 text-xs font-medium text-zinc-300">
+    <i data-lucide="users" class="w-3.5 h-3.5 stroke-[1.5] text-zinc-400" aria-hidden="true"></i>
+    <span>Meetings</span>
+  </span>
+</div>
+```
+

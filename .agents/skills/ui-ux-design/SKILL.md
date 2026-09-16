@@ -14,11 +14,17 @@ Use this skill whenever designing, styling, prototyping, or refactoring user int
 > [!IMPORTANT]
 > **Ban on "AI Purple/Indigo Slop"**: Never default to glowing electric indigo/purple gradients (`#6366f1` / `#a855f7`) on pitch black backdrops with oversized centered hero text and low-density empty cards. Every application must adopt a deliberate, domain-appropriate aesthetic archetype with tailored typography, custom color tokens, and intentional information density.
 
+### The 60-30-10 & Single Accent Invariant
+Never assign independent saturated accent colors across adjacent UI controls (e.g. green backup + purple AI summary + red record). Maintain a strict **60-30-10 color balance**:
+* **60% Dominant Neutral Base**: Canvas backdrop (`#09090b`), surface cards (`#141416`), and subtle hairline borders (`border-white/10`).
+* **30% Structural Hierarchy & Text**: Primary headings (`text-zinc-100`), secondary body text (`text-zinc-400`), and subtle inset panels (`#1c1c1f`).
+* **10% Focused Signature Accent**: Exactly **one** primary brand accent (e.g. `#ea580c` burnt-orange, `#3b82f6` sapphire, or `#10b981` emerald) reserved strictly for the primary CTA, active selection borders, and audio playheads. Semantic colors (red, green) are strictly restricted to state validation.
+
 ### The Domain Signature Invariant
 Before generating code for any interface, establish:
-1. **Domain Metaphor**: What physical or professional world does this product inhabit? (e.g. trading desk, printing press, laboratory journal, terminal workbench).
-2. **Signature Element**: One distinct visual, structural, or interactive element tailored strictly to this product (e.g. an integrated telemetry ticker, a contextual command drawer, or a split diff viewer).
-3. **Defaults to Reject**: Name 3 predictable layout clichés to avoid for this interface type (e.g. rejecting a generic 3-card metric top bar or an unmotivated centered search bar).
+1. **Domain Metaphor**: What physical or professional world does this product inhabit? (e.g. trading desk, printing press, audio master console, laboratory journal, terminal workbench).
+2. **Signature Element**: One distinct visual, structural, or interactive element tailored strictly to this product (e.g. an integrated waveform scrub track, a live telemetry ticker, or a split diff viewer).
+3. **Defaults to Reject**: Name 3 predictable layout clichés to avoid for this interface type (e.g. rejecting a generic 3-card metric top bar, an unmotivated centered search bar, or an oversized static creation card).
 
 ---
 
@@ -105,6 +111,8 @@ Always import curated Google Fonts or Fontshare fonts rather than relying on gen
 4. **Accessibility**:
    * Decorative icons must include `aria-hidden="true"`.
    * Icon-only buttons must include an explicit `aria-label="Action description"` and `title="Action description"`.
+5. **Strict Ban on Raw Unicode Emojis in Navigation**:
+   * Prohibit raw OS emojis (`💡`, `🚀`, `🔥`, `📁`) in filter pills, tabs, badges, and table headers. Always use unified Lucide vector icons inside tint-matched containers.
 
 ---
 
@@ -114,6 +122,11 @@ Always import curated Google Fonts or Fontshare fonts rather than relying on gen
 * **High Density (Data-Dense / Telemetry)**: Padding `p-2` to `p-3`, text `text-xs`, row height `h-8` to `h-9` (28px–36px).
 * **Balanced (Productivity / SaaS)**: Padding `p-3.5` to `p-5`, text `text-sm`, row height `h-10` to `h-11` (40px–44px).
 * **Comfortable (Editorial / Marketing)**: Padding `p-6` to `p-10`, text `text-base`, row height `h-12` to `h-14` (48px–56px).
+
+### The 80/20 Sidebar Content-to-Control Ratio
+When a sidebar contains both a creation tool (e.g. recording widget, filter builder) and a resource list:
+* The creation panel must occupy $\le 20\%$ of vertical space (implemented as a compact $44\text{px}$ header or sticky bottom dock).
+* The searchable, scrollable item stream must occupy $\ge 80\%$ of vertical height.
 
 ### Geometric Container Invariants
 * **The Inset Formula**: The border radius of an inner element must equal outer radius minus padding:
@@ -130,6 +143,8 @@ Always import curated Google Fonts or Fontshare fonts rather than relying on gen
    Apply `active:scale-[0.98]` or `active:translate-y-0.5` with `transition-all duration-150`.
 3. **Motion Sensitivity**:
    Always include `motion-reduce:transition-none` and `motion-reduce:animate-none`.
+4. **The 3+1 Action Toolbar Overflow Rule**:
+   Never place more than 3 direct primary/secondary buttons in a single action toolbar. Secondary operations (Export, Duplicate, Delete) must collapse into an ellipsis (`⋯`) dropdown menu.
 
 ---
 
@@ -152,11 +167,3 @@ Consult the companion reference files for ready-to-use tokens, code guardrails, 
 * [Iconography & Motion Physics Reference](file:///Users/macken/Documents/antigravity/epic-rutherford/.agents/skills/ui-ux-design/references/iconography-motion.md)
 * [Color Palettes Reference](file:///Users/macken/Documents/antigravity/epic-rutherford/.agents/skills/ui-ux-design/references/color-palettes.md)
 * [Component Recipes Reference](file:///Users/macken/Documents/antigravity/epic-rutherford/.agents/skills/ui-ux-design/references/component-recipes.md)
-
----
-
-## 9. Reference Architectures & Examples
-
-Study the complete, standalone reference application for master-detail audio and synchronized transcription:
-* [VoxScribe Audio Studio Reference App](file:///Users/macken/Documents/antigravity/epic-rutherford/.agents/skills/ui-ux-design/examples/audio-studio/index.html) — Demonstrates canvas audio waveforms, synchronized word-seeking diarization, collapsible 48px recording dock, and single-accent Obsidian Dark craft.
-

@@ -210,131 +210,152 @@ Production-ready, highly polished component patterns for HTML, Tailwind CSS, and
 
 ---
 
-## 7. Interactive Audio Waveform Scrubber with Bookmarks
+## 7. Interactive Waveform Scrubber Track (Integrated Media Timeline)
 
 ```html
-<div class="p-5 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-4 shadow-sm">
-  <!-- Header / Now Playing -->
+<div class="p-4 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-3">
+  <!-- Top Bar: Play Trigger, Title & Timecodes -->
   <div class="flex items-center justify-between">
     <div class="flex items-center space-x-3">
       <button 
         type="button" 
-        id="play-btn"
-        class="w-10 h-10 rounded-full bg-orange-600 hover:bg-orange-500 active:scale-95 text-white flex items-center justify-center transition-all shadow-md shadow-orange-600/20 cursor-pointer"
+        class="w-8 h-8 rounded-full bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white flex items-center justify-center transition-all shadow-xs cursor-pointer"
         aria-label="Play audio"
       >
-        <i data-lucide="play" class="w-4 h-4 fill-current ml-0.5" aria-hidden="true"></i>
+        <i data-lucide="play" class="w-3.5 h-3.5 fill-white stroke-none ml-0.5" aria-hidden="true"></i>
       </button>
       <div>
-        <div class="text-sm font-semibold text-zinc-100 tracking-tight">Q3 Architecture Review</div>
-        <div class="text-xs text-zinc-400 font-mono tabular-nums">00:04 <span class="text-zinc-600">/</span> 00:19</div>
+        <h4 class="text-xs font-semibold text-zinc-100">Q3 Cloud Infrastructure Sync</h4>
+        <span class="text-[11px] text-zinc-400 font-mono tabular-nums">00:06 / 00:19</span>
       </div>
     </div>
 
-    <!-- Speed Multiplier -->
-    <div class="flex items-center space-x-2">
-      <button class="px-2 py-1 rounded-md bg-zinc-800 hover:bg-zinc-700 text-xs font-mono text-zinc-300 transition-colors">1.0x</button>
-      <button class="p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors" aria-label="More options">
-        <i data-lucide="more-horizontal" class="w-4 h-4 stroke-[1.5]"></i>
+    <!-- Playback Speed Multiplier -->
+    <button class="px-2 py-0.5 rounded-md bg-zinc-800 hover:bg-zinc-700 text-[11px] font-mono text-zinc-300 transition-colors">
+      1.5x
+    </button>
+  </div>
+
+  <!-- Waveform Scrub Track Container -->
+  <div class="relative h-12 w-full bg-zinc-950/60 rounded-xl p-2 flex items-center justify-between gap-0.5 cursor-pointer group select-none">
+    <!-- Past Audio Bars (Accent Colored) -->
+    <div class="w-1 rounded-full bg-indigo-500 h-4 group-hover:brightness-110"></div>
+    <div class="w-1 rounded-full bg-indigo-500 h-8 group-hover:brightness-110"></div>
+    <div class="w-1 rounded-full bg-indigo-500 h-6 group-hover:brightness-110"></div>
+    <div class="w-1 rounded-full bg-indigo-500 h-10 group-hover:brightness-110"></div>
+    <!-- Active Playhead Line -->
+    <div class="relative w-1 rounded-full bg-white h-10 shadow-[0_0_8px_rgba(255,255,255,0.8)]">
+      <!-- Hover Timecode Tooltip -->
+      <span class="absolute -top-7 left-1/2 -translate-x-1/2 px-1.5 py-0.5 rounded bg-zinc-800 border border-zinc-700 text-[10px] font-mono text-white opacity-0 group-hover:opacity-100 transition-opacity">
+        00:06
+      </span>
+    </div>
+    <!-- Future Audio Bars (Muted Gray) -->
+    <div class="w-1 rounded-full bg-zinc-700/60 h-7 group-hover:bg-zinc-600"></div>
+    <div class="w-1 rounded-full bg-zinc-700/60 h-4 group-hover:bg-zinc-600"></div>
+    <div class="w-1 rounded-full bg-zinc-700/60 h-8 group-hover:bg-zinc-600"></div>
+    <div class="w-1 rounded-full bg-zinc-700/60 h-5 group-hover:bg-zinc-600"></div>
+    <div class="w-1 rounded-full bg-zinc-700/60 h-3 group-hover:bg-zinc-600"></div>
+  </div>
+</div>
+```
+
+---
+
+## 8. Synchronized Speaker Diarization / Media Transcript Stream
+
+```html
+<div class="space-y-4">
+  <!-- Speaker Block 1 -->
+  <div class="p-4 rounded-2xl bg-zinc-900/60 border border-zinc-800/80 space-y-2 hover:border-zinc-700/80 transition-colors">
+    <div class="flex items-center justify-between">
+      <div class="flex items-center space-x-2.5">
+        <div class="w-6 h-6 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 font-mono text-[10px] font-bold flex items-center justify-center">
+          S1
+        </div>
+        <span class="text-xs font-semibold text-zinc-200">DevOps Lead</span>
+      </div>
+      <!-- Click-to-Seek Timecode Badge -->
+      <button class="px-2 py-0.5 rounded-full bg-zinc-800/80 hover:bg-zinc-700 text-[11px] font-mono tabular-nums text-zinc-400 hover:text-zinc-200 border border-zinc-700/50 transition-colors cursor-pointer">
+        00:00
       </button>
     </div>
-  </div>
-
-  <!-- Interactive Waveform Canvas Container -->
-  <div class="relative w-full h-16 bg-zinc-950/60 rounded-xl border border-zinc-800/80 overflow-hidden cursor-pointer group">
-    <!-- Visual Waveform Canvas -->
-    <canvas id="waveform-canvas" class="w-full h-full block"></canvas>
     
-    <!-- Hover Playhead Line -->
-    <div id="hover-line" class="absolute top-0 bottom-0 w-px bg-white/40 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity"></div>
-  </div>
-
-  <!-- Bookmark Chips Pinned to Audio Timecodes -->
-  <div class="flex items-center space-x-2 overflow-x-auto pb-1 text-xs">
-    <button class="px-2.5 py-1 rounded-lg bg-zinc-800/90 hover:bg-zinc-700/90 text-zinc-300 border border-zinc-700/50 flex items-center space-x-1.5 shrink-0 transition-colors cursor-pointer">
-      <span class="font-mono text-[10px] text-orange-400 tabular-nums">00:00</span>
-      <span>Problem Scope</span>
-    </button>
-    <button class="px-2.5 py-1 rounded-lg bg-zinc-800/90 hover:bg-zinc-700/90 text-zinc-300 border border-zinc-700/50 flex items-center space-x-1.5 shrink-0 transition-colors cursor-pointer">
-      <span class="font-mono text-[10px] text-orange-400 tabular-nums">00:06</span>
-      <span>Kubernetes Ingestion</span>
-    </button>
-    <button class="px-2.5 py-1 rounded-lg bg-zinc-800/90 hover:bg-zinc-700/90 text-zinc-300 border border-zinc-700/50 flex items-center space-x-1.5 shrink-0 transition-colors cursor-pointer">
-      <span class="font-mono text-[10px] text-orange-400 tabular-nums">00:12</span>
-      <span>Failover Staging</span>
-    </button>
+    <!-- Word-Synchronized Transcript Paragraph -->
+    <p class="text-sm text-zinc-300 leading-relaxed">
+      <span class="hover:bg-indigo-500/20 hover:text-white rounded px-0.5 transition-colors cursor-pointer">We</span>
+      <span class="hover:bg-indigo-500/20 hover:text-white rounded px-0.5 transition-colors cursor-pointer">need</span>
+      <span class="hover:bg-indigo-500/20 hover:text-white rounded px-0.5 transition-colors cursor-pointer">to</span>
+      <span class="hover:bg-indigo-500/20 hover:text-white rounded px-0.5 transition-colors cursor-pointer">migrate</span>
+      <span class="bg-indigo-500/30 text-indigo-200 font-medium rounded px-0.5">our</span>
+      <span class="bg-indigo-500/30 text-indigo-200 font-medium rounded px-0.5">background</span>
+      <span class="hover:bg-indigo-500/20 hover:text-white rounded px-0.5 transition-colors cursor-pointer">audio</span>
+      <span class="hover:bg-indigo-500/20 hover:text-white rounded px-0.5 transition-colors cursor-pointer">worker</span>
+      <span class="hover:bg-indigo-500/20 hover:text-white rounded px-0.5 transition-colors cursor-pointer">pool</span>
+      <span class="hover:bg-indigo-500/20 hover:text-white rounded px-0.5 transition-colors cursor-pointer">to</span>
+      <span class="hover:bg-indigo-500/20 hover:text-white rounded px-0.5 transition-colors cursor-pointer">Kubernetes.</span>
+    </p>
   </div>
 </div>
 ```
 
 ---
 
-## 8. Synchronized Diarization Transcript with Click-to-Seek
+## 9. Compact Sticky Action Dock & Search Sidebar Header
 
 ```html
-<div class="p-5 rounded-2xl bg-zinc-900 border border-zinc-800 space-y-4">
-  <div class="flex items-center justify-between border-b border-zinc-800/80 pb-3">
-    <div class="flex items-center space-x-2">
-      <i data-lucide="file-text" class="w-4 h-4 text-zinc-400 stroke-[1.5]"></i>
-      <span class="text-xs font-semibold uppercase tracking-wider text-zinc-300 font-mono">Synchronized Transcript</span>
-    </div>
-    <span class="text-xs font-mono text-zinc-500 tabular-nums">54 words · 175 WPM</span>
+<div class="p-3 border-b border-zinc-800 bg-zinc-900/90 backdrop-blur-md flex items-center justify-between space-x-2">
+  <!-- Search Input with Keyboard Badge -->
+  <div class="relative flex-1">
+    <i data-lucide="search" class="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 top-1/2 -translate-y-1/2 stroke-[1.5]" aria-hidden="true"></i>
+    <input 
+      type="text" 
+      placeholder="Filter notes..." 
+      class="w-full pl-8 pr-10 py-1.5 rounded-lg bg-zinc-950/70 border border-zinc-800 text-xs text-zinc-200 placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-zinc-400"
+    />
+    <kbd class="absolute right-2 top-1/2 -translate-y-1/2 px-1 py-0.2 rounded bg-zinc-800 border border-zinc-700 text-[9px] font-mono text-zinc-400">⌘K</kbd>
   </div>
 
-  <!-- Diarized Paragraph Block -->
-  <div class="space-y-3 text-sm leading-relaxed">
-    <div class="space-y-1.5">
-      <div class="flex items-center space-x-2">
-        <span class="text-xs font-semibold text-orange-400">Sarah Chen</span>
-        <span class="text-[11px] font-mono text-zinc-500 tabular-nums">00:00</span>
-      </div>
-      <p class="text-zinc-300 cursor-pointer select-text">
-        <span class="hover:bg-zinc-800 hover:text-white px-0.5 rounded transition-colors text-white font-medium bg-orange-500/20" data-seek="0.0">We</span>
-        <span class="hover:bg-zinc-800 hover:text-white px-0.5 rounded transition-colors" data-seek="0.4">need</span>
-        <span class="hover:bg-zinc-800 hover:text-white px-0.5 rounded transition-colors" data-seek="0.8">to</span>
-        <span class="hover:bg-zinc-800 hover:text-white px-0.5 rounded transition-colors" data-seek="1.1">migrate</span>
-        <span class="hover:bg-zinc-800 hover:text-white px-0.5 rounded transition-colors" data-seek="1.6">our</span>
-        <span class="hover:bg-zinc-800 hover:text-white px-0.5 rounded transition-colors" data-seek="2.0">background</span>
-        <span class="hover:bg-zinc-800 hover:text-white px-0.5 rounded transition-colors" data-seek="2.6">worker</span>
-        <span class="hover:bg-zinc-800 hover:text-white px-0.5 rounded transition-colors" data-seek="3.1">pool.</span>
-      </p>
-    </div>
-  </div>
-</div>
-```
-
----
-
-## 9. Compact Floating Recording Dock with Live VU Meter
-
-```html
-<div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 px-4 py-2.5 rounded-full bg-zinc-900/95 backdrop-blur-md border border-zinc-700/80 shadow-2xl flex items-center space-x-4">
-  <!-- Record Trigger with Pulse Halo -->
+  <!-- Compact 32px New Item Trigger -->
   <button 
-    type="button"
-    class="w-8 h-8 rounded-full bg-rose-600 hover:bg-rose-500 active:scale-95 text-white flex items-center justify-center transition-all shadow-md shadow-rose-600/30 cursor-pointer shrink-0"
-    aria-label="Start recording"
+    type="button" 
+    class="px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-xs font-medium flex items-center space-x-1 transition-all cursor-pointer shrink-0"
+    aria-label="Create note"
   >
-    <div class="w-2.5 h-2.5 rounded-full bg-white animate-ping"></div>
-  </button>
-
-  <!-- Live Audio Level VU Meter -->
-  <div class="flex items-center space-x-1 h-4">
-    <div class="w-1 bg-rose-500 rounded-full h-2 animate-pulse"></div>
-    <div class="w-1 bg-rose-500 rounded-full h-4 animate-pulse delay-75"></div>
-    <div class="w-1 bg-rose-500 rounded-full h-3 animate-pulse delay-150"></div>
-    <div class="w-1 bg-rose-500 rounded-full h-1 animate-pulse"></div>
-  </div>
-
-  <!-- Digital Timer -->
-  <div class="text-xs font-mono font-medium text-zinc-100 tabular-nums">00:04.82</div>
-
-  <!-- Divider -->
-  <div class="w-px h-4 bg-zinc-700"></div>
-
-  <!-- Stop / Finish Button -->
-  <button class="text-xs font-medium text-zinc-300 hover:text-white transition-colors cursor-pointer">
-    Save Note
+    <i data-lucide="plus" class="w-3.5 h-3.5 stroke-[2]" aria-hidden="true"></i>
+    <span class="hidden sm:inline">New</span>
   </button>
 </div>
+```
+
+---
+
+## 10. Standardized 3+1 Action Toolbar with Contextual Overflow Dropdown
+
+```html
+<div class="flex items-center space-x-2">
+  <!-- Action 1: Primary Trigger -->
+  <button class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white text-xs font-medium flex items-center space-x-1.5 transition-all shadow-xs cursor-pointer">
+    <i data-lucide="sparkles" class="w-3.5 h-3.5 stroke-[1.75]" aria-hidden="true"></i>
+    <span>Generate Summary</span>
+  </button>
+
+  <!-- Action 2: Secondary Trigger -->
+  <button class="px-3 py-1.5 rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700/60 text-xs font-medium flex items-center space-x-1.5 transition-colors cursor-pointer">
+    <i data-lucide="share-2" class="w-3.5 h-3.5 stroke-[1.5]" aria-hidden="true"></i>
+    <span>Share</span>
+  </button>
+
+  <!-- Action 3+1: Contextual Overflow Menu Trigger -->
+  <div class="relative">
+    <button 
+      type="button" 
+      aria-label="More actions" 
+      class="p-1.5 rounded-lg bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-white border border-zinc-700/60 transition-colors cursor-pointer"
+    >
+      <i data-lucide="more-horizontal" class="w-4 h-4 stroke-[1.5]" aria-hidden="true"></i>
+    </button>
+  </div>
+</div>
+```
 
