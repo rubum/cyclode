@@ -33,6 +33,26 @@ class AntigravityHarness:
     def __init__(self, model_name: Optional[str] = None):
         self.model_name = model_name or settings.ANTIGRAVITY_MODEL
 
+    def resolve_effective_model(self, task_model_name: Optional[str] = None, intent_category: Optional[str] = None) -> str:
+        """
+        Resolves the concrete execution model based on task requirements, routing mode,
+        and Task-Adaptive Major vs. Minor tier allocation.
+        """
+        requested = (task_model_name or self.model_name or "").strip()
+        
+        # If user explicitly requested a specific model (and not auto/adaptive)
+        if requested and requested.lower() not in ["auto", "adaptive", "task-adaptive"]:
+            return requested
+
+        # If Task-Adaptive routing is active
+        if getattr(settings, "ANTIGRAVITY_ROUTING_MODE", "adaptive") == "adaptive":
+            if intent_category in ["qa_research", "greetings"] or (intent_category is None and not requested):
+                return getattr(settings, "ANTIGRAVITY_MINOR_MODEL", "gemini-3.7-flash") or "gemini-3.7-flash"
+            elif intent_category in ["app_building", "code_modification", "debugging", "review_audit", "devops"]:
+                return getattr(settings, "ANTIGRAVITY_MAJOR_MODEL", "claude-fable-5-1") or "claude-fable-5-1"
+
+        return getattr(settings, "ANTIGRAVITY_MODEL", "gemini-3.7-flash") or "gemini-3.7-flash"
+
     async def _emit_streamed_thought(
         self,
         thought_text: str,
@@ -267,8 +287,8 @@ class AntigravityHarness:
         using structured JSON output from the selected provider (Gemini, Claude, or OpenAI)
         before tool loop execution. Surfaces authentic error diagnostics if dynamic formulation fails.
         """
-        objective = title or prompt[:100]
-        provider = get_provider_for_model(model_name)
+        effective_plan_model = self.resolve_effective_model(model_name)
+        provider = get_provider_for_model(effective_plan_model)
         
         # Fast path: Check if conversational greeting or casual ping
         cleaned_prompt = (prompt or "").strip().lower()
@@ -343,7 +363,7 @@ class AntigravityHarness:
         plan_res = await provider.generate_structured_plan(
             prompt=plan_prompt,
             system_instruction="You are the Cyclode Master Execution Planner.",
-            model_name=model_name,
+            model_name=effective_plan_model,
             client=client
         )
 
@@ -771,18 +791,20 @@ class AntigravityHarness:
             f"   - If the user asks follow-up questions about specific lines, files, or diff hunks, reason directly on the code."
         )
 
-        provider = get_provider_for_model(self.model_name)
+        effective_model = self.resolve_effective_model(self.model_name)
+        provider = get_provider_for_model(effective_model)
         if provider.provider_id == "anthropic":
-            model_candidates = [self.model_name, "claude-3-7-sonnet", "claude-3-5-sonnet", "claude-3-5-haiku"]
+            model_candidates = [effective_model, "claude-fable-5-1", "claude-3-7-sonnet", "claude-3-5-sonnet", "claude-3-5-haiku"]
             provider_label = "Anthropic Claude"
         elif provider.provider_id == "openai":
-            model_candidates = [self.model_name, "gpt-4o", "gpt-4o-mini", "o3-mini", "codex"]
+            model_candidates = [effective_model, "gpt-6-astra", "gpt-4o", "o3-mini", "gpt-4o-mini", "codex"]
             provider_label = "OpenAI / Codex"
         else:
-            initial_gemini = [self.model_name, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
-            model_candidates = [m for m in initial_gemini if m and m not in ["gemini-1.5-pro", "gemini-3.7-flash"]]
+            clean_gemini = effective_model.replace("google:", "").replace("gemini:", "").strip()
+            initial_gemini = [clean_gemini, "gemini-3.7-flash", "gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-pro"]
+            model_candidates = [m for m in initial_gemini if m and m != "gemini-1.5-pro"]
             if not model_candidates:
-                model_candidates = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+                model_candidates = ["gemini-3.7-flash", "gemini-3.8-flash", "gemini-2.5-flash"]
             provider_label = "Google Gemini"
         unique_models = list(dict.fromkeys(m for m in model_candidates if m))
 

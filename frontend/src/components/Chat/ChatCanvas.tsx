@@ -1171,28 +1171,36 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
 
   const modelOptions = [
     {
+      group: 'Adaptive Orchestration',
+      models: [
+        { id: 'auto', label: 'Auto (Task-Adaptive Tiering: Major/Minor)' },
+      ],
+    },
+    {
       group: 'Google Gemini',
       models: [
-        { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Default)' },
-        { id: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
-        { id: 'gemini-2.0-pro', label: 'Gemini 2.0 Pro' },
-        { id: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash' },
+        { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash (Agentic Workhorse)' },
+        { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash (Sub-second Agentic)' },
+        { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+        { id: 'gemini-2.0-pro', label: 'Gemini 2.0 Pro (Deep Reasoning)' },
       ],
     },
     {
       group: 'Anthropic Claude',
       models: [
+        { id: 'claude-fable-5-1', label: 'Claude Fable 5.1 (Mythos Frontier)' },
         { id: 'claude-3-7-sonnet', label: 'Claude 3.7 Sonnet (Thinking)' },
         { id: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet' },
-        { id: 'claude-3-5-haiku', label: 'Claude 3.5 Haiku' },
+        { id: 'claude-3-5-haiku', label: 'Claude 3.5 Haiku (Fast)' },
       ],
     },
     {
       group: 'OpenAI / Codex',
       models: [
-        { id: 'gpt-4o', label: 'GPT-4o' },
+        { id: 'gpt-6-astra', label: 'GPT-6 Astra (Frontier Autonomous)' },
+        { id: 'gpt-4o', label: 'GPT-4o (Omni Multimodal)' },
+        { id: 'o3-mini', label: 'o3-mini (STEM Reasoning)' },
         { id: 'gpt-4o-mini', label: 'GPT-4o Mini' },
-        { id: 'o3-mini', label: 'o3-mini' },
         { id: 'codex', label: 'Codex / GPT-4o' },
       ],
     },

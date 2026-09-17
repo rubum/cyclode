@@ -256,3 +256,34 @@ async def test_multi_turn_execution_openai(tmp_path):
         assert call_count == 2
         assert len(tool_events) == 1
         assert tool_events[0][0] == "read_file"
+
+
+def test_adaptive_tiering_resolution():
+    from app.config import settings
+
+    # 1. When model is explicitly requested by user (e.g. claude-3-7-sonnet)
+    harness_explicit = AntigravityHarness(model_name="claude-3-7-sonnet")
+    assert harness_explicit.resolve_effective_model("qa_research") == "claude-3-7-sonnet"
+    assert harness_explicit.resolve_effective_model("app_building") == "claude-3-7-sonnet"
+
+    # 2. When routing mode is adaptive and model is auto / empty
+    harness_auto = AntigravityHarness(model_name="auto")
+    settings.ANTIGRAVITY_ROUTING_MODE = "adaptive"
+    settings.ANTIGRAVITY_MINOR_MODEL = "gemini-3.7-flash"
+    settings.ANTIGRAVITY_MAJOR_MODEL = "claude-fable-5-1"
+
+    assert harness_auto.resolve_effective_model("qa_research") == "gemini-3.7-flash"
+    assert harness_auto.resolve_effective_model("app_building") == "claude-fable-5-1"
+    assert harness_auto.resolve_effective_model("code_modification") == "claude-fable-5-1"
+    assert harness_auto.resolve_effective_model("debugging") == "claude-fable-5-1"
+    assert harness_auto.resolve_effective_model(None) == "claude-fable-5-1"
+
+    # 3. When routing mode is manual
+    settings.ANTIGRAVITY_ROUTING_MODE = "manual"
+    settings.ANTIGRAVITY_MODEL = "gpt-6-astra"
+    assert harness_auto.resolve_effective_model("qa_research") == "gpt-6-astra"
+
+    # Restore settings
+    settings.ANTIGRAVITY_ROUTING_MODE = "adaptive"
+    settings.ANTIGRAVITY_MODEL = "gemini-3.7-flash"
+

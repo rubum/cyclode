@@ -23,9 +23,12 @@ import {
   Zap,
   Lock,
   Bot,
-  Cpu
+  Cpu,
+  SlidersHorizontal,
+  Layers,
+  Settings2
 } from 'lucide-react';
-import { Integration, SkillCatalogItem, WebhookEndpoint } from '../../types';
+import { Integration, SkillCatalogItem, WebhookEndpoint, ModelSettings } from '../../types';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -50,14 +53,51 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
 }) => {
   const [selectedIntegration, setSelectedIntegration] = useState<Integration | null>(null);
   const [tokenInput, setTokenInput] = useState('');
+  const [modelInput, setModelInput] = useState('');
+  const [baseUrlInput, setBaseUrlInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ success?: boolean; message?: string } | null>(null);
   const [copiedEndpointId, setCopiedEndpointId] = useState<string | null>(null);
+
+  // Model Orchestration Settings State
+  const [modelSettings, setModelSettings] = useState<ModelSettings | null>(null);
+  const [loadingModelSettings, setLoadingModelSettings] = useState(false);
+  const [savingModelSettings, setSavingModelSettings] = useState(false);
+  const [modelSettingsFeedback, setModelSettingsFeedback] = useState<{ success?: boolean; message?: string } | null>(null);
+
+  const [routingMode, setRoutingMode] = useState<string>('adaptive');
+  const [majorModel, setMajorModel] = useState<string>('claude-fable-5-1');
+  const [minorModel, setMinorModel] = useState<string>('gemini-3.7-flash');
+  const [defaultModel, setDefaultModel] = useState<string>('gemini-3.7-flash');
 
   // Search & Filter
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'all' | 'providers' | 'skills' | 'gateways'>('all');
   const [isBannerCollapsed, setIsBannerCollapsed] = useState(false);
+
+  // Fetch live model settings
+  const fetchModelSettings = async () => {
+    try {
+      setLoadingModelSettings(true);
+      const res = await fetch(`${API_BASE}/api/integrations/model-settings`);
+      if (res.ok) {
+        const data: ModelSettings = await res.json();
+        setModelSettings(data);
+        setRoutingMode(data.routing_mode || 'adaptive');
+        setMajorModel(data.major_model || 'claude-fable-5-1');
+        setMinorModel(data.minor_model || 'gemini-3.7-flash');
+        setDefaultModel(data.default_model || 'gemini-3.7-flash');
+      }
+    } catch (err) {
+      console.error('Failed to load model settings:', err);
+    } finally {
+      setLoadingModelSettings(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchModelSettings();
+  }, []);
 
   // Close modal on Escape
   useEffect(() => {
@@ -74,6 +114,19 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
     setSelectedIntegration(item);
     setTokenInput('');
     setFeedback(null);
+    if (item.id === 'gemini') {
+      setModelInput(modelSettings?.providers?.gemini?.model || 'gemini-3.7-flash');
+      setBaseUrlInput('');
+    } else if (item.id === 'anthropic') {
+      setModelInput(modelSettings?.providers?.anthropic?.model || 'claude-fable-5-1');
+      setBaseUrlInput('');
+    } else if (item.id === 'openai') {
+      setModelInput(modelSettings?.providers?.openai?.model || 'gpt-6-astra');
+      setBaseUrlInput(modelSettings?.providers?.openai?.base_url || 'https://api.openai.com/v1');
+    } else {
+      setModelInput('');
+      setBaseUrlInput('');
+    }
   };
 
   const handleCopyWebhookUrl = (endpoint: WebhookEndpoint) => {
@@ -82,6 +135,45 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
     navigator.clipboard.writeText(fullUrl);
     setCopiedEndpointId(endpoint.id);
     setTimeout(() => setCopiedEndpointId(null), 2000);
+  };
+
+  const handleSaveModelSettings = async () => {
+    setSavingModelSettings(true);
+    setModelSettingsFeedback(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/integrations/model-settings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          routing_mode: routingMode,
+          major_model: majorModel,
+          minor_model: minorModel,
+          default_model: defaultModel,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setModelSettings(data);
+        setModelSettingsFeedback({
+          success: true,
+          message: 'Model orchestration & adaptive tiering saved successfully.',
+        });
+        setTimeout(() => setModelSettingsFeedback(null), 3500);
+      } else {
+        setModelSettingsFeedback({
+          success: false,
+          message: 'Failed to update model orchestration settings.',
+        });
+      }
+    } catch (err: any) {
+      setModelSettingsFeedback({
+        success: false,
+        message: err.message || 'Error updating model orchestration.',
+      });
+    } finally {
+      setSavingModelSettings(false);
+    }
   };
 
   const handleSaveCredential = async () => {
@@ -99,10 +191,14 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
       payload.api_key = tokenInput.trim();
     } else if (selectedIntegration.id === 'gemini') {
       payload.api_key = tokenInput.trim();
+      if (modelInput.trim()) payload.model = modelInput.trim();
     } else if (selectedIntegration.id === 'anthropic') {
       payload.api_key = tokenInput.trim();
+      if (modelInput.trim()) payload.model = modelInput.trim();
     } else if (selectedIntegration.id === 'openai') {
       payload.api_key = tokenInput.trim();
+      if (modelInput.trim()) payload.model = modelInput.trim();
+      if (baseUrlInput.trim()) payload.base_url = baseUrlInput.trim();
     } else if (selectedIntegration.id === 'linear') {
       payload.token = tokenInput.trim();
     } else if (selectedIntegration.id === 'sentry') {
@@ -130,6 +226,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
         if (onRefreshIntegrations) {
           onRefreshIntegrations();
         }
+        fetchModelSettings();
       } else {
         setFeedback({
           success: false,
@@ -402,6 +499,166 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
 
       {/* Main Content Sections - Centered with max-w-6xl */}
       <div className="max-w-6xl mx-auto px-6 lg:px-8 py-8 space-y-8">
+        {/* AI Model Orchestration & Adaptive Routing Card */}
+        {(activeTab === 'all' || activeTab === 'providers') && (
+          <div className="p-5 sm:p-6 rounded-2xl bg-onedark-darker/95 border border-onedark-border shadow-md space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-4 border-b border-onedark-borderSubtle">
+              <div className="flex items-center space-x-3.5">
+                <div className="p-2.5 rounded-xl bg-onedark-accent/10 border border-onedark-accent/30 text-onedark-accent shadow-xs">
+                  <SlidersHorizontal className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2.5">
+                    <h2 className="text-sm font-bold text-onedark-fgBright tracking-tight">
+                      AI Model Orchestration & Adaptive Routing
+                    </h2>
+                    <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-mono font-bold border ${
+                      routingMode === 'adaptive'
+                        ? 'bg-onedark-green/15 text-onedark-green border-onedark-green/30'
+                        : 'bg-onedark-accent/15 text-onedark-accent border-onedark-accent/30'
+                    }`}>
+                      {routingMode === 'adaptive' ? 'Task-Adaptive Tiering' : 'Manual Fixed Default'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-onedark-fg/75 mt-0.5">
+                    Dynamically allocates lightweight models for Q&A / sub-plans and frontier reasoning models for fullstack scaffolds.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={handleSaveModelSettings}
+                  disabled={savingModelSettings || loadingModelSettings}
+                  className="px-4 py-2 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker text-xs font-mono font-bold flex items-center space-x-1.5 transition-all disabled:opacity-40 cursor-pointer shadow-xs active:scale-95"
+                >
+                  {savingModelSettings ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                  <span>Save Routing Config</span>
+                </button>
+              </div>
+            </div>
+
+            {modelSettingsFeedback && (
+              <div className={`p-3 rounded-lg border text-xs font-mono flex items-center space-x-2.5 animate-fadeIn ${
+                modelSettingsFeedback.success
+                  ? 'bg-onedark-green/15 border-onedark-green/40 text-onedark-green'
+                  : 'bg-onedark-red/15 border-onedark-red/40 text-onedark-red'
+              }`}>
+                {modelSettingsFeedback.success ? (
+                  <CheckCircle2 className="w-4 h-4 shrink-0 text-onedark-green" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 shrink-0 text-onedark-red" />
+                )}
+                <span>{modelSettingsFeedback.message}</span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 pt-1">
+              {/* Routing Mode */}
+              <div className="p-4 rounded-xl bg-onedark-surface/40 border border-onedark-borderSubtle space-y-3 flex flex-col justify-between">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-mono font-bold text-onedark-fgBright uppercase tracking-wider flex items-center space-x-1.5">
+                      <Layers className="w-3.5 h-3.5 text-onedark-accent" />
+                      <span>Routing Strategy</span>
+                    </label>
+                  </div>
+                  <p className="text-[11.5px] text-onedark-muted leading-relaxed">
+                    Choose whether agent execution dynamically shifts models by task complexity or locks to a static model.
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setRoutingMode('adaptive')}
+                    className={`px-3 py-2 rounded-lg text-xs font-mono font-semibold transition-all border text-center cursor-pointer ${
+                      routingMode === 'adaptive'
+                        ? 'bg-onedark-accent text-onedark-darker border-onedark-accent font-bold shadow-xs'
+                        : 'bg-onedark-darker text-onedark-muted hover:text-onedark-fgBright border-onedark-border'
+                    }`}
+                  >
+                    Adaptive Tiering
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRoutingMode('manual')}
+                    className={`px-3 py-2 rounded-lg text-xs font-mono font-semibold transition-all border text-center cursor-pointer ${
+                      routingMode === 'manual'
+                        ? 'bg-onedark-accent text-onedark-darker border-onedark-accent font-bold shadow-xs'
+                        : 'bg-onedark-darker text-onedark-muted hover:text-onedark-fgBright border-onedark-border'
+                    }`}
+                  >
+                    Fixed Default
+                  </button>
+                </div>
+              </div>
+
+              {/* Major Model Tier */}
+              <div className="p-4 rounded-xl bg-onedark-surface/40 border border-onedark-borderSubtle space-y-3 flex flex-col justify-between">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-mono font-bold text-amber-400 uppercase tracking-wider flex items-center space-x-1.5">
+                      <Bot className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Major Tier (Frontier Reasoning)</span>
+                    </label>
+                  </div>
+                  <p className="text-[11.5px] text-onedark-muted leading-relaxed">
+                    Fullstack builds, scaffolding, complex code modifications, and debugging.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <select
+                    value={majorModel}
+                    onChange={(e) => setMajorModel(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-onedark-darker border border-onedark-border text-xs text-onedark-fgBright font-mono focus:outline-none focus:border-onedark-accent cursor-pointer"
+                  >
+                    <option value="claude-fable-5-1">Claude Fable 5.1 (Mythos Frontier)</option>
+                    <option value="gpt-6-astra">GPT-6 Astra (Frontier Autonomous)</option>
+                    <option value="claude-3-7-sonnet">Claude 3.7 Sonnet (Hybrid Thinking)</option>
+                    <option value="gemini-2.0-pro">Gemini 2.0 Pro (Deep Reasoning)</option>
+                    <option value="gpt-4o">GPT-4o (Multimodal)</option>
+                  </select>
+                  <div className="text-[10.5px] font-mono text-onedark-muted/80 truncate">
+                    Allocated for app_building, review_audit, devops
+                  </div>
+                </div>
+              </div>
+
+              {/* Minor Model Tier */}
+              <div className="p-4 rounded-xl bg-onedark-surface/40 border border-onedark-borderSubtle space-y-3 flex flex-col justify-between">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-wider flex items-center space-x-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>Minor Tier (Fast Agentic)</span>
+                    </label>
+                  </div>
+                  <p className="text-[11.5px] text-onedark-muted leading-relaxed">
+                    Conversational Q&A, research, session titles, and dynamic task sub-plans.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <select
+                    value={minorModel}
+                    onChange={(e) => setMinorModel(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-onedark-darker border border-onedark-border text-xs text-onedark-fgBright font-mono focus:outline-none focus:border-onedark-accent cursor-pointer"
+                  >
+                    <option value="gemini-3.7-flash">Gemini 3.7 Flash (Agentic Workhorse)</option>
+                    <option value="gemini-3.8-flash">Gemini 3.8 Flash (Sub-second Agentic)</option>
+                    <option value="claude-3-5-haiku">Claude 3.5 Haiku (Fast Sub-agent)</option>
+                    <option value="gpt-4o-mini">GPT-4o Mini (Lightweight)</option>
+                    <option value="o3-mini">o3-mini (STEM Reasoning)</option>
+                    <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                  </select>
+                  <div className="text-[10.5px] font-mono text-onedark-muted/80 truncate">
+                    Allocated for qa_research, titles, greetings
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* 1. External Provider Connections (API Keys & Vault) */}
         {(activeTab === 'all' || activeTab === 'providers') && filteredIntegrations.length > 0 && (
           <div className="space-y-3.5">
@@ -688,6 +945,73 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                   autoFocus
                 />
               </div>
+
+              {/* Optional Default Model Configuration for AI Providers */}
+              {(selectedIntegration.id === 'gemini' || selectedIntegration.id === 'anthropic' || selectedIntegration.id === 'openai') && (
+                <div className="space-y-2 pt-2 border-t border-onedark-borderSubtle">
+                  <label className="text-xs font-mono font-semibold text-onedark-fgBright flex items-center justify-between">
+                    <span>Default Model</span>
+                    <span className="text-[10.5px] font-mono text-onedark-muted">Optional Override</span>
+                  </label>
+                  {selectedIntegration.id === 'gemini' && (
+                    <select
+                      value={modelInput}
+                      onChange={(e) => setModelInput(e.target.value)}
+                      className="w-full px-3.5 py-2 rounded-lg bg-onedark-bg border border-onedark-border text-xs text-onedark-fgBright font-mono focus:outline-none focus:border-onedark-accent cursor-pointer"
+                    >
+                      <option value="gemini-3.7-flash">Gemini 3.7 Flash (Default / Agentic Workhorse)</option>
+                      <option value="gemini-3.8-flash">Gemini 3.8 Flash (Sub-second Agentic)</option>
+                      <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                      <option value="gemini-2.0-pro">Gemini 2.0 Pro (Deep Reasoning)</option>
+                    </select>
+                  )}
+                  {selectedIntegration.id === 'anthropic' && (
+                    <select
+                      value={modelInput}
+                      onChange={(e) => setModelInput(e.target.value)}
+                      className="w-full px-3.5 py-2 rounded-lg bg-onedark-bg border border-onedark-border text-xs text-onedark-fgBright font-mono focus:outline-none focus:border-onedark-accent cursor-pointer"
+                    >
+                      <option value="claude-fable-5-1">Claude Fable 5.1 (Default / Mythos Frontier)</option>
+                      <option value="claude-3-7-sonnet">Claude 3.7 Sonnet (Thinking)</option>
+                      <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
+                      <option value="claude-3-5-haiku">Claude 3.5 Haiku (Fast)</option>
+                    </select>
+                  )}
+                  {selectedIntegration.id === 'openai' && (
+                    <select
+                      value={modelInput}
+                      onChange={(e) => setModelInput(e.target.value)}
+                      className="w-full px-3.5 py-2 rounded-lg bg-onedark-bg border border-onedark-border text-xs text-onedark-fgBright font-mono focus:outline-none focus:border-onedark-accent cursor-pointer"
+                    >
+                      <option value="gpt-6-astra">GPT-6 Astra (Default / Frontier Autonomous)</option>
+                      <option value="gpt-4o">GPT-4o (Omni Multimodal)</option>
+                      <option value="o3-mini">o3-mini (STEM Reasoning)</option>
+                      <option value="gpt-4o-mini">GPT-4o Mini</option>
+                      <option value="codex">Codex / GPT-4o</option>
+                    </select>
+                  )}
+                </div>
+              )}
+
+              {/* OpenAI Compatible Custom Base URL */}
+              {selectedIntegration.id === 'openai' && (
+                <div className="space-y-2 pt-1">
+                  <label className="text-xs font-mono font-semibold text-onedark-fgBright flex items-center justify-between">
+                    <span>OpenAI API Base URL</span>
+                    <span className="text-[10.5px] font-mono text-onedark-muted">Custom Endpoint</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={baseUrlInput}
+                    onChange={(e) => setBaseUrlInput(e.target.value)}
+                    placeholder="https://api.openai.com/v1"
+                    className="w-full px-3.5 py-2 rounded-lg bg-onedark-bg border border-onedark-border text-xs text-onedark-fgBright font-mono focus:outline-none focus:border-onedark-accent shadow-xs"
+                  />
+                  <p className="text-[11px] text-onedark-muted">
+                    Supports custom LLM gateways, OpenRouter, Together AI, or local Ollama endpoints.
+                  </p>
+                </div>
+              )}
 
               {feedback && (
                 <div className={`p-3.5 rounded-lg border text-xs font-mono flex items-start space-x-2.5 ${

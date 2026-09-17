@@ -183,7 +183,8 @@ class AgentTaskPool:
         try:
             # Yield control so worker starts first
             await asyncio.sleep(0.1)
-            ai_title = await generate_ai_title(prompt, repo_name, model_name=model_name)
+            title_model = model_name if (model_name and model_name.lower() not in ["auto", "adaptive"]) else settings.ANTIGRAVITY_MINOR_MODEL
+            ai_title = await generate_ai_title(prompt, repo_name, model_name=title_model)
             if not ai_title:
                 return
 
