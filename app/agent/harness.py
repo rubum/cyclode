@@ -42,13 +42,14 @@ def ensure_workspace_git_repo(ws_path: Optional[Path]) -> bool:
         return False
 
 
-def create_turn_snapshot(ws_path: Optional[Path], turn_idx: int) -> Optional[str]:
+def create_turn_snapshot(ws_path: Optional[Path], turn_idx: Any) -> Optional[str]:
     """Creates a git commit snapshot for turn_idx and returns the commit SHA."""
     try:
         if not ws_path or not ws_path.exists() or not ensure_workspace_git_repo(ws_path):
             return None
         subprocess.run(["git", "add", "-A"], cwd=str(ws_path), capture_output=True, text=True, timeout=5)
-        subprocess.run(["git", "commit", "-m", f"cyclode:turn_{turn_idx}", "--allow-empty"], cwd=str(ws_path), capture_output=True, text=True, timeout=5)
+        tag = f"cyclode:turn_{turn_idx}" if not str(turn_idx).startswith("cyclode:") else str(turn_idx)
+        subprocess.run(["git", "commit", "-m", tag, "--allow-empty"], cwd=str(ws_path), capture_output=True, text=True, timeout=5)
         rev = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(ws_path), capture_output=True, text=True, timeout=5)
         if rev.returncode == 0:
             return rev.stdout.strip()

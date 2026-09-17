@@ -358,6 +358,12 @@ class AgentTaskPool:
                 "workspace_path": str(workspace_path)
             })
 
+            # Ensure workspace git repo and take baseline snapshot for this conversation turn
+            from app.agent.harness import ensure_workspace_git_repo, create_turn_snapshot
+            ensure_workspace_git_repo(workspace_path)
+            conv_turn_idx = len(history or []) // 2 + 1
+            create_turn_snapshot(workspace_path, f"conv_turn_{conv_turn_idx}")
+
             active_plan: Optional[Dict[str, Any]] = None
 
             # Define telemetry callbacks
@@ -1538,26 +1544,47 @@ class AgentTaskPool:
                 from app.agent.harness import ensure_workspace_git_repo
                 ensure_workspace_git_repo(workspace_path)
                 try:
-                    log_res = subprocess.run(
-                        ["git", "log", "--grep=cyclode:turn_", "--pretty=format:%H %s", "-n", "20"],
-                        cwd=str(workspace_path),
-                        capture_output=True,
-                        text=True,
-                        timeout=5
-                    )
-                    commits = [line.strip().split(" ", 1) for line in log_res.stdout.split("\n") if line.strip()]
                     target_sha = None
-                    if commits:
+                    if turn_index == 1 or turn_index == 0:
+                        # Resetting initial turn: rollback to root commit before any agent modifications
+                        root_res = subprocess.run(
+                            ["git", "rev-list", "--max-parents=0", "HEAD"],
+                            cwd=str(workspace_path),
+                            capture_output=True,
+                            text=True,
+                            timeout=5
+                        )
+                        if root_res.returncode == 0 and root_res.stdout.strip():
+                            target_sha = root_res.stdout.strip().split("\n")[0]
+                    else:
+                        log_res = subprocess.run(
+                            ["git", "log", "--grep=cyclode:", "--pretty=format:%H %s"],
+                            cwd=str(workspace_path),
+                            capture_output=True,
+                            text=True,
+                            timeout=5
+                        )
+                        commits = [line.strip().split(" ", 1) for line in log_res.stdout.split("\n") if line.strip()]
                         if turn_index is not None:
-                            for sha, msg in commits:
-                                if f"turn_{turn_index}" in msg:
+                            for sha, msg in reversed(commits):
+                                if f"turn_{turn_index}" in msg or f"conv_turn_{turn_index}" in msg:
                                     target_sha = sha
                                     break
                         if not target_sha:
                             if len(commits) > 1:
                                 target_sha = commits[1][0]
-                            else:
+                            elif len(commits) == 1:
                                 target_sha = commits[0][0]
+                            else:
+                                root_res = subprocess.run(
+                                    ["git", "rev-list", "--max-parents=0", "HEAD"],
+                                    cwd=str(workspace_path),
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=5
+                                )
+                                if root_res.returncode == 0 and root_res.stdout.strip():
+                                    target_sha = root_res.stdout.strip().split("\n")[0]
                     
                     if target_sha:
                         subprocess.run(["git", "reset", "--hard", target_sha], cwd=str(workspace_path), capture_output=True, text=True, timeout=10)
@@ -1567,13 +1594,23 @@ class AgentTaskPool:
                     logger.error(f"Error rolling back git workspace for task {task_id}: {e}")
 
             # 2. Prune DB messages, diffs, and logs
-            stmt_msgs = select(TaskMessageModel).where(TaskMessageModel.task_id == task_id).order_by(TaskMessageModel.created_at.desc())
+            stmt_msgs = select(TaskMessageModel).where(TaskMessageModel.task_id == task_id).order_by(TaskMessageModel.created_at.asc())
             res_msgs = await session.execute(stmt_msgs)
             all_msgs = res_msgs.scalars().all()
             
-            if all_msgs:
-                target_msg_to_remove = all_msgs[0]
-                cutoff_time = target_msg_to_remove.created_at
+            if turn_index == 1 or turn_index == 0 or (turn_index is None and len(all_msgs) <= 1):
+                # Wipe all agent records for initial reset
+                await session.execute(delete(TaskMessageModel).where(TaskMessageModel.task_id == task_id))
+                await session.execute(delete(TaskLogModel).where(TaskLogModel.task_id == task_id))
+                await session.execute(delete(TaskApprovalModel).where(TaskApprovalModel.task_id == task_id))
+                await session.execute(delete(TaskDiffModel).where(TaskDiffModel.task_id == task_id))
+            elif all_msgs:
+                user_msgs = [m for m in all_msgs if m.sender == "user"]
+                if turn_index is not None and turn_index <= len(user_msgs):
+                    target_user_msg = user_msgs[turn_index - 1]
+                    cutoff_time = target_user_msg.created_at
+                else:
+                    cutoff_time = all_msgs[-1].created_at
                 
                 await session.execute(
                     delete(TaskMessageModel).where(
@@ -1585,6 +1622,12 @@ class AgentTaskPool:
                     delete(TaskLogModel).where(
                         TaskLogModel.task_id == task_id,
                         TaskLogModel.created_at >= cutoff_time
+                    )
+                )
+                await session.execute(
+                    delete(TaskApprovalModel).where(
+                        TaskApprovalModel.task_id == task_id,
+                        TaskApprovalModel.created_at >= cutoff_time
                     )
                 )
                 await session.execute(
@@ -1600,16 +1643,20 @@ class AgentTaskPool:
                 p_copy = copy.deepcopy(task.plan)
                 steps = p_copy.get("steps", [])
                 for s in steps:
-                    if s.get("status") in ["completed", "failed"]:
-                        s["status"] = "in_progress"
-                        break
+                    s["status"] = "pending" if (turn_index == 1 or turn_index == 0) else "in_progress"
+                if steps and (turn_index == 1 or turn_index == 0):
+                    steps[0]["status"] = "in_progress"
                 p_copy["steps"] = steps
                 if "evaluation" in p_copy:
                     p_copy["evaluation"]["status"] = "in_progress"
+                    p_copy["evaluation"]["summary"] = "Task reset by user."
                 task.plan = p_copy
                 flag_modified(task, "plan")
 
             task.status = "PAUSED"
+            task.result_summary = None
+            task.completed_at = None
+            task.updated_at = get_utc_now()
             await session.commit()
 
         # 4. Broadcast reset event over WebSockets

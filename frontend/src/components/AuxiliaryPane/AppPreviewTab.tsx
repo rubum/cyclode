@@ -166,9 +166,9 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
       prevBuildTimestampRef.current = null;
       inspectPreview(false);
     } else {
-      // If task transitioned from RUNNING -> COMPLETED, auto-reload preview to reflect new build
-      if (prevStatus === 'RUNNING' && task?.status === 'COMPLETED') {
-        inspectPreview(true);
+      // If task transitioned to COMPLETED, PAUSED, or CANCELLED, reload preview to reflect workspace changes
+      if (prevStatus !== task?.status) {
+        inspectPreview(false);
         setIframeKey((prev) => prev + 1);
       } else {
         inspectPreview(true);
@@ -186,7 +186,7 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
     return () => {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
     };
-  }, [task?.id, task?.status, inspectPreview]);
+  }, [task?.id, task?.status, task?.updated_at, inspectPreview]);
 
   // Listen to message events from iframe
   useEffect(() => {

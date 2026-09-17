@@ -57,10 +57,10 @@ async def test_agent_pool_reset_task_turn(tmp_path):
     ensure_workspace_git_repo(workspace)
 
     (workspace / "app.js").write_text("// turn 1")
-    sha1 = create_turn_snapshot(workspace, 1)
+    sha1 = create_turn_snapshot(workspace, "conv_turn_1")
 
     (workspace / "app.js").write_text("// turn 2 modified")
-    sha2 = create_turn_snapshot(workspace, 2)
+    sha2 = create_turn_snapshot(workspace, "conv_turn_2")
 
     now = datetime.now(timezone.utc)
     task_id = f"test-reset-task-{uuid.uuid4().hex[:8]}"
@@ -142,13 +142,13 @@ async def test_agent_pool_reset_task_turn(tmp_path):
 
         await session.commit()
 
-    # Perform turn reset to turn 1
+    # Perform turn reset to turn 1 (initial turn)
     res = await agent_pool.reset_task_turn(task_id, turn_index=1)
     assert res["ok"] is True
     assert res["status"] == "PAUSED"
 
-    # Verify workspace file rolled back
-    assert (workspace / "app.js").read_text() == "// turn 1"
+    # Verify workspace file rolled back to initial root state (app.js wiped)
+    assert not (workspace / "app.js").exists()
 
     # Verify database records pruned and plan restored
     async with async_session_factory() as session:
@@ -156,14 +156,15 @@ async def test_agent_pool_reset_task_turn(tmp_path):
         res_t = await session.execute(stmt_t)
         updated_task = res_t.scalars().first()
         assert updated_task.status == "PAUSED"
-        assert updated_task.plan["steps"][0]["status"] in ["in_progress", "completed"]
+        assert updated_task.plan["steps"][0]["status"] == "in_progress"
+        assert updated_task.plan["steps"][1]["status"] == "pending"
         assert updated_task.plan["evaluation"]["status"] == "in_progress"
 
         stmt_m = select(TaskMessageModel).where(TaskMessageModel.task_id == task_id)
         res_m = await session.execute(stmt_m)
         remaining_msgs = res_m.scalars().all()
-        # Most recent message was pruned
-        assert len(remaining_msgs) < 3
+        # All messages wiped for initial turn reset
+        assert len(remaining_msgs) == 0
 
 
 @pytest.mark.asyncio
