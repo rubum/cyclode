@@ -465,21 +465,30 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
       {/* Quick Action Chips Bar */}
       <div className="px-3 py-1.5 bg-onedark-surface/40 border-b border-onedark-borderSubtle flex items-center space-x-1.5 overflow-x-auto select-none no-scrollbar flex-shrink-0 text-[11px]">
         <button
-          onClick={() => handleSendMessage(`Perform a comprehensive Security & Vulnerability audit on PR #${prNumber}. Look for injection risks, unhandled auth edge-cases, and leaked secrets.`)}
+          onClick={() => handleSendMessage(`Run the 4-stage verified review pipeline on PR #${prNumber}. Execute multi-perspective ensemble scanning (Security, Logic, Concurrency), adversarial falsification against caller contexts, and enforce the Zero-Style Invariant. Output only verified bugs with unified diff patches.`)}
+          disabled={isLoading || isInitializing}
+          className="flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-onedark-green/15 hover:bg-onedark-green/25 border border-onedark-green/30 text-onedark-green font-semibold transition-colors whitespace-nowrap cursor-pointer shadow-xs"
+        >
+          <CheckCircle2 className="w-3 h-3 text-onedark-green" />
+          <span>Verified Ensemble Review</span>
+        </button>
+
+        <button
+          onClick={() => handleSendMessage(`Perform a verified Security & Permission Boundary audit on PR #${prNumber}. Inspect for injection risks, unhandled auth edge-cases, and leaked secrets with zero style nits.`)}
           disabled={isLoading || isInitializing}
           className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-onedark-bg hover:bg-onedark-surface border border-onedark-borderSubtle text-onedark-fg hover:text-onedark-fgBright transition-colors whitespace-nowrap cursor-pointer"
         >
-          <ShieldCheck className="w-3 h-3 text-onedark-green" />
+          <ShieldCheck className="w-3 h-3 text-onedark-accent" />
           <span>Security Audit</span>
         </button>
 
         <button
-          onClick={() => handleSendMessage(`Scan PR #${prNumber} for edge-cases, null/undefined dereferences, race conditions, and performance regressions.`)}
+          onClick={() => handleSendMessage(`Scan PR #${prNumber} for concurrency race conditions, unawaited async tasks, deadlocks, and resource leaks with verified execution scenarios.`)}
           disabled={isLoading || isInitializing}
           className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-onedark-bg hover:bg-onedark-surface border border-onedark-borderSubtle text-onedark-fg hover:text-onedark-fgBright transition-colors whitespace-nowrap cursor-pointer"
         >
           <Bug className="w-3 h-3 text-onedark-yellow" />
-          <span>Bug Scan</span>
+          <span>Concurrency & Leaks</span>
         </button>
 
         <button

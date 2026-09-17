@@ -1415,7 +1415,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
               <button
                 onClick={() => onAskAboutRepo(data.repo_name!)}
                 className="flex items-center space-x-1 px-2 py-1 rounded bg-onedark-surface hover:bg-onedark-surface/80 border border-onedark-border text-onedark-fgBright text-[11px] font-medium transition-all"
-                title="Ask PairProgrammer about this repo"
+                title="Ask SoftwareEngineer about this repo"
               >
                 <MessageSquare className="w-3 h-3 text-onedark-accent" />
                 <span>Ask Agent</span>

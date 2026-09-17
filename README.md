@@ -80,7 +80,7 @@ Embedded directly into the workstation's Auxiliary Pane, allowing developers and
 - Automated action gating requiring explicit human approval (`AWAITING_APPROVAL`) for destructive actions, shell executions, git push, and notifications.
 
 ### 10. Autonomous Multi-Agent Personas
-- `PairProgrammer`: General architecture design, fullstack implementation, refactoring, and test verification.
+- `SoftwareEngineer`: Autonomous full-cycle software engineering, feature implementation, refactoring, and test verification (with alias support for `PairProgrammer`).
 - `AppBuilder`: Interactive web application scaffolding, live preview verification, and design craftsmanship.
 - `CodeReviewer`: Deep PR diff analysis, security audits, null safety checks, and edge-case validation.
 - `IssueResolver`: Targeted root-cause investigation, reproduction script authoring, and automated patching.

@@ -70,7 +70,7 @@ async def test_update_task_title_api():
     task_id = await agent_pool.spawn_task(
         title="Initial Title",
         description="Analyse https://github.com/org/repo-demo and fix bugs",
-        persona="PairProgrammer"
+        persona="SoftwareEngineer"
     )
 
     transport = ASGITransport(app=app)

@@ -61,7 +61,7 @@ DEFAULT_RULES = [
         "source": "github",
         "event_type": "issue_comment.created",
         "repo_filter": "*",
-        "persona": "PairProgrammer",
+        "persona": "SoftwareEngineer",
         "action": "awaken_session",
         "auto_post_comment": True,
         "require_approval": True,

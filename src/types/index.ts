@@ -356,3 +356,16 @@ export interface ProviderModelGroup {
   configured: boolean;
   models: ModelItem[];
 }
+
+export interface ModelSettings {
+  routing_mode: 'adaptive' | 'manual' | string;
+  major_model: string;
+  minor_model: string;
+  default_model: string;
+  providers?: {
+    gemini?: { model: string; configured: boolean };
+    anthropic?: { model: string; configured: boolean };
+    openai?: { model: string; base_url?: string; configured: boolean };
+  };
+}
+

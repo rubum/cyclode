@@ -34,7 +34,7 @@ async def test_dynamic_plan_generation_claude():
             model_name="claude-3-7-sonnet",
             title="Redis LangCache Research",
             prompt="Explain how Redis LangCache optimizes LLM costs",
-            persona_name="PairProgrammer"
+            persona_name="SoftwareEngineer"
         )
 
         assert plan["intent_category"] == "qa_research"
@@ -89,7 +89,7 @@ async def test_dynamic_plan_missing_key_diagnostics():
             model_name="claude-3-7-sonnet",
             title="Test Missing Key",
             prompt="Test prompt",
-            persona_name="PairProgrammer"
+            persona_name="SoftwareEngineer"
         )
 
         assert "Plan Generation Failed: Anthropic Claude API Key is missing or unconfigured" in plan["steps"][0]["title"]
@@ -161,7 +161,7 @@ async def test_multi_turn_execution_claude(tmp_path):
             task_id="task-multi-turn-claude",
             title="Read test file",
             description=f"Read hello.txt",
-            persona_name="PairProgrammer",
+            persona_name="SoftwareEngineer",
             workspace_path=tmp_path,
             on_thought=mock_on_thought,
             on_tool_start=mock_on_tool_start,
@@ -242,7 +242,7 @@ async def test_multi_turn_execution_openai(tmp_path):
             task_id="task-multi-turn-openai",
             title="Inspect data json",
             description=f"Inspect data.json",
-            persona_name="PairProgrammer",
+            persona_name="SoftwareEngineer",
             workspace_path=tmp_path,
             on_thought=mock_on_thought,
             on_tool_start=mock_on_tool_start,

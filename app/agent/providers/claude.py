@@ -144,8 +144,10 @@ class ClaudeProvider(BaseLLMProvider):
             )
 
         # Normalize model identifier
-        clean_model = model_name
-        if clean_model in ["claude-3-7-sonnet", "claude-3.7-sonnet"]:
+        clean_model = model_name.replace("anthropic:", "").strip() if model_name else "claude-fable-5-1"
+        if clean_model in ["claude-fable-5-1", "claude-fable-5", "fable", "claude-fable"]:
+            clean_model = "claude-fable-5-1"
+        elif clean_model in ["claude-3-7-sonnet", "claude-3.7-sonnet"]:
             clean_model = "claude-3-7-sonnet-20250219"
         elif clean_model in ["claude-3-5-sonnet", "claude-3.5-sonnet"]:
             clean_model = "claude-3-5-sonnet-20241022"
@@ -164,8 +166,8 @@ class ClaudeProvider(BaseLLMProvider):
         if claude_tools:
             payload["tools"] = claude_tools
 
-        # Support extended thinking for Claude 3.7
-        if "claude-3-7" in clean_model and (thinking_budget or settings.ANTIGRAVITY_ENABLE_THINKING):
+        # Support extended thinking for Claude Fable and Claude 3.7
+        if ("claude-3-7" in clean_model or "fable" in clean_model) and (thinking_budget or settings.ANTIGRAVITY_ENABLE_THINKING):
             budget = thinking_budget or 2048
             payload["thinking"] = {"type": "enabled", "budget_tokens": budget}
             # Anthropic requires temperature=1.0 when thinking is enabled
@@ -279,9 +281,10 @@ class ClaudeProvider(BaseLLMProvider):
 
         candidate_models = list(dict.fromkeys([
             model_name,
+            "claude-fable-5-1",
+            "claude-3-7-sonnet-20250219",
             "claude-3-5-haiku-20241022",
-            "claude-3-5-sonnet-20241022",
-            "claude-3-7-sonnet-20250219"
+            "claude-3-5-sonnet-20241022"
         ]))
 
         should_close = False
@@ -298,8 +301,10 @@ class ClaudeProvider(BaseLLMProvider):
         last_error = "Model response unavailable"
         try:
             for active_model in candidate_models:
-                clean_model = active_model
-                if clean_model in ["claude-3-7-sonnet", "claude-3.7-sonnet"]:
+                clean_model = active_model.replace("anthropic:", "").strip() if active_model else "claude-fable-5-1"
+                if clean_model in ["claude-fable-5-1", "claude-fable-5", "fable", "claude-fable"]:
+                    clean_model = "claude-fable-5-1"
+                elif clean_model in ["claude-3-7-sonnet", "claude-3.7-sonnet"]:
                     clean_model = "claude-3-7-sonnet-20250219"
                 elif clean_model in ["claude-3-5-sonnet", "claude-3.5-sonnet"]:
                     clean_model = "claude-3-5-sonnet-20241022"

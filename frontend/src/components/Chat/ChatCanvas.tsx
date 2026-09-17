@@ -514,8 +514,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   onNavigateToRepos,
 }) => {
   const [inputValue, setInputValue] = useState('');
-  const [selectedPersona, setSelectedPersona] = useState('PairProgrammer');
-  const [selectedModel, setSelectedModel] = useState('gemini-2.5-flash');
+  const [selectedPersona, setSelectedPersona] = useState('SoftwareEngineer');
+  const [selectedModel, setSelectedModel] = useState('auto');
   const [openThoughts, setOpenThoughts] = useState<Record<string, boolean>>({});
   const [userToggledPlans, setUserToggledPlans] = useState<Record<string, boolean>>({});
   const [userToggledActivities, setUserToggledActivities] = useState<Record<string, boolean>>({});
@@ -1145,7 +1145,7 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
     },
     {
       title: 'Fix Production Bug',
-      persona: 'PairProgrammer',
+      persona: 'SoftwareEngineer',
       prompt: 'Investigate KeyError in auth_service.py: add defensive fallback and verify with pytest.',
       icon: Bug,
       color: 'text-onedark-red',
@@ -1162,8 +1162,8 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
   ];
 
   const personas = [
+    { id: 'SoftwareEngineer', label: 'Software Engineer (Default)' },
     { id: 'AppBuilder', label: 'App Builder (Fullstack & UI)' },
-    { id: 'PairProgrammer', label: 'Pair Programmer (Default)' },
     { id: 'CodeReviewer', label: 'Code Reviewer (PRs & Diffs)' },
     { id: 'IssueResolver', label: 'Issue Resolver (Bugfixer)' },
     { id: 'APMTriage', label: 'APM Triage (Sentry / AppSignal)' },

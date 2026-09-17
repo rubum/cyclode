@@ -603,8 +603,8 @@ const MainApp: React.FC = () => {
 
   const handleNewChatWithPrompt = async (
     prompt: string,
-    persona: string = 'PairProgrammer',
-    modelName: string = 'gemini-2.5-flash'
+    persona: string = 'SoftwareEngineer',
+    modelName: string = 'auto'
   ) => {
     const tempId = `temp-${Date.now()}`;
     const initialTitle = getCleanInitialTitle(prompt);
@@ -613,8 +613,8 @@ const MainApp: React.FC = () => {
       title: initialTitle,
       custom_title: false,
       description: prompt,
-      persona: persona || 'PairProgrammer',
-      model_name: modelName || 'gemini-2.5-flash',
+      persona: persona || 'SoftwareEngineer',
+      model_name: modelName || 'auto',
       status: 'INITIALIZING',
       sandbox_status: 'PROVISIONING',
       workspace_path: '/workspaces/default',
@@ -646,8 +646,8 @@ const MainApp: React.FC = () => {
         body: JSON.stringify({
           title: initialTitle,
           description: prompt,
-          persona: persona || 'PairProgrammer',
-          model_name: modelName || 'gemini-2.5-flash',
+          persona: persona || 'SoftwareEngineer',
+          model_name: modelName || 'auto',
         }),
       });
       if (res.ok) {

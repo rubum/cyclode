@@ -213,7 +213,7 @@ async def test_execute_task_semantic_cache_hit_zero_tokens(monkeypatch, tmp_path
         workspace_path=tmp_path,
         title="Explain grafana alert rules",
         description="Explain grafana alert rules",
-        persona_name="PairProgrammer",
+        persona_name="SoftwareEngineer",
         on_thought=mock_on_thought,
         on_tool_start=noop,
         on_tool_end=noop,

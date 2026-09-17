@@ -7,18 +7,28 @@ from app.agent.providers.factory import get_provider_for_model, get_model_catalo
 
 
 def test_provider_factory_routing():
-    # Claude models
+    # Claude & Fable frontier models
+    assert isinstance(get_provider_for_model("claude-fable-5-1"), ClaudeProvider)
+    assert isinstance(get_provider_for_model("fable"), ClaudeProvider)
+    assert isinstance(get_provider_for_model("anthropic:fable-5-1"), ClaudeProvider)
     assert isinstance(get_provider_for_model("claude-3-7-sonnet"), ClaudeProvider)
     assert isinstance(get_provider_for_model("claude-3-5-sonnet"), ClaudeProvider)
     assert isinstance(get_provider_for_model("claude-3-5-haiku"), ClaudeProvider)
     
-    # OpenAI / Codex models
+    # OpenAI & GPT-6 / Codex models
+    assert isinstance(get_provider_for_model("gpt-6-astra"), OpenAIProvider)
+    assert isinstance(get_provider_for_model("gpt-6"), OpenAIProvider)
+    assert isinstance(get_provider_for_model("openai:gpt-6-astra"), OpenAIProvider)
     assert isinstance(get_provider_for_model("gpt-4o"), OpenAIProvider)
     assert isinstance(get_provider_for_model("gpt-4o-mini"), OpenAIProvider)
     assert isinstance(get_provider_for_model("o3-mini"), OpenAIProvider)
     assert isinstance(get_provider_for_model("codex"), OpenAIProvider)
+    assert isinstance(get_provider_for_model("custom:my-ollama"), OpenAIProvider)
     
     # Gemini models / Default
+    assert isinstance(get_provider_for_model("gemini-3.7-flash"), GeminiProvider)
+    assert isinstance(get_provider_for_model("gemini-3.8-flash"), GeminiProvider)
+    assert isinstance(get_provider_for_model("google:gemini-3.7-flash"), GeminiProvider)
     assert isinstance(get_provider_for_model("gemini-2.5-flash"), GeminiProvider)
     assert isinstance(get_provider_for_model("gemini-2.0-pro"), GeminiProvider)
     assert isinstance(get_provider_for_model(""), GeminiProvider)
@@ -35,8 +45,19 @@ def test_model_catalog_structure():
 
     anthropic_group = next(c for c in catalog if c["provider"] == "anthropic")
     model_ids = [m["id"] for m in anthropic_group["models"]]
+    assert "claude-fable-5-1" in model_ids
     assert "claude-3-7-sonnet" in model_ids
     assert "claude-3-5-sonnet" in model_ids
+
+    google_group = next(c for c in catalog if c["provider"] == "google")
+    google_ids = [m["id"] for m in google_group["models"]]
+    assert "gemini-3.7-flash" in google_ids
+    assert "gemini-3.8-flash" in google_ids
+
+    openai_group = next(c for c in catalog if c["provider"] == "openai")
+    openai_ids = [m["id"] for m in openai_group["models"]]
+    assert "gpt-6-astra" in openai_ids
+    assert "gpt-4o" in openai_ids
 
 
 def test_claude_tool_declaration_conversion():
@@ -188,4 +209,42 @@ async def test_semantic_cache_openai_embedding_routing():
     assert mock_client.post.call_count == 1
     call_args = mock_client.post.call_args
     assert "https://api.openai.com/v1/embeddings" in call_args[0][0]
+
+
+def test_integration_manager_model_settings():
+    from app.integrations.manager import integration_manager
+    from app.config import settings
+
+    # Initial read
+    settings_data = integration_manager.get_model_settings()
+    assert "routing_mode" in settings_data
+    assert "major_model" in settings_data
+    assert "minor_model" in settings_data
+    assert "providers" in settings_data
+
+    # Update settings
+    updated = integration_manager.update_model_settings({
+        "routing_mode": "manual",
+        "major_model": "gpt-6-astra",
+        "minor_model": "gemini-3.8-flash",
+        "default_model": "gpt-6-astra",
+        "gemini_model": "gemini-3.8-flash",
+        "openai_base_url": "http://localhost:11434/v1"
+    })
+
+    assert updated["routing_mode"] == "manual"
+    assert updated["major_model"] == "gpt-6-astra"
+    assert updated["minor_model"] == "gemini-3.8-flash"
+    assert updated["default_model"] == "gpt-6-astra"
+    assert updated["providers"]["openai"]["base_url"] == "http://localhost:11434/v1"
+
+    # Restore default
+    integration_manager.update_model_settings({
+        "routing_mode": "adaptive",
+        "major_model": "gemini-3.8-flash",
+        "minor_model": "gemini-3.7-flash",
+        "default_model": "gemini-3.7-flash",
+        "openai_base_url": None
+    })
+
 

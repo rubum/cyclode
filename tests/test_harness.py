@@ -78,12 +78,22 @@ def test_persona_app_builder_resilient_bundling():
     assert "Obsidian Minimalist Dark" in instructions
 
 
-def test_persona_pair_programmer_resilient_bundling():
+def test_persona_software_engineer_and_alias_resolution():
     from app.agent.personas import get_persona
-    pair_prog = get_persona("PairProgrammer")
-    instructions = pair_prog["system_instructions"]
+    swe = get_persona("SoftwareEngineer")
+    assert swe["name"] == "SoftwareEngineer"
+    instructions = swe["system_instructions"]
     assert "npm run build" in instructions
     assert "verify_app_preview" in instructions
+    assert "AUTONOMOUS CODE & UI DELIVERY MANDATE" in instructions
+
+    # Test alias resolution
+    pair_prog = get_persona("PairProgrammer")
+    assert pair_prog["name"] == "SoftwareEngineer"
+    assert pair_prog == swe
+
+    swe_alias = get_persona("swe")
+    assert swe_alias["name"] == "SoftwareEngineer"
 
 
 def test_autonomous_html_shell_synthesis(tmp_path):
@@ -113,4 +123,18 @@ def test_autonomous_html_shell_synthesis(tmp_path):
     assert v2["status"] == "ready"
     assert v2["has_preview"] is True
     assert v2["entry_point"] == "index.html"
+
+
+def test_guardrail_intent_triggers_on_clean_workspace(tmp_path):
+    from app.api.preview import verify_workspace_preview
+
+    # Completely clean / empty workspace
+    v = verify_workspace_preview(tmp_path, "test-clean")
+    assert v["status"] == "missing_entry_point"
+    assert v["has_preview"] is False
+
+    # The harness checks status_val in ["missing_entry_point", "missing_workspace", "empty_ui"]
+    # Verify that clean workspace is correctly identified as needing guardrail intervention
+    assert v["status"] in ["missing_entry_point", "missing_workspace", "empty_ui"]
+
 

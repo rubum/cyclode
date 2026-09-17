@@ -24,7 +24,7 @@ def test_generate_initial_plan_qa_placeholder():
     plan = harness._generate_initial_plan(
         title="What is Redis LangCache",
         prompt="Explain Redis LangCache architecture and its performance characteristics",
-        persona_name="PairProgrammer"
+        persona_name="SoftwareEngineer"
     )
 
     assert plan["objective"] == "What is Redis LangCache"
@@ -110,7 +110,7 @@ async def test_dynamic_plan_llm_synthesis(monkeypatch):
             model_name="gemini-2.5-flash",
             title="What is Redis LangCache",
             prompt="Explain Redis LangCache architecture",
-            persona_name="PairProgrammer"
+            persona_name="SoftwareEngineer"
         )
 
     assert plan["intent_category"] == "qa_research"
@@ -160,7 +160,7 @@ async def test_dynamic_plan_model_cascade_on_404(monkeypatch):
             model_name="unsupported-model-404",
             title="Explain grafana alert rules",
             prompt="Explain grafana alert rules",
-            persona_name="PairProgrammer"
+            persona_name="SoftwareEngineer"
         )
 
     assert plan["intent_category"] == "qa_research"
@@ -193,7 +193,7 @@ async def test_dynamic_plan_error_surfacing_without_fallback(monkeypatch):
             model_name="gemini-2.5-flash",
             title="What is Redis LangCache",
             prompt="Explain Redis LangCache architecture",
-            persona_name="PairProgrammer"
+            persona_name="SoftwareEngineer"
         )
 
     assert plan["intent_category"] == "qa_research"
@@ -216,7 +216,7 @@ async def test_dynamic_plan_conversational_greeting():
             model_name="gemini-2.5-flash",
             title="hey",
             prompt="hey",
-            persona_name="PairProgrammer"
+            persona_name="SoftwareEngineer"
         )
     assert plan["intent_category"] == "qa_research"
     assert "greeting" in plan["objective"].lower()
@@ -278,7 +278,7 @@ async def test_permission_denied_403_plan_evaluation(monkeypatch, tmp_path):
         workspace_path=tmp_path,
         title="Create a messaging app",
         description="Create a messaging app",
-        persona_name="PairProgrammer",
+        persona_name="SoftwareEngineer",
         on_thought=noop,
         on_tool_start=noop,
         on_tool_end=noop,
@@ -397,7 +397,7 @@ async def test_qa_explanation_evaluation_zero_tools_passes(monkeypatch, tmp_path
         workspace_path=tmp_path,
         title="Explain grafana alert rules",
         description="Explain grafana alert rules",
-        persona_name="PairProgrammer",
+        persona_name="SoftwareEngineer",
         on_thought=noop,
         on_tool_start=noop,
         on_tool_end=noop,
@@ -464,7 +464,7 @@ async def test_qa_task_evaluation_accomplished_without_preview(monkeypatch, tmp_
         workspace_path=tmp_path,
         title="What is Redis LangCache",
         description="Explain Redis LangCache and how it works",
-        persona_name="PairProgrammer",
+        persona_name="SoftwareEngineer",
         on_thought=noop,
         on_tool_start=noop,
         on_tool_end=noop,

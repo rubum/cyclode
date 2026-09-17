@@ -141,7 +141,7 @@ class OpenAIProvider(BaseLLMProvider):
         openai_messages = self._convert_messages(messages, system_instruction)
 
         # Normalize model
-        clean_model = model_name
+        clean_model = model_name.replace("openai:", "").replace("custom:", "").strip() if model_name else "gpt-6-astra"
         if clean_model in ["codex", "openai-codex"]:
             clean_model = "gpt-4o"
 
@@ -274,9 +274,10 @@ class OpenAIProvider(BaseLLMProvider):
 
         candidate_models = list(dict.fromkeys([
             model_name,
-            "gpt-4o-mini",
+            "gpt-6-astra",
             "gpt-4o",
-            "o3-mini"
+            "o3-mini",
+            "gpt-4o-mini"
         ]))
 
         base_url = self.get_base_url()
@@ -293,7 +294,7 @@ class OpenAIProvider(BaseLLMProvider):
         last_error = "Model response unavailable"
         try:
             for active_model in candidate_models:
-                clean_model = active_model
+                clean_model = active_model.replace("openai:", "").replace("custom:", "").strip() if active_model else "gpt-6-astra"
                 if clean_model in ["codex", "openai-codex"]:
                     clean_model = "gpt-4o-mini"
 

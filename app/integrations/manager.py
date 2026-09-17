@@ -73,10 +73,17 @@ class IntegrationManager:
                 if "api_key" in credentials:
                     os.environ["GEMINI_API_KEY"] = credentials["api_key"]
                     settings.GEMINI_API_KEY = credentials["api_key"]
+                if "model" in credentials or "default_model" in credentials:
+                    mod = credentials.get("model") or credentials.get("default_model")
+                    settings.GEMINI_DEFAULT_MODEL = mod
+                    settings.ANTIGRAVITY_MODEL = mod
             elif provider == "anthropic":
                 if "api_key" in credentials:
                     os.environ["ANTHROPIC_API_KEY"] = credentials["api_key"]
                     settings.ANTHROPIC_API_KEY = credentials["api_key"]
+                if "model" in credentials or "default_model" in credentials:
+                    mod = credentials.get("model") or credentials.get("default_model")
+                    settings.ANTHROPIC_DEFAULT_MODEL = mod
             elif provider == "openai":
                 if "api_key" in credentials:
                     os.environ["OPENAI_API_KEY"] = credentials["api_key"]
@@ -84,6 +91,9 @@ class IntegrationManager:
                 if "base_url" in credentials:
                     os.environ["OPENAI_BASE_URL"] = credentials["base_url"]
                     settings.OPENAI_BASE_URL = credentials["base_url"]
+                if "model" in credentials or "default_model" in credentials:
+                    mod = credentials.get("model") or credentials.get("default_model")
+                    settings.OPENAI_DEFAULT_MODEL = mod
 
         return {
             "provider": provider,
@@ -456,6 +466,58 @@ class IntegrationManager:
             "total_webhooks": len(hooks) if isinstance(hooks, list) else 0,
             "webhooks": hooks if isinstance(hooks, list) else []
         }
+
+    def get_model_settings(self) -> Dict[str, Any]:
+        """
+        Returns active model orchestration settings including routing mode,
+        tier assignments (major/minor), and per-provider model configurations.
+        """
+        return {
+            "routing_mode": settings.ANTIGRAVITY_ROUTING_MODE,
+            "major_model": settings.ANTIGRAVITY_MAJOR_MODEL,
+            "minor_model": settings.ANTIGRAVITY_MINOR_MODEL,
+            "default_model": settings.ANTIGRAVITY_MODEL,
+            "providers": {
+                "gemini": {
+                    "model": settings.GEMINI_DEFAULT_MODEL,
+                    "configured": bool(settings.get_api_key()),
+                },
+                "anthropic": {
+                    "model": settings.ANTHROPIC_DEFAULT_MODEL,
+                    "configured": bool(settings.get_anthropic_api_key()),
+                },
+                "openai": {
+                    "model": settings.OPENAI_DEFAULT_MODEL,
+                    "base_url": settings.OPENAI_BASE_URL,
+                    "configured": bool(settings.get_openai_api_key()),
+                }
+            }
+        }
+
+    def update_model_settings(self, updates: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Dynamically updates model orchestration settings and tier assignments.
+        """
+        if "routing_mode" in updates and updates["routing_mode"]:
+            settings.ANTIGRAVITY_ROUTING_MODE = updates["routing_mode"]
+        if "major_model" in updates and updates["major_model"]:
+            settings.ANTIGRAVITY_MAJOR_MODEL = updates["major_model"]
+        if "minor_model" in updates and updates["minor_model"]:
+            settings.ANTIGRAVITY_MINOR_MODEL = updates["minor_model"]
+        if "default_model" in updates and updates["default_model"]:
+            settings.ANTIGRAVITY_MODEL = updates["default_model"]
+
+        # Provider overrides
+        if "gemini_model" in updates and updates["gemini_model"]:
+            settings.GEMINI_DEFAULT_MODEL = updates["gemini_model"]
+        if "anthropic_model" in updates and updates["anthropic_model"]:
+            settings.ANTHROPIC_DEFAULT_MODEL = updates["anthropic_model"]
+        if "openai_model" in updates and updates["openai_model"]:
+            settings.OPENAI_DEFAULT_MODEL = updates["openai_model"]
+        if "openai_base_url" in updates:
+            settings.OPENAI_BASE_URL = updates["openai_base_url"]
+
+        return self.get_model_settings()
 
 
 integration_manager = IntegrationManager()

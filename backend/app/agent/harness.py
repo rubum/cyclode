@@ -849,7 +849,7 @@ class AntigravityHarness:
 
         # 0. Check Semantic Vector Cache for Q&A / Research queries (Tier 4)
         is_potential_qa = (
-            persona_name in ["IssueResolver", "PairProgrammer"]
+            persona_name in ["IssueResolver", "SoftwareEngineer", "PairProgrammer"]
             and any(
                 (prompt + " " + title).lower().strip().startswith(prefix)
                 for prefix in ["what is", "what are", "how does", "how do", "how to", "why is", "why does", "explain", "describe", "tell me about", "compare", "contrast"]
@@ -915,6 +915,7 @@ class AntigravityHarness:
 
         contents: List[Dict[str, Any]] = []
         tool_call_count = 0
+        mutating_tool_count = 0
         consecutive_build_errors = 0
 
         # 1. Initialize and stream First-Class Execution Plan Lifecycle
@@ -958,7 +959,7 @@ class AntigravityHarness:
                 turn = 0
                 max_turns = 45
                 guardrail_corrections = 0
-                max_guardrail_corrections = 2
+                max_guardrail_corrections = 3
                 model_succeeded = False
                 final_agent_text = ""
 
@@ -1130,77 +1131,58 @@ class AntigravityHarness:
                         function_calls = [{"name": tc.tool_name, "args": tc.tool_args, "id": tc.call_id} for tc in provider_resp.tool_calls]
                         text_parts = [provider_resp.content] if provider_resp.content else []
 
-                        if text_parts:
-                            combined_text = "\n".join(text_parts).strip()
-                            if function_calls:
-                                await self._emit_streamed_thought(
-                                    combined_text, on_thought, on_stream_start, on_stream_chunk, on_stream_end
-                                )
-                            else:
-                                final_agent_text = combined_text
-                                await self._emit_streamed_message(
-                                    "agent", combined_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
-                                )
-
+                        combined_text = "\n".join(text_parts).strip() if text_parts else ""
+                        if combined_text and function_calls:
+                            await self._emit_streamed_thought(
+                                combined_text, on_thought, on_stream_start, on_stream_chunk, on_stream_end
+                            )
 
                         if not function_calls:
                             # Autonomous Pre-Completion Verification Guardrail
-                            intent_category = current_plan.get("intent_category", "app_building" if persona_name == "AppBuilder" else "code_modification")
-                            is_app_task = (intent_category == "app_building")
-                            if is_app_task and guardrail_corrections < max_guardrail_corrections:
-                                from app.api.preview import verify_workspace_preview
-                                verification = verify_workspace_preview(workspace_path, task_id)
-                                status_val = verification.get("status")
-                                has_workspace_source = (
-                                    (workspace_path / "package.json").exists()
-                                    or (workspace_path / "client" / "package.json").exists()
-                                    or (workspace_path / "index.html").exists()
-                                    or (workspace_path / "client" / "index.html").exists()
-                                    or any(workspace_path.glob("*.js"))
-                                    or any(workspace_path.glob("js/*.js"))
-                                    or any(workspace_path.glob("*.css"))
-                                    or any(workspace_path.glob("css/*.css"))
+                            intent_category = current_plan.get("intent_category", "app_building" if persona_name in ["AppBuilder", "SoftwareEngineer"] else "code_modification")
+                            prompt_title_lower = (prompt + " " + title).lower()
+                            is_app_keyword = any(k in prompt_title_lower for k in ["build a", "build an", "create a", "create an", "make a", "make an", "game", "minecraft", "voxel", "arcade", "canvas", "dashboard", "calculator", "storefront", "web app", "frontend", "ui component"])
+                            is_app_task = (intent_category == "app_building" or persona_name == "AppBuilder" or is_app_keyword)
+                            
+                            from app.api.preview import verify_workspace_preview
+                            verification = verify_workspace_preview(workspace_path, task_id)
+                            status_val = verification.get("status")
+                            needs_preview_correction = status_val in ["missing_entry_point", "missing_workspace", "needs_build", "uncompiled_css", "unlinked_assets", "empty_ui"]
+
+                            if is_app_task and needs_preview_correction and guardrail_corrections < max_guardrail_corrections:
+                                guardrail_corrections += 1
+                                issues_list = verification.get("issues", [])
+                                issues_text = "\n".join(f"- {i}" for i in issues_list) if issues_list else "- No web application entry point (index.html) created in workspace."
+                                rec_text = verification.get("recommendation", "Please implement the complete component views and ensure the application renders cleanly in Live Preview.")
+                                guardrail_prompt = (
+                                    f"Autonomous Pre-Completion Verification Notice ({status_val}):\n"
+                                    f"{issues_text}\n"
+                                    f"Required Action: {rec_text}\n\n"
+                                    f"CRITICAL DIRECTIVE: Do NOT conclude the task without a functioning application. Implement the complete interactive UI/game views (DOM layout, controls, canvas, styles), write `index.html` linking your logic, and call `verify_app_preview` to confirm the application renders before providing your final response."
                                 )
-                                if status_val in ["needs_build", "uncompiled_css", "unlinked_assets", "empty_ui"] or (status_val == "missing_entry_point" and has_workspace_source):
-                                    guardrail_corrections += 1
-                                    issues_text = "\n".join(f"- {i}" for i in verification.get("issues", []))
-                                    rec_text = verification.get("recommendation", "Please implement the complete component views and ensure the application renders cleanly in Live Preview.")
-                                    guardrail_prompt = (
-                                        f"Autonomous Pre-Completion Verification Notice ({status_val}):\n"
-                                        f"{issues_text}\n"
-                                        f"Required Action: {rec_text}\n\n"
-                                        f"CRITICAL DIRECTIVE: Do NOT conclude the task without a functioning application. Implement the complete interactive UI views (DOM buttons, inputs, displays, layout), write index.html linking your logic, and call `verify_app_preview` to confirm the application renders before providing your final response."
-                                    )
-                                    logger.info(f"Triggering Pre-Completion Guardrail on task {task_id} (correction {guardrail_corrections}, status {status_val})")
-                                    await self._emit_streamed_thought(
-                                        f"**Pre-Completion Guardrail**: Verifying application preview... Status: {status_val}. {rec_text}",
-                                        on_thought, on_stream_start, on_stream_chunk, on_stream_end
-                                    )
-                                    model_parts = []
-                                    if provider_resp.thought:
-                                        model_parts.append({"thought": provider_resp.thought})
-                                    if provider_resp.content:
-                                        model_parts.append({"text": provider_resp.content})
-                                    for fc in function_calls:
-                                        model_parts.append({"functionCall": fc})
+                                logger.info(f"Triggering Pre-Completion Guardrail on task {task_id} (correction {guardrail_corrections}, status {status_val})")
+                                await self._emit_streamed_thought(
+                                    f"**Pre-Completion Guardrail**: Verifying application preview... Status: {status_val}. {rec_text}",
+                                    on_thought, on_stream_start, on_stream_chunk, on_stream_end
+                                )
+                                model_parts = []
+                                if provider_resp.thought:
+                                    model_parts.append({"thought": provider_resp.thought})
+                                if combined_text:
+                                    model_parts.append({"text": combined_text})
 
-                                    contents.append({
-                                        "role": "model",
-                                        "parts": model_parts if model_parts else [{"text": "Scaffolding initialized."}]
-                                    })
-                                    contents.append({
-                                        "role": "user",
-                                        "parts": [{"text": guardrail_prompt}]
-                                    })
-                                    continue
-
-                            for s in current_plan.get("steps", []):
-                                if s.get("status") != "failed":
-                                    s["status"] = "completed"
+                                contents.append({
+                                    "role": "model",
+                                    "parts": model_parts if model_parts else [{"text": "Scaffolding initialized."}]
+                                })
+                                contents.append({
+                                    "role": "user",
+                                    "parts": [{"text": guardrail_prompt}]
+                                })
+                                continue
 
                             checks = [{"name": "Workspace State", "passed": True}]
                             if is_app_task:
-                                from app.api.preview import verify_workspace_preview
                                 verification = verify_workspace_preview(workspace_path, task_id)
                                 preview_ok = verification.get("status") in ["ready", "compiled", "static"]
                                 checks.append({
@@ -1209,10 +1191,10 @@ class AntigravityHarness:
                                 })
                                 checks.append({
                                     "name": "Tool Execution",
-                                    "passed": tool_call_count > 0 or bool(final_agent_text)
+                                    "passed": tool_call_count > 0 or bool(combined_text)
                                 })
                             elif intent_category == "qa_research":
-                                has_synthesis = bool(final_agent_text and len(final_agent_text.strip()) > 30)
+                                has_synthesis = bool(combined_text and len(combined_text.strip()) > 30)
                                 checks.append({
                                     "name": "Analytical Synthesis",
                                     "passed": has_synthesis
@@ -1225,10 +1207,48 @@ class AntigravityHarness:
                             else:
                                 checks.append({
                                     "name": "Tool Execution",
-                                    "passed": tool_call_count > 0 or bool(final_agent_text)
+                                    "passed": tool_call_count > 0 or bool(combined_text)
                                 })
 
                             all_checks_passed = all(c.get("passed", False) for c in checks)
+                            if not all_checks_passed and guardrail_corrections < max_guardrail_corrections:
+                                guardrail_corrections += 1
+                                failed_names = [c["name"] for c in checks if not c.get("passed", False)]
+                                eval_status = "needs_revision"
+                                eval_summary = f"Plan execution requires revision: {', '.join(failed_names)}."
+                                for s in current_plan.get("steps", []):
+                                    if s.get("status") == "in_progress":
+                                        s["status"] = "failed"
+                                current_plan["evaluation"] = {
+                                    "status": eval_status,
+                                    "summary": eval_summary,
+                                    "checks": checks
+                                }
+                                await self._emit_plan(current_plan, on_plan)
+
+                                self_heal_prompt = (
+                                    f"Autonomous Plan Self-Healing Notice: Plan evaluation requires revision on: {', '.join(failed_names)}.\n"
+                                    f"You must perform the necessary file edits (`edit_file`) or compilation steps to resolve these failed checks before concluding."
+                                )
+                                logger.info(f"Triggering Plan Self-Healing on task {task_id} (correction {guardrail_corrections})")
+                                await self._emit_streamed_thought(
+                                    f"**Plan Self-Healing**: Failed verification on {', '.join(failed_names)}. Continuing execution to resolve plan requirements...",
+                                    on_thought, on_stream_start, on_stream_chunk, on_stream_end
+                                )
+                                contents.append({
+                                    "role": "model",
+                                    "parts": [{"text": combined_text or "Inspecting workspace."}]
+                                })
+                                contents.append({
+                                    "role": "user",
+                                    "parts": [{"text": self_heal_prompt}]
+                                })
+                                continue
+
+                            for s in current_plan.get("steps", []):
+                                if s.get("status") != "failed":
+                                    s["status"] = "completed"
+
                             eval_status = "accomplished" if all_checks_passed else "needs_revision"
                             eval_summary = "All execution plan steps verified successfully against workspace state." if all_checks_passed else "Plan execution requires revision."
 
@@ -1239,8 +1259,12 @@ class AntigravityHarness:
                             }
                             await self._emit_plan(current_plan, on_plan)
 
-                            final_text = "\n".join(text_parts) if text_parts else "Task execution completed."
-                            if intent_category == "qa_research" and final_text and len(final_text.strip()) > 30:
+                            final_agent_text = combined_text or "Task execution completed."
+                            await self._emit_streamed_message(
+                                "agent", final_agent_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
+                            )
+
+                            if intent_category == "qa_research" and final_agent_text and len(final_agent_text.strip()) > 30:
                                 try:
                                     from app.agent.semantic_cache import store_semantic_cache
                                     from app.db.session import async_session_factory
@@ -1249,14 +1273,14 @@ class AntigravityHarness:
                                             db=store_sess,
                                             query=title or prompt,
                                             plan=current_plan,
-                                            response_text=final_text,
+                                            response_text=final_agent_text,
                                             api_key=api_key,
                                             client=client,
                                             intent="qa_research"
                                         )
                                 except Exception as cache_store_err:
                                     logger.debug(f"Semantic cache store notice: {cache_store_err}")
-                            return {"status": "COMPLETED", "summary": final_text[:120]}
+                            return {"status": "COMPLETED", "summary": final_agent_text[:120]}
 
                         model_parts = []
                         if provider_resp.thought:
@@ -1324,6 +1348,7 @@ class AntigravityHarness:
                                 else:
                                     out_str = tool_result.get("error", "Error reading file")
                             elif fn_name == "edit_file":
+                                mutating_tool_count += 1
                                 file_path = args.get("file_path", "")
                                 content = args.get("content", "")
                                 tool_result = WorkspaceTools.edit_file(workspace_path, file_path, content)
@@ -2187,12 +2212,25 @@ class AntigravityHarness:
                     logger.error(f"Gemini execution notice: {str(e)}")
                     continue
 
-        if tool_call_count > 0:
+        if mutating_tool_count > 0:
             fallback_msg = (
                 f"Successfully completed {tool_call_count} workspace action{'s' if tool_call_count > 1 else ''}. "
                 f"All requested components and changes have been applied to the workspace."
             )
             return_status = "COMPLETED"
+        elif tool_call_count > 0:
+            plan_eval = current_plan.get("evaluation", {})
+            is_ok = plan_eval.get("status") == "accomplished"
+            if is_ok:
+                fallback_msg = f"Completed {tool_call_count} workspace inspection action{'s' if tool_call_count > 1 else ''}."
+                return_status = "COMPLETED"
+            else:
+                eval_sum = plan_eval.get("summary", "Plan execution requires revision.")
+                fallback_msg = (
+                    f"Completed {tool_call_count} workspace inspection action{'s' if tool_call_count > 1 else ''}. "
+                    f"Execution halted before generating the required application files ({eval_sum})."
+                )
+                return_status = "FAILED"
         else:
             if last_api_error_text:
                 fallback_msg = (

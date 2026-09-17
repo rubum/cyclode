@@ -246,7 +246,7 @@ class EventRouter:
                 target_type = "PR" if is_pr else "Issue"
                 title = f"Comment on {target_type} #{issue.get('number', '?')} by @{comment.get('user', {}).get('login', 'developer')}"
                 description = comment.get("body", "")
-                persona = rule.persona if rule else "PairProgrammer"
+                persona = rule.persona if rule else "SoftwareEngineer"
                 action = "awaken_session"
                 return title, description, persona, action
 

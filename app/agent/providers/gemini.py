@@ -37,7 +37,8 @@ class GeminiProvider(BaseLLMProvider):
                 error_message="Gemini API Key is missing or unconfigured."
             )
 
-        api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+        clean_model = model_name.replace("google:", "").replace("gemini:", "").strip() if model_name else "gemini-3.7-flash"
+        api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent?key={api_key}"
         
         # Tools structure for Gemini
         active_tools = None
@@ -168,10 +169,11 @@ class GeminiProvider(BaseLLMProvider):
                 "status_code": 401
             }
 
-        initial_candidates = [model_name, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
-        candidate_models = list(dict.fromkeys([m for m in initial_candidates if m and m not in ["gemini-1.5-pro", "gemini-3.7-flash"]]))
+        clean_initial = model_name.replace("google:", "").replace("gemini:", "").strip() if model_name else "gemini-3.7-flash"
+        initial_candidates = [clean_initial, "gemini-3.7-flash", "gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash"]
+        candidate_models = list(dict.fromkeys([m for m in initial_candidates if m and m != "gemini-1.5-pro"]))
         if not candidate_models:
-            candidate_models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+            candidate_models = ["gemini-3.7-flash", "gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash"]
         should_close = False
         if client is None:
             client = httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0, read=15.0))
