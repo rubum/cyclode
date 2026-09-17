@@ -506,7 +506,7 @@ class ReviewVerifier:
 
         if not provider:
             from app.agent.providers.factory import get_provider_for_model
-            model = model_name or getattr(settings, "ANTIGRAVITY_MAJOR_MODEL", "claude-fable-5-1")
+            model = model_name or getattr(settings, "ANTIGRAVITY_MAJOR_MODEL", "gemini-3.8-flash")
             provider = get_provider_for_model(model)
 
         api_key = provider.get_api_key() if hasattr(provider, "get_api_key") else None
@@ -514,7 +514,7 @@ class ReviewVerifier:
             logger.info("No provider API key available; returning fast-path deterministic review hypotheses.")
             return baseline_hypotheses
 
-        active_model = model_name or getattr(settings, "ANTIGRAVITY_MAJOR_MODEL", "claude-fable-5-1")
+        active_model = model_name or getattr(settings, "ANTIGRAVITY_MAJOR_MODEL", "gemini-3.8-flash")
 
         # Define 3 specialized probe prompts
         probes = [
@@ -676,7 +676,7 @@ class ReviewVerifier:
 
         if not provider:
             from app.agent.providers.factory import get_provider_for_model
-            model = model_name or getattr(settings, "ANTIGRAVITY_MAJOR_MODEL", "claude-fable-5-1")
+            model = model_name or getattr(settings, "ANTIGRAVITY_MAJOR_MODEL", "gemini-3.8-flash")
             provider = get_provider_for_model(model)
 
         api_key = provider.get_api_key() if hasattr(provider, "get_api_key") else None
@@ -685,7 +685,7 @@ class ReviewVerifier:
         if not api_key or not surrounding_context:
             return cls.verify_and_falsify(hypothesis, workspace_path=workspace_path, codebase_files=codebase_files)
 
-        active_model = model_name or getattr(settings, "ANTIGRAVITY_MAJOR_MODEL", "claude-fable-5-1")
+        active_model = model_name or getattr(settings, "ANTIGRAVITY_MAJOR_MODEL", "gemini-3.8-flash")
 
         # Step 4: Adversarial Red Team Prompt
         falsification_prompt = (

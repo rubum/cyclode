@@ -61,7 +61,7 @@ class AntigravityHarness:
             if intent in ["qa_research", "greetings"]:
                 return getattr(settings, "ANTIGRAVITY_MINOR_MODEL", "gemini-3.7-flash") or "gemini-3.7-flash"
             elif intent in ["app_building", "code_modification", "debugging", "review_audit", "devops"] or (intent is None and (not requested or requested.lower() in ["auto", "adaptive"])):
-                return getattr(settings, "ANTIGRAVITY_MAJOR_MODEL", "claude-fable-5-1") or "claude-fable-5-1"
+                return getattr(settings, "ANTIGRAVITY_MAJOR_MODEL", "gemini-3.8-flash") or "gemini-3.8-flash"
 
         return getattr(settings, "ANTIGRAVITY_MODEL", "gemini-3.7-flash") or "gemini-3.7-flash"
 

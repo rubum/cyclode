@@ -84,7 +84,7 @@ class Settings(BaseSettings):
 
     ANTIGRAVITY_MODEL: str = Field(default_factory=lambda: str(_USER_CFG.get("model", "gemini-3.7-flash")))
     ANTIGRAVITY_ROUTING_MODE: str = Field(default_factory=lambda: str(_USER_CFG.get("routing_mode", "adaptive")))  # "adaptive" vs "manual"
-    ANTIGRAVITY_MAJOR_MODEL: str = Field(default_factory=lambda: str(_USER_CFG.get("major_model", "claude-fable-5-1")))
+    ANTIGRAVITY_MAJOR_MODEL: str = Field(default_factory=lambda: str(_USER_CFG.get("major_model", "gemini-3.8-flash")))
     ANTIGRAVITY_MINOR_MODEL: str = Field(default_factory=lambda: str(_USER_CFG.get("minor_model", "gemini-3.7-flash")))
     GEMINI_DEFAULT_MODEL: str = Field(default_factory=lambda: str(_USER_CFG.get("gemini_model", "gemini-3.7-flash")))
     ANTHROPIC_DEFAULT_MODEL: str = Field(default_factory=lambda: str(_USER_CFG.get("anthropic_model", "claude-fable-5-1")))

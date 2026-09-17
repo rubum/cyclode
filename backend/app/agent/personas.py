@@ -23,7 +23,7 @@ PERSONAS: Dict[str, Dict[str, Any]] = {
             "5. Summarize your findings and request approval to create a Pull Request."
             + BASE_STYLE_DIRECTIVES
         ),
-        "default_model": "gemini-2.5-flash"
+        "default_model": "gemini-3.7-flash"
     },
     "CodeReviewer": {
         "name": "CodeReviewer",
@@ -46,7 +46,7 @@ PERSONAS: Dict[str, Dict[str, Any]] = {
             "   - Every verified finding must include: (a) Exact file and line range, (b) Violated invariant, (c) Concrete failure scenario / reproduction, (d) Verified unified diff patch (`diff`)."
             + BASE_STYLE_DIRECTIVES
         ),
-        "default_model": "claude-fable-5-1"
+        "default_model": "gemini-3.8-flash"
     },
     "APMTriage": {
         "name": "APMTriage",
@@ -58,7 +58,7 @@ PERSONAS: Dict[str, Dict[str, Any]] = {
             "and craft a defensive patch with unit tests."
             + BASE_STYLE_DIRECTIVES
         ),
-        "default_model": "gemini-2.5-flash"
+        "default_model": "gemini-3.7-flash"
     },
     "TestArchitect": {
         "name": "TestArchitect",
@@ -69,7 +69,7 @@ PERSONAS: Dict[str, Dict[str, Any]] = {
             "and construct robust test suites using the project's native test framework."
             + BASE_STYLE_DIRECTIVES
         ),
-        "default_model": "gemini-2.5-flash"
+        "default_model": "gemini-3.7-flash"
     },
     "PairProgrammer": {
         "name": "PairProgrammer",
@@ -85,7 +85,7 @@ PERSONAS: Dict[str, Dict[str, Any]] = {
             "- Bundling & Verification: If using bundlers (Vite, React, etc.), ALWAYS implement the UI components, run `npm run build` (or `cd client && npm run build`, or `npx vite build`) to generate the compiled `dist/index.html` bundle, and call `verify_app_preview` to confirm the preview renders cleanly before providing your final summary."
             + BASE_STYLE_DIRECTIVES
         ),
-        "default_model": "gemini-2.5-flash"
+        "default_model": "gemini-3.7-flash"
     },
     "AppBuilder": {
         "name": "AppBuilder",
@@ -113,7 +113,7 @@ PERSONAS: Dict[str, Dict[str, Any]] = {
             "   - Provide an analytical executive summary with clickable markdown links to created files and direct the user to the `▶ Preview` tab."
             + BASE_STYLE_DIRECTIVES
         ),
-        "default_model": "gemini-2.5-flash"
+        "default_model": "gemini-3.8-flash"
     }
 }
 

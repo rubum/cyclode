@@ -66,7 +66,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
   const [modelSettingsFeedback, setModelSettingsFeedback] = useState<{ success?: boolean; message?: string } | null>(null);
 
   const [routingMode, setRoutingMode] = useState<string>('adaptive');
-  const [majorModel, setMajorModel] = useState<string>('claude-fable-5-1');
+  const [majorModel, setMajorModel] = useState<string>('gemini-3.8-flash');
   const [minorModel, setMinorModel] = useState<string>('gemini-3.7-flash');
   const [defaultModel, setDefaultModel] = useState<string>('gemini-3.7-flash');
 
@@ -84,7 +84,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
         const data: ModelSettings = await res.json();
         setModelSettings(data);
         setRoutingMode(data.routing_mode || 'adaptive');
-        setMajorModel(data.major_model || 'claude-fable-5-1');
+        setMajorModel(data.major_model || 'gemini-3.8-flash');
         setMinorModel(data.minor_model || 'gemini-3.7-flash');
         setDefaultModel(data.default_model || 'gemini-3.7-flash');
       }
@@ -612,6 +612,8 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                     onChange={(e) => setMajorModel(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg bg-onedark-darker border border-onedark-border text-xs text-onedark-fgBright font-mono focus:outline-none focus:border-onedark-accent cursor-pointer"
                   >
+                    <option value="gemini-3.8-flash">Gemini 3.8 Flash (High-Speed Reasoning)</option>
+                    <option value="gemini-3.7-flash">Gemini 3.7 Flash (Agentic Workhorse)</option>
                     <option value="claude-fable-5-1">Claude Fable 5.1 (Mythos Frontier)</option>
                     <option value="gpt-6-astra">GPT-6 Astra (Frontier Autonomous)</option>
                     <option value="claude-3-7-sonnet">Claude 3.7 Sonnet (Hybrid Thinking)</option>

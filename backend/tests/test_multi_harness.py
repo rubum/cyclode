@@ -270,13 +270,13 @@ def test_adaptive_tiering_resolution():
     harness_auto = AntigravityHarness(model_name="auto")
     settings.ANTIGRAVITY_ROUTING_MODE = "adaptive"
     settings.ANTIGRAVITY_MINOR_MODEL = "gemini-3.7-flash"
-    settings.ANTIGRAVITY_MAJOR_MODEL = "claude-fable-5-1"
+    settings.ANTIGRAVITY_MAJOR_MODEL = "gemini-3.8-flash"
 
     assert harness_auto.resolve_effective_model("qa_research") == "gemini-3.7-flash"
-    assert harness_auto.resolve_effective_model("app_building") == "claude-fable-5-1"
-    assert harness_auto.resolve_effective_model("code_modification") == "claude-fable-5-1"
-    assert harness_auto.resolve_effective_model("debugging") == "claude-fable-5-1"
-    assert harness_auto.resolve_effective_model(None) == "claude-fable-5-1"
+    assert harness_auto.resolve_effective_model("app_building") == "gemini-3.8-flash"
+    assert harness_auto.resolve_effective_model("code_modification") == "gemini-3.8-flash"
+    assert harness_auto.resolve_effective_model("debugging") == "gemini-3.8-flash"
+    assert harness_auto.resolve_effective_model(None) == "gemini-3.8-flash"
 
     # 3. When routing mode is manual
     settings.ANTIGRAVITY_ROUTING_MODE = "manual"
@@ -286,4 +286,6 @@ def test_adaptive_tiering_resolution():
     # Restore settings
     settings.ANTIGRAVITY_ROUTING_MODE = "adaptive"
     settings.ANTIGRAVITY_MODEL = "gemini-3.7-flash"
+    settings.ANTIGRAVITY_MAJOR_MODEL = "gemini-3.8-flash"
+    settings.ANTIGRAVITY_MINOR_MODEL = "gemini-3.7-flash"
 

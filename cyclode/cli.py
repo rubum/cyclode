@@ -70,7 +70,7 @@ def cmd_init(args):
     gemini_key = prompt_gemini if prompt_gemini else existing_gemini
 
     # 2. Default Model
-    default_model = current.get("model", "gemini-2.5-flash")
+    default_model = current.get("model", "gemini-3.7-flash")
     prompt_model = input(f"Default Gemini Model [{default_model}]: ").strip()
     model = prompt_model if prompt_model else default_model
 
@@ -118,7 +118,7 @@ def cmd_status(args):
     print(f"  • Skills       : {dirs['skills']}")
     print(f"  • Gemini Key   : {gemini_status}")
     print(f"  • Linear Key   : {linear_status}")
-    print(f"  • Default Model: {cfg.get('model', 'gemini-2.5-flash')}")
+    print(f"  • Default Model: {cfg.get('model', 'gemini-3.7-flash')}")
 
 
 def cmd_config(args):
@@ -164,7 +164,7 @@ def main():
     p_start.add_argument("workspace", nargs="?", default=None, help="Directory to use as workspace (defaults to current directory)")
     p_start.add_argument("-p", "--port", type=int, default=8080, help="Port to bind server (default: 8080)")
     p_start.add_argument("-H", "--host", default="127.0.0.1", help="Host interface to bind (default: 127.0.0.1)")
-    p_start.add_argument("-m", "--model", default=None, help="Gemini model override (e.g. gemini-2.5-flash)")
+    p_start.add_argument("-m", "--model", default=None, help="Gemini model override (e.g. gemini-3.7-flash)")
     p_start.add_argument("--no-browser", action="store_true", help="Do not automatically open web browser")
     p_start.add_argument("--dev", action="store_true", help="Run with hot-reloading enabled for development")
     p_start.set_defaults(func=cmd_start)

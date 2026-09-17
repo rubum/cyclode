@@ -241,7 +241,7 @@ def test_integration_manager_model_settings():
     # Restore default
     integration_manager.update_model_settings({
         "routing_mode": "adaptive",
-        "major_model": "claude-fable-5-1",
+        "major_model": "gemini-3.8-flash",
         "minor_model": "gemini-3.7-flash",
         "default_model": "gemini-3.7-flash",
         "openai_base_url": None

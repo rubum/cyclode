@@ -29,7 +29,7 @@ def ensure_cyclode_home() -> Dict[str, Path]:
     if not config_file.exists():
         default_cfg = {
             "version": "1.0.0",
-            "model": "gemini-2.5-flash",
+            "model": "gemini-3.7-flash",
             "host": "127.0.0.1",
             "port": 8080,
             "auto_browser": True,
