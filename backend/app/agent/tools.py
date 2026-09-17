@@ -1008,7 +1008,10 @@ class WorkspaceTools:
         workspace_path: Path,
         repository: Optional[str] = None,
         pr_number: Optional[int] = None,
-        diff_text: Optional[str] = None
+        diff_text: Optional[str] = None,
+        model_name: Optional[str] = None,
+        provider: Optional[Any] = None,
+        client: Optional[httpx.AsyncClient] = None
     ) -> Dict[str, Any]:
         """
         Executes the high-signal 4-stage verified review pipeline on a PR or unified diff.
@@ -1048,42 +1051,14 @@ class WorkspaceTools:
                 "error": "No diff text found for review. Provide diff_text or repository + pr_number."
             }
 
-        # 1. Ensemble Hypotheses
-        hypotheses = review_verifier.generate_ensemble_hypotheses(diff)
-
-        # 2. Adversarial Falsification & Zero-Style Verification
-        verified_findings = []
-        for hypo in hypotheses:
-            finding = review_verifier.verify_and_falsify(hypo, workspace_path=workspace_path)
-            if finding:
-                verified_findings.append(finding)
-
-        # 3. Deduplication & Clustering
-        deduped = review_verifier.deduplicate_and_cluster(verified_findings)
-
-        # 4. Formatted Synthesis
-        review_markdown = review_verifier.format_review_markdown(deduped, pr_meta)
-
-        return {
-            "success": True,
-            "total_hypotheses_scanned": len(hypotheses),
-            "verified_findings_count": len(deduped),
-            "findings": [
-                {
-                    "id": f.id,
-                    "category": f.category,
-                    "severity": f.severity,
-                    "file_path": f.file_path,
-                    "line_range": f"{f.line_start}-{f.line_end}",
-                    "title": f.title,
-                    "violation_summary": f.violation_summary,
-                    "confidence": f.confidence_score,
-                    "suggested_diff": f.suggested_diff
-                }
-                for f in deduped
-            ],
-            "review_markdown": review_markdown
-        }
+        return await review_verifier.run_full_review_async(
+            diff_text=diff,
+            workspace_path=workspace_path,
+            pr_meta=pr_meta,
+            model_name=model_name,
+            provider=provider,
+            client=client
+        )
 
     @classmethod
     async def verify_code_hypothesis(
@@ -1092,7 +1067,10 @@ class WorkspaceTools:
         file_path: str,
         line_range: str,
         invariant_violated: str,
-        reproduction_scenario: str
+        reproduction_scenario: str,
+        model_name: Optional[str] = None,
+        provider: Optional[Any] = None,
+        client: Optional[httpx.AsyncClient] = None
     ) -> Dict[str, Any]:
         """
         Adversarially verifies or falsifies a single code issue hypothesis against local workspace context.
@@ -1127,7 +1105,13 @@ class WorkspaceTools:
             preliminary_confidence=0.90
         )
 
-        verified = review_verifier.verify_and_falsify(hypo, workspace_path=workspace_path)
+        verified = await review_verifier.verify_and_falsify_async(
+            hypothesis=hypo,
+            workspace_path=workspace_path,
+            model_name=model_name,
+            provider=provider,
+            client=client
+        )
         if verified:
             return {
                 "verified": True,

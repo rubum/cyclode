@@ -37,6 +37,12 @@ class BaseLLMProvider(ABC):
 
     provider_id: str = "base"
 
+    def get_api_key(self) -> Optional[str]:
+        """
+        Retrieves the configured API key for this provider.
+        """
+        return None
+
     @abstractmethod
     async def generate_response(
         self,
@@ -65,6 +71,23 @@ class BaseLLMProvider(ABC):
         Generates structured JSON plan output from candidate models.
         """
         pass
+
+    async def generate_structured_json(
+        self,
+        prompt: str,
+        system_instruction: str,
+        model_name: str,
+        client: Optional[httpx.AsyncClient] = None
+    ) -> Dict[str, Any]:
+        """
+        Generates structured JSON object output from candidate models.
+        """
+        return await self.generate_structured_plan(
+            prompt=prompt,
+            system_instruction=system_instruction,
+            model_name=model_name,
+            client=client
+        )
 
     def estimate_tokens(self, text: str) -> int:
         if not text:

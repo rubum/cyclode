@@ -1,9 +1,13 @@
 import re
 import json
 import logging
+import asyncio
 from typing import Dict, Any, List, Optional, Tuple, Set
 from dataclasses import dataclass, field
 from pathlib import Path
+import httpx
+
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -478,6 +482,357 @@ class ReviewVerifier:
         )
 
         return f"{header}{summary_table}{details_section}{footer}"
+
+    @classmethod
+    async def generate_ensemble_hypotheses_async(
+        cls,
+        diff_text: str,
+        codebase_context: str = "",
+        model_name: Optional[str] = None,
+        provider: Optional[Any] = None,
+        client: Optional[httpx.AsyncClient] = None
+    ) -> List[ReviewHypothesis]:
+        """
+        Dual-Engine Ensemble Scanner:
+        1. Runs fast-path deterministic AST / regex probes.
+        2. If provider is available, concurrently launches 3 specialized LLM discovery probes:
+           - Probe A: Security & Permission Boundary Scanner
+           - Probe B: Logic, State Invariants & Failure Recovery Scanner
+           - Probe C: Concurrency, Async Lifecycle & Resource Leaks Scanner
+        3. Merges and unifies candidate hypotheses.
+        """
+        # Fast-path deterministic baseline
+        baseline_hypotheses = cls.generate_ensemble_hypotheses(diff_text, codebase_context)
+
+        if not provider:
+            from app.agent.providers.factory import get_provider_for_model
+            model = model_name or getattr(settings, "ANTIGRAVITY_MAJOR_MODEL", "claude-fable-5-1")
+            provider = get_provider_for_model(model)
+
+        api_key = provider.get_api_key() if hasattr(provider, "get_api_key") else None
+        if not api_key:
+            logger.info("No provider API key available; returning fast-path deterministic review hypotheses.")
+            return baseline_hypotheses
+
+        active_model = model_name or getattr(settings, "ANTIGRAVITY_MAJOR_MODEL", "claude-fable-5-1")
+
+        # Define 3 specialized probe prompts
+        probes = [
+            {
+                "category": "security",
+                "scanner_name": "LLMSecurityBoundaryScanner",
+                "focus": "Security & Permissions (SQLi, command injection, secret exposure, auth bypass, tenant isolation, CSRF/SSRF, path traversal, untrusted deserialization)",
+                "system": (
+                    "You are the Principal Security Architect for Cyclode. "
+                    "Analyze the pull request diff solely for critical security vulnerabilities and permission boundary bypasses. "
+                    "Ignore all styling, variable naming, formatting, and docstrings. "
+                    "Respond ONLY with a valid JSON object containing an array of 'hypotheses'."
+                )
+            },
+            {
+                "category": "logic_invariant",
+                "scanner_name": "LLMLogicInvariantScanner",
+                "focus": "Logic, State Machines & Invariants (broken state transitions, data race regressions, off-by-one, signature breakages, unhandled error branches, silent exception swallowing)",
+                "system": (
+                    "You are the Principal Logic & Invariant Auditor for Cyclode. "
+                    "Analyze the pull request diff solely for concrete runtime bugs, broken state machine invariants, and silent failure suppression. "
+                    "Ignore all styling, variable naming, formatting, and docstrings. "
+                    "Respond ONLY with a valid JSON object containing an array of 'hypotheses'."
+                )
+            },
+            {
+                "category": "concurrency",
+                "scanner_name": "LLMConcurrencyScanner",
+                "focus": "Concurrency, Async & Resource Management (unawaited coroutines, event-loop blocking, thread-safety, deadlocks, connection pool exhaustion, file descriptor leaks)",
+                "system": (
+                    "You are the Principal Concurrency & Systems Engineer for Cyclode. "
+                    "Analyze the pull request diff solely for async/concurrency defects, deadlocks, race conditions, unawaited tasks, and unmanaged resources. "
+                    "Ignore all styling, variable naming, formatting, and docstrings. "
+                    "Respond ONLY with a valid JSON object containing an array of 'hypotheses'."
+                )
+            }
+        ]
+
+        async def run_probe(probe_info: Dict[str, Any]) -> List[ReviewHypothesis]:
+            codebase_section = f"CODEBASE CONTEXT:\n{codebase_context[:4000]}\n\n" if codebase_context else ""
+            prompt = (
+                f"Analyze the following changeset diff for defects in: {probe_info['focus']}.\n\n"
+                f"CHANGESET DIFF:\n```diff\n{diff_text[:12000]}\n```\n\n"
+                f"{codebase_section}"
+                f"STRICT ZERO-STYLE MANDATE:\n"
+                f"DO NOT suggest variable naming, indentation, docstrings, formatting, or stylistic cleanups. "
+                f"Only report concrete bugs with a reproducible failure scenario.\n\n"
+                f"Respond ONLY with a JSON object matching this schema:\n"
+                f"{{\n"
+                f'  "hypotheses": [\n'
+                f'    {{\n'
+                f'      "file_path": "path/to/file.py",\n'
+                f'      "line_start": 10,\n'
+                f'      "line_end": 15,\n'
+                f'      "title": "Concise defect title",\n'
+                f'      "description": "Concrete explanation of failure mode",\n'
+                f'      "invariant_violated": "Exact invariant or safety property broken",\n'
+                f'      "reproduction_scenario": "Scenario causing failure",\n'
+                f'      "suggested_diff": "```diff\\n-old\\n+new\\n```",\n'
+                f'      "preliminary_confidence": 0.92\n'
+                f'    }}\n'
+                f'  ]\n'
+                f"}}"
+            )
+
+            try:
+                res = await provider.generate_structured_json(
+                    prompt=prompt,
+                    system_instruction=probe_info["system"],
+                    model_name=active_model,
+                    client=client
+                )
+                if res.get("result"):
+                    parsed = res["result"]
+                    raw_hypos = parsed.get("hypotheses", []) if isinstance(parsed, dict) else []
+                    results = []
+                    for idx, h in enumerate(raw_hypos):
+                        if not isinstance(h, dict) or not h.get("title") or not h.get("file_path"):
+                            continue
+                        if cls.is_style_or_cosmetic(h.get("title", ""), h.get("description", ""), h.get("invariant_violated", "")):
+                            continue
+                        results.append(ReviewHypothesis(
+                            id=f"llm-{probe_info['category'][:3]}-{idx+1}",
+                            category=probe_info["category"],
+                            scanner_name=probe_info["scanner_name"],
+                            file_path=str(h.get("file_path", "")),
+                            line_start=int(h.get("line_start", 1)),
+                            line_end=int(h.get("line_end", h.get("line_start", 1))),
+                            title=str(h.get("title", "")),
+                            description=str(h.get("description", "")),
+                            invariant_violated=str(h.get("invariant_violated", "")),
+                            reproduction_scenario=str(h.get("reproduction_scenario", "")),
+                            suggested_diff=str(h.get("suggested_diff", "")),
+                            preliminary_confidence=float(h.get("preliminary_confidence", 0.85))
+                        ))
+                    return results
+            except Exception as e:
+                logger.warning(f"Ensemble probe {probe_info['scanner_name']} encountered notice: {e}")
+            return []
+
+        # Execute the 3 probes concurrently
+        probe_tasks = [run_probe(p) for p in probes]
+        probe_results = await asyncio.gather(*probe_tasks, return_exceptions=True)
+
+        combined_hypotheses = list(baseline_hypotheses)
+        for res in probe_results:
+            if isinstance(res, list):
+                combined_hypotheses.extend(res)
+
+        return combined_hypotheses
+
+    @classmethod
+    async def verify_and_falsify_async(
+        cls,
+        hypothesis: ReviewHypothesis,
+        workspace_path: Optional[Path] = None,
+        codebase_files: Optional[Dict[str, str]] = None,
+        model_name: Optional[str] = None,
+        provider: Optional[Any] = None,
+        client: Optional[httpx.AsyncClient] = None
+    ) -> Optional[VerifiedFinding]:
+        """
+        Adversarial Falsification & Zero-Style Verification Step:
+        1. Fast-Path Filter: Drops stylistic / cosmetic suggestions immediately.
+        2. Scope Filter: Exempts test files from non-security warnings.
+        3. Context Extraction: Retrieves enclosing source and caller AST context.
+        4. Adversarial Red-Team LLM: Attempts to disprove the bug hypothesis with caller context.
+        5. Enforces strict confidence threshold (>= 0.90).
+        """
+        # Step 1: Strict Zero-Style Filter
+        if cls.is_style_or_cosmetic(hypothesis.title, hypothesis.description, hypothesis.invariant_violated):
+            logger.info(f"Zero-Style Filter: Rejected cosmetic hypothesis '{hypothesis.title}'")
+            return None
+
+        # Step 2: Test / Mock File Exclusion for non-critical warnings
+        if any(t_dir in hypothesis.file_path for t_dir in ["/tests/", "/test_", "_test.py", ".test.ts", ".spec.ts"]):
+            if hypothesis.category not in ["security"]:
+                logger.info(f"Test Exemption: Dropping test-scoped hypothesis in '{hypothesis.file_path}'")
+                return None
+
+        # Step 3: Extract source code context
+        target_code = ""
+        if workspace_path and (workspace_path / hypothesis.file_path).is_file():
+            try:
+                target_code = (workspace_path / hypothesis.file_path).read_text(encoding="utf-8")
+            except Exception:
+                pass
+        elif codebase_files and hypothesis.file_path in codebase_files:
+            target_code = codebase_files[hypothesis.file_path]
+
+        surrounding_context = ""
+        if target_code:
+            lines = target_code.splitlines()
+            start_idx = max(0, hypothesis.line_start - 20)
+            end_idx = min(len(lines), hypothesis.line_end + 20)
+            surrounding_context = "\n".join(
+                f"{i+1:4d} | {line}" for i, line in enumerate(lines[start_idx:end_idx], start=start_idx)
+            )
+
+        if not provider:
+            from app.agent.providers.factory import get_provider_for_model
+            model = model_name or getattr(settings, "ANTIGRAVITY_MAJOR_MODEL", "claude-fable-5-1")
+            provider = get_provider_for_model(model)
+
+        api_key = provider.get_api_key() if hasattr(provider, "get_api_key") else None
+
+        # If offline or no LLM key, fall back to deterministic falsification
+        if not api_key or not surrounding_context:
+            return cls.verify_and_falsify(hypothesis, workspace_path=workspace_path, codebase_files=codebase_files)
+
+        active_model = model_name or getattr(settings, "ANTIGRAVITY_MAJOR_MODEL", "claude-fable-5-1")
+
+        # Step 4: Adversarial Red Team Prompt
+        falsification_prompt = (
+            f"You are the Adversarial Review Judge. Your objective is to ATTEMPT TO FALSIFY this code issue hypothesis.\n\n"
+            f"HYPOTHESIS TO FALSIFY:\n"
+            f"- File: `{hypothesis.file_path}` (Lines {hypothesis.line_start}-{hypothesis.line_end})\n"
+            f"- Title: {hypothesis.title}\n"
+            f"- Claimed Defect: {hypothesis.description}\n"
+            f"- Invariant: {hypothesis.invariant_violated}\n"
+            f"- Proposed Scenario: {hypothesis.reproduction_scenario}\n\n"
+            f"SOURCE CODE CONTEXT:\n```\n{surrounding_context}\n```\n\n"
+            f"FALSIFICATION INSTRUCTIONS:\n"
+            f"1. Aggressively search for reasons why this issue is a FALSE POSITIVE (e.g. handled by callers, sanitized by framework, guarded by preceding condition, intentional mock/test setup).\n"
+            f"2. If this is a stylistic, naming, formatting, or subjective preference, immediately verdict='FALSIFIED'.\n"
+            f"3. If this is an actual, unhandled runtime crash, security hole, data race, or broken invariant, verdict='CONFIRMED'.\n\n"
+            f"Respond ONLY with a JSON object matching this schema:\n"
+            f"{{\n"
+            f'  "verdict": "CONFIRMED | FALSIFIED",\n'
+            f'  "confidence": 0.95,\n'
+            f'  "verification_proof": "Step-by-step evidence of why this is a real defect or why it is false",\n'
+            f'  "reproduction_scenario": "Concrete input or state sequence triggering the failure",\n'
+            f'  "suggested_diff": "```diff\\n-old\\n+new\\n```"\n'
+            f"}}"
+        )
+
+        try:
+            res = await provider.generate_structured_json(
+                prompt=falsification_prompt,
+                system_instruction="You are the Cyclode Adversarial Review Judge. You rigorously falsify false alarms and only confirm genuine, reproducible bugs.",
+                model_name=active_model,
+                client=client
+            )
+            if res.get("result"):
+                parsed = res["result"]
+                verdict = str(parsed.get("verdict", "")).strip().upper()
+                confidence = float(parsed.get("confidence", 0.0))
+
+                if verdict != "CONFIRMED" or confidence < 0.90:
+                    logger.info(f"Adversarial Falsification: Dropped hypothesis '{hypothesis.title}' (Verdict: {verdict}, Confidence: {confidence:.2f})")
+                    return None
+
+                category_map = {
+                    "security": "SECURITY_CRITICAL",
+                    "logic_invariant": "LOGIC_BUG",
+                    "concurrency": "CONCURRENCY_RISK",
+                    "resource_leak": "RESOURCE_LEAK"
+                }
+                verified_cat = category_map.get(hypothesis.category, "LOGIC_BUG")
+                severity = "CRITICAL" if verified_cat == "SECURITY_CRITICAL" else ("HIGH" if verified_cat in ["LOGIC_BUG", "CONCURRENCY_RISK"] else "MEDIUM")
+
+                proof = parsed.get("verification_proof") or f"Adversarially verified in `{hypothesis.file_path}:{hypothesis.line_start}`."
+                repro = parsed.get("reproduction_scenario") or hypothesis.reproduction_scenario
+                diff_patch = parsed.get("suggested_diff") or hypothesis.suggested_diff
+
+                return VerifiedFinding(
+                    id=f"vf-{hypothesis.id}",
+                    category=verified_cat,
+                    severity=severity,
+                    file_path=hypothesis.file_path,
+                    line_start=hypothesis.line_start,
+                    line_end=hypothesis.line_end,
+                    title=hypothesis.title,
+                    violation_summary=hypothesis.description,
+                    verification_evidence=proof,
+                    reproduction_steps=repro,
+                    suggested_diff=diff_patch,
+                    confidence_score=confidence,
+                    cluster_tags=[hypothesis.category, hypothesis.file_path]
+                )
+        except Exception as e:
+            logger.warning(f"Adversarial falsification encountered notice: {e}; falling back to deterministic check.")
+
+        # Fallback to deterministic check
+        return cls.verify_and_falsify(hypothesis, workspace_path=workspace_path, codebase_files=codebase_files)
+
+    @classmethod
+    async def run_full_review_async(
+        cls,
+        diff_text: str,
+        workspace_path: Optional[Path] = None,
+        codebase_context: str = "",
+        pr_meta: Optional[Dict[str, Any]] = None,
+        model_name: Optional[str] = None,
+        provider: Optional[Any] = None,
+        client: Optional[httpx.AsyncClient] = None
+    ) -> Dict[str, Any]:
+        """
+        Orchestrates the entire 4-stage verified review pipeline asynchronously:
+        1. Multi-Perspective Ensemble Scanning (Heuristics + Concurrent LLM Probes)
+        2. Adversarial Falsification & Zero-Style Filtering (Concurrent LLM Judges, confidence >= 0.90)
+        3. Root-Cause Deduplication & Clustering
+        4. Diff Patch & Markdown Synthesis
+        """
+        # 1. Ensemble Hypotheses
+        hypotheses = await cls.generate_ensemble_hypotheses_async(
+            diff_text=diff_text,
+            codebase_context=codebase_context,
+            model_name=model_name,
+            provider=provider,
+            client=client
+        )
+
+        # 2. Adversarial Verification across hypotheses (concurrently)
+        verify_tasks = [
+            cls.verify_and_falsify_async(
+                h,
+                workspace_path=workspace_path,
+                model_name=model_name,
+                provider=provider,
+                client=client
+            )
+            for h in hypotheses
+        ]
+        verify_results = await asyncio.gather(*verify_tasks, return_exceptions=True)
+
+        verified_findings: List[VerifiedFinding] = []
+        for r in verify_results:
+            if isinstance(r, VerifiedFinding):
+                verified_findings.append(r)
+
+        # 3. Deduplication & Clustering
+        deduped = cls.deduplicate_and_cluster(verified_findings)
+
+        # 4. Formatted Synthesis
+        review_markdown = cls.format_review_markdown(deduped, pr_meta)
+
+        return {
+            "success": True,
+            "total_hypotheses_scanned": len(hypotheses),
+            "verified_findings_count": len(deduped),
+            "findings": [
+                {
+                    "id": f.id,
+                    "category": f.category,
+                    "severity": f.severity,
+                    "file_path": f.file_path,
+                    "line_range": f"{f.line_start}-{f.line_end}",
+                    "title": f.title,
+                    "violation_summary": f.violation_summary,
+                    "confidence": f.confidence_score,
+                    "verification_evidence": f.verification_evidence,
+                    "suggested_diff": f.suggested_diff
+                }
+                for f in deduped
+            ],
+            "review_markdown": review_markdown
+        }
 
 
 review_verifier = ReviewVerifier()

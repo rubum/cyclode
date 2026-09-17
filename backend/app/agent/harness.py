@@ -1559,7 +1559,10 @@ class AntigravityHarness:
                                     workspace_path=workspace_path,
                                     repository=repo_arg,
                                     pr_number=pr_num_arg,
-                                    diff_text=diff_text_arg
+                                    diff_text=diff_text_arg,
+                                    model_name=effective_model,
+                                    provider=provider,
+                                    client=client
                                 )
                                 out_str = tool_result.get("review_markdown") or json.dumps(tool_result, indent=2)
                             elif fn_name == "verify_code_hypothesis":
@@ -1572,7 +1575,10 @@ class AntigravityHarness:
                                     file_path=file_path_arg,
                                     line_range=line_range_arg,
                                     invariant_violated=inv_arg,
-                                    reproduction_scenario=repro_arg
+                                    reproduction_scenario=repro_arg,
+                                    model_name=effective_model,
+                                    provider=provider,
+                                    client=client
                                 )
                                 out_str = json.dumps(tool_result, indent=2)
                             else:
