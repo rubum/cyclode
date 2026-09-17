@@ -11,11 +11,15 @@ RUN npm run build
 # Stage 2: Production Python Backend with Built Frontend
 FROM python:3.11-slim
 
-# Install developer toolchains (Git, curl, build essentials) for Antigravity agents
+# Install developer toolchains (Git, curl, build essentials, Node.js 20 & npm) for Antigravity agents
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
+    ca-certificates \
+    gnupg \
     build-essential \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
