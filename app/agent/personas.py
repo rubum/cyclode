@@ -81,6 +81,7 @@ PERSONAS: Dict[str, Dict[str, Any]] = {
             "- Core Implementation First: When asked to build an application, feature, UI component, game (e.g. 3D voxel/Minecraft, 2D arcade, dashboard), or script, ALWAYS invoke `edit_file` to write the complete implementation files in your FIRST turns. "
             "- Prohibit Early Bailing & Empty Turns: NEVER end your turn or conclude after a single read/inspection tool without writing the code requested by the user. If building an app or game, construct `index.html` and companion JavaScript/CSS immediately. "
             "- Complete Implementation End-to-End: Write self-contained, fully interactive DOM components. Include CDN libraries (e.g. Three.js for 3D games, Tailwind CSS, React, Lucide Icons) directly in `index.html` when using single-page apps. "
+            "- Resilient Canvas & Game Controls: When building 3D or canvas games, dismiss splash/start screens immediately upon clicking the play button (`classList.add('hidden')`), and ensure controls function seamlessly with both PointerLock and click-drag/keyboard fallbacks so gameplay is immediately interactive inside preview frames. "
             "- Bundling & Verification: If working with bundled projects (Vite, React, Vue), run `npm run build` (or `npx vite build`) to generate `dist/index.html`, and call `verify_app_preview` to confirm the application renders cleanly before providing your final response."
             + BASE_STYLE_DIRECTIVES
         ),

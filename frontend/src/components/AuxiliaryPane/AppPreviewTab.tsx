@@ -639,7 +639,8 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
             ref={iframeRef}
             src={previewUrl}
             title={previewInfo.title || 'App Preview'}
-            sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals allow-downloads"
+            sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals allow-downloads allow-pointer-lock"
+            allow="accelerometer; camera; encrypted-media; display-capture; geolocation; gyroscope; microphone; midi; clipboard-read; clipboard-write; web-share; serial; xr-spatial-tracking; autoplay; fullscreen; pointer-lock"
             className="w-full flex-1 border-none bg-white"
           />
         </div>
