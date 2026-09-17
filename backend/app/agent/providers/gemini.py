@@ -124,11 +124,12 @@ class GeminiProvider(BaseLLMProvider):
                     fc = part["functionCall"]
                     fn_name = fc.get("name", "")
                     fn_args = fc.get("args", {})
-                    call_id = f"call_{len(tool_calls)+1}_{fn_name}"
+                    call_id = fc.get("id") or f"call_{len(tool_calls)+1}_{fn_name}"
                     tool_calls.append(ToolCallRequest(
                         call_id=call_id,
                         tool_name=fn_name,
-                        tool_args=fn_args
+                        tool_args=fn_args,
+                        raw_part=part
                     ))
 
             usage = data.get("usageMetadata", {})
@@ -139,6 +140,7 @@ class GeminiProvider(BaseLLMProvider):
                 content="\n".join(contents),
                 thought="\n".join(thoughts),
                 tool_calls=tool_calls,
+                raw_parts=parts,
                 finish_reason=finish_reason,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,

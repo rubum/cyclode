@@ -978,13 +978,15 @@ class AntigravityHarness:
                             new_parts = []
                             for p in parts:
                                 if "functionCall" in p and p["functionCall"].get("name") == "edit_file":
+                                    new_p = dict(p)
                                     fc = dict(p["functionCall"])
                                     args = dict(fc.get("args", {}))
                                     c_str = args.get("content", "")
                                     if len(c_str) > 2000:
                                         args["content"] = c_str[:400] + f"\n\n... [Historical file write content compacted ({len(c_str)} bytes total)]"
                                         fc["args"] = args
-                                        new_parts.append({"functionCall": fc})
+                                        new_p["functionCall"] = fc
+                                        new_parts.append(new_p)
                                     else:
                                         new_parts.append(p)
                                 elif "functionResponse" in p:
@@ -1165,11 +1167,14 @@ class AntigravityHarness:
                                     f"**Pre-Completion Guardrail**: Verifying application preview... Status: {status_val}. {rec_text}",
                                     on_thought, on_stream_start, on_stream_chunk, on_stream_end
                                 )
-                                model_parts = []
-                                if provider_resp.thought:
-                                    model_parts.append({"thought": provider_resp.thought})
-                                if combined_text:
-                                    model_parts.append({"text": combined_text})
+                                if provider_resp.raw_parts:
+                                    model_parts = provider_resp.raw_parts
+                                else:
+                                    model_parts = []
+                                    if provider_resp.thought:
+                                        model_parts.append({"thought": provider_resp.thought})
+                                    if combined_text:
+                                        model_parts.append({"text": combined_text})
 
                                 contents.append({
                                     "role": "model",
@@ -1235,9 +1240,18 @@ class AntigravityHarness:
                                     f"**Plan Self-Healing**: Failed verification on {', '.join(failed_names)}. Continuing execution to resolve plan requirements...",
                                     on_thought, on_stream_start, on_stream_chunk, on_stream_end
                                 )
+                                if provider_resp.raw_parts:
+                                    heal_model_parts = provider_resp.raw_parts
+                                else:
+                                    heal_model_parts = []
+                                    if provider_resp.thought:
+                                        heal_model_parts.append({"thought": provider_resp.thought})
+                                    if combined_text:
+                                        heal_model_parts.append({"text": combined_text})
+
                                 contents.append({
                                     "role": "model",
-                                    "parts": [{"text": combined_text or "Inspecting workspace."}]
+                                    "parts": heal_model_parts if heal_model_parts else [{"text": combined_text or "Inspecting workspace."}]
                                 })
                                 contents.append({
                                     "role": "user",
@@ -1282,13 +1296,19 @@ class AntigravityHarness:
                                     logger.debug(f"Semantic cache store notice: {cache_store_err}")
                             return {"status": "COMPLETED", "summary": final_agent_text[:120]}
 
-                        model_parts = []
-                        if provider_resp.thought:
-                            model_parts.append({"thought": provider_resp.thought})
-                        if provider_resp.content:
-                            model_parts.append({"text": provider_resp.content})
-                        for fc in function_calls:
-                            model_parts.append({"functionCall": fc})
+                        if provider_resp.raw_parts:
+                            model_parts = provider_resp.raw_parts
+                        else:
+                            model_parts = []
+                            if provider_resp.thought:
+                                model_parts.append({"thought": provider_resp.thought})
+                            if provider_resp.content:
+                                model_parts.append({"text": provider_resp.content})
+                            for tc in provider_resp.tool_calls:
+                                if tc.raw_part:
+                                    model_parts.append(tc.raw_part)
+                                else:
+                                    model_parts.append({"functionCall": {"name": tc.tool_name, "args": tc.tool_args, "id": tc.call_id}})
 
                         contents.append({
                             "role": "model",
@@ -2087,44 +2107,30 @@ class AntigravityHarness:
                     await self._emit_plan(current_plan, on_plan)
 
                     if model_succeeded:
-                        # Perform a guaranteed synthesis turn without further tool executions.
-                        # Supply tools_def so prior functionResponse entries pass schema validation,
-                        # and configure function_calling_config mode="NONE" to instruct the model to produce final text.
-                        synthesis_payload = {
-                            "contents": contents,
-                            "system_instruction": {
-                                "parts": [{
-                                    "text": system_instruction + preview_status_note + "\n\nCRITICAL DIRECTIVE: You have completed all tool executions. Synthesize your comprehensive, fluid analytical response answering the user directly in rich markdown format with clickable citations. Do not call any further tools."
-                                }]
-                            },
-                            "tools": tools_def,
-                            "tool_config": {
-                                "function_calling_config": {
-                                    "mode": "NONE"
-                                }
-                            }
-                        }
+                        # 1. Guaranteed synthesis turn via active_provider
+                        synth_instruction = (
+                            system_instruction + preview_status_note +
+                            "\n\nCRITICAL DIRECTIVE: You have completed all tool executions. Synthesize your comprehensive, fluid analytical response answering the user directly in rich markdown format with clickable citations. Do not call any further tools."
+                        )
                         try:
-                            synth_resp = await client.post(api_url, json=synthesis_payload)
-                            if synth_resp.status_code == 200:
-                                synth_data = synth_resp.json()
-                                synth_cands = synth_data.get("candidates", [])
-                                if synth_cands:
-                                    s_parts = synth_cands[0].get("content", {}).get("parts", [])
-                                    s_texts = [p["text"] for p in s_parts if "text" in p]
-                                    if s_texts:
-                                        final_synth_text = "\n".join(s_texts).strip()
-                                        await self._emit_streamed_message(
-                                            "agent", final_synth_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
-                                        )
-                                        return {"status": "COMPLETED", "summary": final_synth_text[:120]}
-                            else:
-                                logger.warning(f"Synthesis turn status {synth_resp.status_code}: {synth_resp.text[:200]}")
+                            synth_resp = await active_provider.generate_response(
+                                messages=contents,
+                                tools=tools_def,
+                                system_instruction=synth_instruction,
+                                model_name=active_model,
+                                client=client
+                            )
+                            if synth_resp.is_success and synth_resp.content:
+                                final_synth_text = synth_resp.content.strip()
+                                if final_synth_text:
+                                    await self._emit_streamed_message(
+                                        "agent", final_synth_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
+                                    )
+                                    return {"status": "COMPLETED", "summary": final_synth_text[:120]}
                         except Exception as synth_err:
                             logger.error(f"Synthesis turn error: {synth_err}")
 
-                        # Fallback synthesis: convert function calls/responses into a clean text transcript
-                        # and request pure text generation to ensure 100% synthesis completion.
+                        # 2. Fallback text transcript synthesis via active_provider
                         try:
                             text_contents = []
                             for c in contents:
@@ -2176,29 +2182,22 @@ class AntigravityHarness:
                                     "text": "CRITICAL INSTRUCTION: All workspace actions have been performed. Provide your complete, comprehensive analytical final answer summarizing what was built, any changes made, and preview verification results in rich markdown with clickable file links. Do NOT output internal action traces, tool call syntax, or 'Action:' prefixes."
                                 }]
                             })
-                            flat_payload = {
-                                "contents": text_contents,
-                                "system_instruction": {
-                                    "parts": [{"text": system_instruction + preview_status_note}]
-                                }
-                            }
-                            flat_resp = await client.post(api_url, json=flat_payload)
-                            if flat_resp.status_code == 200:
-                                flat_data = flat_resp.json()
-                                flat_cands = flat_data.get("candidates", [])
-                                if flat_cands:
-                                    f_parts = flat_cands[0].get("content", {}).get("parts", [])
-                                    f_texts = [p["text"] for p in f_parts if "text" in p]
-                                    if f_texts:
-                                        flat_synth_text = "\n".join(f_texts).strip()
-                                        if re.match(r"^(?:Action:\s+|•\s+(?:Modified|Ran|Inspected|Executed|Listed|Searched))", flat_synth_text.strip(), re.IGNORECASE):
-                                            flat_synth_text = (
-                                                "All requested components and workspace modifications have been applied and verified."
-                                            )
-                                        await self._emit_streamed_message(
-                                            "agent", flat_synth_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
-                                        )
-                                        return {"status": "COMPLETED", "summary": flat_synth_text[:120]}
+                            flat_resp = await active_provider.generate_response(
+                                messages=text_contents,
+                                tools=None,
+                                system_instruction=system_instruction + preview_status_note,
+                                model_name=active_model,
+                                client=client
+                            )
+                            if flat_resp.is_success and flat_resp.content:
+                                flat_synth_text = flat_resp.content.strip()
+                                if re.match(r"^(?:Action:\s+|•\s+(?:Modified|Ran|Inspected|Executed|Listed|Searched))", flat_synth_text.strip(), re.IGNORECASE):
+                                    flat_synth_text = (
+                                        "All requested components and workspace modifications have been applied and verified."
+                                    )
+                                await self._emit_streamed_message(
+                                    "agent", flat_synth_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
+                                )
                         except Exception as flat_err:
                             logger.error(f"Flat text synthesis error: {flat_err}")
 

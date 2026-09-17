@@ -1,4 +1,5 @@
 import pytest
+import httpx
 from app.agent.providers.base import BaseLLMProvider, ProviderResponse, ToolCallRequest
 from app.agent.providers.gemini import GeminiProvider
 from app.agent.providers.claude import ClaudeProvider
@@ -246,5 +247,55 @@ def test_integration_manager_model_settings():
         "default_model": "gemini-3.7-flash",
         "openai_base_url": None
     })
+
+
+@pytest.mark.asyncio
+async def test_gemini_thought_signature_and_raw_parts_preservation():
+    from app.agent.providers.gemini import GeminiProvider
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    provider = GeminiProvider(api_key="mock-gemini-key")
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+
+    mock_gemini_json = {
+        "candidates": [{
+            "content": {
+                "parts": [
+                    {
+                        "functionCall": {
+                            "name": "list_dir",
+                            "args": {"subpath": "."},
+                            "id": "call_1_list_dir"
+                        },
+                        "thoughtSignature": "mock_crypto_token_xyz123"
+                    }
+                ]
+            },
+            "finishReason": "STOP"
+        }],
+        "usageMetadata": {"promptTokenCount": 100, "candidatesTokenCount": 50}
+    }
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = mock_gemini_json
+    mock_client.post.return_value = mock_resp
+
+    resp = await provider.generate_response(
+        messages=[{"role": "user", "parts": [{"text": "Create game"}]}],
+        tools=[{"function_declarations": [{"name": "list_dir"}]}],
+        system_instruction="You are SoftwareEngineer.",
+        model_name="gemini-3.8-flash",
+        client=mock_client
+    )
+
+    assert resp.status_code == 200
+    assert len(resp.tool_calls) == 1
+    tc = resp.tool_calls[0]
+    assert tc.tool_name == "list_dir"
+    assert tc.raw_part is not None
+    assert tc.raw_part.get("thoughtSignature") == "mock_crypto_token_xyz123"
+    assert resp.raw_parts == mock_gemini_json["candidates"][0]["content"]["parts"]
+
 
 

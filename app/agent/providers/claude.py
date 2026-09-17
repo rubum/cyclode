@@ -238,7 +238,8 @@ class ClaudeProvider(BaseLLMProvider):
                     tool_calls.append(ToolCallRequest(
                         call_id=block.get("id", f"call_{len(tool_calls)+1}"),
                         tool_name=block.get("name", ""),
-                        tool_args=block.get("input", {})
+                        tool_args=block.get("input", {}),
+                        raw_part=block
                     ))
 
             usage = data.get("usage", {})
@@ -249,6 +250,7 @@ class ClaudeProvider(BaseLLMProvider):
                 content="\n".join(contents),
                 thought="\n".join(thoughts),
                 tool_calls=tool_calls,
+                raw_parts=content_blocks,
                 finish_reason=finish_reason,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,

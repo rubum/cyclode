@@ -9,6 +9,7 @@ class ToolCallRequest:
     call_id: str
     tool_name: str
     tool_args: Dict[str, Any]
+    raw_part: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -16,6 +17,7 @@ class ProviderResponse:
     content: str = ""
     thought: str = ""
     tool_calls: List[ToolCallRequest] = field(default_factory=list)
+    raw_parts: Optional[List[Dict[str, Any]]] = None
     finish_reason: Optional[str] = None
     input_tokens: int = 0
     output_tokens: int = 0

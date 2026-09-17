@@ -231,7 +231,8 @@ class OpenAIProvider(BaseLLMProvider):
                 tool_calls.append(ToolCallRequest(
                     call_id=call_id,
                     tool_name=fn_name,
-                    tool_args=parsed_args
+                    tool_args=parsed_args,
+                    raw_part=tc
                 ))
 
             usage = data.get("usage", {})
@@ -242,6 +243,7 @@ class OpenAIProvider(BaseLLMProvider):
                 content=content_text,
                 thought="\n".join(thoughts),
                 tool_calls=tool_calls,
+                raw_parts=[msg] if msg else None,
                 finish_reason=finish_reason,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
