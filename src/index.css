@@ -1,0 +1,174 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-accent: #E5C07B;
+  --color-accent-subtle: rgba(229, 192, 123, 0.15);
+  --color-folder: #E5C07B;
+}
+
+@layer base {
+  html {
+    font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-color: #282C34;
+    color: #ABB2BF;
+    font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    @apply font-sans;
+  }
+
+  code, pre, kbd, samp {
+    font-family: 'JetBrains Mono', 'Fira Code', 'SF Mono', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+    font-feature-settings: "liga" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+/* One Dark Pro scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #21252B;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #3E4451;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #4B5263;
+}
+
+/* One Dark Pro syntax diff styling */
+.diff-addition {
+  background-color: rgba(152, 195, 121, 0.14);
+  color: #98C379;
+}
+
+.diff-deletion {
+  background-color: rgba(224, 108, 117, 0.14);
+  color: #E06C75;
+}
+
+/* One Dark Pro Syntax Highlighting */
+.token,
+.token.table,
+.token.inline,
+.token.block,
+pre code span.token,
+table td span.token {
+  display: inline !important;
+}
+
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata {
+  color: #5c6370;
+  font-style: italic;
+}
+
+.token.punctuation {
+  color: #abb2bf;
+}
+
+.token.property,
+.token.tag,
+.token.boolean,
+.token.number,
+.token.constant,
+.token.symbol {
+  color: #d19a66;
+}
+
+.token.selector,
+.token.attr-name,
+.token.string,
+.token.char,
+.token.builtin {
+  color: #98c379;
+}
+
+.token.operator,
+.token.entity,
+.token.url,
+.language-css .token.string,
+.style .token.string {
+  color: #d19a66;
+}
+
+.token.atrule,
+.token.attr-value,
+.token.keyword {
+  color: #c678dd;
+}
+
+.token.function,
+.token.class-name {
+  color: #e5c07b;
+}
+
+.token.regex,
+.token.important,
+.token.variable {
+  color: #e06c75;
+}
+
+.token.important,
+.token.bold {
+  font-weight: 600;
+}
+
+.token.italic {
+  font-style: italic;
+}
+
+.token.deleted {
+  color: #e06c75;
+  background-color: rgba(224, 108, 117, 0.15);
+}
+
+.token.inserted {
+  color: #98c379;
+  background-color: rgba(152, 195, 121, 0.15);
+}
+
+/* KaTeX Math Formatting */
+.katex {
+  font-size: 1.06em;
+  text-rendering: auto;
+  color: #F4F4F5;
+}
+
+.katex-display {
+  margin: 0.65em 0 !important;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.35em 0.5em;
+  text-align: center;
+}
+
+.katex-display > .katex {
+  display: inline-block;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.katex .base {
+  margin-top: 2px;
+  margin-bottom: 2px;
+}

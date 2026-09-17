@@ -1,11 +1,6 @@
-.git
-.gitignore
-.env
-data/
-workspaces/
-node_modules/
 __pycache__/
 *.pyc
-.pytest_cache
-dist/
-build/
+.pytest_cache/
+.coverage
+.env
+data/
