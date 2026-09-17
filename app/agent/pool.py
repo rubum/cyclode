@@ -1,10 +1,12 @@
 import asyncio
 import logging
 import re
+import subprocess
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from sqlalchemy import select, update, delete
+from sqlalchemy.orm.attributes import flag_modified
 from app.config import settings
 from app.db.session import async_session_factory
 from app.db.models import TaskModel, TaskMessageModel, TaskLogModel, TaskApprovalModel, TaskDiffModel, TaskPRModel, get_utc_now
@@ -1501,6 +1503,123 @@ class AgentTaskPool:
                 return await self.edit_and_resubmit_message(task_id, last_user_msg.id, last_user_msg.content)
             else:
                 return await self.edit_and_resubmit_message(task_id, "initial", task.description or task.title)
+
+    async def reset_task_turn(
+        self,
+        task_id: str,
+        turn_index: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Resets and rewinds the task state to the snapshot before turn_index (or the most recent turn).
+        Performs git hard reset on the workspace, prunes database records, restores execution plan state,
+        and broadcasts TASK_TURN_RESET over WebSockets.
+        """
+        # Cancel any active running task worker
+        if task_id in self.active_tasks:
+            worker = self.active_tasks.pop(task_id)
+            if not worker.done():
+                worker.cancel()
+                try:
+                    await asyncio.wait_for(asyncio.shield(worker), timeout=1.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError, Exception):
+                    pass
+
+        async with async_session_factory() as session:
+            stmt = select(TaskModel).where(TaskModel.id == task_id)
+            res = await session.execute(stmt)
+            task = res.scalars().first()
+            if not task:
+                return {"ok": False, "error": "Task not found"}
+
+            workspace_path = Path(task.workspace_path) if task.workspace_path else None
+            
+            # 1. Rollback filesystem if workspace exists
+            if workspace_path and workspace_path.exists():
+                from app.agent.harness import ensure_workspace_git_repo
+                ensure_workspace_git_repo(workspace_path)
+                try:
+                    log_res = subprocess.run(
+                        ["git", "log", "--grep=cyclode:turn_", "--pretty=format:%H %s", "-n", "20"],
+                        cwd=str(workspace_path),
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                    commits = [line.strip().split(" ", 1) for line in log_res.stdout.split("\n") if line.strip()]
+                    target_sha = None
+                    if commits:
+                        if turn_index is not None:
+                            for sha, msg in commits:
+                                if f"turn_{turn_index}" in msg:
+                                    target_sha = sha
+                                    break
+                        if not target_sha:
+                            if len(commits) > 1:
+                                target_sha = commits[1][0]
+                            else:
+                                target_sha = commits[0][0]
+                    
+                    if target_sha:
+                        subprocess.run(["git", "reset", "--hard", target_sha], cwd=str(workspace_path), capture_output=True, text=True, timeout=10)
+                        subprocess.run(["git", "clean", "-fd"], cwd=str(workspace_path), capture_output=True, text=True, timeout=10)
+                        logger.info(f"Rolled back workspace {workspace_path} to {target_sha}")
+                except Exception as e:
+                    logger.error(f"Error rolling back git workspace for task {task_id}: {e}")
+
+            # 2. Prune DB messages, diffs, and logs
+            stmt_msgs = select(TaskMessageModel).where(TaskMessageModel.task_id == task_id).order_by(TaskMessageModel.created_at.desc())
+            res_msgs = await session.execute(stmt_msgs)
+            all_msgs = res_msgs.scalars().all()
+            
+            if all_msgs:
+                target_msg_to_remove = all_msgs[0]
+                cutoff_time = target_msg_to_remove.created_at
+                
+                await session.execute(
+                    delete(TaskMessageModel).where(
+                        TaskMessageModel.task_id == task_id,
+                        TaskMessageModel.created_at >= cutoff_time
+                    )
+                )
+                await session.execute(
+                    delete(TaskLogModel).where(
+                        TaskLogModel.task_id == task_id,
+                        TaskLogModel.created_at >= cutoff_time
+                    )
+                )
+                await session.execute(
+                    delete(TaskDiffModel).where(
+                        TaskDiffModel.task_id == task_id,
+                        TaskDiffModel.created_at >= cutoff_time
+                    )
+                )
+
+            # 3. Restore plan state
+            if task.plan and isinstance(task.plan, dict):
+                import copy
+                p_copy = copy.deepcopy(task.plan)
+                steps = p_copy.get("steps", [])
+                for s in steps:
+                    if s.get("status") in ["completed", "failed"]:
+                        s["status"] = "in_progress"
+                        break
+                p_copy["steps"] = steps
+                if "evaluation" in p_copy:
+                    p_copy["evaluation"]["status"] = "in_progress"
+                task.plan = p_copy
+                flag_modified(task, "plan")
+
+            task.status = "PAUSED"
+            await session.commit()
+
+        # 4. Broadcast reset event over WebSockets
+        await ws_manager.broadcast("TASK_TURN_RESET", {
+            "task_id": task_id,
+            "status": "PAUSED",
+            "turn_index": turn_index
+        })
+
+        return {"ok": True, "task_id": task_id, "status": "PAUSED"}
 
 
 agent_pool = AgentTaskPool()

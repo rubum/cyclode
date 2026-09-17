@@ -45,7 +45,8 @@ import {
   ListOrdered,
   Circle,
   Bot,
-  Cpu
+  Cpu,
+  Undo2
 } from 'lucide-react';
 import { Task, TaskMessage, TaskLog, RepositoryConfig, TaskPR, WorkspacePreviewInfo, TaskPlan, LayoutPreset } from '../../types';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
@@ -187,6 +188,7 @@ interface ChatCanvasProps {
   onNewChatWithPrompt?: (prompt: string, persona: string, modelName?: string) => void;
   onEditMessage?: (messageId: string, newContent: string) => void;
   onRetryTask?: (fromMessageId?: string) => void;
+  onResetTurn?: (turnIndex?: number) => void;
   onStopTask?: () => void;
   onUpdateTaskTitle?: (taskId: string, newTitle: string) => void;
   isSidebarCollapsed?: boolean;
@@ -502,6 +504,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   onNewChatWithPrompt,
   onEditMessage,
   onRetryTask,
+  onResetTurn,
   onStopTask,
   onUpdateTaskTitle,
   isSidebarCollapsed,
@@ -1728,6 +1731,18 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
               <span className="hidden md:inline">Retry</span>
             </button>
           )}
+
+          {/* Reset Turn Action */}
+          {onResetTurn && !isRunning && (
+            <button
+              onClick={() => onResetTurn()}
+              className="px-2 py-0.5 rounded-md border border-onedark-border bg-onedark-surface hover:bg-onedark-surface/90 text-onedark-muted hover:text-onedark-yellow text-[11px] font-mono flex items-center space-x-1 transition-all shadow-xs active:scale-95 cursor-pointer flex-shrink-0"
+              title="Reset & Rollback to Previous Turn"
+            >
+              <Undo2 className="w-3 h-3 flex-shrink-0" />
+              <span className="hidden md:inline">Reset Turn</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -1833,6 +1848,15 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                               title="Retry from here"
                             >
                               <RotateCcw className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {onResetTurn && !isRunning && (
+                            <button
+                              onClick={() => onResetTurn(tIdx + 1)}
+                              className="p-1 rounded-md hover:bg-onedark-surface border border-transparent hover:border-onedark-border text-onedark-muted hover:text-onedark-yellow transition-colors"
+                              title="Reset Turn (Rollback files & context to this turn)"
+                            >
+                              <Undo2 className="w-3.5 h-3.5" />
                             </button>
                           )}
                           <button
@@ -2379,6 +2403,15 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                                 title="Regenerate response"
                               >
                                 <RotateCcw className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            {onResetTurn && !isRunning && (
+                              <button
+                                onClick={() => onResetTurn(tIdx + 1)}
+                                className="p-1 rounded-md hover:bg-onedark-surface border border-transparent hover:border-onedark-border text-onedark-muted hover:text-onedark-yellow transition-colors"
+                                title="Reset Turn (Rollback files & context to this turn)"
+                              >
+                                <Undo2 className="w-3.5 h-3.5" />
                               </button>
                             )}
                           </div>

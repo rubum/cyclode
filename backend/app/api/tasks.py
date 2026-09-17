@@ -57,6 +57,10 @@ class InquiryResponseRequest(BaseModel):
     feedback: Optional[str] = None
 
 
+class ResetTurnRequest(BaseModel):
+    turn_index: Optional[int] = None
+
+
 @router.get("")
 async def list_tasks(
     status: Optional[str] = None,
@@ -263,6 +267,13 @@ async def send_message_to_task(task_id: str, req: UserMessageRequest):
 async def retry_task_action(task_id: str, req: Optional[RetryTaskRequest] = None):
     from_msg_id = req.from_message_id if req else None
     res = await agent_pool.retry_task(task_id, from_msg_id)
+    return res
+
+
+@router.post("/{task_id}/reset-turn")
+async def reset_task_turn(task_id: str, req: Optional[ResetTurnRequest] = None):
+    turn_index = req.turn_index if req else None
+    res = await agent_pool.reset_task_turn(task_id, turn_index)
     return res
 
 

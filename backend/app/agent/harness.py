@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 from pathlib import Path
 from typing import Dict, Any, Callable, Optional, List, Tuple
 from datetime import datetime, timezone
@@ -21,6 +22,52 @@ from app.integrations.manager import integration_manager
 from app.agent.vault_interceptor import VaultInterceptor
 from app.agent.providers.factory import get_provider_for_model
 
+
+
+def ensure_workspace_git_repo(ws_path: Optional[Path]) -> bool:
+    """Ensures the workspace is initialized as a git repository for turn snapshots."""
+    try:
+        if not ws_path or not ws_path.exists():
+            return False
+        git_dir = ws_path / ".git"
+        if not git_dir.exists():
+            subprocess.run(["git", "init"], cwd=str(ws_path), capture_output=True, text=True, timeout=5)
+            subprocess.run(["git", "config", "user.name", "Cyclode Agent"], cwd=str(ws_path), capture_output=True, text=True, timeout=5)
+            subprocess.run(["git", "config", "user.email", "agent@cyclode.local"], cwd=str(ws_path), capture_output=True, text=True, timeout=5)
+            subprocess.run(["git", "add", "-A"], cwd=str(ws_path), capture_output=True, text=True, timeout=5)
+            subprocess.run(["git", "commit", "-m", "initial workspace commit", "--allow-empty"], cwd=str(ws_path), capture_output=True, text=True, timeout=5)
+        return True
+    except Exception as e:
+        logger.debug(f"ensure_workspace_git_repo error: {e}")
+        return False
+
+
+def create_turn_snapshot(ws_path: Optional[Path], turn_idx: int) -> Optional[str]:
+    """Creates a git commit snapshot for turn_idx and returns the commit SHA."""
+    try:
+        if not ws_path or not ws_path.exists() or not ensure_workspace_git_repo(ws_path):
+            return None
+        subprocess.run(["git", "add", "-A"], cwd=str(ws_path), capture_output=True, text=True, timeout=5)
+        subprocess.run(["git", "commit", "-m", f"cyclode:turn_{turn_idx}", "--allow-empty"], cwd=str(ws_path), capture_output=True, text=True, timeout=5)
+        rev = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(ws_path), capture_output=True, text=True, timeout=5)
+        if rev.returncode == 0:
+            return rev.stdout.strip()
+    except Exception as e:
+        logger.debug(f"create_turn_snapshot error: {e}")
+    return None
+
+
+def rollback_workspace_to_commit(ws_path: Optional[Path], git_sha: str) -> bool:
+    """Rolls back the workspace filesystem to git_sha, removing all added/modified/deleted files."""
+    try:
+        if not ws_path or not ws_path.exists():
+            return False
+        subprocess.run(["git", "reset", "--hard", git_sha], cwd=str(ws_path), capture_output=True, text=True, timeout=10)
+        subprocess.run(["git", "clean", "-fd"], cwd=str(ws_path), capture_output=True, text=True, timeout=10)
+        return True
+    except Exception as e:
+        logger.error(f"rollback_workspace_to_commit error: {e}")
+        return False
 
 
 class AntigravityHarness:
@@ -966,6 +1013,8 @@ class AntigravityHarness:
                 try:
                     while turn < max_turns:
                         turn += 1
+                        if workspace_path and workspace_path.exists():
+                            create_turn_snapshot(workspace_path, turn)
 
                         # Tier 3: In-Context Tool Output & Historical Content Compaction
                         optimized_contents = []

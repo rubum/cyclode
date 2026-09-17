@@ -500,6 +500,13 @@ const MainApp: React.FC = () => {
       fetchTasks();
     });
 
+    const unsubTurnReset = subscribe('TASK_TURN_RESET', (data: any) => {
+      if (activeTaskId === data.task_id) {
+        fetchTaskDetails(data.task_id);
+        fetchTasks();
+      }
+    });
+
     return () => {
       if (streamRafRef.current) {
         cancelAnimationFrame(streamRafRef.current);
@@ -523,6 +530,7 @@ const MainApp: React.FC = () => {
       unsubPlanUpdated();
       unsubChat();
       unsubEventReceived();
+      unsubTurnReset();
     };
   }, [subscribe, activeTaskId, fetchTasks, fetchTaskDetails, fetchEvents]);
 
@@ -902,6 +910,23 @@ const MainApp: React.FC = () => {
     }
   };
 
+  const handleResetTurn = async (turnIndex?: number) => {
+    if (!activeTaskId) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/tasks/${activeTaskId}/reset-turn`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ turn_index: turnIndex }),
+      });
+      if (res.ok) {
+        fetchTaskDetails(activeTaskId);
+        fetchTasks();
+      }
+    } catch (err) {
+      console.error('Error resetting turn:', err);
+    }
+  };
+
   const handleStopTask = async () => {
     if (!activeTaskId) return;
     setActiveTaskDetails((prev) =>
@@ -1057,6 +1082,7 @@ const MainApp: React.FC = () => {
             onNewChatWithPrompt={handleNewChatWithPrompt}
             onEditMessage={handleEditMessage}
             onRetryTask={handleRetryTask}
+            onResetTurn={handleResetTurn}
             onStopTask={handleStopTask}
             onUpdateTaskTitle={handleUpdateTaskTitle}
             isSidebarCollapsed={isSidebarCollapsed}
