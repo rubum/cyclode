@@ -134,6 +134,28 @@ def _inject_html_telemetry_and_base(html_text: str, base_href: str) -> str:
         "    var msg = reason instanceof Error ? (reason.message + (reason.stack ? '\\n' + reason.stack : '')) : String(reason);\n"
         "    send('error', ['Unhandled Promise Rejection: ' + msg]);\n"
         "  });\n"
+        "  window.addEventListener('load', function() {\n"
+        "    try {\n"
+        "      var canvases = document.querySelectorAll('canvas');\n"
+        "      for (var i = 0; i < canvases.length; i++) {\n"
+        "        var cvs = canvases[i];\n"
+        "        var parent = cvs.parentElement;\n"
+        "        if (cvs.clientWidth === 0 || cvs.clientHeight === 0 || (parent && parent.clientHeight === 0 && parent.tagName !== 'BODY')) {\n"
+        "          var targetId = cvs.id || (parent ? parent.id : '') || ('canvas-' + i);\n"
+        "          send('error', ['[CYCLODE_PREVIEW_ERROR] Canvas or mount container #' + targetId + ' has 0px computed dimensions. Ensure width and height are defined in CSS (e.g. width: 100%; height: 100%; position: absolute;).']);\n"
+        "        }\n"
+        "      }\n"
+        "      var hiddens = document.querySelectorAll('.hidden');\n"
+        "      for (var j = 0; j < hiddens.length; j++) {\n"
+        "        var el = hiddens[j];\n"
+        "        var compDisplay = window.getComputedStyle(el).display;\n"
+        "        if (compDisplay !== 'none') {\n"
+        "          var elDesc = el.id ? ('#' + el.id) : (el.tagName.toLowerCase() + '.' + (el.className.split(' ').join('.')));\n"
+        "          send('warn', ['[CYCLODE_PREVIEW_WARNING] Element ' + elDesc + ' has class=\"hidden\" but computed display is \"' + compDisplay + '\". Missing global .hidden { display: none !important; } in CSS.']);\n"
+        "        }\n"
+        "      }\n"
+        "    } catch (e) {}\n"
+        "  });\n"
         "})();\n"
         "</script>\n"
     )
@@ -147,6 +169,9 @@ def _inject_html_telemetry_and_base(html_text: str, base_href: str) -> str:
         return re.sub(r"(<html[^>]*>)", r"\1\n<head>" + injection + "</head>", html_text, count=1, flags=re.IGNORECASE)
     else:
         return f"<!DOCTYPE html>\n<html><head>{injection}</head><body>{html_text}</body></html>"
+
+
+inject_preview_telemetry = _inject_html_telemetry_and_base
 
 
 def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict[str, Any]:
@@ -489,6 +514,61 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
             "build_timestamp": build_timestamp,
             "issues": issues,
             "recommendation": recommendation
+        }
+
+    # Gather combined CSS text from linked stylesheets and inline <style> blocks
+    all_css_chunks = []
+    for inline_style in re.findall(r'<style\b[^>]*>([\s\S]*?)</style>', html_text, re.IGNORECASE):
+        all_css_chunks.append(inline_style)
+
+    for css_ref in css_links:
+        clean_ref = css_ref.split('?')[0].lstrip('./').lstrip('/')
+        css_path = entry_file.parent / clean_ref
+        if not css_path.exists():
+            css_path = ws_path / clean_ref
+        if css_path.exists() and css_path.is_file():
+            try:
+                all_css_chunks.append(css_path.read_text(encoding="utf-8", errors="ignore"))
+            except Exception:
+                pass
+    combined_css = "\n".join(all_css_chunks)
+
+    # 1. Global .hidden rule validation
+    uses_hidden_class = bool(re.search(r'\bclass=["\'][^"\']*\bhidden\b[^"\']*["\']', html_text, re.IGNORECASE))
+    if uses_hidden_class:
+        has_global_hidden = bool(re.search(r'(?<![a-zA-Z0-9_\-\.#])\.hidden\s*\{[^}]*display\s*:\s*none', combined_css, re.IGNORECASE))
+        has_css_utility_framework = bool(re.search(r'tailwindcss|bootstrap|uno\.css', html_text, re.IGNORECASE))
+        if not has_global_hidden and not has_css_utility_framework and not has_dist:
+            issues.append("HTML elements use class='hidden' but no global '.hidden { display: none !important; }' rule exists in CSS.")
+
+    # 2. Canvas mount container dimension & selector check
+    canvas_container_matches = re.findall(r'<div\s+[^>]*id=["\']([^"\']*(?:game|canvas|scene|render|webgl|viewport|stage|world)[^"\']*)["\']', html_text, re.IGNORECASE)
+    for cont_id in canvas_container_matches:
+        has_container_css = bool(re.search(rf'#{re.escape(cont_id)}\s*\{{[^}}]*\b(width|height|position|inset|top|bottom|left|right)\s*:', combined_css, re.IGNORECASE))
+        other_container_in_css = re.findall(r'#([a-zA-Z0-9_\-]+(?:container|viewport|canvas|game|stage))\s*\{', combined_css, re.IGNORECASE)
+        mismatched_css_selectors = [c for c in other_container_in_css if c != cont_id and not re.search(rf'id=["\']{re.escape(c)}["\']', html_text, re.IGNORECASE)]
+        
+        if not has_container_css and mismatched_css_selectors and not has_dist:
+            issues.append(f"Canvas container ID mismatch: HTML declares '<div id=\"{cont_id}\">' but CSS styles '#{mismatched_css_selectors[0]}'. The viewport will collapse to 0x0.")
+        elif not has_container_css and not has_dist:
+            has_inline_style = bool(re.search(rf'<div\s+[^>]*id=["\']{re.escape(cont_id)}["\'][^>]*style=["\'][^"\']*\b(width|height|position)\b', html_text, re.IGNORECASE))
+            if not has_inline_style:
+                issues.append(f"Canvas mount container '#{cont_id}' has no explicit CSS dimension rules (width: 100%; height: 100%; position: absolute;).")
+
+    if any("Canvas container" in iss or "HTML elements use class='hidden'" in iss or "Canvas mount container" in iss for iss in issues):
+        return {
+            "status": "dom_css_mismatch",
+            "has_preview": True,
+            "entry_point": primary_entry,
+            "available_entry_points": available_entry_points,
+            "assets_count": assets_count,
+            "title": extracted_title or "App Preview",
+            "framework": framework,
+            "build_status": "dom_css_mismatch",
+            "is_stale": is_stale,
+            "build_timestamp": build_timestamp,
+            "issues": issues,
+            "recommendation": "Harmonize DOM element IDs and CSS selectors between index.html and stylesheets, add missing '.hidden { display: none !important; }' utility, and ensure canvas containers are styled with width: 100%; height: 100%; position: absolute;."
         }
 
     if has_dist:

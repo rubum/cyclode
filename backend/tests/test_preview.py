@@ -579,3 +579,44 @@ async def test_verify_workspace_preview_detects_empty_ui(temp_workspace: Path):
     assert any("empty container (<div id=\"app\">)" in iss for iss in res["issues"])
 
 
+@pytest.mark.asyncio
+async def test_verify_workspace_preview_detects_dom_css_mismatches(temp_workspace: Path):
+    from app.api.preview import verify_workspace_preview
+
+    css_dir = temp_workspace / "css"
+    css_dir.mkdir(parents=True, exist_ok=True)
+    (css_dir / "style.css").write_text("""
+    #canvas-container { position: absolute; width: 100%; height: 100%; }
+    .screen-overlay.hidden { display: none !important; }
+    """, encoding="utf-8")
+
+    (temp_workspace / "index.html").write_text("""<!DOCTYPE html>
+    <html>
+    <head>
+      <link rel="stylesheet" href="css/style.css" />
+    </head>
+    <body>
+      <div id="game-container"></div>
+      <div id="race-hud" class="hidden"><div class="radar">RADAR</div></div>
+      <button id="btn-play">Play</button>
+    </body>
+    </html>""", encoding="utf-8")
+
+    res = verify_workspace_preview(temp_workspace, "test-mismatch")
+    assert res["status"] == "dom_css_mismatch"
+    assert any("Canvas container ID mismatch" in iss for iss in res["issues"])
+    assert any("HTML elements use class='hidden'" in iss for iss in res["issues"])
+
+
+@pytest.mark.asyncio
+async def test_preview_telemetry_probes_injection(temp_workspace: Path):
+    from app.api.preview import inject_preview_telemetry
+
+    raw_html = "<!DOCTYPE html><html><head><title>Game</title></head><body><canvas id='c'></canvas></body></html>"
+    injected = inject_preview_telemetry(raw_html, "/api/tasks/123/preview/")
+    assert "[CYCLODE_PREVIEW_ERROR] Canvas or mount container" in injected
+    assert "[CYCLODE_PREVIEW_WARNING] Element" in injected
+    assert "cyclode-preview-telemetry" in injected
+
+
+

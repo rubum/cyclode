@@ -1149,7 +1149,7 @@ class AntigravityHarness:
                             from app.api.preview import verify_workspace_preview
                             verification = verify_workspace_preview(workspace_path, task_id)
                             status_val = verification.get("status")
-                            needs_preview_correction = status_val in ["missing_entry_point", "missing_workspace", "needs_build", "uncompiled_css", "unlinked_assets", "empty_ui"]
+                            needs_preview_correction = status_val in ["missing_entry_point", "missing_workspace", "needs_build", "uncompiled_css", "unlinked_assets", "empty_ui", "dom_css_mismatch", "issues_found"]
 
                             if is_app_task and needs_preview_correction and guardrail_corrections < max_guardrail_corrections:
                                 guardrail_corrections += 1
@@ -2058,7 +2058,7 @@ class AntigravityHarness:
                     # Autonomous Plan Self-Evaluation Audit
                     checks = [{"name": "Workspace State", "passed": True}]
                     if is_app_task:
-                        preview_ok = post_verification.get("status") in ["ready", "compiled", "static"]
+                        preview_ok = post_verification.get("status") in ["ready", "compiled", "static"] and not post_verification.get("issues")
                         checks.append({
                             "name": "Live Application Preview",
                             "passed": preview_ok
