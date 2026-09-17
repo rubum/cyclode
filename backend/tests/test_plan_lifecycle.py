@@ -206,6 +206,26 @@ async def test_dynamic_plan_error_surfacing_without_fallback(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_dynamic_plan_conversational_greeting():
+    harness = AntigravityHarness()
+    import httpx
+    async with httpx.AsyncClient() as client:
+        plan = await harness._generate_dynamic_plan(
+            client=client,
+            api_key="",
+            model_name="gemini-2.5-flash",
+            title="hey",
+            prompt="hey",
+            persona_name="PairProgrammer"
+        )
+    assert plan["intent_category"] == "qa_research"
+    assert "greeting" in plan["objective"].lower()
+    assert len(plan["steps"]) == 1
+    assert plan["steps"][0]["status"] == "in_progress"
+    assert "greeting" in plan["steps"][0]["title"].lower()
+
+
+@pytest.mark.asyncio
 async def test_dynamic_plan_missing_api_key():
     harness = AntigravityHarness()
     import httpx

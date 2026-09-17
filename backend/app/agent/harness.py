@@ -270,6 +270,23 @@ class AntigravityHarness:
         objective = title or prompt[:100]
         provider = get_provider_for_model(model_name)
         
+        # Fast path: Check if conversational greeting or casual ping
+        cleaned_prompt = (prompt or "").strip().lower()
+        cleaned_title = (title or "").strip().lower()
+        conversational_pings = {"hey", "hello", "hi", "howdy", "greetings", "good morning", "good afternoon", "good evening", "yo", "sup", "hey there", "hello there"}
+        if cleaned_prompt in conversational_pings or cleaned_title in conversational_pings:
+            return {
+                "intent_category": "qa_research",
+                "objective": "Acknowledge greeting and assist with software engineering tasks",
+                "steps": [
+                    {"id": "step-1", "title": "Respond to user greeting and provide assistance", "status": "in_progress"}
+                ],
+                "evaluation": {
+                    "status": "pending",
+                    "summary": "Conversational greeting acknowledged."
+                }
+            }
+
         # Check API key presence for the specific provider
         if api_key is not None and api_key != "":
             prov_key = api_key
@@ -762,7 +779,10 @@ class AntigravityHarness:
             model_candidates = [self.model_name, "gpt-4o", "gpt-4o-mini", "o3-mini", "codex"]
             provider_label = "OpenAI / Codex"
         else:
-            model_candidates = [self.model_name, "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"]
+            initial_gemini = [self.model_name, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+            model_candidates = [m for m in initial_gemini if m and m not in ["gemini-1.5-pro", "gemini-3.7-flash"]]
+            if not model_candidates:
+                model_candidates = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
             provider_label = "Google Gemini"
         unique_models = list(dict.fromkeys(m for m in model_candidates if m))
 

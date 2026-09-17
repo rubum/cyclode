@@ -36,9 +36,9 @@ def get_model_catalog() -> List[Dict[str, Any]]:
             "configured": has_gemini,
             "models": [
                 {"id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash", "badge": "Fast / Default", "recommended": True},
+                {"id": "gemini-2.0-flash", "name": "Gemini 2.0 Flash", "badge": "Production Flash", "recommended": False},
                 {"id": "gemini-2.0-pro", "name": "Gemini 2.0 Pro", "badge": "Deep Reasoning", "recommended": False},
-                {"id": "gemini-1.5-pro", "name": "Gemini 1.5 Pro", "badge": "2M Context", "recommended": False},
-                {"id": "gemini-3.7-flash", "name": "Gemini 3.7 Flash", "badge": "Ultra Fast", "recommended": False}
+                {"id": "gemini-1.5-flash", "name": "Gemini 1.5 Flash", "badge": "Fast Legacy", "recommended": False}
             ]
         },
         {

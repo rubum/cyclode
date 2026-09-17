@@ -31,7 +31,7 @@ def test_ensure_cyclode_home_creates_directories():
             # Verify default config written
             cfg = load_user_config()
             assert cfg["version"] == "1.0.0"
-            assert cfg["model"] == "gemini-3.7-flash"
+            assert cfg["model"] == "gemini-2.5-flash"
             assert cfg["port"] == 8080
 
 

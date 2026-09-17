@@ -1174,9 +1174,9 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
       group: 'Google Gemini',
       models: [
         { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Default)' },
+        { id: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
         { id: 'gemini-2.0-pro', label: 'Gemini 2.0 Pro' },
-        { id: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
-        { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash' },
+        { id: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash' },
       ],
     },
     {

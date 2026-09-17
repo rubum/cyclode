@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = Field(default_factory=lambda: _USER_CFG.get("openai_api_key") or os.environ.get("OPENAI_API_KEY"))
     OPENAI_BASE_URL: Optional[str] = Field(default_factory=lambda: _USER_CFG.get("openai_base_url") or os.environ.get("OPENAI_BASE_URL"))
 
-    ANTIGRAVITY_MODEL: str = Field(default_factory=lambda: str(_USER_CFG.get("model", "gemini-3.7-flash")))
+    ANTIGRAVITY_MODEL: str = Field(default_factory=lambda: str(_USER_CFG.get("model", "gemini-2.5-flash")))
     ANTIGRAVITY_ENABLE_THINKING: bool = True
     ANTIGRAVITY_MAX_PARALLEL_WORKERS: int = 5
     ANTIGRAVITY_EXECUTION_TIMEOUT_SECONDS: int = 600

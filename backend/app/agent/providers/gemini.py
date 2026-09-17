@@ -168,7 +168,10 @@ class GeminiProvider(BaseLLMProvider):
                 "status_code": 401
             }
 
-        candidate_models = list(dict.fromkeys([model_name, "gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.5-flash"]))
+        initial_candidates = [model_name, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+        candidate_models = list(dict.fromkeys([m for m in initial_candidates if m and m not in ["gemini-1.5-pro", "gemini-3.7-flash"]]))
+        if not candidate_models:
+            candidate_models = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
         should_close = False
         if client is None:
             client = httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0, read=15.0))

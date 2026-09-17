@@ -241,7 +241,7 @@ async def test_preview_html_telemetry_injection(temp_workspace: Path):
             title="Telemetry Injection Test",
             description="Testing script injection",
             persona="AppBuilder",
-            model_name="gemini-3.7-flash",
+            model_name="gemini-2.5-flash",
             status="RUNNING",
             workspace_path=str(temp_workspace),
         )
@@ -272,7 +272,7 @@ async def test_preview_diagnostic_fallback_on_missing_index(temp_workspace: Path
             title="Build React App",
             description="Raw React source",
             persona="AppBuilder",
-            model_name="gemini-3.7-flash",
+            model_name="gemini-2.5-flash",
             status="RUNNING",
             workspace_path=str(temp_workspace),
         )
@@ -307,7 +307,7 @@ async def test_inquiry_respond_api_and_resolution():
             title="Inquiry Test Session",
             description="Testing interactive inquiries",
             persona="AppBuilder",
-            model_name="gemini-3.7-flash",
+            model_name="gemini-2.5-flash",
             status="AWAITING_INPUT",
         )
         session.add(task)
@@ -404,7 +404,7 @@ async def test_preview_smart_bundle_redirection_and_base(temp_workspace: Path):
             title="Smart Bundle Test",
             description="Testing smart bundle resolution",
             persona="AppBuilder",
-            model_name="gemini-3.7-flash",
+            model_name="gemini-2.5-flash",
             status="RUNNING",
             workspace_path=str(temp_workspace),
         )
@@ -513,7 +513,7 @@ async def test_inspect_preview_exposes_stale_and_build_timestamp(temp_workspace:
             title="Inspect Metadata Test",
             description="Testing is_stale and build_timestamp",
             persona="AppBuilder",
-            model_name="gemini-3.7-flash",
+            model_name="gemini-2.5-flash",
             status="RUNNING",
             workspace_path=str(temp_workspace),
         )
