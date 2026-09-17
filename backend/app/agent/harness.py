@@ -33,12 +33,24 @@ class AntigravityHarness:
     def __init__(self, model_name: Optional[str] = None):
         self.model_name = model_name or settings.ANTIGRAVITY_MODEL
 
-    def resolve_effective_model(self, task_model_name: Optional[str] = None, intent_category: Optional[str] = None) -> str:
+    def resolve_effective_model(
+        self,
+        task_model_name: Optional[str] = None,
+        intent_category: Optional[str] = None
+    ) -> str:
         """
         Resolves the concrete execution model based on task requirements, routing mode,
         and Task-Adaptive Major vs. Minor tier allocation.
         """
-        requested = (task_model_name or self.model_name or "").strip()
+        known_intents = {"qa_research", "app_building", "code_modification", "debugging", "review_audit", "devops", "greetings"}
+        task_model = task_model_name
+        intent = intent_category
+
+        if task_model in known_intents and intent is None:
+            intent = task_model
+            task_model = None
+
+        requested = (task_model or self.model_name or "").strip()
         
         # If user explicitly requested a specific model (and not auto/adaptive)
         if requested and requested.lower() not in ["auto", "adaptive", "task-adaptive"]:
@@ -46,9 +58,9 @@ class AntigravityHarness:
 
         # If Task-Adaptive routing is active
         if getattr(settings, "ANTIGRAVITY_ROUTING_MODE", "adaptive") == "adaptive":
-            if intent_category in ["qa_research", "greetings"] or (intent_category is None and not requested):
+            if intent in ["qa_research", "greetings"]:
                 return getattr(settings, "ANTIGRAVITY_MINOR_MODEL", "gemini-3.7-flash") or "gemini-3.7-flash"
-            elif intent_category in ["app_building", "code_modification", "debugging", "review_audit", "devops"]:
+            elif intent in ["app_building", "code_modification", "debugging", "review_audit", "devops"] or (intent is None and (not requested or requested.lower() in ["auto", "adaptive"])):
                 return getattr(settings, "ANTIGRAVITY_MAJOR_MODEL", "claude-fable-5-1") or "claude-fable-5-1"
 
         return getattr(settings, "ANTIGRAVITY_MODEL", "gemini-3.7-flash") or "gemini-3.7-flash"
@@ -287,6 +299,7 @@ class AntigravityHarness:
         using structured JSON output from the selected provider (Gemini, Claude, or OpenAI)
         before tool loop execution. Surfaces authentic error diagnostics if dynamic formulation fails.
         """
+        objective = title or prompt[:100]
         effective_plan_model = self.resolve_effective_model(model_name)
         provider = get_provider_for_model(effective_plan_model)
         
@@ -755,6 +768,32 @@ class AntigravityHarness:
                         "parameters": {
                             "type": "OBJECT",
                             "properties": {}
+                        }
+                    },
+                    {
+                        "name": "run_verified_code_review",
+                        "description": "Executes the 4-stage verified review pipeline on a PR or code diff (Ensemble Scanners -> Adversarial Falsification -> Dedupe -> Actionable Diffs). Returns high-signal verified findings with guaranteed zero-style nitpicks.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "repository": {"type": "STRING", "description": "Optional repository in owner/repo format"},
+                                "pr_number": {"type": "INTEGER", "description": "Optional pull request number"},
+                                "diff_text": {"type": "STRING", "description": "Optional raw unified diff text to review"}
+                            }
+                        }
+                    },
+                    {
+                        "name": "verify_code_hypothesis",
+                        "description": "Adversarially tests and falsifies a specific candidate issue or invariant violation hypothesis against local workspace files and AST.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "file_path": {"type": "STRING", "description": "Relative file path in workspace"},
+                                "line_range": {"type": "STRING", "description": "Target line or line range (e.g. '42-48')"},
+                                "invariant_violated": {"type": "STRING", "description": "Specific invariant or security/concurrency guarantee violated"},
+                                "reproduction_scenario": {"type": "STRING", "description": "Concrete failure execution scenario"}
+                            },
+                            "required": ["file_path", "line_range", "invariant_violated"]
                         }
                     }
                 ]
@@ -1512,6 +1551,30 @@ class AntigravityHarness:
                                 if rec_str:
                                     out_lines.append(f"Recommendation: {rec_str}")
                                 out_str = "\n".join(out_lines)
+                            elif fn_name == "run_verified_code_review":
+                                repo_arg = args.get("repository")
+                                pr_num_arg = args.get("pr_number")
+                                diff_text_arg = args.get("diff_text")
+                                tool_result = await WorkspaceTools.run_verified_code_review(
+                                    workspace_path=workspace_path,
+                                    repository=repo_arg,
+                                    pr_number=pr_num_arg,
+                                    diff_text=diff_text_arg
+                                )
+                                out_str = tool_result.get("review_markdown") or json.dumps(tool_result, indent=2)
+                            elif fn_name == "verify_code_hypothesis":
+                                file_path_arg = args.get("file_path", "")
+                                line_range_arg = args.get("line_range", "1")
+                                inv_arg = args.get("invariant_violated", "")
+                                repro_arg = args.get("reproduction_scenario", "")
+                                tool_result = await WorkspaceTools.verify_code_hypothesis(
+                                    workspace_path=workspace_path,
+                                    file_path=file_path_arg,
+                                    line_range=line_range_arg,
+                                    invariant_violated=inv_arg,
+                                    reproduction_scenario=repro_arg
+                                )
+                                out_str = json.dumps(tool_result, indent=2)
                             else:
                                 tool_result = {"error": f"Unknown tool: {fn_name}"}
                                 exit_code = 1

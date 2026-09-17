@@ -1001,3 +1001,144 @@ class WorkspaceTools:
             "message": test_res.get("message", "Failed to connect repository"),
             "auth_required": test_res.get("auth_required", False)
         }
+
+    @classmethod
+    async def run_verified_code_review(
+        cls,
+        workspace_path: Path,
+        repository: Optional[str] = None,
+        pr_number: Optional[int] = None,
+        diff_text: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Executes the high-signal 4-stage verified review pipeline on a PR or unified diff.
+        Applies multi-perspective ensemble scanning, adversarial falsification, zero-style filtering,
+        and root-cause deduplication.
+        """
+        from app.agent.review_verifier import review_verifier
+
+        diff = diff_text or ""
+        pr_meta: Dict[str, Any] = {}
+
+        if repository and pr_number:
+            diff_res = await cls.get_pull_request_diff(repository, pr_number)
+            if diff_res.get("diff"):
+                diff = diff_res["diff"]
+            pr_details = await cls.get_pull_request_details(repository, pr_number)
+            pr_meta = pr_details
+
+        if not diff.strip():
+            # Fallback to local git diff if in a git workspace
+            try:
+                git_proc = subprocess.run(
+                    ["git", "diff", "HEAD~1"],
+                    cwd=workspace_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+                if git_proc.returncode == 0 and git_proc.stdout.strip():
+                    diff = git_proc.stdout
+            except Exception:
+                pass
+
+        if not diff.strip():
+            return {
+                "success": False,
+                "error": "No diff text found for review. Provide diff_text or repository + pr_number."
+            }
+
+        # 1. Ensemble Hypotheses
+        hypotheses = review_verifier.generate_ensemble_hypotheses(diff)
+
+        # 2. Adversarial Falsification & Zero-Style Verification
+        verified_findings = []
+        for hypo in hypotheses:
+            finding = review_verifier.verify_and_falsify(hypo, workspace_path=workspace_path)
+            if finding:
+                verified_findings.append(finding)
+
+        # 3. Deduplication & Clustering
+        deduped = review_verifier.deduplicate_and_cluster(verified_findings)
+
+        # 4. Formatted Synthesis
+        review_markdown = review_verifier.format_review_markdown(deduped, pr_meta)
+
+        return {
+            "success": True,
+            "total_hypotheses_scanned": len(hypotheses),
+            "verified_findings_count": len(deduped),
+            "findings": [
+                {
+                    "id": f.id,
+                    "category": f.category,
+                    "severity": f.severity,
+                    "file_path": f.file_path,
+                    "line_range": f"{f.line_start}-{f.line_end}",
+                    "title": f.title,
+                    "violation_summary": f.violation_summary,
+                    "confidence": f.confidence_score,
+                    "suggested_diff": f.suggested_diff
+                }
+                for f in deduped
+            ],
+            "review_markdown": review_markdown
+        }
+
+    @classmethod
+    async def verify_code_hypothesis(
+        cls,
+        workspace_path: Path,
+        file_path: str,
+        line_range: str,
+        invariant_violated: str,
+        reproduction_scenario: str
+    ) -> Dict[str, Any]:
+        """
+        Adversarially verifies or falsifies a single code issue hypothesis against local workspace context.
+        """
+        from app.agent.review_verifier import review_verifier, ReviewHypothesis
+
+        # Parse line range
+        start_line = 1
+        end_line = 1
+        if "-" in line_range:
+            parts = line_range.split("-")
+            try:
+                start_line = int(parts[0].strip())
+                end_line = int(parts[1].strip())
+            except Exception:
+                pass
+        elif line_range.isdigit():
+            start_line = end_line = int(line_range)
+
+        hypo = ReviewHypothesis(
+            id="hypo-ad-hoc",
+            category="logic_invariant",
+            scanner_name="ManualVerificationProbe",
+            file_path=file_path,
+            line_start=start_line,
+            line_end=end_line,
+            title="Candidate Invariant Hypothesis",
+            description=f"Testing invariant: {invariant_violated}",
+            invariant_violated=invariant_violated,
+            reproduction_scenario=reproduction_scenario,
+            suggested_diff="",
+            preliminary_confidence=0.90
+        )
+
+        verified = review_verifier.verify_and_falsify(hypo, workspace_path=workspace_path)
+        if verified:
+            return {
+                "verified": True,
+                "confidence": verified.confidence_score,
+                "category": verified.category,
+                "severity": verified.severity,
+                "evidence": verified.verification_evidence,
+                "message": "Hypothesis survived adversarial falsification and is verified."
+            }
+        return {
+            "verified": False,
+            "message": "Hypothesis was falsified, mitigated by context, or rejected under the Zero-Style invariant."
+        }
+
