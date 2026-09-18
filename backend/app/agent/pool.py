@@ -1517,7 +1517,8 @@ class AgentTaskPool:
     ) -> Dict[str, Any]:
         """
         Resets and rewinds the task state to the snapshot before turn_index (or the most recent turn).
-        Performs git hard reset on the workspace, prunes database records, restores execution plan state,
+        Performs git hard reset on the workspace, cleans all generated files/artifacts,
+        prunes database records (messages, logs, approvals, diffs), restores execution plan state,
         and broadcasts TASK_TURN_RESET over WebSockets.
         """
         # Cancel any active running task worker
@@ -1538,14 +1539,32 @@ class AgentTaskPool:
                 return {"ok": False, "error": "Task not found"}
 
             workspace_path = Path(task.workspace_path) if task.workspace_path else None
-            
+
+            # Retrieve all messages sorted chronologically
+            stmt_msgs = (
+                select(TaskMessageModel)
+                .where(TaskMessageModel.task_id == task_id)
+                .order_by(TaskMessageModel.created_at.asc())
+            )
+            res_msgs = await session.execute(stmt_msgs)
+            all_msgs = res_msgs.scalars().all()
+            user_msgs = [m for m in all_msgs if m.sender == "user"]
+
+            # Determine whether this is Turn 1 (initial prompt) or Turn K (follow-up turn)
+            # Turn 1 is initial prompt. Turn 2 is user_msgs[0], Turn 3 is user_msgs[1], etc.
+            is_initial_turn = (
+                turn_index == 1 or
+                turn_index == 0 or
+                (turn_index is None and len(user_msgs) == 0)
+            )
+
             # 1. Rollback filesystem if workspace exists
             if workspace_path and workspace_path.exists():
                 from app.agent.harness import ensure_workspace_git_repo
                 ensure_workspace_git_repo(workspace_path)
                 try:
                     target_sha = None
-                    if turn_index == 1 or turn_index == 0:
+                    if is_initial_turn:
                         # Resetting initial turn: rollback to root commit before any agent modifications
                         root_res = subprocess.run(
                             ["git", "rev-list", "--max-parents=0", "HEAD"],
@@ -1557,6 +1576,8 @@ class AgentTaskPool:
                         if root_res.returncode == 0 and root_res.stdout.strip():
                             target_sha = root_res.stdout.strip().split("\n")[0]
                     else:
+                        # Resetting follow-up turn K: rollback to conv_turn_K snapshot (or previous turn snapshot)
+                        target_turn_num = turn_index if (turn_index is not None and turn_index >= 2) else (len(user_msgs) + 1)
                         log_res = subprocess.run(
                             ["git", "log", "--grep=cyclode:", "--pretty=format:%H %s"],
                             cwd=str(workspace_path),
@@ -1565,11 +1586,18 @@ class AgentTaskPool:
                             timeout=5
                         )
                         commits = [line.strip().split(" ", 1) for line in log_res.stdout.split("\n") if line.strip()]
-                        if turn_index is not None:
+                        for sha, msg in reversed(commits):
+                            if f"conv_turn_{target_turn_num}" in msg or f"turn_{target_turn_num}" in msg:
+                                target_sha = sha
+                                break
+
+                        if not target_sha:
+                            # Fallback to previous turn snapshot or root commit
                             for sha, msg in reversed(commits):
-                                if f"turn_{turn_index}" in msg or f"conv_turn_{turn_index}" in msg:
+                                if f"conv_turn_{target_turn_num - 1}" in msg or f"turn_{target_turn_num - 1}" in msg:
                                     target_sha = sha
                                     break
+
                         if not target_sha:
                             if len(commits) > 1:
                                 target_sha = commits[1][0]
@@ -1585,33 +1613,39 @@ class AgentTaskPool:
                                 )
                                 if root_res.returncode == 0 and root_res.stdout.strip():
                                     target_sha = root_res.stdout.strip().split("\n")[0]
-                    
+
                     if target_sha:
                         subprocess.run(["git", "reset", "--hard", target_sha], cwd=str(workspace_path), capture_output=True, text=True, timeout=10)
                         subprocess.run(["git", "clean", "-fd"], cwd=str(workspace_path), capture_output=True, text=True, timeout=10)
                         logger.info(f"Rolled back workspace {workspace_path} to {target_sha}")
+
+                    # Also remove any generated/stale build artifacts to ensure preview & explorer are clean
+                    import shutil
+                    for build_dir in ["dist", "build", ".vite", "__pycache__", ".pytest_cache"]:
+                        p = workspace_path / build_dir
+                        if p.exists() and p.is_dir():
+                            shutil.rmtree(p, ignore_errors=True)
                 except Exception as e:
                     logger.error(f"Error rolling back git workspace for task {task_id}: {e}")
 
-            # 2. Prune DB messages, diffs, and logs
-            stmt_msgs = select(TaskMessageModel).where(TaskMessageModel.task_id == task_id).order_by(TaskMessageModel.created_at.asc())
-            res_msgs = await session.execute(stmt_msgs)
-            all_msgs = res_msgs.scalars().all()
-            
-            if turn_index == 1 or turn_index == 0 or (turn_index is None and len(all_msgs) <= 1):
-                # Wipe all agent records for initial reset
+            # 2. Prune DB messages, diffs, approvals, and logs
+            if is_initial_turn:
+                # Wipe all messages, logs, approvals, and diffs for this task
                 await session.execute(delete(TaskMessageModel).where(TaskMessageModel.task_id == task_id))
                 await session.execute(delete(TaskLogModel).where(TaskLogModel.task_id == task_id))
                 await session.execute(delete(TaskApprovalModel).where(TaskApprovalModel.task_id == task_id))
                 await session.execute(delete(TaskDiffModel).where(TaskDiffModel.task_id == task_id))
-            elif all_msgs:
-                user_msgs = [m for m in all_msgs if m.sender == "user"]
-                if turn_index is not None and turn_index <= len(user_msgs):
-                    target_user_msg = user_msgs[turn_index - 1]
-                    cutoff_time = target_user_msg.created_at
+            else:
+                # Follow-up turn K: cutoff is the created_at of user_msgs[target_turn_num - 2]
+                target_turn_num = turn_index if (turn_index is not None and turn_index >= 2) else (len(user_msgs) + 1)
+                user_msg_idx = target_turn_num - 2
+                if 0 <= user_msg_idx < len(user_msgs):
+                    cutoff_time = user_msgs[user_msg_idx].created_at
+                elif user_msgs:
+                    cutoff_time = user_msgs[-1].created_at
                 else:
-                    cutoff_time = all_msgs[-1].created_at
-                
+                    cutoff_time = all_msgs[0].created_at if all_msgs else get_utc_now()
+
                 await session.execute(
                     delete(TaskMessageModel).where(
                         TaskMessageModel.task_id == task_id,
@@ -1643,8 +1677,8 @@ class AgentTaskPool:
                 p_copy = copy.deepcopy(task.plan)
                 steps = p_copy.get("steps", [])
                 for s in steps:
-                    s["status"] = "pending" if (turn_index == 1 or turn_index == 0) else "in_progress"
-                if steps and (turn_index == 1 or turn_index == 0):
+                    s["status"] = "pending" if is_initial_turn else "in_progress"
+                if steps and is_initial_turn:
                     steps[0]["status"] = "in_progress"
                 p_copy["steps"] = steps
                 if "evaluation" in p_copy:
@@ -1653,13 +1687,15 @@ class AgentTaskPool:
                 task.plan = p_copy
                 flag_modified(task, "plan")
 
+            # 4. Clean task execution state
             task.status = "PAUSED"
+            task.active_tool = None
             task.result_summary = None
             task.completed_at = None
             task.updated_at = get_utc_now()
             await session.commit()
 
-        # 4. Broadcast reset event over WebSockets
+        # 5. Broadcast reset event over WebSockets
         await ws_manager.broadcast("TASK_TURN_RESET", {
             "task_id": task_id,
             "status": "PAUSED",

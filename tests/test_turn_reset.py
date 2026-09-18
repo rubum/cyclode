@@ -180,7 +180,7 @@ async def test_reset_turn_endpoint():
         assert create_res.status_code == 200
         task_id = create_res.json()["task_id"]
 
-        # Call reset-turn endpoint
+        # Call reset-turn endpoint with turn_index=1
         reset_res = await client.post(f"/api/tasks/{task_id}/reset-turn", json={
             "turn_index": 1
         })
@@ -189,3 +189,69 @@ async def test_reset_turn_endpoint():
         assert body["ok"] is True
         assert body["task_id"] == task_id
         assert body["status"] == "PAUSED"
+
+        # Call reset-turn endpoint with default (empty body / None turn_index)
+        reset_res2 = await client.post(f"/api/tasks/{task_id}/reset-turn", json={})
+        assert reset_res2.status_code == 200
+        assert reset_res2.json()["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_agent_pool_reset_default_none_turn(tmp_path):
+    workspace = tmp_path / "pool_workspace_none"
+    workspace.mkdir()
+    ensure_workspace_git_repo(workspace)
+
+    (workspace / "server.py").write_text("# initial server")
+    create_turn_snapshot(workspace, "conv_turn_1")
+
+    (workspace / "server.py").write_text("# modified server")
+    (workspace / "extra.py").write_text("# extra")
+    now = datetime.now(timezone.utc)
+    task_id = f"test-reset-none-{uuid.uuid4().hex[:8]}"
+
+    async with async_session_factory() as session:
+        task = TaskModel(
+            id=task_id,
+            title="Test Default Reset",
+            description="Testing reset with turn_index=None",
+            persona="AppBuilder",
+            status="RUNNING",
+            workspace_path=str(workspace)
+        )
+        session.add(task)
+        # Agent messages in turn 1
+        msg1 = TaskMessageModel(
+            id=f"msg-1-{uuid.uuid4().hex[:6]}",
+            task_id=task_id,
+            sender="agent",
+            thought="Thinking...",
+            content="Working on it",
+            created_at=now - timedelta(minutes=2)
+        )
+        msg2 = TaskMessageModel(
+            id=f"msg-2-{uuid.uuid4().hex[:6]}",
+            task_id=task_id,
+            sender="agent",
+            content="Done initial work",
+            created_at=now
+        )
+        session.add_all([msg1, msg2])
+        await session.commit()
+
+    # Reset with turn_index=None (should reset initial turn cleanly)
+    res = await agent_pool.reset_task_turn(task_id, turn_index=None)
+    assert res["ok"] is True
+    assert res["status"] == "PAUSED"
+
+    # Verify workspace cleaned (files created during turn 1 are rolled back to pristine root state)
+    assert not (workspace / "server.py").exists()
+    assert not (workspace / "extra.py").exists()
+
+    # Verify all messages cleaned
+    async with async_session_factory() as session:
+        stmt_m = select(TaskMessageModel).where(TaskMessageModel.task_id == task_id)
+        res_m = await session.execute(stmt_m)
+        remaining = res_m.scalars().all()
+        assert len(remaining) == 0
+
