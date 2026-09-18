@@ -236,26 +236,51 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
               }
 
               if (block.type === 'table' && block.tableRows) {
+                const headerCount = block.tableHeaders?.length || 0;
+                const alignments = block.tableAlignments || [];
+                const getAlignmentClass = (idx: number) => {
+                  const align = alignments[idx];
+                  if (align === 'center') return 'text-center';
+                  if (align === 'right') return 'text-right';
+                  return 'text-left';
+                };
+
                 return (
-                  <div key={bIdx} className="my-3 overflow-x-auto rounded-xl border border-onedark-border bg-onedark-darker/70 shadow-xs">
-                    <table className="w-full text-left border-collapse text-[12px]">
-                      {block.tableHeaders && (
+                  <div key={bIdx} className="my-3 overflow-x-auto rounded-xl border border-onedark-border bg-onedark-darker/70 shadow-xs [scrollbar-gutter:stable]">
+                    <table className="w-full border-collapse text-[12px] table-auto">
+                      {block.tableHeaders && block.tableHeaders.length > 0 && (
                         <thead>
                           <tr className="bg-onedark-surface/70 border-b border-onedark-border text-onedark-fgBright font-semibold">
                             {block.tableHeaders.map((h, hIdx) => (
-                              <th key={hIdx} className="px-3 py-1.5 font-mono text-[11.5px]">{inline(h)}</th>
+                              <th
+                                key={hIdx}
+                                className={`px-3 py-2 font-mono text-[11.5px] whitespace-nowrap ${getAlignmentClass(hIdx)}`}
+                              >
+                                {inline(h)}
+                              </th>
                             ))}
                           </tr>
                         </thead>
                       )}
                       <tbody>
-                        {block.tableRows.map((row, rIdx) => (
-                          <tr key={rIdx} className="border-b border-onedark-borderSubtle last:border-0 hover:bg-onedark-surface/30">
-                            {row.map((cell, cIdx) => (
-                              <td key={cIdx} className="px-3 py-1.5 text-onedark-fg">{inline(cell)}</td>
-                            ))}
-                          </tr>
-                        ))}
+                        {block.tableRows.map((row, rIdx) => {
+                          const cells = [...row];
+                          while (headerCount > 0 && cells.length < headerCount) {
+                            cells.push('');
+                          }
+                          return (
+                            <tr key={rIdx} className="border-b border-onedark-borderSubtle last:border-0 hover:bg-onedark-surface/30 transition-colors">
+                              {cells.map((cell, cIdx) => (
+                                <td
+                                  key={cIdx}
+                                  className={`px-3 py-2 text-onedark-fg break-words ${getAlignmentClass(cIdx)}`}
+                                >
+                                  {inline(cell)}
+                                </td>
+                              ))}
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -419,6 +444,7 @@ interface BlockItem {
   alertType?: string;
   tableHeaders?: string[];
   tableRows?: string[][];
+  tableAlignments?: ('left' | 'center' | 'right')[];
   summary?: string;
 }
 
@@ -436,7 +462,7 @@ function parseBlocks(text: string): BlockItem[] {
   const lines = text.split('\n');
   const blocks: BlockItem[] = [];
   let currentList: { type: 'ul' | 'ol'; items: NestedListItem[]; startNumber?: number } | null = null;
-  let currentTable: { headers: string[]; rows: string[][] } | null = null;
+  let currentTable: { headers: string[]; rows: string[][]; alignments?: ('left' | 'center' | 'right')[] } | null = null;
   let currentParagraph: string[] = [];
 
   const flushParagraph = () => {
@@ -455,7 +481,12 @@ function parseBlocks(text: string): BlockItem[] {
 
   const flushTable = () => {
     if (currentTable) {
-      blocks.push({ type: 'table', tableHeaders: currentTable.headers, tableRows: currentTable.rows });
+      blocks.push({
+        type: 'table',
+        tableHeaders: currentTable.headers,
+        tableRows: currentTable.rows,
+        tableAlignments: currentTable.alignments
+      });
       currentTable = null;
     }
   };
@@ -573,16 +604,28 @@ function parseBlocks(text: string): BlockItem[] {
       continue;
     }
 
-    // Table Row: | a | b |
-    if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+    // Table Row: starts with '|' or contains multiple pipes when table is already active
+    if (trimmed.startsWith('|') || (currentTable && trimmed.includes('|'))) {
       flushParagraph();
       flushList();
-      const cells = trimmed.slice(1, -1).split('|').map(c => c.trim());
-      if (cells.every(c => /^:?-+:?$/.test(c))) {
+      let rawRow = trimmed;
+      if (rawRow.startsWith('|')) rawRow = rawRow.slice(1);
+      if (rawRow.endsWith('|')) rawRow = rawRow.slice(0, -1);
+      const cells = rawRow.split('|').map(c => c.trim());
+      // Check delimiter row
+      const isDelimiter = cells.length > 0 && cells.every(c => /^:?-+:?$/.test(c));
+      if (isDelimiter) {
+        if (currentTable) {
+          currentTable.alignments = cells.map(c => {
+            if (c.startsWith(':') && c.endsWith(':')) return 'center';
+            if (c.endsWith(':')) return 'right';
+            return 'left';
+          });
+        }
         continue;
       }
       if (!currentTable) {
-        currentTable = { headers: cells, rows: [] };
+        currentTable = { headers: cells, rows: [], alignments: [] };
       } else {
         currentTable.rows.push(cells);
       }

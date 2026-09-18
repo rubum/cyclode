@@ -839,6 +839,26 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const emptyStateBackdropRef = useRef<HTMLDivElement>(null);
   const chatBackdropRef = useRef<HTMLDivElement>(null);
 
+  const adjustTextareaHeight = useCallback(() => {
+    const adjust = (el: HTMLTextAreaElement | null, minH = 36, maxH = 220) => {
+      if (!el) return;
+      el.style.height = 'auto';
+      const scrollHeight = el.scrollHeight;
+      const targetHeight = Math.min(Math.max(scrollHeight, minH), maxH);
+      el.style.height = `${targetHeight}px`;
+    };
+
+    if (task) {
+      adjust(textareaRef.current, 36, 220);
+    } else {
+      adjust(emptyStateTextareaRef.current, 72, 240);
+    }
+  }, [task]);
+
+  useEffect(() => {
+    adjustTextareaHeight();
+  }, [inputValue, adjustTextareaHeight]);
+
   const fetchRepos = useCallback(async () => {
     const apiBase = import.meta.env.VITE_API_URL || '';
     const endpoints = [
@@ -1338,7 +1358,7 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                 }}
                 placeholder="Ask Cyclode to review a PR, investigate a bug, write tests, or type '@' to reference a registered repo..."
                 rows={3}
-                className={`w-full bg-transparent text-[15px] placeholder-onedark-muted/60 focus:outline-none resize-none font-sans leading-relaxed p-2.5 caret-onedark-yellow ${
+                className={`w-full bg-transparent text-[15px] placeholder-onedark-muted/60 focus:outline-none resize-none font-sans leading-relaxed p-2.5 min-h-[72px] max-h-[240px] overflow-y-auto caret-onedark-yellow ${
                   inputValue ? 'text-transparent' : 'text-onedark-fgBright'
                 }`}
               />
@@ -2487,8 +2507,8 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
             {/* Repository Mention Autocomplete Menu */}
             {renderMentionMenu("bottom-full left-0 mb-2")}
 
-            <div className="flex items-center space-x-2 bg-onedark-darker border border-onedark-border rounded-xl px-3.5 py-2 focus-within:border-onedark-accent/80 focus-within:ring-1 focus-within:ring-onedark-accent/20 transition-all shadow-inner min-h-[46px]">
-              <div className="relative flex-1 min-h-[36px] max-h-36 flex items-center">
+            <div className="flex items-end space-x-2 bg-onedark-darker border border-onedark-border rounded-xl px-3.5 py-2 focus-within:border-onedark-accent/80 focus-within:ring-1 focus-within:ring-onedark-accent/20 transition-all shadow-inner min-h-[46px]">
+              <div className="relative flex-1 min-h-[36px] max-h-[220px] flex items-center">
                 {/* Highlight backdrop overlay */}
                 {inputValue && (
                   <div
@@ -2515,7 +2535,7 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                     }
                   }}
                   placeholder={isRunning ? "Task is running... Type follow-up instructions or hit Stop..." : "Type instructions, or '@' to reference a registered repo (e.g. 'Get pending prs in @myproject')..."}
-                  className={`w-full bg-transparent text-[15px] placeholder-onedark-muted/60 focus:outline-none resize-none font-sans leading-relaxed py-1.5 max-h-36 min-h-[36px] caret-onedark-yellow ${
+                  className={`w-full bg-transparent text-[15px] placeholder-onedark-muted/60 focus:outline-none resize-none font-sans leading-relaxed py-1.5 min-h-[36px] max-h-[220px] overflow-y-auto caret-onedark-yellow ${
                     inputValue ? 'text-transparent' : 'text-onedark-fgBright'
                   }`}
                 />
@@ -2524,7 +2544,7 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                 <button
                   type="button"
                   onClick={() => onStopTask && onStopTask()}
-                  className="h-9 px-3.5 rounded-xl bg-onedark-red hover:bg-onedark-red/90 text-white text-xs font-bold flex items-center space-x-1.5 transition-all shadow-sm flex-shrink-0 active:scale-95 animate-pulse cursor-pointer"
+                  className="h-9 px-3.5 rounded-xl bg-onedark-red hover:bg-onedark-red/90 text-white text-xs font-bold flex items-center space-x-1.5 transition-all shadow-sm flex-shrink-0 active:scale-95 animate-pulse cursor-pointer mb-0.5"
                   title="Stop execution (Esc)"
                 >
                   <Square className="w-3.5 h-3.5 fill-current" />
@@ -2534,7 +2554,7 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                 <button
                   type="button"
                   disabled
-                  className="h-9 w-9 rounded-xl bg-onedark-accent/70 text-onedark-darker flex items-center justify-center transition-all shadow-sm flex-shrink-0 cursor-wait"
+                  className="h-9 w-9 rounded-xl bg-onedark-accent/70 text-onedark-darker flex items-center justify-center transition-all shadow-sm flex-shrink-0 cursor-wait mb-0.5"
                   title="Processing request..."
                 >
                   <Loader2 className="w-4 h-4 animate-spin stroke-[2.5]" />
@@ -2543,7 +2563,7 @@ const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
                 <button
                   type="submit"
                   disabled={!inputValue.trim()}
-                  className="h-9 w-9 rounded-xl bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-sm flex items-center justify-center flex-shrink-0 active:scale-95 cursor-pointer"
+                  className="h-9 w-9 rounded-xl bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-sm flex items-center justify-center flex-shrink-0 active:scale-95 cursor-pointer mb-0.5"
                   title="Send message (Enter ↵)"
                 >
                   <Send className="w-4 h-4 stroke-[2.5]" />
