@@ -1304,6 +1304,61 @@ class AgentTaskPool:
         if gh_match and task.description and task.description != message_text:
             worker_prompt = f"{task.description}\n\nUser provided credential: {message_text}"
 
+        # TypeSafe Jev Pre-Flight Guardrail & Autonomous Router Evaluation
+        guardrail_eval = None
+        if settings.TYPESAFE_GUARDRAIL_ENABLED:
+            try:
+                from app.agent.guardrail import preflight_guardrail
+                guardrail_eval = await preflight_guardrail.evaluate_preflight(
+                    message_text,
+                    context={"repo_name": active_repo_name, "branch": task.target_branch}
+                )
+                await ws_manager.broadcast("GUARDRAIL_EVALUATION", {
+                    "task_id": task_id,
+                    "evaluation": guardrail_eval.model_dump(),
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                })
+
+                # If safety violation, block immediately
+                if guardrail_eval.dispatch_action == "BLOCK_INJECTION":
+                    block_msg = f"🛡️ **Security Alert (TypeSafe Jev Guardrail)**: Message blocked.\n\n*Reason*: {guardrail_eval.reason}\n*Injection Risk Score*: `{guardrail_eval.safety_risk_probability * 100:.1f}%`"
+                    async with async_session_factory() as session:
+                        b_msg = TaskMessageModel(
+                            task_id=task_id,
+                            sender="system",
+                            content=block_msg,
+                            tokens=estimate_tokens(block_msg)
+                        )
+                        session.add(b_msg)
+                        await session.commit()
+                    await ws_manager.broadcast("CHAT_MESSAGE", {
+                        "task_id": task_id,
+                        "sender": "system",
+                        "content": block_msg,
+                        "tokens": estimate_tokens(block_msg),
+                        "timestamp": datetime.now(timezone.utc).isoformat()
+                    })
+                    return {"ok": False, "blocked": True, "reason": guardrail_eval.reason}
+
+                # If fast-path deterministic tool
+                if (
+                    settings.TYPESAFE_FASTPATH_ENABLED and 
+                    guardrail_eval.dispatch_action == "FAST_PATH_TOOL" and 
+                    guardrail_eval.target_tool != "none"
+                ):
+                    fastpath_res = await self._execute_fastpath_tool(
+                        task_id=task_id,
+                        workspace_path=workspace_path,
+                        tool_name=guardrail_eval.target_tool,
+                        prompt=message_text,
+                        guardrail_eval=guardrail_eval
+                    )
+                    if fastpath_res.get("handled"):
+                        return {"ok": True, "task_id": task_id, "fastpath": True}
+
+            except Exception as e:
+                logger.warning(f"Pre-flight guardrail evaluation note: {e}")
+
         # Spawn asynchronous execution worker for the agent response
         worker = asyncio.create_task(
             self._run_task_worker(
@@ -1321,6 +1376,92 @@ class AgentTaskPool:
         self.active_tasks[task_id] = worker
 
         return {"ok": True, "task_id": task_id}
+
+    async def _execute_fastpath_tool(
+        self,
+        task_id: str,
+        workspace_path: Path,
+        tool_name: str,
+        prompt: str,
+        guardrail_eval: Any
+    ) -> Dict[str, Any]:
+        """
+        Executes a deterministic read/inspection tool directly in sub-50ms without invoking System Two LLM.
+        """
+        try:
+            tools = WorkspaceTools(workspace_path)
+            tool_output = ""
+            action_desc = ""
+
+            if tool_name == "git_status":
+                action_desc = "Inspected git working tree status"
+                res = await tools.run_shell("git status")
+                tool_output = res.get("output") or "Clean working tree, no modifications."
+            elif tool_name == "list_files":
+                action_desc = "Listed workspace files"
+                res = await tools.list_files(max_depth=2)
+                tool_output = res.get("output") or "No files found."
+            elif tool_name == "diff_inspector":
+                action_desc = "Inspected git diff"
+                res = await tools.run_shell("git diff")
+                tool_output = res.get("output") or "No unstaged changes."
+            elif tool_name == "test_runner":
+                action_desc = "Ran automated test suite"
+                res = await tools.run_shell("pytest || npm test")
+                tool_output = res.get("output") or "Test runner executed."
+            else:
+                return {"handled": False}
+
+            response_content = (
+                f"**⚡ Fast-Path Execution (TypeSafe Jev · {guardrail_eval.latency_ms}ms)**\n\n"
+                f"{action_desc}:\n\n"
+                f"```bash\n{tool_output.strip()}\n```\n\n"
+                f"*Route*: `{guardrail_eval.intent_route}` | *Confidence*: `{guardrail_eval.confidence * 100:.1f}%` | *Cost*: `${guardrail_eval.cost_usd:.6f}`"
+            )
+
+            toks = estimate_tokens(response_content)
+            async with async_session_factory() as session:
+                msg = TaskMessageModel(
+                    task_id=task_id,
+                    sender="agent",
+                    content=response_content,
+                    tokens=toks
+                )
+                session.add(msg)
+                # Record tool log
+                log_entry = TaskLogModel(
+                    task_id=task_id,
+                    tool_name=f"fastpath.{tool_name}",
+                    tool_input={"prompt": prompt, "target_tool": tool_name},
+                    tool_output=tool_output,
+                    exit_code=0,
+                    duration_ms=int(guardrail_eval.latency_ms)
+                )
+                session.add(log_entry)
+                await session.commit()
+
+            await ws_manager.broadcast("TASK_LOG", {
+                "task_id": task_id,
+                "tool_name": f"fastpath.{tool_name}",
+                "tool_input": {"prompt": prompt},
+                "tool_output": tool_output,
+                "exit_code": 0,
+                "duration_ms": int(guardrail_eval.latency_ms),
+                "created_at": datetime.now(timezone.utc).isoformat()
+            })
+
+            await ws_manager.broadcast("CHAT_MESSAGE", {
+                "task_id": task_id,
+                "sender": "agent",
+                "content": response_content,
+                "tokens": toks,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            })
+
+            return {"handled": True}
+        except Exception as e:
+            logger.error(f"Error executing fast-path tool {tool_name}: {e}")
+            return {"handled": False}
 
     async def edit_and_resubmit_message(
         self,

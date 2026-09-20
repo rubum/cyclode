@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { GitPullRequest, Activity, Cpu, Inbox, Folder, Compass, Play } from 'lucide-react';
+import { GitPullRequest, Activity, Cpu, Inbox, Folder, Compass, Play, Zap } from 'lucide-react';
 import { Task, WorkspacePreviewInfo } from '../../types';
 import { PullRequestsTab } from './PullRequestsTab';
 import { TerminalTab } from './TerminalTab';
@@ -8,11 +8,12 @@ import { EventInspectorTab } from './EventInspectorTab';
 import { FilesExplorerTab } from './FilesExplorerTab';
 import { DocsViewerTab } from './DocsViewerTab';
 import { AppPreviewTab } from './AppPreviewTab';
+import { GuardrailBenchmarkArena } from './GuardrailBenchmarkArena';
 import { ErrorBoundary } from '../Common/ErrorBoundary';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
-export type AuxTabType = 'docs' | 'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'preview';
+export type AuxTabType = 'docs' | 'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'preview' | 'benchmark';
 
 interface AuxiliaryPaneProps {
   task: Task | null;
@@ -24,6 +25,7 @@ interface AuxiliaryPaneProps {
   onAskAboutRepo?: (repoName: string) => void;
   onCloneToSession?: (repoUrl: string, repoName: string) => void;
   onAskAboutComment?: (prompt: string) => void;
+  onNavigateToIntegrations?: () => void;
 }
 
 const isPrUrl = (targetUrl?: string | null): boolean => {
@@ -50,6 +52,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
   onAskAboutRepo,
   onCloneToSession,
   onAskAboutComment,
+  onNavigateToIntegrations,
 }) => {
   const [previewInfo, setPreviewInfo] = useState<WorkspacePreviewInfo | null>(null);
 
@@ -125,6 +128,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
   }, [task?.id, previewTarget?.url]);
 
   const tabs = [
+    { id: 'benchmark', label: 'Jev Arena', icon: Zap, iconClass: 'text-emerald-400' },
     { id: 'docs', label: 'Web & Docs', icon: Compass, badge: (previewTarget?.url && !isPrForTask(previewTarget.url, task)) ? '●' : undefined },
     { id: 'files', label: 'Files', icon: Folder, iconClass: 'text-onedark-folder' },
     { id: 'preview', label: 'Preview', icon: Play, iconClass: previewInfo?.has_preview ? 'text-onedark-green' : '', badge: previewInfo?.has_preview ? '●' : undefined },
@@ -169,6 +173,9 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
       {/* Tab body */}
       <div className="flex-1 overflow-hidden">
         <ErrorBoundary key={`${activeTab}-${task?.id || 'none'}`} fallbackTitle={`Error Loading ${activeTab.toUpperCase()} Tab`}>
+          {activeTab === 'benchmark' && (
+            <GuardrailBenchmarkArena onNavigateToIntegrations={onNavigateToIntegrations} />
+          )}
           {activeTab === 'docs' && (
             <DocsViewerTab
               url={previewTarget?.url || null}

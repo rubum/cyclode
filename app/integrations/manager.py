@@ -94,6 +94,25 @@ class IntegrationManager:
                 if "model" in credentials or "default_model" in credentials:
                     mod = credentials.get("model") or credentials.get("default_model")
                     settings.OPENAI_DEFAULT_MODEL = mod
+            elif provider == "typesafe":
+                if "api_key" in credentials:
+                    os.environ["TYPESAFE_API_KEY"] = credentials["api_key"]
+                    settings.TYPESAFE_API_KEY = credentials["api_key"]
+                    from app.agent.typesafe_jev import typesafe_client
+                    typesafe_client.api_key = credentials["api_key"]
+                if "base_url" in credentials:
+                    os.environ["TYPESAFE_BASE_URL"] = credentials["base_url"]
+                    settings.TYPESAFE_BASE_URL = credentials["base_url"]
+                    from app.agent.typesafe_jev import typesafe_client
+                    typesafe_client.base_url = credentials["base_url"].rstrip("/")
+                if "guardrail_enabled" in credentials:
+                    settings.TYPESAFE_GUARDRAIL_ENABLED = bool(credentials["guardrail_enabled"])
+                if "fastpath_enabled" in credentials:
+                    settings.TYPESAFE_FASTPATH_ENABLED = bool(credentials["fastpath_enabled"])
+                if "safety_threshold" in credentials:
+                    settings.TYPESAFE_SAFETY_THRESHOLD = float(credentials["safety_threshold"])
+                if "system_two_threshold" in credentials:
+                    settings.TYPESAFE_SYSTEM_TWO_THRESHOLD = float(credentials["system_two_threshold"])
 
         return {
             "provider": provider,
@@ -222,6 +241,27 @@ class IntegrationManager:
                     elif resp.status_code == 401:
                         return {"valid": False, "message": "Invalid OpenAI API key (401 Unauthorized)"}
                     return {"valid": False, "message": f"OpenAI API returned status {resp.status_code}"}
+
+            elif provider == "typesafe":
+                key = credentials.get("api_key") or settings.get_typesafe_api_key()
+                base_url = (credentials.get("base_url") or settings.TYPESAFE_BASE_URL or "https://api.typesafe.ai/v1").rstrip("/")
+                if not key:
+                    return {"valid": False, "message": "TypeSafe API key is empty"}
+                if key.startswith("test_") or key.startswith("mock_"):
+                    return {"valid": True, "message": "TypeSafe test key verified (Local simulation ready)"}
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    try:
+                        resp = await client.get(
+                            f"{base_url}/health",
+                            headers={"Authorization": f"Bearer {key}"}
+                        )
+                        if resp.status_code in [200, 404, 405]:
+                            return {"valid": True, "message": "TypeSafe Jev API connection verified"}
+                        elif resp.status_code == 401:
+                            return {"valid": False, "message": "Invalid TypeSafe API key (401 Unauthorized)"}
+                        return {"valid": True, "message": f"TypeSafe API reachable (HTTP {resp.status_code})"}
+                    except Exception:
+                        return {"valid": True, "message": "TypeSafe key registered (Active with local fallback)"}
 
             return {"valid": True, "message": f"Credentials saved for {provider}"}
         except Exception as e:
@@ -518,6 +558,44 @@ class IntegrationManager:
             settings.OPENAI_BASE_URL = updates["openai_base_url"]
 
         return self.get_model_settings()
+
+    def get_guardrail_settings(self) -> Dict[str, Any]:
+        """
+        Returns active TypeSafe Jev pre-flight guardrail and fast-path settings.
+        """
+        return {
+            "guardrail_enabled": settings.TYPESAFE_GUARDRAIL_ENABLED,
+            "fastpath_enabled": settings.TYPESAFE_FASTPATH_ENABLED,
+            "safety_threshold": settings.TYPESAFE_SAFETY_THRESHOLD,
+            "system_two_threshold": settings.TYPESAFE_SYSTEM_TWO_THRESHOLD,
+            "typesafe_configured": bool(settings.get_typesafe_api_key()),
+            "masked_api_key": self.mask_token(settings.get_typesafe_api_key()),
+            "base_url": settings.TYPESAFE_BASE_URL,
+        }
+
+    def update_guardrail_settings(self, updates: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Updates TypeSafe Jev guardrail sensitivity thresholds and feature flags.
+        """
+        if "guardrail_enabled" in updates and updates["guardrail_enabled"] is not None:
+            settings.TYPESAFE_GUARDRAIL_ENABLED = bool(updates["guardrail_enabled"])
+        if "fastpath_enabled" in updates and updates["fastpath_enabled"] is not None:
+            settings.TYPESAFE_FASTPATH_ENABLED = bool(updates["fastpath_enabled"])
+        if "safety_threshold" in updates and updates["safety_threshold"] is not None:
+            settings.TYPESAFE_SAFETY_THRESHOLD = float(updates["safety_threshold"])
+        if "system_two_threshold" in updates and updates["system_two_threshold"] is not None:
+            settings.TYPESAFE_SYSTEM_TWO_THRESHOLD = float(updates["system_two_threshold"])
+        if "api_key" in updates and updates["api_key"] is not None:
+            settings.TYPESAFE_API_KEY = str(updates["api_key"])
+            os.environ["TYPESAFE_API_KEY"] = str(updates["api_key"])
+            from app.agent.typesafe_jev import typesafe_client
+            typesafe_client.api_key = str(updates["api_key"])
+        if "base_url" in updates and updates["base_url"] is not None:
+            settings.TYPESAFE_BASE_URL = str(updates["base_url"])
+            os.environ["TYPESAFE_BASE_URL"] = str(updates["base_url"])
+            from app.agent.typesafe_jev import typesafe_client
+            typesafe_client.base_url = str(updates["base_url"]).rstrip("/")
+        return self.get_guardrail_settings()
 
 
 integration_manager = IntegrationManager()

@@ -42,13 +42,11 @@ import {
   Zap,
   ArrowRight,
   ShieldAlert,
-  Tag,
-  Radio
+  Tag
 } from 'lucide-react';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { PRReviewAgentPopover, LineContext } from './PRReviewAgentPopover';
 import { LinearIssueDetailView } from './LinearIssueDetailView';
-import { PRListenerConfigModal } from './PRListenerConfigModal';
 import { Task, TaskPR, PRCommentItem } from '../../types';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 
@@ -1917,8 +1915,6 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
   const { subscribe } = useWebSocket();
 
   const [isReviewPopoverOpen, setIsReviewPopoverOpen] = useState<boolean>(false);
-  const [isListenerModalOpen, setIsListenerModalOpen] = useState<boolean>(false);
-  const [isListening, setIsListening] = useState<boolean>(prRecord?.is_listening || false);
   const [activeLineComment, setActiveLineComment] = useState<LineContext | null>(null);
   const [isOutlineOpen, setIsOutlineOpen] = useState<boolean>(false);
 
@@ -1979,7 +1975,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
     }
   };
 
-  // WebSocket live auto-sync listener for PR comments and listener state
+  // WebSocket live auto-sync listener for PR comments
   useEffect(() => {
     if (!task?.id || !effectivePrNum) return;
     const unsub = subscribe('PR_COMMENTS_UPDATED', (payload: any) => {
@@ -1987,17 +1983,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
         fetchCommentsOnly();
       }
     });
-
-    const unsubListener = subscribe('PR_LISTENER_UPDATED', (payload: any) => {
-      if (payload.task_id === task.id && Number(payload.pr_number) === Number(effectivePrNum)) {
-        setIsListening(payload.is_listening);
-      }
-    });
-
-    return () => {
-      unsub();
-      unsubListener();
-    };
+    return () => unsub();
   }, [subscribe, task?.id, effectivePrNum]);
 
   // Adaptive background polling: polls every 20s when comments tab is active and page is visible
@@ -2434,27 +2420,6 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
               <span>Review with Agent</span>
             </button>
 
-            {/* Event Listener Sentinel Button */}
-            <button
-              onClick={() => setIsListenerModalOpen(true)}
-              className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer whitespace-nowrap flex-shrink-0 ${
-                isListening
-                  ? 'bg-onedark-green/20 text-onedark-green font-semibold border border-onedark-green/30'
-                  : 'bg-onedark-surface hover:bg-onedark-surface/80 text-onedark-fgBright'
-              }`}
-              title="Configure autonomous webhook event listener for this PR"
-            >
-              {isListening ? (
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-onedark-green opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-onedark-green" />
-                </span>
-              ) : (
-                <Radio className="w-3.5 h-3.5 text-onedark-accent" />
-              )}
-              <span>{isListening ? 'Listening' : 'Listen'}</span>
-            </button>
-
             {/* PR Decision Actions (Only when not already merged/closed) */}
             {effectiveState !== 'MERGED' && effectiveState !== 'CLOSED' && (
               <>
@@ -2780,32 +2745,6 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
             />
           </div>
         </div>
-      )}
-
-      {/* PR Listener Config Modal */}
-      {isListenerModalOpen && task && (
-        <PRListenerConfigModal
-          task={task}
-          pr={
-            prRecord || {
-              task_id: task.id,
-              pr_number: Number(effectivePrNum) || 0,
-              title: data?.title || '',
-              author: data?.author || '',
-              head_branch: effectiveHeadBranch,
-              base_branch: effectiveBaseBranch,
-              html_url: targetUrl || '',
-              status: (effectiveState as any) || 'OPEN',
-              worktree_path: '',
-              is_listening: isListening
-            }
-          }
-          isOpen={isListenerModalOpen}
-          onClose={() => setIsListenerModalOpen(false)}
-          onSaved={(newListening) => {
-            setIsListening(newListening);
-          }}
-        />
       )}
     </div>
   );

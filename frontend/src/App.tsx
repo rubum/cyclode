@@ -12,6 +12,7 @@ import { PolicySettings } from './components/Policies/PolicySettings';
 import { IntegrationsView } from './components/Integrations/IntegrationsView';
 import { RepositoriesView } from './components/Repositories/RepositoriesView';
 import { SandboxInspectorModal } from './components/Sandbox/SandboxInspectorModal';
+import { GuardrailBenchmarkArena } from './components/AuxiliaryPane/GuardrailBenchmarkArena';
 import { Task, TaskMessage, TaskLog, EventItem, PolicyMap, Integration, AutomationRule, SkillCatalogItem, WebhookEndpoint, RepositoryConfig, LayoutPreset } from './types';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -42,7 +43,7 @@ const MainApp: React.FC = () => {
     }
     return 'split';
   });
-  const [activeAuxTab, setActiveAuxTab] = useState<'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'docs' | 'preview'>('activity');
+  const [activeAuxTab, setActiveAuxTab] = useState<'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'docs' | 'preview' | 'benchmark'>('activity');
   const [sessionPreviews, setSessionPreviews] = useState<Record<string, { url: string; title?: string } | null>>({});
   const activePreviewTarget = activeTaskId ? (sessionPreviews[activeTaskId] || null) : null;
   const [isClearingAll, setIsClearingAll] = useState<boolean>(false);
@@ -500,13 +501,6 @@ const MainApp: React.FC = () => {
       fetchTasks();
     });
 
-    const unsubTurnReset = subscribe('TASK_TURN_RESET', (data: any) => {
-      if (activeTaskId === data.task_id) {
-        fetchTaskDetails(data.task_id);
-        fetchTasks();
-      }
-    });
-
     return () => {
       if (streamRafRef.current) {
         cancelAnimationFrame(streamRafRef.current);
@@ -530,7 +524,6 @@ const MainApp: React.FC = () => {
       unsubPlanUpdated();
       unsubChat();
       unsubEventReceived();
-      unsubTurnReset();
     };
   }, [subscribe, activeTaskId, fetchTasks, fetchTaskDetails, fetchEvents]);
 
@@ -910,23 +903,6 @@ const MainApp: React.FC = () => {
     }
   };
 
-  const handleResetTurn = async (turnIndex?: number) => {
-    if (!activeTaskId) return;
-    try {
-      const res = await fetch(`${API_BASE}/api/tasks/${activeTaskId}/reset-turn`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ turn_index: turnIndex }),
-      });
-      if (res.ok) {
-        fetchTaskDetails(activeTaskId);
-        fetchTasks();
-      }
-    } catch (err) {
-      console.error('Error resetting turn:', err);
-    }
-  };
-
   const handleStopTask = async () => {
     if (!activeTaskId) return;
     setActiveTaskDetails((prev) =>
@@ -1082,7 +1058,6 @@ const MainApp: React.FC = () => {
             onNewChatWithPrompt={handleNewChatWithPrompt}
             onEditMessage={handleEditMessage}
             onRetryTask={handleRetryTask}
-            onResetTurn={handleResetTurn}
             onStopTask={handleStopTask}
             onUpdateTaskTitle={handleUpdateTaskTitle}
             isSidebarCollapsed={isSidebarCollapsed}
@@ -1156,6 +1131,12 @@ const MainApp: React.FC = () => {
             onRefreshIntegrations={fetchIntegrations}
             onBackToChat={() => setActiveView('chat')}
             onNavigateToPolicies={() => setActiveView('policies')}
+          />
+        );
+      case 'benchmark':
+        return (
+          <GuardrailBenchmarkArena
+            onNavigateToIntegrations={() => setActiveView('integrations')}
           />
         );
 

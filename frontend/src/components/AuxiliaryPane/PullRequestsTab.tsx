@@ -24,15 +24,13 @@ import {
   Sparkles,
   Search,
   Filter,
-  Zap,
-  Radio
+  Zap
 } from 'lucide-react';
 import { Task, TaskPR } from '../../types';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { PRReviewAgentPopover, LineContext } from './PRReviewAgentPopover';
 import { PRDetailView } from './PRDetailView';
-import { PRListenerConfigModal } from './PRListenerConfigModal';
 
 interface PullRequestsTabProps {
   task: Task | null;
@@ -109,7 +107,6 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
   // Review Agent Popover state
   const [activePopoverPR, setActivePopoverPR] = useState<TaskPR | null>(null);
   const [activeLineComment, setActiveLineComment] = useState<LineContext | null>(null);
-  const [activeListenerPR, setActiveListenerPR] = useState<TaskPR | null>(null);
   const [isSyncingRepo, setIsSyncingRepo] = useState<boolean>(false);
   const hasAutoSyncedRef = useRef<Record<string, boolean>>({});
 
@@ -218,29 +215,10 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
       }
     });
 
-    const unsubPrListenerUpdated = subscribe('PR_LISTENER_UPDATED', (data: any) => {
-      if (data && data.task_id === task.id) {
-        setPrs((prev) =>
-          prev.map((p) =>
-            p.pr_number === data.pr_number
-              ? {
-                  ...p,
-                  is_listening: data.is_listening,
-                  listening_events: data.listening_events,
-                  listener_persona: data.listener_persona,
-                  auto_commit_fixes: data.auto_commit_fixes,
-                }
-              : p
-          )
-        );
-      }
-    });
-
     return () => {
       unsubPrUpdated();
       unsubPrTestCompleted();
       unsubPrReviewed();
-      unsubPrListenerUpdated();
     };
   }, [subscribe, task?.id, fetchPRs]);
 
@@ -703,30 +681,8 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
                     </div>
                   </div>
 
-                  {/* Right Actions: Inspect, Listen, Sync, External Link */}
-                  <div className="flex items-center gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                    {/* Listen Button */}
-                    <button
-                      type="button"
-                      onClick={() => setActiveListenerPR(pr)}
-                      className={`px-2 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer flex items-center gap-1.5 ${
-                        pr.is_listening
-                          ? 'bg-onedark-green/15 text-onedark-green border border-onedark-green/30 hover:bg-onedark-green/25'
-                          : 'bg-onedark-surface hover:bg-onedark-border text-onedark-muted hover:text-onedark-fg border border-onedark-borderSubtle'
-                      }`}
-                      title="Configure autonomous webhook event listeners for this PR"
-                    >
-                      {pr.is_listening ? (
-                        <span className="relative flex h-2 w-2">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-onedark-green opacity-75" />
-                          <span className="relative inline-flex rounded-full h-2 w-2 bg-onedark-green" />
-                        </span>
-                      ) : (
-                        <Radio className="w-3 h-3" />
-                      )}
-                      <span>{pr.is_listening ? 'Listening' : 'Listen'}</span>
-                    </button>
-
+                  {/* Right Actions: Inspect, Sync, External Link */}
+                  <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                     <button
                       type="button"
                       onClick={() => setSelectedPr({ url: prUrl, number: pr.pr_number, record: pr })}
@@ -784,25 +740,6 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
           activeLineComment={activeLineComment}
           onClearActiveLineComment={() => setActiveLineComment(null)}
           onNavigateToFileLine={onNavigateToFileLine}
-        />
-      )}
-
-      {/* PR Listener Config Modal */}
-      {activeListenerPR && task && (
-        <PRListenerConfigModal
-          task={task}
-          pr={activeListenerPR}
-          isOpen={!!activeListenerPR}
-          onClose={() => setActiveListenerPR(null)}
-          onSaved={(isListening, events) => {
-            setPrs((prev) =>
-              prev.map((p) =>
-                p.pr_number === activeListenerPR.pr_number
-                  ? { ...p, is_listening: isListening, listening_events: events }
-                  : p
-              )
-            );
-          }}
         />
       )}
     </div>

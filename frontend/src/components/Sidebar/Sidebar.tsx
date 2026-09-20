@@ -23,7 +23,8 @@ import {
   CheckCircle2,
   AlertCircle,
   ExternalLink,
-  RefreshCw
+  RefreshCw,
+  Zap
 } from 'lucide-react';
 import { Task, TaskPR } from '../../types';
 import { useWebSocket } from '../../contexts/WebSocketContext';
@@ -92,6 +93,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const toolNavItems = [
     { id: 'repositories', label: 'Repositories & Vault', icon: FolderGit2, iconClass: 'text-onedark-folder' },
+    { id: 'benchmark', label: 'Jev Benchmark Arena', icon: Zap, iconClass: 'text-emerald-400' },
     { id: 'automations', label: 'Automations & Rules', icon: Sparkles },
     { id: 'fleet', label: 'Agent Fleet', icon: Layers, badge: primaryTasksCount > 0 ? primaryTasksCount : undefined },
     { id: 'events', label: 'Event Inbox', icon: Inbox },

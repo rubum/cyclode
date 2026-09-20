@@ -129,39 +129,8 @@ export interface TaskPR {
   test_output?: string;
   body?: string;
   is_session_scoped?: boolean;
-  is_listening?: boolean;
-  listening_events?: string[];
-  listener_persona?: string;
-  auto_commit_fixes?: boolean;
   created_at?: string;
   updated_at?: string;
-}
-
-export interface PRListenerConfig {
-  task_id: string;
-  pr_number: number;
-  is_listening: boolean;
-  listening_events: string[];
-  listener_persona: string;
-  auto_commit_fixes: boolean;
-}
-
-export interface RepoListenerConfig {
-  repo_id: string;
-  repo_full_name: string;
-  is_listening: boolean;
-  subscribed_events: string[];
-  default_persona: string;
-}
-
-export interface ListeningEventOption {
-  id: string;
-  name: string;
-  description: string;
-  source: string;
-  event_type: string;
-  category: 'ci' | 'review' | 'code' | 'issue' | 'release';
-  sample_payload?: Record<string, any>;
 }
 
 export interface Task {
@@ -174,10 +143,6 @@ export interface Task {
   persona: string;
   model_name: string;
   status: TaskStatus;
-  is_listening?: boolean;
-  listening_events?: string[];
-  listener_persona?: string;
-  auto_commit_fixes?: boolean;
   repo_name?: string;
   repo_url?: string;
   target_branch?: string;
@@ -271,9 +236,6 @@ export interface RepositoryConfig {
   test_command: string;
   manifest_cache?: Record<string, any>;
   status: 'CONNECTED' | 'AUTH_REQUIRED' | 'UNREACHABLE';
-  is_listening?: boolean;
-  subscribed_events?: string[];
-  default_persona?: string;
   last_synced_at?: string;
   created_at?: string;
   updated_at?: string;
@@ -407,105 +369,91 @@ export interface ModelSettings {
   };
 }
 
-export interface InboundEvent {
-  id?: string;
-  source: string;
-  event_type: string;
-  payload: Record<string, any>;
-  signature_valid: boolean;
-  session_key?: string | null;
-  matched_rule_id?: string | null;
-  status: string;
-  created_at: string;
+export interface GuardrailEvaluation {
+  prompt: string;
+  is_safe: boolean;
+  safety_risk_probability: number;
+  intent_route: 'deterministic_tool' | 'system_two_reasoning' | 'direct_chat_response' | 'blocked' | string;
+  confidence: number;
+  complexity_score: number;
+  complexity_label: string;
+  target_tool: 'git_status' | 'list_files' | 'search_code' | 'test_runner' | 'diff_inspector' | 'none' | string;
+  requires_deep_reasoning: boolean;
+  deep_reasoning_probability: number;
+  dispatch_action: 'FAST_PATH_TOOL' | 'ESCALATE_SYSTEM_TWO' | 'DIRECT_CHAT' | 'BLOCK_INJECTION' | string;
+  latency_ms: number;
+  cost_usd: number;
+  reason: string;
 }
 
-export interface OutboundEvent {
-  id: string;
-  task_id: string;
-  event_id?: string | null;
-  action_type: string;
-  target: string;
-  payload: Record<string, any>;
-  status_code?: number;
-  delivered: boolean;
-  delivered_at: string;
-  error?: string | null;
+export interface GuardrailSettings {
+  guardrail_enabled: boolean;
+  fastpath_enabled: boolean;
+  safety_threshold: number;
+  system_two_threshold: number;
+  typesafe_configured: boolean;
+  masked_api_key?: string;
+  base_url?: string;
 }
 
-export interface EventTimelineItem {
-  id: string;
-  kind: 'inbound' | 'outbound';
-  source: string;
-  event_type: string;
-  title: string;
-  summary?: string;
-  session_key?: string | null;
-  task_id?: string | null;
-  signature_valid: boolean;
-  status: string;
-  status_code?: number | null;
-  payload: Record<string, any>;
-  timestamp: string;
+export interface SingleBenchmarkRun {
+  prompt: string;
+  category: string;
+  jev: {
+    model: string;
+    latency_ms: number;
+    cost_usd: number;
+    is_safe: boolean;
+    safety_risk_probability: number;
+    intent_route: string;
+    confidence: number;
+    complexity_score: number;
+    complexity_label: string;
+    target_tool: string;
+    requires_deep_reasoning: boolean;
+    dispatch_action: string;
+    reason: string;
+  };
+  llm: {
+    model: string;
+    latency_ms: number;
+    cost_usd: number;
+    input_tokens: number;
+    output_tokens: number;
+    is_safe: boolean;
+    intent_route: string;
+    complexity_score: number;
+    target_tool: string;
+    dispatch_action: string;
+    parsed_valid: boolean;
+    raw_json: Record<string, any>;
+  };
+  speedup_factor: number;
+  cost_savings_factor: number;
+  cost_savings_pct: number;
+  decision_agreement: boolean;
+  agreement_details: {
+    safety: boolean;
+    intent_route: boolean;
+    dispatch_action: boolean;
+  };
 }
 
-export interface ToolInvocationRecord {
-  id?: string;
-  tool_name: string;
-  input_args: Record<string, any>;
-  output_data?: string | null;
-  error?: string | null;
-  duration_ms?: number;
-  exit_code?: number;
-  created_at: string;
-}
-
-export interface TrajectoryTurn {
-  turn_index: number;
-  timestamp: string;
-  thoughts: string[];
-  user_prompt?: string | null;
-  agent_response?: string | null;
-  tool_calls: ToolInvocationRecord[];
-  diff_snapshot_sha?: string | null;
-  tokens_consumed: number;
-}
-
-export interface AgentTrajectory {
-  task_id: string;
-  session_key?: string | null;
-  persona: string;
-  model_name: string;
-  status: string;
-  turns: TrajectoryTurn[];
-  total_tokens: number;
-  total_latency_ms: number;
-  estimated_cost_usd: number;
-  created_at: string;
-  updated_at: string;
-}
-
-export type EvaluationCategory = 
-  | 'workspace_state'
-  | 'unit_tests'
-  | 'preview_bundle'
-  | 'security_jail'
-  | 'synthesis'
-  | 'pr_quality';
-
-export interface EvaluationCheck {
-  name: string;
-  category: EvaluationCategory;
-  passed: boolean;
-  diagnostics?: string | null;
-  duration_ms?: number | null;
-}
-
-export interface EvaluationScorecard {
-  status: 'accomplished' | 'needs_revision' | 'in_progress';
-  summary: string;
-  score: number;
-  checks: EvaluationCheck[];
-  evaluated_at: string;
+export interface BenchmarkSuiteReport {
+  suite_name: string;
+  total_runs: number;
+  jev_mean_latency_ms: number;
+  jev_p95_latency_ms: number;
+  llm_mean_latency_ms: number;
+  llm_p95_latency_ms: number;
+  overall_speedup: number;
+  jev_total_cost_usd: number;
+  llm_total_cost_usd: number;
+  total_cost_savings_pct: number;
+  concordance_rate_pct: number;
+  jev_schema_error_rate_pct: number;
+  llm_schema_error_rate_pct: number;
+  runs: SingleBenchmarkRun[];
 }
 
 

@@ -122,6 +122,14 @@ class Settings(BaseSettings):
 
     LINEAR_API_KEY: Optional[str] = Field(default_factory=lambda: _USER_CFG.get("linear_api_key"))
 
+    # TypeSafe AI (Jev System One) Configuration
+    TYPESAFE_API_KEY: Optional[str] = Field(default_factory=lambda: _USER_CFG.get("typesafe_api_key") or os.environ.get("TYPESAFE_API_KEY"))
+    TYPESAFE_BASE_URL: str = Field(default_factory=lambda: str(_USER_CFG.get("typesafe_base_url") or os.environ.get("TYPESAFE_BASE_URL", "https://api.typesafe.ai/v1")))
+    TYPESAFE_GUARDRAIL_ENABLED: bool = Field(default_factory=lambda: bool(_USER_CFG.get("typesafe_guardrail_enabled", True)))
+    TYPESAFE_FASTPATH_ENABLED: bool = Field(default_factory=lambda: bool(_USER_CFG.get("typesafe_fastpath_enabled", True)))
+    TYPESAFE_SAFETY_THRESHOLD: float = Field(default_factory=lambda: float(_USER_CFG.get("typesafe_safety_threshold", 0.70)))
+    TYPESAFE_SYSTEM_TWO_THRESHOLD: float = Field(default_factory=lambda: float(_USER_CFG.get("typesafe_system_two_threshold", 0.65)))
+
     def get_api_key(self) -> Optional[str]:
         return self.GEMINI_API_KEY or self.GOOGLE_API_KEY
 
@@ -130,6 +138,9 @@ class Settings(BaseSettings):
 
     def get_openai_api_key(self) -> Optional[str]:
         return self.OPENAI_API_KEY or os.environ.get("OPENAI_API_KEY")
+
+    def get_typesafe_api_key(self) -> Optional[str]:
+        return self.TYPESAFE_API_KEY or os.environ.get("TYPESAFE_API_KEY")
 
 
 settings = Settings()

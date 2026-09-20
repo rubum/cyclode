@@ -61,3 +61,66 @@ async def update_model_settings(req: ModelSettingsUpdateRequest):
     updates = {k: v for k, v in req.model_dump().items() if v is not None}
     return integration_manager.update_model_settings(updates)
 
+
+class GuardrailSettingsUpdateRequest(BaseModel):
+    guardrail_enabled: Optional[bool] = None
+    fastpath_enabled: Optional[bool] = None
+    safety_threshold: Optional[float] = None
+    system_two_threshold: Optional[float] = None
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+
+
+class TestGuardrailRequest(BaseModel):
+    prompt: str
+    context: Optional[Dict[str, Any]] = None
+
+
+class BenchmarkRunRequest(BaseModel):
+    prompt: str
+    category: Optional[str] = "custom"
+    context: Optional[Dict[str, Any]] = None
+    llm_model: Optional[str] = None
+
+
+class BenchmarkSuiteRequest(BaseModel):
+    suite_id: Optional[str] = "standard"
+
+
+@router.get("/guardrail-settings")
+async def get_guardrail_settings():
+    return integration_manager.get_guardrail_settings()
+
+
+@router.post("/guardrail-settings")
+async def update_guardrail_settings(req: GuardrailSettingsUpdateRequest):
+    updates = {k: v for k, v in req.model_dump().items() if v is not None}
+    return integration_manager.update_guardrail_settings(updates)
+
+
+@router.post("/guardrail-test")
+async def test_guardrail(req: TestGuardrailRequest):
+    from app.agent.guardrail import preflight_guardrail
+    eval_res = await preflight_guardrail.evaluate_preflight(req.prompt, req.context)
+    return eval_res.model_dump()
+
+
+@router.post("/benchmark-run")
+async def run_benchmark(req: BenchmarkRunRequest):
+    from app.agent.benchmark import benchmark_runner
+    res = await benchmark_runner.run_comparison(
+        prompt=req.prompt,
+        category=req.category or "custom",
+        context=req.context,
+        llm_model=req.llm_model
+    )
+    return res.model_dump()
+
+
+@router.post("/benchmark-suite")
+async def run_benchmark_suite(req: Optional[BenchmarkSuiteRequest] = None):
+    from app.agent.benchmark import benchmark_runner
+    suite_id = req.suite_id if req else "standard"
+    res = await benchmark_runner.run_suite(suite_id=suite_id)
+    return res.model_dump()
+
