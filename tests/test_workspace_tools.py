@@ -162,3 +162,73 @@ async def test_github_pr_tools(monkeypatch):
     )
     assert comment_res["ok"] is True
 
+
+def test_compact_command_output():
+    from app.agent.tools import compact_command_output
+    
+    # Short output remains unchanged
+    short_out = "Running tests...\nAll 5 passed!"
+    assert compact_command_output(short_out) == short_out
+    
+    # Long output with > 50 lines gets middle-elided
+    long_lines = [f"Step {i}: executing subtask" for i in range(100)]
+    long_out = "\n".join(long_lines)
+    compacted = compact_command_output(long_out)
+    assert "Omitted 50 lines of intermediate command logs" in compacted
+    assert "Step 0:" in compacted
+    assert "Step 99:" in compacted
+    
+    # ANSI escape codes are stripped
+    ansi_text = "\x1b[32mSuccess\x1b[0m: compilation complete"
+    assert compact_command_output(ansi_text) == "Success: compilation complete"
+
+
+def test_read_file_slicing_and_lockfile_guard(temp_workspace):
+    # Test line slicing
+    res = WorkspaceTools.read_file(temp_workspace, "server.py", start_line=10, end_line=13)
+    assert "health_check" in res["content"]
+    assert "10: @app.get" in res["content"]
+    assert res["start_line"] == 10
+    assert res["end_line"] == 13
+    
+    # Test lockfile guard
+    lockfile = temp_workspace / "package-lock.json"
+    lockfile.write_text("{\n" + '  "packages": {}\n' * 200 + "}", encoding="utf-8")
+    lock_res = WorkspaceTools.read_file(temp_workspace, "package-lock.json")
+    assert lock_res.get("truncated") is True
+    assert "generated lockfile or bundle" in lock_res["content"]
+
+
+def test_replace_file_content(temp_workspace):
+    file_path = "server.py"
+    target = 'class DatabaseConfig:\n    host: str = "localhost"\n    port: int = 5432'
+    replacement = 'class DatabaseConfig:\n    host: str = "postgres.internal"\n    port: int = 5432\n    ssl: bool = True'
+    
+    res = WorkspaceTools.replace_file_content(
+        workspace_path=temp_workspace,
+        file_path=file_path,
+        target_content=target,
+        replacement_content=replacement
+    )
+    assert res["status"] == "replaced"
+    assert res["replacements_count"] == 1
+    
+    content = (temp_workspace / file_path).read_text(encoding="utf-8")
+    assert 'host: str = "postgres.internal"' in content
+    assert 'ssl: bool = True' in content
+
+
+def test_get_file_outline(temp_workspace):
+    # Python outline
+    py_res = WorkspaceTools.get_file_outline(temp_workspace, "server.py")
+    assert py_res["symbol_count"] >= 3
+    assert "Outline for server.py" in py_res["outline"]
+    assert "DatabaseConfig" in py_res["outline"]
+    assert "health_check" in py_res["outline"]
+    
+    # TypeScript outline
+    ts_res = WorkspaceTools.get_file_outline(temp_workspace, "client.ts")
+    assert ts_res["symbol_count"] >= 3
+    assert "UserPayload" in ts_res["outline"]
+    assert "fetchHealth" in ts_res["outline"]
+

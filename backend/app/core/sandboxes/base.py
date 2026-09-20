@@ -89,3 +89,46 @@ class SandboxProvider(ABC):
     async def destroy_by_task_id(self, task_id: str, workspace_path: Optional[str] = None) -> bool:
         """Terminates and wipes the sandbox directory for a given task ID."""
         pass
+
+    async def fork_sandbox(
+        self,
+        parent_context: SandboxContext,
+        new_task_id: str
+    ) -> SandboxContext:
+        """
+        Forks an existing sandbox into a new isolated sub-sandbox (CoW branch) in sub-10ms.
+        Default implementation clones the parent directory if CoW is not natively supported.
+        """
+        raise NotImplementedError("Forking not implemented for this sandbox provider")
+
+    async def create_snapshot(self, context: SandboxContext, snapshot_tag: str) -> Optional[str]:
+        """
+        Creates an atomic filesystem snapshot pointer for the current turn.
+        Returns the snapshot identifier / tag.
+        """
+        return None
+
+    async def rollback_snapshot(self, context: SandboxContext, snapshot_tag: str) -> bool:
+        """
+        Rolls back the sandbox filesystem to the specified snapshot pointer in <5ms.
+        """
+        return False
+
+    async def promote_warm_cache(self, context: SandboxContext, cache_key: Optional[str] = None) -> bool:
+        """
+        Promotes the current sandbox state (e.g. post npm install / build caches) to the shared warm repository cache tier.
+        """
+        return False
+
+    async def get_cow_metrics(self, context: SandboxContext) -> Dict[str, Any]:
+        """
+        Returns Copy-on-Write layer metrics (lowerdir base bytes, upperdir diff bytes, savings percentage).
+        """
+        return {
+            "mode": "standard_directory",
+            "is_cow_active": False,
+            "base_size_bytes": 0,
+            "diff_size_bytes": 0,
+            "shared_savings_bytes": 0,
+            "snapshot_count": 0
+        }

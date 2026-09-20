@@ -36,6 +36,12 @@ class RepositoryUpdateRequest(BaseModel):
     tech_stack: Optional[List[str]] = None
 
 
+class RepoListenConfigRequest(BaseModel):
+    is_listening: bool
+    subscribed_events: Optional[List[str]] = None
+    default_persona: Optional[str] = "AUTONOMOUS_WORKER"
+
+
 def mask_token_preview(token: Optional[str]) -> str:
     if not token:
         return ""
@@ -46,6 +52,7 @@ def mask_token_preview(token: Optional[str]) -> str:
 
 def serialize_repo(repo: RepositoryConfigModel) -> Dict[str, Any]:
     raw_token = decrypt_secret(repo.encrypted_token) if repo.encrypted_token else None
+    events_list = [e.strip() for e in (repo.subscribed_events or "").split(",") if e.strip()]
     return {
         "id": repo.id,
         "name": repo.name,
@@ -59,6 +66,9 @@ def serialize_repo(repo: RepositoryConfigModel) -> Dict[str, Any]:
         "test_command": repo.test_command if repo.test_command and repo.test_command.strip() else None,
         "manifest_cache": repo.manifest_cache or {},
         "status": repo.status,
+        "is_listening": repo.is_listening,
+        "subscribed_events": events_list,
+        "default_persona": repo.default_persona or "AUTONOMOUS_WORKER",
         "last_synced_at": repo.last_synced_at.isoformat() if repo.last_synced_at else None,
         "created_at": repo.created_at.isoformat() if repo.created_at else None,
         "updated_at": repo.updated_at.isoformat() if repo.updated_at else None,
@@ -393,5 +403,65 @@ async def simulate_repository_event(
         signature_valid=True
     )
     return {"ok": True, "result": result}
+
+
+@router.get("/{repo_id}/listen")
+async def get_repository_listen_config(repo_id: str, db: AsyncSession = Depends(get_db)):
+    stmt = select(RepositoryConfigModel).where(RepositoryConfigModel.id == repo_id)
+    res = await db.execute(stmt)
+    repo = res.scalars().first()
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
+    events_list = [e.strip() for e in (repo.subscribed_events or "").split(",") if e.strip()]
+    return {
+        "repo_id": repo.id,
+        "repo_full_name": repo.full_name,
+        "is_listening": repo.is_listening,
+        "subscribed_events": events_list,
+        "default_persona": repo.default_persona or "AUTONOMOUS_WORKER"
+    }
+
+
+@router.post("/{repo_id}/listen")
+async def update_repository_listen_config(repo_id: str, req: RepoListenConfigRequest, db: AsyncSession = Depends(get_db)):
+    stmt = select(RepositoryConfigModel).where(RepositoryConfigModel.id == repo_id)
+    res = await db.execute(stmt)
+    repo = res.scalars().first()
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
+
+    repo.is_listening = req.is_listening
+    if req.subscribed_events is not None:
+        repo.subscribed_events = ",".join(req.subscribed_events)
+    if req.default_persona is not None:
+        repo.default_persona = req.default_persona
+
+    await db.commit()
+    await db.refresh(repo)
+
+    events_list = [e.strip() for e in (repo.subscribed_events or "").split(",") if e.strip()]
+
+    try:
+        from app.api.websocket import ws_manager
+        await ws_manager.broadcast("REPO_LISTENER_UPDATED", {
+            "repo_id": repo.id,
+            "repo_full_name": repo.full_name,
+            "is_listening": repo.is_listening,
+            "subscribed_events": events_list,
+            "default_persona": repo.default_persona
+        })
+    except Exception as e:
+        logger.debug(f"Error broadcasting REPO_LISTENER_UPDATED: {e}")
+
+    return {
+        "ok": True,
+        "repo_id": repo.id,
+        "repo_full_name": repo.full_name,
+        "is_listening": repo.is_listening,
+        "subscribed_events": events_list,
+        "default_persona": repo.default_persona
+    }
+
 
 

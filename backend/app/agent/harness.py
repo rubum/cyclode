@@ -21,6 +21,16 @@ from app.integrations.github_client import github_client
 from app.integrations.manager import integration_manager
 from app.agent.vault_interceptor import VaultInterceptor
 from app.agent.providers.factory import get_provider_for_model
+from app.core.events.dispatcher import event_dispatcher
+from app.core.trajectories.collector import TrajectoryCollector
+from app.core.evals.runner import evaluation_runner
+from app.schemas.trajectory import AgentTrajectory
+from app.schemas.evals import EvaluationScorecard
+
+# In-memory storage for active task trajectories and evaluations
+task_trajectories: Dict[str, AgentTrajectory] = {}
+task_evaluations: Dict[str, EvaluationScorecard] = {}
+
 
 
 
@@ -598,18 +608,45 @@ class AntigravityHarness:
                     },
                     {
                         "name": "read_file",
-                        "description": "Read file contents from the workspace.",
+                        "description": "Read file contents from the workspace. Supports start_line and end_line for token-efficient sliced views.",
                         "parameters": {
                             "type": "OBJECT",
                             "properties": {
-                                "file_path": {"type": "STRING", "description": "Relative path to file"}
+                                "file_path": {"type": "STRING", "description": "Relative path to file"},
+                                "start_line": {"type": "INTEGER", "description": "Optional 1-indexed start line number"},
+                                "end_line": {"type": "INTEGER", "description": "Optional 1-indexed end line number"}
                             },
                             "required": ["file_path"]
                         }
                     },
                     {
+                        "name": "get_file_outline",
+                        "description": "Extracts AST class definitions, function signatures, endpoints, and types from a file without function bodies. Highly recommended for exploring unfamiliar files with minimal token consumption.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "file_path": {"type": "STRING", "description": "Relative path to file to outline"}
+                            },
+                            "required": ["file_path"]
+                        }
+                    },
+                    {
+                        "name": "replace_file_content",
+                        "description": "Replace a specific target text block with replacement content in an existing file. Token-efficient alternative to overwriting whole files with edit_file.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "file_path": {"type": "STRING", "description": "Relative path to file"},
+                                "target_content": {"type": "STRING", "description": "Exact text block to replace"},
+                                "replacement_content": {"type": "STRING", "description": "New replacement content"},
+                                "allow_multiple": {"type": "BOOLEAN", "description": "Whether to replace multiple occurrences (default: false)"}
+                            },
+                            "required": ["file_path", "target_content", "replacement_content"]
+                        }
+                    },
+                    {
                         "name": "edit_file",
-                        "description": "Write or overwrite content of a file in the workspace.",
+                        "description": "Write or overwrite complete content of a file in the workspace.",
                         "parameters": {
                             "type": "OBJECT",
                             "properties": {
@@ -628,6 +665,38 @@ class AntigravityHarness:
                                 "command": {"type": "STRING", "description": "Shell command line"}
                             },
                             "required": ["command"]
+                        }
+                    },
+                    {
+                        "name": "speculative_branch_test",
+                        "description": "Execute parallel multi-branch testing across Copy-on-Write micro-sandbox forks in <10ms. Evaluates alternative code hypotheses simultaneously and identifies the winning fix.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "hypotheses": {
+                                    "type": "ARRAY",
+                                    "description": "List of alternative implementation hypotheses with file edits",
+                                    "items": {
+                                        "type": "OBJECT",
+                                        "properties": {
+                                            "name": {"type": "STRING", "description": "Hypothesis name (e.g. 'Use v4 CSS imports')"},
+                                            "edits": {
+                                                "type": "ARRAY",
+                                                "items": {
+                                                    "type": "OBJECT",
+                                                    "properties": {
+                                                        "file_path": {"type": "STRING"},
+                                                        "target_content": {"type": "STRING"},
+                                                        "replacement_content": {"type": "STRING"}
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                                "test_command": {"type": "STRING", "description": "Verification shell command to run in each fork (e.g. 'npm run build' or 'pytest')"}
+                            },
+                            "required": ["hypotheses", "test_command"]
                         }
                     },
                     {
@@ -1000,6 +1069,11 @@ class AntigravityHarness:
             quota_exhausted = False
             last_api_error_code = None
             last_api_error_text = ""
+            collector = TrajectoryCollector(
+                task_id=task_id,
+                persona=persona_name,
+                model_name=self.model_name
+            )
             for active_model in unique_models:
                 if quota_exhausted:
                     break
@@ -1014,6 +1088,7 @@ class AntigravityHarness:
                 try:
                     while turn < max_turns:
                         turn += 1
+                        collector.start_turn(turn_index=turn, user_prompt=prompt if turn == 1 else None)
                         if workspace_path and workspace_path.exists():
                             create_turn_snapshot(workspace_path, turn)
 
@@ -1027,16 +1102,36 @@ class AntigravityHarness:
                             parts = entry.get("parts", [])
                             new_parts = []
                             for p in parts:
-                                if "functionCall" in p and p["functionCall"].get("name") == "edit_file":
-                                    new_p = dict(p)
-                                    fc = dict(p["functionCall"])
-                                    args = dict(fc.get("args", {}))
-                                    c_str = args.get("content", "")
-                                    if len(c_str) > 2000:
-                                        args["content"] = c_str[:400] + f"\n\n... [Historical file write content compacted ({len(c_str)} bytes total)]"
-                                        fc["args"] = args
-                                        new_p["functionCall"] = fc
-                                        new_parts.append(new_p)
+                                if "functionCall" in p:
+                                    fn = p["functionCall"].get("name")
+                                    if fn == "edit_file":
+                                        new_p = dict(p)
+                                        fc = dict(p["functionCall"])
+                                        args = dict(fc.get("args", {}))
+                                        c_str = args.get("content", "")
+                                        if len(c_str) > 1500:
+                                            args["content"] = c_str[:300] + f"\n\n... [Historical file write content compacted ({len(c_str)} bytes total)]"
+                                            fc["args"] = args
+                                            new_p["functionCall"] = fc
+                                            new_parts.append(new_p)
+                                        else:
+                                            new_parts.append(p)
+                                    elif fn == "replace_file_content":
+                                        new_p = dict(p)
+                                        fc = dict(p["functionCall"])
+                                        args = dict(fc.get("args", {}))
+                                        rc = args.get("replacement_content", "")
+                                        tc = args.get("target_content", "")
+                                        if len(rc) > 1500 or len(tc) > 1500:
+                                            if len(rc) > 1500:
+                                                args["replacement_content"] = rc[:300] + f"\n\n... [Historical replacement content compacted ({len(rc)} bytes)]"
+                                            if len(tc) > 1500:
+                                                args["target_content"] = tc[:300] + f"\n\n... [Historical target content compacted ({len(tc)} bytes)]"
+                                            fc["args"] = args
+                                            new_p["functionCall"] = fc
+                                            new_parts.append(new_p)
+                                        else:
+                                            new_parts.append(p)
                                     else:
                                         new_parts.append(p)
                                 elif "functionResponse" in p:
@@ -1176,6 +1271,7 @@ class AntigravityHarness:
 
                         model_succeeded = True
                         if provider_resp.thought:
+                            collector.add_thought(provider_resp.thought)
                             await self._emit_streamed_thought(
                                 provider_resp.thought, on_thought, on_stream_start, on_stream_chunk, on_stream_end
                             )
@@ -1412,11 +1508,40 @@ class AntigravityHarness:
                                     out_str = f"Directory '{subpath}' is empty."
                             elif fn_name == "read_file":
                                 file_path = args.get("file_path", "")
-                                tool_result = WorkspaceTools.read_file(workspace_path, file_path)
+                                start_line = args.get("start_line")
+                                end_line = args.get("end_line")
+                                tool_result = WorkspaceTools.read_file(workspace_path, file_path, start_line=start_line, end_line=end_line)
                                 if "content" in tool_result:
                                     out_str = tool_result["content"]
                                 else:
                                     out_str = tool_result.get("error", "Error reading file")
+                            elif fn_name == "get_file_outline":
+                                file_path = args.get("file_path", "")
+                                tool_result = WorkspaceTools.get_file_outline(workspace_path, file_path)
+                                if "outline" in tool_result:
+                                    out_str = tool_result["outline"]
+                                else:
+                                    out_str = tool_result.get("error", "Error extracting file outline")
+                            elif fn_name == "replace_file_content":
+                                mutating_tool_count += 1
+                                file_path = args.get("file_path", "")
+                                target_content = args.get("target_content", "")
+                                replacement_content = args.get("replacement_content", "")
+                                allow_multiple = bool(args.get("allow_multiple", False))
+                                tool_result = WorkspaceTools.replace_file_content(
+                                    workspace_path=workspace_path,
+                                    file_path=file_path,
+                                    target_content=target_content,
+                                    replacement_content=replacement_content,
+                                    allow_multiple=allow_multiple
+                                )
+                                diffs = worktree_manager.get_git_diff(workspace_path)
+                                if diffs:
+                                    await on_diff_updated(diffs)
+                                if "error" in tool_result:
+                                    out_str = f"Error replacing content: {tool_result['error']}"
+                                else:
+                                    out_str = f"Successfully replaced target content in '{file_path}' ({tool_result.get('replacements_count', 1)} replacement(s))."
                             elif fn_name == "edit_file":
                                 mutating_tool_count += 1
                                 file_path = args.get("file_path", "")
@@ -1426,6 +1551,41 @@ class AntigravityHarness:
                                 if diffs:
                                     await on_diff_updated(diffs)
                                 out_str = f"Successfully updated '{file_path}' ({len(content)} bytes)."
+                            elif fn_name == "speculative_branch_test":
+                                hypotheses = args.get("hypotheses", [])
+                                test_cmd = args.get("test_command", "")
+                                tool_result = await WorkspaceTools.speculative_branch_test(
+                                    workspace_path=workspace_path,
+                                    hypotheses=hypotheses,
+                                    test_command=test_cmd
+                                )
+                                winner = tool_result.get("winning_hypothesis")
+                                out_str = f"Speculative Multi-Branch Test ({len(hypotheses)} branches):\n"
+                                if winner:
+                                    out_str += f"Winning Hypothesis: {winner}\n"
+                                    # Auto-apply winner edits to active workspace
+                                    win_idx = tool_result.get("winner_index")
+                                    if win_idx is not None and win_idx < len(hypotheses):
+                                        for edit in hypotheses[win_idx].get("edits", []):
+                                            f_path = edit.get("file_path", "")
+                                            tc = edit.get("target_content", "")
+                                            rc = edit.get("replacement_content", "")
+                                            if f_path and tc and rc is not None:
+                                                WorkspaceTools.replace_file_content(workspace_path, f_path, tc, rc)
+                                                mutating_tool_count += 1
+                                            elif f_path and "content" in edit:
+                                                WorkspaceTools.edit_file(workspace_path, f_path, edit["content"])
+                                                mutating_tool_count += 1
+                                        diffs = worktree_manager.get_git_diff(workspace_path)
+                                        if diffs:
+                                            await on_diff_updated(diffs)
+                                        out_str += f"Successfully applied winning hypothesis '{winner}' to active workspace.\n"
+                                else:
+                                    out_str += "None of the speculative branches passed the verification test command.\n"
+                                
+                                for r in tool_result.get("all_results", []):
+                                    status_label = "[PASSED]" if r.get("passed") else f"[FAILED exit {r.get('exit_code')}]"
+                                    out_str += f"- {r.get('hypothesis_name')}: {status_label} ({r.get('duration_ms', 0)}ms)\n"
                             elif fn_name == "run_command":
                                 cmd = args.get("command", "")
                                 tool_result = WorkspaceTools.run_command(workspace_path, cmd)
@@ -1558,6 +1718,13 @@ class AntigravityHarness:
                                     repo_arg, pr_num, body_arg, event=event_arg
                                 )
                                 out_str = json.dumps(tool_result, indent=2)
+                                asyncio.create_task(event_dispatcher.record_and_broadcast(
+                                    task_id=task_id,
+                                    action_type="pr_review",
+                                    target=f"{repo_arg}#{pr_num}",
+                                    payload={"review_event": event_arg, "body": body_arg, "repo": repo_arg, "pr_number": pr_num},
+                                    status_code=200 if tool_result.get("ok", True) else 400
+                                ))
                             elif fn_name == "post_pull_request_line_comment":
                                 repo_arg = args.get("repository", "")
                                 pr_num = int(args.get("pr_number", 1))
@@ -1570,6 +1737,13 @@ class AntigravityHarness:
                                     repo_arg, pr_num, body_arg, commit_sha_arg, path_arg, line_arg, side=side_arg
                                 )
                                 out_str = json.dumps(tool_result, indent=2)
+                                asyncio.create_task(event_dispatcher.record_and_broadcast(
+                                    task_id=task_id,
+                                    action_type="line_comment",
+                                    target=f"{repo_arg}#{pr_num}:{path_arg}:{line_arg}",
+                                    payload={"body": body_arg, "path": path_arg, "line": line_arg, "commit_sha": commit_sha_arg},
+                                    status_code=200 if tool_result.get("ok", True) else 400
+                                ))
                             elif fn_name == "create_pull_request":
                                 repo_arg = args.get("repository", "")
                                 title_arg = args.get("title", "")
@@ -1582,6 +1756,13 @@ class AntigravityHarness:
                                 out_str = json.dumps(tool_result, indent=2)
                                 if isinstance(tool_result, dict) and ("number" in tool_result or "pr_number" in tool_result):
                                     asyncio.create_task(self._upsert_task_prs(task_id, [tool_result]))
+                                asyncio.create_task(event_dispatcher.record_and_broadcast(
+                                    task_id=task_id,
+                                    action_type="create_pr",
+                                    target=f"{repo_arg}:{head_branch_arg}",
+                                    payload={"title": title_arg, "body": body_arg, "head": head_branch_arg, "base": base_branch_arg},
+                                    status_code=200 if tool_result.get("ok", True) else 400
+                                ))
                             elif fn_name == "connect_repository":
                                 repo_url_arg = args.get("repo_url", "")
                                 token_arg = args.get("token")
@@ -1682,6 +1863,14 @@ class AntigravityHarness:
                                 out_str = f"Unknown tool: {fn_name}"
 
                             elapsed_ms = int((asyncio.get_event_loop().time() - start_time) * 1000)
+                            collector.record_tool_invocation(
+                                tool_name=fn_name,
+                                input_args=args,
+                                output_data=out_str,
+                                error=tool_result.get("error") if isinstance(tool_result, dict) else None,
+                                duration_ms=elapsed_ms,
+                                exit_code=exit_code
+                            )
                             if on_tool_end:
                                 sig = inspect.signature(on_tool_end)
                                 if inspect.iscoroutinefunction(on_tool_end):
@@ -2105,55 +2294,28 @@ class AntigravityHarness:
                         f"CRITICAL DIRECTIVE: Ground your response strictly in the verified preview status above. Only report that the application is compiled and renderable if status is 'ready' or 'compiled'. Direct the user to the Preview tab."
                     )
 
-                    # Autonomous Plan Self-Evaluation Audit
-                    checks = [{"name": "Workspace State", "passed": True}]
-                    if is_app_task:
-                        preview_ok = post_verification.get("status") in ["ready", "compiled", "static"] and not post_verification.get("issues")
-                        checks.append({
-                            "name": "Live Application Preview",
-                            "passed": preview_ok
-                        })
-                        checks.append({
-                            "name": "Tool Execution",
-                            "passed": tool_call_count > 0 or model_succeeded
-                        })
-                    elif intent_category == "qa_research":
-                        has_synthesis = bool(final_agent_text and len(final_agent_text.strip()) > 30) or model_succeeded
-                        checks.append({
-                            "name": "Analytical Synthesis",
-                            "passed": has_synthesis
-                        })
-                        if tool_call_count > 0:
-                            checks.append({
-                                "name": "Tool Execution",
-                                "passed": True
-                            })
-                    else:
-                        checks.append({
-                            "name": "Tool Execution",
-                            "passed": tool_call_count > 0 or model_succeeded
-                        })
+                    # Autonomous Plan Self-Evaluation Audit via EvaluationRunner
+                    scorecard = await evaluation_runner.evaluate_task(
+                        workspace_path=workspace_path,
+                        intent_category=intent_category,
+                        is_app_task=is_app_task,
+                        preview_info=post_verification,
+                        tool_call_count=tool_call_count,
+                        final_agent_text=final_agent_text,
+                        model_succeeded=model_succeeded
+                    )
+                    task_evaluations[task_id] = scorecard
 
-                    all_checks_passed = all(c.get("passed", False) for c in checks)
-                    if not all_checks_passed or not model_succeeded:
-                        eval_status = "needs_revision"
-                        failed_names = [c["name"] for c in checks if not c.get("passed", False)]
-                        eval_summary = f"Plan execution requires revision: {', '.join(failed_names) if failed_names else 'Execution did not produce expected output'}."
-                        for s in current_plan.get("steps", []):
-                            if s.get("status") == "in_progress":
-                                s["status"] = "failed"
-                    else:
-                        eval_status = "accomplished"
-                        eval_summary = "All execution plan steps verified successfully against workspace telemetry."
+                    if scorecard.status == "accomplished":
                         for s in current_plan.get("steps", []):
                             if s.get("status") != "failed":
                                 s["status"] = "completed"
+                    else:
+                        for s in current_plan.get("steps", []):
+                            if s.get("status") == "in_progress":
+                                s["status"] = "failed"
 
-                    current_plan["evaluation"] = {
-                        "status": eval_status,
-                        "summary": eval_summary,
-                        "checks": checks
-                    }
+                    current_plan["evaluation"] = scorecard.model_dump()
                     await self._emit_plan(current_plan, on_plan)
 
                     if model_succeeded:
@@ -2173,6 +2335,8 @@ class AntigravityHarness:
                             if synth_resp.is_success and synth_resp.content:
                                 final_synth_text = synth_resp.content.strip()
                                 if final_synth_text:
+                                    collector.end_turn(agent_response=final_synth_text)
+                                    task_trajectories[task_id] = collector.build_trajectory(status="COMPLETED")
                                     await self._emit_streamed_message(
                                         "agent", final_synth_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
                                     )
@@ -2245,13 +2409,18 @@ class AntigravityHarness:
                                     flat_synth_text = (
                                         "All requested components and workspace modifications have been applied and verified."
                                     )
+                                collector.end_turn(agent_response=flat_synth_text)
+                                task_trajectories[task_id] = collector.build_trajectory(status="COMPLETED")
                                 await self._emit_streamed_message(
                                     "agent", flat_synth_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
                                 )
+                                return {"status": "COMPLETED", "summary": flat_synth_text[:120]}
                         except Exception as flat_err:
                             logger.error(f"Flat text synthesis error: {flat_err}")
 
                     if model_succeeded and final_agent_text:
+                        collector.end_turn(agent_response=final_agent_text)
+                        task_trajectories[task_id] = collector.build_trajectory(status="COMPLETED")
                         await self._emit_streamed_message(
                             "agent", final_agent_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
                         )
@@ -2293,10 +2462,21 @@ class AntigravityHarness:
                     f"Execution could not be completed. The AI provider did not return actionable tool calls or responses for this turn."
                 )
             return_status = "FAILED"
+        collector.end_turn(agent_response=fallback_msg)
+        task_trajectories[task_id] = collector.build_trajectory(status=return_status)
         await self._emit_streamed_message(
             "agent", fallback_msg, on_message, on_stream_start, on_stream_chunk, on_stream_end
         )
         return {"status": return_status, "summary": fallback_msg[:120]}
 
 
+def get_task_trajectory(task_id: str) -> Optional[AgentTrajectory]:
+    return task_trajectories.get(task_id)
+
+
+def get_task_evaluation(task_id: str) -> Optional[EvaluationScorecard]:
+    return task_evaluations.get(task_id)
+
+
 antigravity_harness = AntigravityHarness()
+
