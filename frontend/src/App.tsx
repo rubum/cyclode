@@ -1031,7 +1031,7 @@ const MainApp: React.FC = () => {
       const res = await fetch(`${API_BASE}/api/tasks/${taskId}`, {
         method: 'DELETE',
       });
-      if (res.ok) {
+      if (res.ok || res.status === 404) {
         if (activeTaskId === taskId) {
           setActiveTaskId(null);
           setActiveTaskDetails(null);
@@ -1042,9 +1042,13 @@ const MainApp: React.FC = () => {
           return next;
         });
         await fetchTasks();
+      } else {
+        console.error('Failed to delete task:', res.status, res.statusText);
+        await fetchTasks();
       }
     } catch (err) {
       console.error('Error deleting task:', err);
+      await fetchTasks();
     } finally {
       setDeletingTaskId(null);
     }
@@ -1056,14 +1060,18 @@ const MainApp: React.FC = () => {
       const res = await fetch(`${API_BASE}/api/tasks`, {
         method: 'DELETE',
       });
-      if (res.ok) {
+      if (res.ok || res.status === 404) {
         setActiveTaskId(null);
         setActiveTaskDetails(null);
         setSessionPreviews({});
         await fetchTasks();
+      } else {
+        console.error('Failed to clear all tasks:', res.status, res.statusText);
+        await fetchTasks();
       }
     } catch (err) {
       console.error('Error clearing all tasks:', err);
+      await fetchTasks();
     } finally {
       setIsClearingAll(false);
     }

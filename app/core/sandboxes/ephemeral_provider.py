@@ -360,7 +360,8 @@ class EphemeralSandboxProvider(SandboxProvider):
                 ctx.is_destroyed = True
             
             target_path = Path(workspace_path) if workspace_path else (self.base_dir / f"sandbox-{task_id}")
-            if target_path.exists() and target_path.is_dir():
+            is_ephemeral = str(target_path).startswith(str(self.base_dir)) or f"sandbox-{task_id}" in str(target_path)
+            if target_path.exists() and target_path.is_dir() and is_ephemeral:
                 shutil.rmtree(target_path, ignore_errors=True)
             logger.info(f"Cleaned up sandbox workspace for task {task_id} at {target_path}")
             return True

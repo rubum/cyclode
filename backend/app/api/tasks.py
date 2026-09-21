@@ -1,13 +1,17 @@
 import os
+import re
 import shutil
 import subprocess
+import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 from pydantic import BaseModel
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+
+logger = logging.getLogger(__name__)
 from app.db.session import get_db
 from app.db.models import TaskModel, TaskMessageModel, TaskLogModel, TaskApprovalModel, TaskDiffModel, TaskPRModel, EventModel, get_utc_now
 from app.agent.pool import agent_pool
@@ -547,12 +551,28 @@ async def clear_all_tasks(db: AsyncSession = Depends(get_db)):
     stmt = select(TaskModel)
     result = await db.execute(stmt)
     tasks = result.scalars().all()
+
+    # Cancel all active agent tasks
+    for tid in list(agent_pool.active_tasks.keys()):
+        try:
+            agent_pool.active_tasks[tid].cancel()
+            agent_pool.active_tasks.pop(tid, None)
+        except Exception:
+            pass
+
     for task in tasks:
-        if task.id in agent_pool.active_tasks:
-            agent_pool.active_tasks[task.id].cancel()
-            agent_pool.active_tasks.pop(task.id, None)
-        await sandbox_manager.destroy_by_task_id(task.id, task.workspace_path)
-        await db.delete(task)
+        try:
+            await sandbox_manager.destroy_by_task_id(task.id, task.workspace_path)
+        except Exception as e:
+            logger.warning(f"Error destroying sandbox for task {task.id}: {e}")
+
+    # Explicit SQL deletes across all tables to avoid lazy-load cascade failures
+    await db.execute(delete(TaskMessageModel))
+    await db.execute(delete(TaskLogModel))
+    await db.execute(delete(TaskApprovalModel))
+    await db.execute(delete(TaskDiffModel))
+    await db.execute(delete(TaskPRModel))
+    await db.execute(delete(TaskModel))
     await db.commit()
     return {"ok": True, "count": len(tasks), "message": "All sessions cleared"}
 
@@ -561,19 +581,41 @@ async def clear_all_tasks(db: AsyncSession = Depends(get_db)):
 async def delete_task(task_id: str, db: AsyncSession = Depends(get_db)):
     if not task_id or task_id.strip() == "":
         return await clear_all_tasks(db)
+
     stmt = select(TaskModel).where(TaskModel.id == task_id)
     result = await db.execute(stmt)
     task = result.scalars().first()
     if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+        # Idempotent response: if already removed, succeed so UI is never stuck
+        return {"ok": True, "deleted_task_id": task_id, "already_deleted": True}
 
-    if task.id in agent_pool.active_tasks:
-        agent_pool.active_tasks[task.id].cancel()
-        agent_pool.active_tasks.pop(task.id, None)
+    # Find any subsession IDs associated with this parent task
+    sub_stmt = select(TaskModel.id).where(TaskModel.parent_task_id == task_id)
+    sub_res = await db.execute(sub_stmt)
+    sub_ids = sub_res.scalars().all()
+    all_target_ids = [task_id] + list(sub_ids)
 
-    await sandbox_manager.destroy_by_task_id(task.id, task.workspace_path)
+    # Cancel active agents for this task and its subsessions
+    for tid in all_target_ids:
+        if tid in agent_pool.active_tasks:
+            try:
+                agent_pool.active_tasks[tid].cancel()
+                agent_pool.active_tasks.pop(tid, None)
+            except Exception:
+                pass
+        try:
+            await sandbox_manager.destroy_by_task_id(tid, task.workspace_path if tid == task_id else None)
+        except Exception as e:
+            logger.warning(f"Error destroying sandbox for task {tid}: {e}")
 
-    await db.delete(task)
+    # Delete all associated records in dependency order
+    await db.execute(delete(TaskMessageModel).where(TaskMessageModel.task_id.in_(all_target_ids)))
+    await db.execute(delete(TaskLogModel).where(TaskLogModel.task_id.in_(all_target_ids)))
+    await db.execute(delete(TaskApprovalModel).where(TaskApprovalModel.task_id.in_(all_target_ids)))
+    await db.execute(delete(TaskDiffModel).where(TaskDiffModel.task_id.in_(all_target_ids)))
+    await db.execute(delete(TaskPRModel).where(TaskPRModel.task_id.in_(all_target_ids)))
+    await db.execute(delete(TaskModel).where(TaskModel.parent_task_id == task_id))
+    await db.execute(delete(TaskModel).where(TaskModel.id == task_id))
     await db.commit()
     return {"ok": True, "deleted_task_id": task_id}
 
@@ -1082,6 +1124,76 @@ async def get_sandbox_file_content(task_id: str, path: str, db: AsyncSession = D
     }
 
 
+@router.get("/{task_id}/files/search")
+async def search_sandbox_files(
+    task_id: str,
+    query: str = Query(..., description="Query string or pattern"),
+    mode: str = Query("text", description="Search mode: 'text' (grep) or 'ast' (tgrep)"),
+    is_regex: bool = Query(False, description="Whether query is regex"),
+    case_sensitive: bool = Query(False, description="Case sensitive matching"),
+    max_results: int = Query(80, description="Max matches to return"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Searches files within the task sandbox workspace using either regex/text grep or AST structural search.
+    """
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    result = await db.execute(stmt)
+    task = result.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    ws_path = Path(task.workspace_path).resolve() if task.workspace_path else None
+    if ws_path and ws_path.name != f"sandbox-{task.id}":
+        specific_sb = Path(settings.WORKSPACE_ROOT) / f"sandbox-{task.id}"
+        if specific_sb.exists() and specific_sb.is_dir():
+            ws_path = specific_sb
+
+    if not ws_path or not ws_path.exists() or not ws_path.is_dir():
+        return {
+            "query": query,
+            "mode": mode,
+            "total_matches": 0,
+            "capped": False,
+            "matches": []
+        }
+
+    from app.agent.tools import WorkspaceTools
+
+    if mode == "ast":
+        res = WorkspaceTools.tgrep_ast(ws_path, query, max_results=max_results)
+        matches = res.get("matches", [])
+        return {
+            "query": query,
+            "mode": "ast",
+            "total_matches": len(matches),
+            "capped": len(matches) >= max_results,
+            "matches": matches
+        }
+    else:
+        res = WorkspaceTools.search_code(
+            ws_path,
+            query,
+            is_regex=is_regex,
+            case_sensitive=case_sensitive,
+            max_results=max_results
+        )
+        if "error" in res and res.get("error") and not res.get("matches"):
+            return {
+                "query": query,
+                "mode": "text",
+                "total_matches": 0,
+                "capped": False,
+                "matches": [],
+                "error": res.get("error")
+            }
+        return {
+            "query": query,
+            "mode": "text",
+            "total_matches": res.get("total_matches", len(res.get("matches", []))),
+            "capped": res.get("capped", False),
+            "matches": res.get("matches", [])
+        }
 
 
 @router.get("/{task_id}/prs/{pr_number}/diff")

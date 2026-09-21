@@ -1321,64 +1321,66 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
             <span className="font-mono text-[11px] text-onedark-fg">New Session</span>
           </div>
 
-          {onSetPreset && (
-            <div className="flex items-center space-x-0.5 bg-onedark-surface/60 p-0.5 rounded-lg border border-onedark-borderSubtle font-mono text-[10.5px]">
-              <button
-                onClick={() => onSetPreset('split')}
-                className={`px-2 py-0.5 rounded-md transition-all ${
-                  currentPreset === 'split' || currentPreset === 'standard'
-                    ? 'bg-onedark-darker text-onedark-fgBright font-semibold shadow-xs'
-                    : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-darker/40'
-                }`}
-                title="Split Studio (Default - 48% Auxiliary Pane)"
-              >
-                Split
-              </button>
-              <button
-                onClick={() => onSetPreset('preview')}
-                className={`px-2 py-0.5 rounded-md transition-all ${
-                  currentPreset === 'preview'
-                    ? 'bg-onedark-darker text-onedark-fgBright font-semibold shadow-xs'
-                    : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-darker/40'
-                }`}
-                title="Preview Focus (60% Auxiliary Pane)"
-              >
-                Preview
-              </button>
-              <button
-                onClick={() => onSetPreset('wide')}
-                className={`px-2 py-0.5 rounded-md transition-all ${
-                  currentPreset === 'wide'
-                    ? 'bg-onedark-darker text-onedark-fgBright font-semibold shadow-xs'
-                    : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-darker/40'
-                }`}
-                title="Wide Chat (25% Auxiliary Pane)"
-              >
-                Wide
-              </button>
-              <button
-                onClick={() => onSetPreset('fullscreen')}
-                className={`px-2 py-0.5 rounded-md transition-all ${
-                  currentPreset === 'fullscreen'
-                    ? 'bg-onedark-darker text-onedark-fgBright font-semibold shadow-xs'
-                    : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-darker/40'
-                }`}
-                title="Zen View (Canvas only)"
-              >
-                Zen
-              </button>
-            </div>
-          )}
+          <div className="flex items-center space-x-2">
+            {onSetPreset && (
+              <div className="flex items-center space-x-0.5 bg-onedark-darker p-0.5 rounded-lg border border-onedark-borderSubtle font-mono text-[10.5px]">
+                <button
+                  onClick={() => onSetPreset('split')}
+                  className={`px-2 py-0.5 rounded-md transition-all ${
+                    currentPreset === 'split' || currentPreset === 'standard'
+                      ? 'bg-onedark-surface text-onedark-fgBright font-semibold border border-onedark-border/60 shadow-xs'
+                      : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
+                  }`}
+                  title="Split Studio (Default - 48% Auxiliary Pane)"
+                >
+                  Split
+                </button>
+                <button
+                  onClick={() => onSetPreset('preview')}
+                  className={`px-2 py-0.5 rounded-md transition-all ${
+                    currentPreset === 'preview'
+                      ? 'bg-onedark-surface text-onedark-fgBright font-semibold border border-onedark-border/60 shadow-xs'
+                      : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
+                  }`}
+                  title="Preview Focus (60% Auxiliary Pane)"
+                >
+                  Preview
+                </button>
+                <button
+                  onClick={() => onSetPreset('wide')}
+                  className={`px-2 py-0.5 rounded-md transition-all ${
+                    currentPreset === 'wide'
+                      ? 'bg-onedark-surface text-onedark-fgBright font-semibold border border-onedark-border/60 shadow-xs'
+                      : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
+                  }`}
+                  title="Wide Chat (25% Auxiliary Pane)"
+                >
+                  Wide
+                </button>
+                <button
+                  onClick={() => onSetPreset('fullscreen')}
+                  className={`px-2 py-0.5 rounded-md transition-all ${
+                    currentPreset === 'fullscreen'
+                      ? 'bg-onedark-surface text-onedark-fgBright font-semibold border border-onedark-border/60 shadow-xs'
+                      : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
+                  }`}
+                  title="Zen View (Canvas only)"
+                >
+                  Zen
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className={`w-full ${contentMaxWidth} mx-auto py-12 flex flex-col justify-center flex-1 space-y-8`}>
           {/* Header Hero */}
           <div className="text-center space-y-2">
             <h1 className="text-3xl font-extrabold text-onedark-fgBright tracking-tight sm:text-4xl">
-              What do you want to build or automate?
+              What are we working on?
             </h1>
             <p className="text-sm text-onedark-muted max-w-xl mx-auto leading-relaxed">
-              Scaffold fullstack web apps, review pull requests, or debug code in isolated, ephemeral sandboxes.
+              Ask a question, design a feature, resolve an issue, or paste a repository URL.
             </p>
           </div>
 
@@ -1413,7 +1415,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                     emptyStateBackdropRef.current.scrollLeft = e.currentTarget.scrollLeft;
                   }
                 }}
-                placeholder="Describe what you want to build, paste a stack trace, or type '@' to reference a registered repo..."
+                placeholder="Ask a question, describe a change, paste a stack trace, or type '@' to reference a repo..."
                 rows={3}
                 className={`w-full bg-transparent text-[15px] placeholder-onedark-muted/60 focus:outline-none resize-none font-sans leading-relaxed p-2.5 min-h-[72px] max-h-[240px] overflow-y-auto caret-onedark-yellow ${
                   inputValue ? 'text-transparent' : 'text-onedark-fgBright'
@@ -1768,13 +1770,13 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
           {/* Presets */}
           {onSetPreset && (
-            <div className="hidden xl:flex items-center space-x-0.5 bg-onedark-surface/60 p-0.5 rounded-lg border border-onedark-borderSubtle font-mono text-[10.5px] flex-shrink-0">
+            <div className="hidden xl:flex items-center space-x-0.5 bg-onedark-darker p-0.5 rounded-lg border border-onedark-borderSubtle font-mono text-[10.5px] flex-shrink-0">
               <button
                 onClick={() => onSetPreset('split')}
                 className={`px-2 py-0.5 rounded-md transition-all ${
                   currentPreset === 'split' || currentPreset === 'standard'
-                    ? 'bg-onedark-darker text-onedark-fgBright font-semibold shadow-xs'
-                    : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-darker/40'
+                    ? 'bg-onedark-surface text-onedark-fgBright font-semibold border border-onedark-border/60 shadow-xs'
+                    : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
                 }`}
                 title="Split Studio (Default - 48% Auxiliary Pane)"
               >
@@ -1784,8 +1786,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 onClick={() => onSetPreset('preview')}
                 className={`px-2 py-0.5 rounded-md transition-all ${
                   currentPreset === 'preview'
-                    ? 'bg-onedark-darker text-onedark-fgBright font-semibold shadow-xs'
-                    : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-darker/40'
+                    ? 'bg-onedark-surface text-onedark-fgBright font-semibold border border-onedark-border/60 shadow-xs'
+                    : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
                 }`}
                 title="Preview Focus (60% Auxiliary Pane)"
               >
@@ -1795,8 +1797,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 onClick={() => onSetPreset('wide')}
                 className={`px-2 py-0.5 rounded-md transition-all ${
                   currentPreset === 'wide'
-                    ? 'bg-onedark-darker text-onedark-fgBright font-semibold shadow-xs'
-                    : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-darker/40'
+                    ? 'bg-onedark-surface text-onedark-fgBright font-semibold border border-onedark-border/60 shadow-xs'
+                    : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
                 }`}
                 title="Wide Chat (25% Auxiliary Pane)"
               >
@@ -1806,38 +1808,14 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 onClick={() => onSetPreset('fullscreen')}
                 className={`px-2 py-0.5 rounded-md transition-all ${
                   currentPreset === 'fullscreen'
-                    ? 'bg-onedark-darker text-onedark-fgBright font-semibold shadow-xs'
-                    : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-darker/40'
+                    ? 'bg-onedark-surface text-onedark-fgBright font-semibold border border-onedark-border/60 shadow-xs'
+                    : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
                 }`}
                 title="Zen View (Full Canvas)"
               >
                 Zen
               </button>
             </div>
-          )}
-
-          {/* Retry Action */}
-          {onRetryTask && !isRunning && (
-            <button
-              onClick={() => onRetryTask()}
-              className="px-2 py-0.5 rounded-md border border-onedark-border bg-onedark-surface hover:bg-onedark-surface/90 text-onedark-muted hover:text-onedark-fgBright text-[11px] font-mono flex items-center space-x-1 transition-all shadow-xs active:scale-95 cursor-pointer flex-shrink-0"
-              title="Retry / Regenerate response"
-            >
-              <RotateCcw className="w-3 h-3 flex-shrink-0" />
-              <span className="hidden md:inline">Retry</span>
-            </button>
-          )}
-
-          {/* Reset Turn Action */}
-          {onResetTurn && !isRunning && (
-            <button
-              onClick={() => onResetTurn()}
-              className="px-2 py-0.5 rounded-md border border-onedark-border bg-onedark-surface hover:bg-onedark-surface/90 text-onedark-muted hover:text-onedark-yellow text-[11px] font-mono flex items-center space-x-1 transition-all shadow-xs active:scale-95 cursor-pointer flex-shrink-0"
-              title="Reset & Rollback to Previous Turn"
-            >
-              <Undo2 className="w-3 h-3 flex-shrink-0" />
-              <span className="hidden md:inline">Reset Turn</span>
-            </button>
           )}
         </div>
       </div>

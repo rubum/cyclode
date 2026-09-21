@@ -64,12 +64,17 @@ class AgentTaskPool:
                 if not repo_name:
                     repo_name = repo_url.split("github.com/")[-1].replace(".git", "")
 
-        # Auto-resolve repository from database vault if repository name is referenced
+        # Auto-resolve repository from database vault if an explicit repository handle or distinct name is referenced
         if not repo_url:
             try:
                 from app.db.session import ensure_default_repositories
                 await ensure_default_repositories()
                 from app.db.models import RepositoryConfigModel
+                GENERIC_REPO_STOPWORDS = {
+                    "repo", "repository", "git", "code", "project", "app", "api", "service",
+                    "test", "tests", "demo", "main", "master", "docs", "web", "frontend",
+                    "backend", "server", "client", "dev", "prod", "core", "utils", "untitled"
+                }
                 async with async_session_factory() as session:
                     res = await session.execute(select(RepositoryConfigModel))
                     saved_repos = sorted(
@@ -79,15 +84,29 @@ class AgentTaskPool:
                     )
                     combined_lower = f"{title} {description}".lower()
                     for r in saved_repos:
-                        r_name = (r.name or "").lower()
-                        r_full = (r.full_name or "").lower()
-                        if (
-                            (r_name and (r_name in combined_lower.split() or f"@{r_name}" in combined_lower)) or
-                            (r_full and (r_full in combined_lower or f"@{r_full}" in combined_lower)) or
-                            f"repo {r_name}" in combined_lower or
-                            f"on {r_name}" in combined_lower or
-                            f"in {r_name}" in combined_lower
-                        ):
+                        r_name = (r.name or "").lower().strip()
+                        r_full = (r.full_name or "").lower().strip()
+                        if not r_name and not r_full:
+                            continue
+
+                        # If the repo name is a generic software stopword or too short, require explicit @ or repo: prefix
+                        if r_name in GENERIC_REPO_STOPWORDS or len(r_name) < 3:
+                            matched = (
+                                (r_full and (r_full in combined_lower or f"@{r_full}" in combined_lower)) or
+                                f"@{r_name}" in combined_lower or
+                                f"repo:{r_name}" in combined_lower or
+                                f"repo: {r_name}" in combined_lower
+                            )
+                        else:
+                            matched = (
+                                (r_name and (r_name in combined_lower.split() or f"@{r_name}" in combined_lower)) or
+                                (r_full and (r_full in combined_lower or f"@{r_full}" in combined_lower)) or
+                                f"repo {r_name}" in combined_lower or
+                                f"on {r_name}" in combined_lower or
+                                f"in {r_name}" in combined_lower
+                            )
+
+                        if matched:
                             repo_url = r.clone_url
                             repo_name = r.full_name
                             target_branch = target_branch or r.default_branch
@@ -1269,18 +1288,42 @@ class AgentTaskPool:
                 )
                 await session.commit()
 
-        # Auto-resolve from database vault if repository is referenced in user message
+        # Auto-resolve from database vault if an explicit repository handle or distinct name is referenced
         if not active_repo_url and not repo_match:
             try:
                 from app.db.models import RepositoryConfigModel
+                GENERIC_REPO_STOPWORDS = {
+                    "repo", "repository", "git", "code", "project", "app", "api", "service",
+                    "test", "tests", "demo", "main", "master", "docs", "web", "frontend",
+                    "backend", "server", "client", "dev", "prod", "core", "utils", "untitled"
+                }
                 async with async_session_factory() as session:
                     res = await session.execute(select(RepositoryConfigModel))
                     saved_repos = res.scalars().all()
                     msg_lower = message_text.lower()
                     for r in saved_repos:
-                        r_name = (r.name or "").lower()
-                        r_full = (r.full_name or "").lower()
-                        if (r_name and r_name in msg_lower.split()) or (r_full and r_full in msg_lower) or f"repo {r_name}" in msg_lower or f"on {r_name}" in msg_lower:
+                        r_name = (r.name or "").lower().strip()
+                        r_full = (r.full_name or "").lower().strip()
+                        if not r_name and not r_full:
+                            continue
+
+                        # If the repo name is a generic software stopword or too short, require explicit @ or repo: prefix
+                        if r_name in GENERIC_REPO_STOPWORDS or len(r_name) < 3:
+                            matched = (
+                                (r_full and (r_full in msg_lower or f"@{r_full}" in msg_lower)) or
+                                f"@{r_name}" in msg_lower or
+                                f"repo:{r_name}" in msg_lower or
+                                f"repo: {r_name}" in msg_lower
+                            )
+                        else:
+                            matched = (
+                                (r_name and (r_name in msg_lower.split() or f"@{r_name}" in msg_lower)) or
+                                (r_full and (r_full in msg_lower or f"@{r_full}" in msg_lower)) or
+                                f"repo {r_name}" in msg_lower or
+                                f"on {r_name}" in msg_lower
+                            )
+
+                        if matched:
                             active_repo_url = r.clone_url
                             active_repo_name = r.full_name
                             await session.execute(

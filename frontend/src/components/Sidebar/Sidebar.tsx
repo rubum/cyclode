@@ -29,6 +29,7 @@ import { Task, TaskPR } from '../../types';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { ConfirmModal } from '../Common/ConfirmModal';
 import { CyclodeIcon } from '../Common/CyclodeIcon';
+import { ThemeColorPicker } from '../Theme/ThemeColorPicker';
 
 interface SidebarProps {
   activeView: string;
@@ -450,6 +451,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span>{isConnected ? 'Live' : isConnecting ? 'Connecting' : 'Offline'}</span>
             </button>
 
+            <ThemeColorPicker direction="up" align="right" />
+
             {onOpenSettings && (
               <button
                 onClick={onOpenSettings}
@@ -488,8 +491,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ]}
         onConfirm={async () => {
           if (taskToDelete && onDeleteTask) {
-            await onDeleteTask(taskToDelete.id);
-            setTaskToDelete(null);
+            try {
+              await onDeleteTask(taskToDelete.id);
+            } finally {
+              setTaskToDelete(null);
+            }
           }
         }}
         onCancel={() => {
@@ -516,9 +522,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ]}
         onConfirm={async () => {
           if (onClearAllTasks) {
-            await onClearAllTasks();
+            try {
+              await onClearAllTasks();
+            } finally {
+              setIsClearAllOpen(false);
+            }
           }
-          setIsClearAllOpen(false);
         }}
         onCancel={() => {
           if (!isClearingAll) setIsClearAllOpen(false);

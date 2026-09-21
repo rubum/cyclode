@@ -615,8 +615,18 @@ class OverlayFSSandboxProvider(SandboxProvider):
             target_ws = Path(workspace_path) if workspace_path else (self.base_dir / f"sandbox-{task_id}")
             task_overlay_root = self.overlays_dir / task_id
 
-            if target_ws.exists():
-                subprocess.run(["umount", "-f", str(target_ws)], capture_output=True, timeout=2)
+            # Only wipe if it is an ephemeral sandbox folder under base_dir or named sandbox-{task_id}
+            is_ephemeral_dir = (
+                str(target_ws).startswith(str(self.base_dir))
+                or f"sandbox-{task_id}" in str(target_ws)
+                or str(target_ws).startswith(str(self.overlays_dir))
+            )
+
+            if target_ws.exists() and is_ephemeral_dir:
+                try:
+                    subprocess.run(["umount", "-f", str(target_ws)], capture_output=True, timeout=2)
+                except Exception:
+                    pass
                 shutil.rmtree(target_ws, ignore_errors=True)
 
             if task_overlay_root.exists():

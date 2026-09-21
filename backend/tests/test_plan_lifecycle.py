@@ -130,6 +130,7 @@ async def test_dynamic_plan_model_cascade_on_404(monkeypatch):
         def __init__(self, status_code, data_text=""):
             self.status_code = status_code
             self._text = data_text
+            self.text = data_text
 
         def json(self):
             return {
@@ -144,7 +145,7 @@ async def test_dynamic_plan_model_cascade_on_404(monkeypatch):
 
     import httpx
     async def mock_post(self, url, **kwargs):
-        if "unsupported-model-404" in url:
+        if "unsupported-model-404" in str(url):
             return MockCascadeResponse(404, "")
         return MockCascadeResponse(
             200,

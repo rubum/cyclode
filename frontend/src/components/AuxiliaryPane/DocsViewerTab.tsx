@@ -332,9 +332,9 @@ const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, onLineCo
                 key={idx}
                 className={`group/line flex items-center px-1.5 py-0.5 rounded-xs ${
                   isAddition
-                    ? 'diff-addition text-[#A6E22E] bg-onedark-green/10'
+                    ? 'diff-addition text-onedark-green bg-onedark-green/10'
                     : isDeletion
-                    ? 'diff-deletion text-[#E06C75] bg-onedark-red/10'
+                    ? 'diff-deletion text-onedark-red bg-onedark-red/10'
                     : isHeader
                     ? 'text-onedark-purple bg-onedark-surface/30 font-semibold'
                     : 'text-onedark-fg'
@@ -482,9 +482,9 @@ const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, onLineCo
                             key={lineIdx}
                             className={`group/line flex items-center px-1 py-0.5 rounded-xs transition-colors relative ${
                               isAddition
-                                ? 'bg-onedark-green/10 text-[#A6E22E] hover:bg-onedark-green/15'
+                                ? 'bg-onedark-green/10 text-onedark-green hover:bg-onedark-green/15'
                                 : isDeletion
-                                ? 'bg-onedark-red/10 text-[#E06C75] hover:bg-onedark-red/15'
+                                ? 'bg-onedark-red/10 text-onedark-red hover:bg-onedark-red/15'
                                 : isHeader
                                 ? 'text-onedark-purple bg-onedark-surface/40 font-semibold'
                                 : 'text-onedark-fg hover:bg-onedark-surface/30'
@@ -697,8 +697,8 @@ const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ commits }) => {
                       <div className="mt-2.5 bg-onedark-bg/95 p-3.5 rounded-lg border border-onedark-borderSubtle/80 text-[12.5px] text-onedark-fg/90 font-sans leading-relaxed shadow-xs select-text">
                         {parsed.bodyProse && (
                           <div>
-                            <div className={`prose prose-invert max-w-none text-onedark-fg/95 text-[12.5px] leading-relaxed ${!isBodyExpanded && parsed.bodyProse.length > 220 ? 'line-clamp-3' : ''}`}>
-                              <MarkdownRenderer content={parsed.bodyProse} className="text-[12.5px] leading-relaxed text-onedark-fg/95" />
+                            <div className={`max-w-none text-onedark-fg text-[12.5px] leading-relaxed ${!isBodyExpanded && parsed.bodyProse.length > 220 ? 'line-clamp-3' : ''}`}>
+                              <MarkdownRenderer content={parsed.bodyProse} className="text-[12.5px] leading-relaxed text-onedark-fg" />
                             </div>
 
                             {parsed.bodyProse.length > 220 && (
@@ -1619,7 +1619,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
           {!isLoading && !error && viewMode === 'reader' && data && (
             data.is_pr ? (
               prTab === 'overview' ? (
-                <div className="prose prose-invert max-w-none text-onedark-fg text-[13.5px] leading-relaxed">
+                <div className="max-w-none text-onedark-fg text-[13.5px] leading-relaxed">
                   <MarkdownRenderer
                     content={data.overview_markdown || data.content_markdown}
                     onLinkClick={(nextUrl) => navigateTo(nextUrl)}
@@ -1638,7 +1638,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
                 <PRCommitsSection commits={data.commits || []} />
               )
             ) : (
-              <div className="prose prose-invert max-w-none text-onedark-fg text-[13.5px] leading-relaxed">
+              <div className="max-w-none text-onedark-fg text-[13.5px] leading-relaxed">
                 <MarkdownRenderer content={data.content_markdown} onLinkClick={(nextUrl) => navigateTo(nextUrl)} />
               </div>
             )

@@ -153,30 +153,41 @@ async def ensure_default_repositories():
                 elif raw_name and raw_name != "None" and raw_name != "null":
                     full_name = raw_name.strip()
                 
-                if full_name and full_name not in existing_repos:
-                    name = full_name.split("/")[-1]
-                    clone_url = f"https://github.com/{full_name}"
-                    new_repo = RepositoryConfigModel(
-                        name=name,
-                        full_name=full_name,
-                        clone_url=clone_url,
-                        default_branch=t.target_branch or "main",
-                        encrypted_token=enc_token,
-                        auth_provider="github",
-                        test_command="",
-                        tech_stack=[],
-                        status="CONNECTED",
-                        created_at=get_utc_now(),
-                        updated_at=get_utc_now(),
-                    )
-                    session.add(new_repo)
-                    existing_repos[full_name] = new_repo
+                DUMMY_PLACEHOLDERS = {
+                    "org/repo", "owner/repo", "example/repo", "user/repo", "test/repo",
+                    "foo/bar", "acme/repo", "acme/auth-service", "acme/payments-api", "repo", "untitled"
+                }
 
-            # Purge any legacy dummy acme starter fixtures from previous test runs
-            for dummy_name in ["acme/auth-service", "acme/payments-api"]:
-                if dummy_name in existing_repos:
-                    dummy_obj = existing_repos.pop(dummy_name)
-                    await session.delete(dummy_obj)
+                if full_name and full_name.lower() not in DUMMY_PLACEHOLDERS and full_name not in existing_repos:
+                    name = full_name.split("/")[-1]
+                    if name.lower() not in DUMMY_PLACEHOLDERS:
+                        clone_url = f"https://github/{full_name}" if full_name.startswith("http") else f"https://github.com/{full_name}"
+                        new_repo = RepositoryConfigModel(
+                            name=name,
+                            full_name=full_name,
+                            clone_url=clone_url,
+                            default_branch=t.target_branch or "main",
+                            encrypted_token=enc_token,
+                            auth_provider="github",
+                            test_command="",
+                            tech_stack=[],
+                            status="CONNECTED",
+                            created_at=get_utc_now(),
+                            updated_at=get_utc_now(),
+                        )
+                        session.add(new_repo)
+                        existing_repos[full_name] = new_repo
+
+            # Purge any legacy dummy / placeholder fixtures from previous runs
+            DUMMY_TO_PURGE = {
+                "org/repo", "owner/repo", "example/repo", "user/repo", "test/repo",
+                "foo/bar", "acme/repo", "acme/auth-service", "acme/payments-api"
+            }
+            for full_name in list(existing_repos.keys()):
+                if full_name.lower() in DUMMY_TO_PURGE:
+                    dummy_obj = existing_repos.pop(full_name, None)
+                    if dummy_obj:
+                        await session.delete(dummy_obj)
 
             # Clean up any legacy default fake values on existing repos
             for full_name, repo in list(existing_repos.items()):

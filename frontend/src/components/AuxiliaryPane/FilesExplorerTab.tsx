@@ -5,11 +5,13 @@ import {
   Box, 
   Layers,
   FolderLock,
-  Sparkles
+  Sparkles,
+  Bot
 } from 'lucide-react';
 import { Task } from '../../types';
 import { FileTreeExplorer, FileNode } from '../Files/FileTreeExplorer';
-import { CodeViewer } from '../Files/CodeViewer';
+import { CodeViewer, LineContext } from '../Files/CodeViewer';
+import { FileAgentPopover } from '../Files/FileAgentPopover';
 
 interface FilesExplorerTabProps {
   task: Task;
@@ -36,6 +38,11 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [targetLine, setTargetLine] = useState<number | null>(null);
+  const [activeSnippetContext, setActiveSnippetContext] = useState<LineContext | null>(null);
+  const [initialAgentPrompt, setInitialAgentPrompt] = useState<string | undefined>(undefined);
+  const [isAgentPopoverOpen, setIsAgentPopoverOpen] = useState(false);
+
   const pollTimerRef = useRef<any>(null);
   const prevTaskIdRef = useRef<string | null>(null);
 
@@ -121,7 +128,10 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
 
     if (isNewTask) {
       setSelectedFile(null);
+      setTargetLine(null);
       setData(null);
+      setIsAgentPopoverOpen(false);
+      setActiveSnippetContext(null);
       fetchFilesystem(false);
     } else {
       // Same task: refresh tree silently in the background without resetting selectedFile or unmounting
@@ -241,13 +251,17 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
   }
 
   return (
-    <div className="h-full flex flex-col md:flex-row overflow-hidden font-sans">
+    <div className="h-full flex flex-col md:flex-row overflow-hidden font-sans relative">
       {/* Left Tree Explorer */}
       <div className="w-full md:w-72 lg:w-80 h-1/2 md:h-full border-b md:border-b-0 md:border-r border-onedark-borderSubtle flex-shrink-0">
         <FileTreeExplorer
+          taskId={task.id}
           tree={fileTree}
           selectedFile={selectedFile}
-          onSelectFile={(path) => setSelectedFile(path)}
+          onSelectFile={(path, line) => {
+            setSelectedFile(path);
+            setTargetLine(line || null);
+          }}
           title="Sandbox Files"
         />
       </div>
@@ -257,12 +271,44 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
         <CodeViewer
           taskId={task.id}
           filePath={selectedFile}
+          targetLine={targetLine}
           onFileNotFound={() => {
             const fallback = findPreferredOrFirstFile(fileTree);
             if (fallback) setSelectedFile(fallback);
           }}
+          onAskAboutLine={(context, prompt) => {
+            setActiveSnippetContext(context);
+            setInitialAgentPrompt(prompt);
+            setIsAgentPopoverOpen(true);
+          }}
+          onOpenAgentChat={() => setIsAgentPopoverOpen(true)}
         />
       </div>
+
+      {/* Interactive File Agent Sub-Session Popover */}
+      {isAgentPopoverOpen && (
+        <FileAgentPopover
+          isOpen={isAgentPopoverOpen}
+          onClose={() => {
+            setIsAgentPopoverOpen(false);
+            setActiveSnippetContext(null);
+            setInitialAgentPrompt(undefined);
+          }}
+          taskId={task.id}
+          filePath={selectedFile}
+          activeSnippet={activeSnippetContext}
+          initialPrompt={initialAgentPrompt}
+          onClearActiveSnippet={() => {
+            setActiveSnippetContext(null);
+            setInitialAgentPrompt(undefined);
+          }}
+          onNavigateToFileLine={(filename, line) => {
+            setSelectedFile(filename);
+            setTargetLine(line || null);
+          }}
+        />
+      )}
     </div>
   );
 };
+

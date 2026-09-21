@@ -1,12 +1,40 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { FileCode, Copy, Check, RefreshCw, AlertCircle, Code2, WrapText, Play, ExternalLink } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { 
+  FileCode, 
+  Copy, 
+  Check, 
+  RefreshCw, 
+  AlertCircle, 
+  Code2, 
+  WrapText, 
+  Play, 
+  ExternalLink,
+  MessageSquarePlus,
+  Bot,
+  Sparkles,
+  Zap,
+  TestTube,
+  ShieldCheck,
+  Bug,
+  X
+} from 'lucide-react';
 import { highlightCode, resolveLanguage } from '../../utils/syntaxHighlighter';
+
+export interface LineContext {
+  filename: string;
+  startLine: number;
+  endLine: number;
+  content: string;
+}
 
 interface CodeViewerProps {
   taskId: string;
   filePath: string | null;
+  targetLine?: number | null;
   onFileNotFound?: () => void;
   onClose?: () => void;
+  onAskAboutLine?: (context: LineContext, initialPrompt?: string) => void;
+  onOpenAgentChat?: () => void;
 }
 
 interface FileContentResponse {
@@ -20,7 +48,14 @@ interface FileContentResponse {
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
-export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath, onFileNotFound }) => {
+export const CodeViewer: React.FC<CodeViewerProps> = ({ 
+  taskId, 
+  filePath, 
+  targetLine,
+  onFileNotFound,
+  onAskAboutLine,
+  onOpenAgentChat
+}) => {
   const [data, setData] = useState<FileContentResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,6 +63,18 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath, onFile
   const [wrapLines, setWrapLines] = useState(false);
   const [viewMode, setViewMode] = useState<'code' | 'preview'>('code');
   const [previewReloadKey, setPreviewReloadKey] = useState<number>(0);
+  const [activeHighlightLine, setActiveHighlightLine] = useState<number | null>(null);
+
+  // Floating Selection State
+  const [selectionRange, setSelectionRange] = useState<{
+    startLine: number;
+    endLine: number;
+    text: string;
+    top: number;
+    left: number;
+  } | null>(null);
+
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!taskId || !filePath) {
@@ -68,6 +115,28 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath, onFile
     };
   }, [taskId, filePath]);
 
+  // Handle auto-scroll to targetLine
+  useEffect(() => {
+    if (!targetLine || !data) return;
+
+    setActiveHighlightLine(targetLine);
+    const timer = setTimeout(() => {
+      const rowElem = document.getElementById(`line-row-${targetLine}`);
+      if (rowElem) {
+        rowElem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 150);
+
+    const fadeTimer = setTimeout(() => {
+      setActiveHighlightLine(null);
+    }, 4000);
+
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(fadeTimer);
+    };
+  }, [targetLine, data]);
+
   const handleCopy = () => {
     if (!data?.content) return;
     navigator.clipboard.writeText(data.content);
@@ -88,6 +157,11 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath, onFile
     return resolveLanguage(data.language, data.name);
   }, [data]);
 
+  const rawLines = useMemo(() => {
+    if (!data?.content) return [];
+    return data.content.split('\n');
+  }, [data]);
+
   const highlightedLines = useMemo(() => {
     if (!data?.content) return [];
     const html = highlightCode(data.content, data.language, data.name);
@@ -97,6 +171,87 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath, onFile
   const lineCount = useMemo(() => {
     return highlightedLines.length;
   }, [highlightedLines]);
+
+  // Selection detection
+  const handleMouseUp = useCallback(() => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !containerRef.current) {
+      setSelectionRange(null);
+      return;
+    }
+
+    const text = sel.toString().trim();
+    if (!text || text.length < 2) {
+      setSelectionRange(null);
+      return;
+    }
+
+    try {
+      const range = sel.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      const containerRect = containerRef.current.getBoundingClientRect();
+
+      // Find start and end line from DOM elements
+      let startNode: Node | null = range.startContainer;
+      let endNode: Node | null = range.endContainer;
+
+      while (startNode && !(startNode as HTMLElement).id?.startsWith('line-row-')) {
+        startNode = startNode.parentNode;
+      }
+      while (endNode && !(endNode as HTMLElement).id?.startsWith('line-row-')) {
+        endNode = endNode.parentNode;
+      }
+
+      let startL = 1;
+      let endL = 1;
+
+      if (startNode && (startNode as HTMLElement).id) {
+        startL = parseInt((startNode as HTMLElement).id.replace('line-row-', ''), 10) || 1;
+      }
+      if (endNode && (endNode as HTMLElement).id) {
+        endL = parseInt((endNode as HTMLElement).id.replace('line-row-', ''), 10) || startL;
+      }
+      if (startL > endL) {
+        const tmp = startL;
+        startL = endL;
+        endL = tmp;
+      }
+
+      setSelectionRange({
+        startLine: startL,
+        endLine: endL,
+        text,
+        top: Math.max(10, rect.top - containerRect.top - 44),
+        left: Math.max(10, Math.min(rect.left - containerRect.left, containerRect.width - 320)),
+      });
+    } catch {
+      setSelectionRange(null);
+    }
+  }, []);
+
+  const handleAskAboutGutterLine = (lineNum: number) => {
+    if (!filePath || !data) return;
+    const lineContent = rawLines[lineNum - 1] || '';
+    const context: LineContext = {
+      filename: filePath,
+      startLine: lineNum,
+      endLine: lineNum,
+      content: lineContent,
+    };
+    onAskAboutLine?.(context);
+  };
+
+  const handleSelectionAction = (initialPrompt?: string) => {
+    if (!selectionRange || !filePath) return;
+    const context: LineContext = {
+      filename: filePath,
+      startLine: selectionRange.startLine,
+      endLine: selectionRange.endLine,
+      content: selectionRange.text,
+    };
+    onAskAboutLine?.(context, initialPrompt);
+    setSelectionRange(null);
+  };
 
   if (!filePath) {
     return (
@@ -145,7 +300,11 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath, onFile
   const previewUrl = taskId && filePath ? `${API_BASE}/api/tasks/${taskId}/preview/${filePath}` : '';
 
   return (
-    <div className="h-full flex flex-col bg-onedark-bg font-mono text-[12.5px] overflow-hidden">
+    <div 
+      ref={containerRef}
+      onMouseUp={handleMouseUp}
+      className="h-full flex flex-col bg-onedark-bg font-mono text-[12.5px] overflow-hidden relative"
+    >
       {/* File Header Bar */}
       <div className="px-3.5 py-2 bg-onedark-darker border-b border-onedark-borderSubtle flex items-center justify-between flex-shrink-0 select-none gap-2">
         <div className="flex items-center space-x-2 truncate min-w-0">
@@ -186,6 +345,26 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath, onFile
         )}
 
         <div className="flex items-center space-x-2 flex-shrink-0">
+          {/* Ask Agent for whole file button */}
+          {onAskAboutLine && (
+            <button
+              onClick={() => {
+                const wholeFileContext: LineContext = {
+                  filename: filePath,
+                  startLine: 1,
+                  endLine: lineCount,
+                  content: data.content.slice(0, 3000),
+                };
+                onAskAboutLine(wholeFileContext);
+              }}
+              className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-onedark-accent/15 hover:bg-onedark-accent/25 text-onedark-accent border border-onedark-accent/30 transition-all cursor-pointer shadow-2xs"
+              title="Discuss this file with Cyclode Agent"
+            >
+              <Zap className="w-3 h-3" />
+              <span className="hidden sm:inline">Ask Cyclode</span>
+            </button>
+          )}
+
           <span className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-borderSubtle text-[10.5px] text-onedark-muted uppercase font-semibold">
             {resolvedLang}
           </span>
@@ -239,6 +418,73 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath, onFile
         </div>
       </div>
 
+      {/* Floating Selection Action Toolbar */}
+      {selectionRange && (
+        <div
+          style={{ top: `${selectionRange.top}px`, left: `${selectionRange.left}px` }}
+          className="absolute z-40 flex items-center space-x-1 p-1 bg-onedark-darker border border-onedark-accent/60 rounded-xl shadow-2xl backdrop-blur-md animate-in fade-in zoom-in-95 select-none"
+        >
+          <div className="px-2 py-0.5 text-[10px] font-mono text-onedark-accent border-r border-onedark-borderSubtle mr-0.5 font-bold">
+            L{selectionRange.startLine}-{selectionRange.endLine}
+          </div>
+
+          <button
+            onClick={() => handleSelectionAction()}
+            className="flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-semibold bg-onedark-accent text-onedark-bg hover:brightness-110 transition-all cursor-pointer shadow-xs"
+            title="Ask agent about this selection"
+          >
+            <Zap className="w-3 h-3" />
+            <span>Ask</span>
+          </button>
+
+          <button
+            onClick={() =>
+              handleSelectionAction(
+                `Please explain the following code snippet from \`${filePath}\` (lines ${selectionRange.startLine}-${selectionRange.endLine}):\n\`\`\`\n${selectionRange.text}\n\`\`\`\nExplain its functionality, control flow, inputs, outputs, and any potential edge cases.`
+              )
+            }
+            className="flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-medium text-onedark-fg hover:text-onedark-fgBright hover:bg-onedark-surface transition-all cursor-pointer"
+            title="Explain this code snippet"
+          >
+            <Sparkles className="w-3 h-3 text-onedark-purple" />
+            <span>Explain</span>
+          </button>
+
+          <button
+            onClick={() =>
+              handleSelectionAction(
+                `Please refactor and modernize the following code snippet from \`${filePath}\` (lines ${selectionRange.startLine}-${selectionRange.endLine}):\n\`\`\`\n${selectionRange.text}\n\`\`\`\nImprove readability, error handling, performance, and idiomatic quality. Provide the modified diff.`
+              )
+            }
+            className="flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-medium text-onedark-fg hover:text-onedark-fgBright hover:bg-onedark-surface transition-all cursor-pointer"
+            title="Refactor this snippet"
+          >
+            <Code2 className="w-3 h-3 text-onedark-blue" />
+            <span>Refactor</span>
+          </button>
+
+          <button
+            onClick={() =>
+              handleSelectionAction(
+                `Please generate comprehensive unit tests covering the code snippet from \`${filePath}\` (lines ${selectionRange.startLine}-${selectionRange.endLine}):\n\`\`\`\n${selectionRange.text}\n\`\`\`\nEnsure full branch coverage and edge-case handling.`
+              )
+            }
+            className="flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-medium text-onedark-fg hover:text-onedark-fgBright hover:bg-onedark-surface transition-all cursor-pointer"
+            title="Generate unit tests"
+          >
+            <TestTube className="w-3 h-3 text-onedark-green" />
+            <span>Test</span>
+          </button>
+
+          <button
+            onClick={() => setSelectionRange(null)}
+            className="p-1 text-onedark-muted hover:text-onedark-fg rounded cursor-pointer"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      )}
+
       {/* Main Body: Code or Live Preview */}
       {viewMode === 'preview' && isHtml ? (
         <div className="flex-1 overflow-hidden bg-white relative">
@@ -256,19 +502,43 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath, onFile
         <div className="flex-1 overflow-auto font-mono text-[12.5px] select-text">
           <table className={`border-collapse font-mono text-[12.5px] ${wrapLines ? 'min-w-full w-full table-fixed' : 'min-w-full w-max'}`}>
             <tbody>
-              {highlightedLines.map((lineHtml, i) => (
-                <tr key={i} className="hover:bg-onedark-surface/40 group/line transition-colors">
-                  <td className="select-none pr-3 pl-3 text-right text-onedark-muted/40 group-hover/line:text-onedark-muted border-r border-onedark-borderSubtle/60 font-mono text-[11px] leading-[20px] align-top w-12 min-w-[3rem] sticky left-0 bg-onedark-bg group-hover/line:bg-onedark-surface/40 z-10">
-                    {i + 1}
-                  </td>
-                  <td
-                    className={`pl-3.5 pr-4 font-mono text-[12.5px] leading-[20px] align-top text-onedark-fg ${
-                      wrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'
+              {highlightedLines.map((lineHtml, i) => {
+                const lineNum = i + 1;
+                const isTarget = activeHighlightLine === lineNum;
+
+                return (
+                  <tr 
+                    key={i} 
+                    id={`line-row-${lineNum}`}
+                    className={`hover:bg-onedark-surface/40 group/line transition-colors ${
+                      isTarget ? 'bg-onedark-accent/20 ring-1 ring-inset ring-onedark-accent' : ''
                     }`}
-                    dangerouslySetInnerHTML={{ __html: lineHtml || ' ' }}
-                  />
-                </tr>
-              ))}
+                  >
+                    {/* Gutter with line number and hover 💬 button */}
+                    <td className="select-none pr-2 pl-3 text-right text-onedark-muted/40 group-hover/line:text-onedark-muted border-r border-onedark-borderSubtle/60 font-mono text-[11px] leading-[20px] align-top w-16 min-w-[4rem] sticky left-0 bg-onedark-bg group-hover/line:bg-onedark-surface/40 z-10">
+                      <div className="flex items-center justify-end space-x-1.5">
+                        {onAskAboutLine && (
+                          <button
+                            onClick={() => handleAskAboutGutterLine(lineNum)}
+                            className="opacity-0 group-hover/line:opacity-100 transition-opacity p-0.5 rounded bg-onedark-accent text-onedark-bg hover:scale-110 shadow-xs cursor-pointer"
+                            title={`Ask Cyclode Agent about line ${lineNum}`}
+                          >
+                            <MessageSquarePlus className="w-2.5 h-2.5" />
+                          </button>
+                        )}
+                        <span>{lineNum}</span>
+                      </div>
+                    </td>
+
+                    <td
+                      className={`pl-3.5 pr-4 font-mono text-[12.5px] leading-[20px] align-top text-onedark-fg ${
+                        wrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'
+                      }`}
+                      dangerouslySetInnerHTML={{ __html: lineHtml || ' ' }}
+                    />
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -276,3 +546,4 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath, onFile
     </div>
   );
 };
+

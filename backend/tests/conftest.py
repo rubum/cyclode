@@ -8,8 +8,11 @@ import pytest_asyncio
 TEST_DB_FILE = Path(f"/tmp/cyclode_test_{uuid.uuid4().hex[:8]}.db")
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{TEST_DB_FILE}"
 os.environ["DEBUG"] = "false"
+os.environ.setdefault("GEMINI_API_KEY", "test-mock-gemini-key")
 
 from app.db.session import init_db, engine
+from app.config import settings
+settings.GEMINI_API_KEY = settings.GEMINI_API_KEY or "test-mock-gemini-key"
 
 
 @pytest.fixture(autouse=True, scope="session")

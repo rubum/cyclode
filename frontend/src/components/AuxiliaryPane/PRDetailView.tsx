@@ -343,9 +343,9 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, o
                           key={lineIdx}
                           className={`group/line flex items-center px-1 py-0.5 rounded-xs transition-colors relative ${
                             isAddition
-                              ? 'bg-onedark-green/10 text-[#98C379] hover:bg-onedark-green/15'
+                              ? 'bg-onedark-green/10 text-onedark-green hover:bg-onedark-green/15'
                               : isDeletion
-                              ? 'bg-onedark-red/10 text-[#E06C75] hover:bg-onedark-red/15'
+                              ? 'bg-onedark-red/10 text-onedark-red hover:bg-onedark-red/15'
                               : isHeader
                               ? 'text-onedark-purple bg-onedark-surface/40 font-semibold'
                               : 'text-onedark-fg/90 hover:bg-onedark-surface/30'
@@ -602,8 +602,8 @@ export const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ commits, rep
                       <div className="mt-2.5 bg-onedark-bg/95 p-3.5 rounded-lg border border-onedark-borderSubtle/80 text-[12.5px] text-onedark-fg/90 font-sans leading-relaxed shadow-xs select-text">
                         {parsed.bodyProse && (
                           <div>
-                            <div className={`prose prose-invert max-w-none text-onedark-fg/95 text-[12.5px] leading-relaxed ${!isBodyExpanded && parsed.bodyProse.length > 220 ? 'line-clamp-3' : ''}`}>
-                              <MarkdownRenderer content={parsed.bodyProse} className="text-[12.5px] leading-relaxed text-onedark-fg/95" />
+                            <div className={`max-w-none text-onedark-fg text-[12.5px] leading-relaxed ${!isBodyExpanded && parsed.bodyProse.length > 220 ? 'line-clamp-3' : ''}`}>
+                              <MarkdownRenderer content={parsed.bodyProse} className="text-[12.5px] leading-relaxed text-onedark-fg" />
                             </div>
 
                             {parsed.bodyProse.length > 220 && (
@@ -2637,7 +2637,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
 
         {!isLoading && !error && viewMode === 'reader' && (
           prTab === 'overview' ? (
-            <div className="prose prose-invert max-w-none text-onedark-fg text-[13.5px] leading-relaxed">
+            <div className="max-w-none text-onedark-fg text-[13.5px] leading-relaxed">
               <MarkdownRenderer
                 content={data?.overview_markdown || data?.content_markdown || prRecord?.body || 'No description provided for this pull request.'}
               />

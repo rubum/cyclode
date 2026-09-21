@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Copy, Check, Info, AlertTriangle, AlertCircle, Sparkles, Flame, ExternalLink, ChevronRight } from 'lucide-react';
+import { Copy, Check, Info, AlertTriangle, AlertCircle, Sparkles, Flame, ChevronRight } from 'lucide-react';
 import katex from 'katex';
 import { highlightCode, resolveLanguage, escapeHtml } from '../../utils/syntaxHighlighter';
 
@@ -54,10 +54,10 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
           className={`list-decimal list-outside ${depth === 0 ? 'pl-5 my-2 space-y-2' : 'pl-4 my-1 space-y-1'} marker:text-onedark-accent marker:font-semibold font-sans text-[14px] leading-[1.7]`}
         >
           {items.map((item, idx) => (
-            <li key={idx} className="leading-[1.7] pl-1 text-[#D1D5DB]">
+            <li key={idx} className="leading-[1.7] pl-1 text-onedark-fg">
               <span>{inline(item.content)}</span>
               {item.children && item.children.length > 0 && (
-                <div className="mt-1.5 mb-1 pl-2 border-l border-onedark-borderSubtle/50 ml-1">
+                <div className="mt-1.5 mb-1 pl-2 border-l border-onedark-borderSubtle ml-1">
                   {renderNestedList(item.children, item.childType || 'ul', undefined, depth + 1)}
                 </div>
               )}
@@ -69,7 +69,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
     return (
       <ul
-        className={`list-disc list-outside ${depth === 0 ? 'pl-5 my-2 space-y-1.5' : 'pl-4 my-1 space-y-1'} ${depth > 0 ? 'marker:text-onedark-muted/80 list-[circle]' : 'marker:text-onedark-accent/80'} text-[14px] leading-[1.7]`}
+        className={`list-disc list-outside ${depth === 0 ? 'pl-5 my-2 space-y-1.5' : 'pl-4 my-1 space-y-1'} ${depth > 0 ? 'marker:text-onedark-muted list-[circle]' : 'marker:text-onedark-accent'} text-[14px] leading-[1.7]`}
       >
         {items.map((item, idx) => {
           if (item.isTask) {
@@ -81,10 +81,10 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                   checked={item.isTaskChecked}
                   className="mt-1 rounded border-onedark-border bg-onedark-darker text-onedark-accent focus:ring-0 focus:ring-offset-0 cursor-default"
                 />
-                <div className="flex-1 text-[#D1D5DB]">
+                <div className="flex-1 text-onedark-fg">
                   <span>{inline(item.content)}</span>
                   {item.children && item.children.length > 0 && (
-                    <div className="mt-1.5 mb-1 pl-2 border-l border-onedark-borderSubtle/50 ml-1">
+                    <div className="mt-1.5 mb-1 pl-2 border-l border-onedark-borderSubtle ml-1">
                       {renderNestedList(item.children, item.childType || 'ul', undefined, depth + 1)}
                     </div>
                   )}
@@ -93,10 +93,10 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
             );
           }
           return (
-            <li key={idx} className="leading-[1.7] pl-1 text-[#D1D5DB]">
+            <li key={idx} className="leading-[1.7] pl-1 text-onedark-fg">
               <span>{inline(item.content)}</span>
               {item.children && item.children.length > 0 && (
-                <div className="mt-1.5 mb-1 pl-2 border-l border-onedark-borderSubtle/50 ml-1">
+                <div className="mt-1.5 mb-1 pl-2 border-l border-onedark-borderSubtle ml-1">
                   {renderNestedList(item.children, item.childType || 'ul', undefined, depth + 1)}
                 </div>
               )}
@@ -140,8 +140,14 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
     );
   };
 
+  const [collapsedCodeBlocks, setCollapsedCodeBlocks] = useState<Record<number, boolean>>({});
+
+  const toggleCodeBlock = (idx: number) => {
+    setCollapsedCodeBlocks((prev) => ({ ...prev, [idx]: !prev[idx] }));
+  };
+
   return (
-    <div className={`space-y-3 text-[14px] leading-[1.7] text-[#D1D5DB] font-sans ${className}`}>
+    <div className={`space-y-3 text-[14px] leading-[1.7] text-onedark-fg font-sans ${className}`}>
       {parts.map((part, index) => {
         if (part.startsWith('```') && part.endsWith('```')) {
           // Code block
@@ -151,6 +157,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
           const language = hasLang ? firstLine : '';
           const codeLines = hasLang ? lines.slice(1) : lines;
           const code = codeLines.join('\n');
+          const isCollapsed = !!collapsedCodeBlocks[index];
 
           return (
             <div key={index} className="my-3 rounded-xl border border-onedark-border bg-onedark-darker overflow-hidden shadow-xs">
@@ -159,39 +166,53 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                   <span className="text-onedark-accent font-semibold uppercase tracking-wider">{language || 'code'}</span>
                   <span className="text-[10px] text-onedark-muted">({codeLines.length} line{codeLines.length > 1 ? 's' : ''})</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleCopy(code, index)}
-                  className="flex items-center space-x-1 hover:text-onedark-fgBright transition-colors px-2 py-0.5 rounded hover:bg-onedark-surface text-[11px]"
-                >
-                  {copiedIndex === index ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-onedark-green" />
-                      <span className="text-[10.5px] text-onedark-green">Copied</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5" />
-                      <span className="text-[10.5px]">Copy</span>
-                    </>
+                <div className="flex items-center space-x-1.5">
+                  {codeLines.length > 8 && (
+                    <button
+                      type="button"
+                      onClick={() => toggleCodeBlock(index)}
+                      className="flex items-center space-x-1 hover:text-onedark-fgBright transition-colors px-2 py-0.5 rounded hover:bg-onedark-surface text-[11px] text-onedark-muted cursor-pointer"
+                    >
+                      <ChevronRight className={`w-3 h-3 transition-transform ${!isCollapsed ? 'rotate-90' : ''}`} />
+                      <span>{isCollapsed ? 'Expand' : 'Collapse'}</span>
+                    </button>
                   )}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(code, index)}
+                    className="flex items-center space-x-1 hover:text-onedark-fgBright transition-colors px-2 py-0.5 rounded hover:bg-onedark-surface text-[11px] cursor-pointer"
+                  >
+                    {copiedIndex === index ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-onedark-green" />
+                        <span className="text-[10.5px] text-onedark-green">Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span className="text-[10.5px]">Copy</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
-              <div className="flex font-mono text-[12px] sm:text-[12.5px] leading-relaxed overflow-x-auto selection:bg-onedark-accent/30 p-3.5">
-                {codeLines.length > 2 && (
-                  <div className="select-none text-onedark-muted/50 text-right pr-3 border-r border-onedark-borderSubtle font-mono text-[11.5px] flex-shrink-0">
-                    {codeLines.map((_, i) => (
-                      <div key={i}>{i + 1}</div>
-                    ))}
-                  </div>
-                )}
-                <pre className={`text-onedark-fg font-mono ${codeLines.length > 2 ? 'pl-3' : ''} flex-1 overflow-x-auto`}>
-                  <code
-                    className={`language-${language || 'text'} font-mono leading-relaxed`}
-                    dangerouslySetInnerHTML={{ __html: getHighlightedHtml(code, language) }}
-                  />
-                </pre>
-              </div>
+              {!isCollapsed && (
+                <div className="flex font-mono text-[12px] sm:text-[12.5px] leading-relaxed overflow-x-auto selection:bg-onedark-accent/30 p-3.5">
+                  {codeLines.length > 2 && (
+                    <div className="select-none text-onedark-muted/50 text-right pr-3 border-r border-onedark-borderSubtle font-mono text-[11.5px] flex-shrink-0">
+                      {codeLines.map((_, i) => (
+                        <div key={i}>{i + 1}</div>
+                      ))}
+                    </div>
+                  )}
+                  <pre className={`text-onedark-fg font-mono ${codeLines.length > 2 ? 'pl-3' : ''} flex-1 overflow-x-auto`}>
+                    <code
+                      className={`language-${language || 'text'} font-mono leading-relaxed`}
+                      dangerouslySetInnerHTML={{ __html: getHighlightedHtml(code, language) }}
+                    />
+                  </pre>
+                </div>
+              )}
             </div>
           );
         }
@@ -205,7 +226,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
           return (
             <div
               key={index}
-              className="my-3 py-3 px-4 rounded-xl bg-onedark-darker/90 border border-onedark-borderSubtle overflow-x-auto text-center text-[#F4F4F5] shadow-xs selection:bg-onedark-accent/30"
+              className="my-3 py-3 px-4 rounded-xl bg-onedark-darker border border-onedark-borderSubtle overflow-x-auto text-center text-onedark-fgBright shadow-xs selection:bg-onedark-accent/30"
               dangerouslySetInnerHTML={{ __html: renderKatex(math, true) }}
             />
           );
@@ -333,7 +354,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
               if (block.type === 'h1' && block.content) {
                 const hId = slugify(block.content);
                 return (
-                  <h1 id={hId} key={bIdx} className="text-[17px] font-bold text-[#F4F4F5] tracking-tight pt-3.5 pb-1 border-b border-onedark-borderSubtle/60 scroll-mt-4">
+                  <h1 id={hId} key={bIdx} className="text-[17px] font-bold text-onedark-fgBright tracking-tight pt-3.5 pb-1 border-b border-onedark-borderSubtle scroll-mt-4">
                     {inline(block.content)}
                     {shouldAttachCursor && renderCursor()}
                   </h1>
@@ -343,7 +364,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
               if (block.type === 'h2' && block.content) {
                 const hId = slugify(block.content);
                 return (
-                  <h2 id={hId} key={bIdx} className="text-[15.5px] font-bold text-[#F4F4F5] tracking-tight pt-3 pb-0.5 scroll-mt-4">
+                  <h2 id={hId} key={bIdx} className="text-[15.5px] font-bold text-onedark-fgBright tracking-tight pt-3 pb-0.5 scroll-mt-4">
                     {inline(block.content)}
                     {shouldAttachCursor && renderCursor()}
                   </h2>
@@ -353,7 +374,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
               if (block.type === 'h3' && block.content) {
                 const hId = slugify(block.content);
                 return (
-                  <h3 id={hId} key={bIdx} className="text-[14.5px] font-semibold text-[#F4F4F5] pt-2 pb-0.5 scroll-mt-4">
+                  <h3 id={hId} key={bIdx} className="text-[14.5px] font-semibold text-onedark-fgBright pt-2 pb-0.5 scroll-mt-4">
                     {inline(block.content)}
                     {shouldAttachCursor && renderCursor()}
                   </h3>
@@ -363,7 +384,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
               if (block.type === 'h4' && block.content) {
                 const hId = slugify(block.content);
                 return (
-                  <h4 id={hId} key={bIdx} className="text-[13.5px] font-semibold text-[#F4F4F5] pt-1.5 pb-0.5 scroll-mt-4">
+                  <h4 id={hId} key={bIdx} className="text-[13.5px] font-semibold text-onedark-fgBright pt-1.5 pb-0.5 scroll-mt-4">
                     {inline(block.content)}
                     {shouldAttachCursor && renderCursor()}
                   </h4>
@@ -373,7 +394,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
               if (block.type === 'h5' && block.content) {
                 const hId = slugify(block.content);
                 return (
-                  <h5 id={hId} key={bIdx} className="text-[12.5px] font-semibold text-[#E5E5E5] pt-1 pb-0.5 scroll-mt-4">
+                  <h5 id={hId} key={bIdx} className="text-[12.5px] font-semibold text-onedark-fgBright pt-1 pb-0.5 scroll-mt-4">
                     {inline(block.content)}
                     {shouldAttachCursor && renderCursor()}
                   </h5>
@@ -392,7 +413,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.type === 'blockquote' && block.content) {
                 return (
-                  <blockquote key={bIdx} className="border-l-2 border-onedark-accent/70 pl-3 py-1.5 my-2 bg-onedark-surface/40 rounded-r-lg text-[#D1D5DB] leading-[1.7] text-[13.5px]">
+                  <blockquote key={bIdx} className="border-l-2 border-onedark-accent pl-3 py-1.5 my-2 bg-onedark-surface/60 rounded-r-lg text-onedark-fg leading-[1.7] text-[13.5px]">
                     {inline(block.content)}
                     {shouldAttachCursor && renderCursor()}
                   </blockquote>
@@ -401,7 +422,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.content) {
                 return (
-                  <p key={bIdx} className="leading-[1.7] text-[#D1D5DB]">
+                  <p key={bIdx} className="leading-[1.7] text-onedark-fg">
                     {inline(block.content)}
                     {shouldAttachCursor && renderCursor()}
                   </p>
@@ -805,7 +826,7 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
       return (
         <span
           key={i}
-          className="my-2.5 block overflow-x-auto text-center py-2 px-3 rounded-lg bg-onedark-darker/70 border border-onedark-borderSubtle/50 text-[#F4F4F5] selection:bg-onedark-accent/30"
+          className="my-2.5 block overflow-x-auto text-center py-2 px-3 rounded-lg bg-onedark-darker border border-onedark-borderSubtle text-onedark-fgBright selection:bg-onedark-accent/30"
           dangerouslySetInnerHTML={{ __html: renderKatex(math, true) }}
         />
       );
@@ -820,7 +841,7 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
       return (
         <span
           key={i}
-          className="inline-math px-0.5 text-[#F4F4F5] align-baseline"
+          className="inline-math px-0.5 text-onedark-fgBright align-baseline"
           dangerouslySetInnerHTML={{ __html: renderKatex(math, false) }}
         />
       );
@@ -832,7 +853,7 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
       return (
         <code
           key={i}
-          className="px-1.5 py-0.5 rounded bg-onedark-surface/90 border border-onedark-borderSubtle text-onedark-yellow font-mono text-[12.5px] font-medium tracking-tight mx-0.5 align-baseline select-text"
+          className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-borderSubtle text-onedark-accent font-mono text-[12.5px] font-semibold tracking-tight mx-0.5 align-baseline select-text shadow-2xs"
         >
           {codeMatch[2]}
         </code>
@@ -845,7 +866,7 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
       (token.startsWith('__') && token.endsWith('__') && token.length > 4)
     ) {
       return (
-        <strong key={i} className="font-semibold text-[#F4F4F5]">
+        <strong key={i} className="font-semibold text-onedark-fgBright">
           {renderInline(token.slice(2, -2), onLinkClick)}
         </strong>
       );
@@ -921,7 +942,7 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
       return (
         <code
           key={i}
-          className="px-1.5 py-0.5 rounded bg-onedark-surface/90 border border-onedark-borderSubtle text-onedark-yellow font-mono text-[12px] font-medium tracking-tight mx-0.5 align-baseline select-text"
+          className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-borderSubtle text-onedark-accent font-mono text-[12px] font-semibold tracking-tight mx-0.5 align-baseline select-text shadow-2xs"
         >
           {htmlCodeMatch[1]}
         </code>
@@ -1010,43 +1031,32 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
       const rawLinkContent = htmlAnchorMatch[2].trim();
       const linkText = rawLinkContent.replace(/<[^>]+>/g, '').trim() || linkUrl;
       return (
-        <span key={i} className="inline-flex items-center space-x-0.5 group/link">
-          <a
-            href={linkUrl}
-            onClick={(e) => {
-              if (linkUrl.startsWith('#')) {
-                e.preventDefault();
-                const targetId = linkUrl.slice(1);
-                const targetEl = document.getElementById(targetId);
-                if (targetEl) {
-                  targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
-                return;
-              }
-              if (e.metaKey || e.ctrlKey || !onLinkClick) {
-                return;
-              }
+        <a
+          key={i}
+          href={linkUrl}
+          onClick={(e) => {
+            if (linkUrl.startsWith('#')) {
               e.preventDefault();
-              onLinkClick(linkUrl, linkText);
-            }}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-onedark-accent underline underline-offset-2 hover:text-onedark-accent/80 transition-colors font-medium cursor-pointer"
-            title={`Preview ${linkText} in sidebar (Cmd/Ctrl + click for new tab)`}
-          >
-            {linkText}
-          </a>
-          <a
-            href={linkUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="opacity-0 group-hover/link:opacity-100 text-onedark-muted hover:text-onedark-accent transition-all p-0.5"
-            title="Open in external browser tab"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <ExternalLink className="w-2.5 h-2.5 inline" />
-          </a>
-        </span>
+              const targetId = linkUrl.slice(1);
+              const targetEl = document.getElementById(targetId);
+              if (targetEl) {
+                targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }
+              return;
+            }
+            if (e.metaKey || e.ctrlKey || !onLinkClick) {
+              return;
+            }
+            e.preventDefault();
+            onLinkClick(linkUrl, linkText);
+          }}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-onedark-accent underline underline-offset-2 hover:text-onedark-accent/80 transition-colors font-medium cursor-pointer inline"
+          title={`Preview ${linkText} in sidebar (Cmd/Ctrl + click for new tab)`}
+        >
+          {linkText}
+        </a>
       );
     }
 
@@ -1056,43 +1066,32 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
       const linkText = linkMatch[1];
       const linkUrl = linkMatch[2];
       return (
-        <span key={i} className="inline-flex items-center space-x-0.5 group/link">
-          <a
-            href={linkUrl}
-            onClick={(e) => {
-              if (linkUrl.startsWith('#')) {
-                e.preventDefault();
-                const targetId = linkUrl.slice(1);
-                const targetEl = document.getElementById(targetId);
-                if (targetEl) {
-                  targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
-                return;
-              }
-              if (e.metaKey || e.ctrlKey || !onLinkClick) {
-                return;
-              }
+        <a
+          key={i}
+          href={linkUrl}
+          onClick={(e) => {
+            if (linkUrl.startsWith('#')) {
               e.preventDefault();
-              onLinkClick(linkUrl, linkText);
-            }}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-onedark-accent underline underline-offset-2 hover:text-onedark-accent/80 transition-colors font-medium cursor-pointer"
-            title={`Preview ${linkText} in sidebar (Cmd/Ctrl + click for new tab)`}
-          >
-            {linkText}
-          </a>
-          <a
-            href={linkUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="opacity-0 group-hover/link:opacity-100 text-onedark-muted hover:text-onedark-accent transition-all p-0.5"
-            title="Open in external browser tab"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <ExternalLink className="w-2.5 h-2.5 inline" />
-          </a>
-        </span>
+              const targetId = linkUrl.slice(1);
+              const targetEl = document.getElementById(targetId);
+              if (targetEl) {
+                targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }
+              return;
+            }
+            if (e.metaKey || e.ctrlKey || !onLinkClick) {
+              return;
+            }
+            e.preventDefault();
+            onLinkClick(linkUrl, linkText);
+          }}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-onedark-accent underline underline-offset-2 hover:text-onedark-accent/80 transition-colors font-medium cursor-pointer inline"
+          title={`Preview ${linkText} in sidebar (Cmd/Ctrl + click for new tab)`}
+        >
+          {linkText}
+        </a>
       );
     }
 
@@ -1111,34 +1110,22 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
 
       return (
         <React.Fragment key={i}>
-          <span className="inline-flex items-center space-x-0.5 group/link align-baseline">
-            <a
-              href={cleanUrl}
-              onClick={(e) => {
-                if (e.metaKey || e.ctrlKey || !onLinkClick) {
-                  return;
-                }
-                e.preventDefault();
-                onLinkClick(cleanUrl, displayText);
-              }}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-onedark-accent underline underline-offset-2 hover:text-onedark-accent/80 transition-colors font-mono text-[12.5px] cursor-pointer break-all"
-              title={`Preview ${cleanUrl} in sidebar`}
-            >
-              {displayText}
-            </a>
-            <a
-              href={cleanUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="opacity-0 group-hover/link:opacity-100 text-onedark-muted hover:text-onedark-accent transition-all p-0.5"
-              title="Open in external browser tab"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <ExternalLink className="w-2.5 h-2.5 inline" />
-            </a>
-          </span>
+          <a
+            href={cleanUrl}
+            onClick={(e) => {
+              if (e.metaKey || e.ctrlKey || !onLinkClick) {
+                return;
+              }
+              e.preventDefault();
+              onLinkClick(cleanUrl, displayText);
+            }}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-onedark-accent underline underline-offset-2 hover:text-onedark-accent/80 transition-colors font-mono text-[12.5px] cursor-pointer break-all inline"
+            title={`Preview ${cleanUrl} in sidebar`}
+          >
+            {displayText}
+          </a>
           {trailingPunct}
         </React.Fragment>
       );

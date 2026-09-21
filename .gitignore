@@ -71,3 +71,5 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+*.cyclode_symbols_cache.json
+.cyclode_symbols_cache.json

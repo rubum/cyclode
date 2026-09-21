@@ -3,9 +3,63 @@
 @tailwind utilities;
 
 :root {
+  /* Dark Mode Default Palette (One Dark Pro) */
+  --color-bg: #282C34;
+  --color-darker: #21252B;
+  --color-surface: #2C313A;
+  --color-border: #3E4451;
+  --color-border-subtle: #1E2227;
+  --color-fg: #ABB2BF;
+  --color-fg-bright: #E5E5E5;
+  --color-muted: #5C6370;
   --color-accent: #E5C07B;
   --color-accent-subtle: rgba(229, 192, 123, 0.15);
   --color-folder: #E5C07B;
+  --color-green: #98C379;
+  --color-red: #E06C75;
+  --color-yellow: #E5C07B;
+  --color-purple: #C678DD;
+  --color-bronze: #D19A66;
+
+  /* UI Element Defaults */
+  --scrollbar-track: #21252B;
+  --scrollbar-thumb: #3E4451;
+  --scrollbar-thumb-hover: #4B5263;
+  --diff-add-bg: rgba(152, 195, 121, 0.14);
+  --diff-add-fg: #98C379;
+  --diff-del-bg: rgba(224, 108, 117, 0.14);
+  --diff-del-fg: #E06C75;
+  --katex-color: #F4F4F5;
+}
+
+html.light-theme {
+  /* Light Mode Palette (Crisp One Light Workbench) */
+  --color-bg: #FAFAFA;
+  --color-darker: #F0F0F0;
+  --color-surface: #FFFFFF;
+  --color-border: #D0D7DE;
+  --color-border-subtle: #E1E4E8;
+  --color-fg: #24292E;
+  --color-fg-bright: #090A0C;
+  --color-muted: #6A737D;
+  --color-accent: #D97706;
+  --color-accent-subtle: rgba(217, 119, 6, 0.14);
+  --color-folder: #D97706;
+  --color-green: #22863A;
+  --color-red: #CB2431;
+  --color-yellow: #B08800;
+  --color-purple: #6F42C1;
+  --color-bronze: #A05A00;
+
+  /* UI Element Adjustments for Light Mode */
+  --scrollbar-track: #F0F0F0;
+  --scrollbar-thumb: #D0D7DE;
+  --scrollbar-thumb-hover: #A0A1A7;
+  --diff-add-bg: rgba(34, 134, 58, 0.12);
+  --diff-add-fg: #22863A;
+  --diff-del-bg: rgba(203, 36, 49, 0.12);
+  --diff-del-fg: #CB2431;
+  --katex-color: #1F2328;
 }
 
 @layer base {
@@ -14,16 +68,21 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+    color-scheme: dark;
+  }
+
+  html.light-theme {
+    color-scheme: light;
   }
 
   body {
-    background-color: #282C34;
-    color: #ABB2BF;
+    background-color: var(--color-bg);
+    color: var(--color-fg);
     font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
-    @apply font-sans;
+    @apply font-sans transition-colors duration-150;
   }
 
   code, pre, kbd, samp {
@@ -34,37 +93,37 @@
   }
 }
 
-/* One Dark Pro scrollbars */
+/* Scrollbars */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: #21252B;
+  background: var(--scrollbar-track);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #3E4451;
+  background: var(--scrollbar-thumb);
   border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #4B5263;
+  background: var(--scrollbar-thumb-hover);
 }
 
-/* One Dark Pro syntax diff styling */
+/* Syntax Diff Styling */
 .diff-addition {
-  background-color: rgba(152, 195, 121, 0.14);
-  color: #98C379;
+  background-color: var(--diff-add-bg);
+  color: var(--diff-add-fg);
 }
 
 .diff-deletion {
-  background-color: rgba(224, 108, 117, 0.14);
-  color: #E06C75;
+  background-color: var(--diff-del-bg);
+  color: var(--diff-del-fg);
 }
 
-/* One Dark Pro Syntax Highlighting */
+/* Syntax Highlighting Base */
 .token,
 .token.table,
 .token.inline,
@@ -74,6 +133,7 @@ table td span.token {
   display: inline !important;
 }
 
+/* Dark Mode Syntax Highlighting (One Dark) */
 .token.comment,
 .token.prolog,
 .token.doctype,
@@ -147,11 +207,77 @@ table td span.token {
   background-color: rgba(152, 195, 121, 0.15);
 }
 
+/* Light Mode Syntax Highlighting (One Light & GitHub High Contrast) */
+html.light-theme .token.comment,
+html.light-theme .token.prolog,
+html.light-theme .token.doctype,
+html.light-theme .token.cdata {
+  color: #6a737d;
+  font-style: italic;
+}
+
+html.light-theme .token.punctuation {
+  color: #24292e;
+}
+
+html.light-theme .token.property,
+html.light-theme .token.tag,
+html.light-theme .token.boolean,
+html.light-theme .token.number,
+html.light-theme .token.constant,
+html.light-theme .token.symbol {
+  color: #b08800;
+}
+
+html.light-theme .token.selector,
+html.light-theme .token.attr-name,
+html.light-theme .token.string,
+html.light-theme .token.char,
+html.light-theme .token.builtin {
+  color: #22863a;
+}
+
+html.light-theme .token.operator,
+html.light-theme .token.entity,
+html.light-theme .token.url,
+html.light-theme .language-css .token.string,
+html.light-theme .style .token.string {
+  color: #d97706;
+}
+
+html.light-theme .token.atrule,
+html.light-theme .token.attr-value,
+html.light-theme .token.keyword {
+  color: #a626a4;
+  font-weight: 600;
+}
+
+html.light-theme .token.function,
+html.light-theme .token.class-name {
+  color: #4078f2;
+}
+
+html.light-theme .token.regex,
+html.light-theme .token.important,
+html.light-theme .token.variable {
+  color: #cb2431;
+}
+
+html.light-theme .token.deleted {
+  color: #cb2431;
+  background-color: rgba(203, 36, 49, 0.12);
+}
+
+html.light-theme .token.inserted {
+  color: #22863a;
+  background-color: rgba(34, 134, 58, 0.12);
+}
+
 /* KaTeX Math Formatting */
 .katex {
   font-size: 1.06em;
   text-rendering: auto;
-  color: #F4F4F5;
+  color: var(--katex-color);
 }
 
 .katex-display {
