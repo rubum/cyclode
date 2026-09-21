@@ -1688,18 +1688,16 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
           {/* Status Badge */}
           <div className="flex items-center space-x-1 flex-shrink-0">
             <span
-              className={`px-2 py-0.5 rounded-full text-[10.5px] font-mono border flex items-center space-x-1 ${
+              className={`px-2 py-0.5 rounded-full text-[10.5px] font-mono flex items-center space-x-1.5 ${
                 task.status === 'RUNNING' || task.status === 'INITIALIZING'
-                  ? 'bg-onedark-yellow/10 text-onedark-yellow border-onedark-yellow/30'
+                  ? 'bg-onedark-yellow/10 text-onedark-yellow'
                   : task.status === 'COMPLETED'
-                  ? 'bg-onedark-green/10 text-onedark-green border-onedark-green/30'
-                  : task.status === 'AWAITING_INPUT'
-                  ? 'bg-onedark-accent/10 text-onedark-accent border-onedark-accent/30'
-                  : task.status === 'AWAITING_APPROVAL'
-                  ? 'bg-onedark-accent/10 text-onedark-accent border-onedark-accent/30'
+                  ? 'bg-onedark-green/10 text-onedark-green'
+                  : task.status === 'AWAITING_INPUT' || task.status === 'AWAITING_APPROVAL'
+                  ? 'bg-onedark-accent/10 text-onedark-accent'
                   : task.status === 'FAILED'
-                  ? 'bg-onedark-red/10 text-onedark-red border-onedark-red/30'
-                  : 'bg-onedark-surface text-onedark-muted border-onedark-borderSubtle'
+                  ? 'bg-onedark-red/10 text-onedark-red'
+                  : 'bg-onedark-surface/60 text-onedark-muted'
               }`}
               title={`Status: ${task.status}`}
             >
@@ -1709,7 +1707,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                     ? 'bg-onedark-yellow animate-pulse'
                     : task.status === 'COMPLETED'
                     ? 'bg-onedark-green'
-                    : task.status === 'AWAITING_INPUT'
+                    : task.status === 'AWAITING_INPUT' || task.status === 'AWAITING_APPROVAL'
                     ? 'bg-onedark-accent'
                     : task.status === 'FAILED'
                     ? 'bg-onedark-red'
@@ -1733,7 +1731,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
           {previewInfo?.has_preview && onSelectAuxTab && (
             <button
               onClick={() => onSelectAuxTab('preview')}
-              className="px-2.5 py-0.5 rounded-md text-[11px] font-mono border border-onedark-green/40 bg-onedark-green/15 text-onedark-green hover:bg-onedark-green/25 flex items-center space-x-1.5 transition-all shadow-xs active:scale-95 cursor-pointer flex-shrink-0"
+              className="px-2.5 py-0.5 rounded-md text-[11px] font-mono bg-onedark-green/15 text-onedark-green hover:bg-onedark-green/25 flex items-center space-x-1.5 transition-all shadow-xs active:scale-95 cursor-pointer flex-shrink-0"
               title={`Preview application (${previewInfo.title || previewInfo.entry_point || 'Web App'})`}
             >
               <Play className="w-3 h-3 fill-current" />
@@ -1751,14 +1749,14 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   setIsSandboxModalOpen(true);
                 }
               }}
-              className={`px-2 py-0.5 rounded-md text-[10.5px] font-mono border flex items-center space-x-1 transition-all shadow-xs active:scale-95 cursor-pointer flex-shrink-0 ${
+              className={`px-2 py-0.5 rounded-md text-[10.5px] font-mono flex items-center space-x-1.5 transition-all shadow-xs active:scale-95 cursor-pointer flex-shrink-0 ${
                 task.sandbox_status === 'ACTIVE'
-                  ? 'bg-onedark-green/15 text-onedark-green border-onedark-green/30 hover:bg-onedark-green/25'
+                  ? 'bg-onedark-green/10 text-onedark-green hover:bg-onedark-green/20'
                   : task.sandbox_status === 'PROVISIONING'
-                  ? 'bg-onedark-yellow/15 text-onedark-yellow border-onedark-yellow/30 hover:bg-onedark-yellow/25'
+                  ? 'bg-onedark-yellow/10 text-onedark-yellow hover:bg-onedark-yellow/20'
                   : task.sandbox_status === 'AUTH_REQUIRED'
-                  ? 'bg-onedark-accent/15 text-onedark-accent border-onedark-accent/30 hover:bg-onedark-accent/25'
-                  : 'bg-onedark-surface text-onedark-muted border-onedark-borderSubtle hover:bg-onedark-surface/80 hover:text-onedark-fg'
+                  ? 'bg-onedark-accent/10 text-onedark-accent hover:bg-onedark-accent/20'
+                  : 'bg-onedark-surface/60 text-onedark-muted hover:bg-onedark-surface hover:text-onedark-fg'
               }`}
               title="Inspect Sandbox Environment & Filesystem"
             >
@@ -1770,12 +1768,12 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
           {/* Presets */}
           {onSetPreset && (
-            <div className="hidden xl:flex items-center space-x-0.5 bg-onedark-darker p-0.5 rounded-lg border border-onedark-borderSubtle font-mono text-[10.5px] flex-shrink-0">
+            <div className="hidden xl:flex items-center space-x-0.5 bg-onedark-surface/40 p-0.5 rounded-lg font-mono text-[10.5px] flex-shrink-0">
               <button
                 onClick={() => onSetPreset('split')}
                 className={`px-2 py-0.5 rounded-md transition-all ${
                   currentPreset === 'split' || currentPreset === 'standard'
-                    ? 'bg-onedark-surface text-onedark-fgBright font-semibold border border-onedark-border/60 shadow-xs'
+                    ? 'bg-onedark-surface text-onedark-fgBright font-semibold shadow-xs'
                     : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
                 }`}
                 title="Split Studio (Default - 48% Auxiliary Pane)"
@@ -1786,7 +1784,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 onClick={() => onSetPreset('preview')}
                 className={`px-2 py-0.5 rounded-md transition-all ${
                   currentPreset === 'preview'
-                    ? 'bg-onedark-surface text-onedark-fgBright font-semibold border border-onedark-border/60 shadow-xs'
+                    ? 'bg-onedark-surface text-onedark-fgBright font-semibold shadow-xs'
                     : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
                 }`}
                 title="Preview Focus (60% Auxiliary Pane)"
@@ -1797,7 +1795,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 onClick={() => onSetPreset('wide')}
                 className={`px-2 py-0.5 rounded-md transition-all ${
                   currentPreset === 'wide'
-                    ? 'bg-onedark-surface text-onedark-fgBright font-semibold border border-onedark-border/60 shadow-xs'
+                    ? 'bg-onedark-surface text-onedark-fgBright font-semibold shadow-xs'
                     : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
                 }`}
                 title="Wide Chat (25% Auxiliary Pane)"
@@ -1808,7 +1806,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 onClick={() => onSetPreset('fullscreen')}
                 className={`px-2 py-0.5 rounded-md transition-all ${
                   currentPreset === 'fullscreen'
-                    ? 'bg-onedark-surface text-onedark-fgBright font-semibold border border-onedark-border/60 shadow-xs'
+                    ? 'bg-onedark-surface text-onedark-fgBright font-semibold shadow-xs'
                     : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
                 }`}
                 title="Zen View (Full Canvas)"
@@ -1952,7 +1950,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
                 {/* 2. Execution Plan Accordion (Situated ABOVE Reasoning & Activity) */}
                 {hasPlan && (
-                  <div className="rounded-xl border border-onedark-border bg-onedark-darker/70 overflow-hidden shadow-sm transition-all">
+                  <div className="rounded-xl border border-white/[0.06] bg-onedark-darker/60 overflow-hidden shadow-xs transition-all">
                     <button
                       type="button"
                       onClick={() => {
@@ -1970,17 +1968,17 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                         </span>
 
                         {evalStatus === 'accomplished' ? (
-                          <span className="px-1.5 py-0.2 rounded bg-onedark-green/10 text-onedark-green border border-onedark-green/20 text-[10px] font-mono flex items-center space-x-1">
+                          <span className="px-1.5 py-0.5 rounded bg-onedark-green/10 text-onedark-green text-[10px] font-mono flex items-center space-x-1">
                             <CheckCircle2 className="w-2.5 h-2.5" />
                             <span>Accomplished</span>
                           </span>
                         ) : evalStatus === 'evaluating' ? (
-                          <span className="px-1.5 py-0.2 rounded bg-onedark-accent/10 text-onedark-accent border border-onedark-accent/20 text-[10px] font-mono flex items-center space-x-1">
+                          <span className="px-1.5 py-0.5 rounded bg-onedark-accent/10 text-onedark-accent text-[10px] font-mono flex items-center space-x-1">
                             <Loader2 className="w-2.5 h-2.5 animate-spin" />
                             <span>Evaluating</span>
                           </span>
                         ) : evalStatus === 'needs_revision' ? (
-                          <span className="px-1.5 py-0.2 rounded bg-onedark-yellow/10 text-onedark-yellow border border-onedark-yellow/20 text-[10px] font-mono flex items-center space-x-1">
+                          <span className="px-1.5 py-0.5 rounded bg-onedark-yellow/10 text-onedark-yellow text-[10px] font-mono flex items-center space-x-1">
                             <AlertCircle className="w-2.5 h-2.5" />
                             <span>Revision</span>
                           </span>
@@ -1989,12 +1987,12 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
                       <div className="flex items-center space-x-2 shrink-0">
                         {isTurnRunning && turn.isLatest ? (
-                          <span className="px-2 py-0.5 rounded-full bg-onedark-yellow/10 text-onedark-yellow text-[10.5px] font-mono border border-onedark-yellow/30 flex items-center space-x-1">
+                          <span className="px-2 py-0.5 rounded-full bg-onedark-yellow/10 text-onedark-yellow text-[10.5px] font-mono flex items-center space-x-1.5">
                             <span className="w-1.5 h-1.5 rounded-full bg-onedark-yellow animate-pulse" />
                             <span>Executing...</span>
                           </span>
                         ) : (
-                          <span className="px-2 py-0.5 rounded-md bg-onedark-surface text-onedark-muted text-[10.5px] font-mono border border-onedark-borderSubtle">
+                          <span className="px-2 py-0.5 rounded-md bg-onedark-surface/40 text-onedark-muted text-[10.5px] font-mono">
                             {isPlanOpen ? 'Hide' : 'Show steps'}
                           </span>
                         )}
@@ -2007,17 +2005,18 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                     </button>
 
                     {isPlanOpen && (
-                      <div className="p-3.5 border-t border-onedark-borderSubtle space-y-3 text-xs bg-onedark-darker/90">
+                      <div className="p-3.5 border-t border-white/[0.04] space-y-3.5 text-xs bg-onedark-darker/40">
                         {turn.plan?.objective && (
-                          <div className="p-2.5 rounded-lg bg-onedark-surface/40 border border-onedark-borderSubtle text-[11.5px] font-sans text-onedark-fg leading-relaxed">
-                            <span className="font-semibold font-mono text-[10px] uppercase tracking-wider block mb-0.5 text-onedark-muted">
+                          <div className="p-2.5 rounded-lg bg-onedark-surface/30 text-[11.5px] font-sans text-onedark-fg leading-relaxed">
+                            <span className="font-semibold font-mono text-[10px] uppercase tracking-wider block mb-1 text-onedark-muted">
                               Goal
                             </span>
                             {turn.plan.objective}
                           </div>
                         )}
 
-                        <div className="space-y-1.5">
+                        {/* Connected Stepper Timeline */}
+                        <div className="relative pl-6 space-y-2.5 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-px before:bg-onedark-borderSubtle/40">
                           {turn.plan?.steps?.map((step, sIdx) => {
                             const isDone = step.status === 'completed';
                             const isInProgress = step.status === 'in_progress';
@@ -2026,17 +2025,17 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                             return (
                               <div
                                 key={step.id || sIdx}
-                                className={`flex items-start space-x-2.5 px-2.5 py-1.5 rounded-lg border text-xs font-mono transition-all ${
+                                className={`relative flex items-start space-x-2.5 py-0.5 text-xs font-mono transition-colors ${
                                   isInProgress
-                                    ? 'bg-onedark-accent/10 border-onedark-accent/40 text-onedark-fgBright shadow-xs'
+                                    ? 'text-onedark-fgBright'
                                     : isDone
-                                    ? 'bg-onedark-surface/20 border-onedark-borderSubtle/50 text-onedark-fg'
+                                    ? 'text-onedark-fg'
                                     : isFailed
-                                    ? 'bg-onedark-red/10 border-onedark-red/30 text-onedark-red'
-                                    : 'bg-transparent border-transparent text-onedark-muted'
+                                    ? 'text-onedark-red'
+                                    : 'text-onedark-muted'
                                 }`}
                               >
-                                <div className="pt-0.5 shrink-0">
+                                <div className="absolute -left-6 top-0.5 p-0.5 rounded-full bg-onedark-darker shrink-0 z-10">
                                   {isDone ? (
                                     <CheckCircle2 className="w-3.5 h-3.5 text-onedark-green" />
                                   ) : isInProgress ? (
@@ -2048,7 +2047,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                                   )}
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                  <div className={`leading-tight ${isInProgress ? 'font-semibold text-onedark-fgBright' : isDone ? 'text-onedark-fg' : 'text-onedark-muted'}`}>
+                                  <div className={`leading-snug ${isInProgress ? 'font-medium text-onedark-fgBright' : isDone ? 'text-onedark-fg' : 'text-onedark-muted'}`}>
                                     {step.title}
                                   </div>
                                   {step.details && (
@@ -2063,12 +2062,12 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                         </div>
 
                         {turn.plan?.evaluation && turn.plan.evaluation.status !== 'pending' && (
-                          <div className={`p-2.5 rounded-lg border text-xs font-mono space-y-1.5 ${
+                          <div className={`p-2.5 rounded-lg text-xs font-mono space-y-1.5 ${
                             turn.plan.evaluation.status === 'accomplished'
-                              ? 'bg-onedark-green/5 border-onedark-green/30 text-onedark-green'
+                              ? 'bg-onedark-green/5 text-onedark-green'
                               : turn.plan.evaluation.status === 'needs_revision'
-                              ? 'bg-onedark-yellow/5 border-onedark-yellow/30 text-onedark-yellow'
-                              : 'bg-onedark-accent/5 border-onedark-accent/30 text-onedark-accent'
+                              ? 'bg-onedark-yellow/5 text-onedark-yellow'
+                              : 'bg-onedark-accent/5 text-onedark-accent'
                           }`}>
                             <div className="flex items-center space-x-2">
                               {turn.plan.evaluation.status === 'accomplished' ? (
@@ -2185,26 +2184,26 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   const hasRunning = turn.logs.some((l) => l.isRunning) || (isTurnRunning && turn.isLatest && !!task?.active_tool);
 
                   return (
-                    <div className="rounded-xl border border-onedark-borderSubtle/60 hover:border-onedark-borderSubtle bg-onedark-darker/35 overflow-hidden transition-all space-y-0">
+                    <div className="rounded-xl border border-white/[0.06] bg-onedark-darker/60 overflow-hidden shadow-xs transition-all space-y-0">
                       {/* Summary Header */}
                       <div
                         onClick={() => setUserToggledActivities((prev) => ({ ...prev, [turn.id]: !isActOpen }))}
-                        className={`w-full px-3 py-2 flex items-center justify-between text-xs transition-colors cursor-pointer select-none group/hdr ${
+                        className={`w-full px-3.5 py-2.5 flex items-center justify-between text-xs transition-colors cursor-pointer select-none group/hdr ${
                           isActOpen ? 'bg-onedark-surface/30' : 'hover:bg-onedark-surface/20'
                         }`}
                       >
-                        <div className="flex items-center space-x-2 min-w-0 pr-2">
-                          <div className={`w-4.5 h-4.5 rounded-md flex items-center justify-center flex-shrink-0 transition-all ${
+                        <div className="flex items-center space-x-2.5 min-w-0 pr-2">
+                          <div className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 transition-all ${
                             hasRunning
-                              ? 'bg-onedark-accent/20 border border-onedark-accent/40 text-onedark-accent animate-pulse'
+                              ? 'bg-onedark-accent/20 text-onedark-accent animate-pulse'
                               : failedCount > 0
-                              ? 'bg-onedark-red/15 border border-onedark-red/30 text-onedark-red'
-                              : 'bg-onedark-surface border border-onedark-borderSubtle text-onedark-muted group-hover/hdr:text-onedark-accent'
+                              ? 'bg-onedark-red/15 text-onedark-red'
+                              : 'bg-onedark-surface text-onedark-muted group-hover/hdr:text-onedark-accent'
                           }`}>
                             {hasRunning ? (
-                              <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                              <RefreshCw className="w-3 h-3 animate-spin" />
                             ) : (
-                              <Zap className="w-2.5 h-2.5" />
+                              <Zap className="w-3 h-3" />
                             )}
                           </div>
 
@@ -2216,31 +2215,31 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                             {/* Categorized action chips */}
                             <div className="flex items-center space-x-1 flex-wrap gap-1">
                               {editCount > 0 && (
-                                <span className="px-1.5 py-0.2 rounded bg-onedark-green/10 text-onedark-green border border-onedark-green/20 text-[10px] font-mono flex items-center space-x-1">
+                                <span className="px-1.5 py-0.5 rounded bg-onedark-green/10 text-onedark-green text-[10px] font-mono flex items-center space-x-1">
                                   <Pencil className="w-2.5 h-2.5" />
                                   <span>{editCount} edit{editCount > 1 ? 's' : ''}</span>
                                 </span>
                               )}
                               {runCount > 0 && (
-                                <span className="px-1.5 py-0.2 rounded bg-onedark-yellow/10 text-onedark-yellow border border-onedark-yellow/20 text-[10px] font-mono flex items-center space-x-1">
+                                <span className="px-1.5 py-0.5 rounded bg-onedark-yellow/10 text-onedark-yellow text-[10px] font-mono flex items-center space-x-1">
                                   <Terminal className="w-2.5 h-2.5" />
                                   <span>{runCount} run{runCount > 1 ? 's' : ''}</span>
                                 </span>
                               )}
                               {readCount > 0 && (
-                                <span className="px-1.5 py-0.2 rounded bg-onedark-accent/10 text-onedark-accent border border-onedark-accent/20 text-[10px] font-mono flex items-center space-x-1">
+                                <span className="px-1.5 py-0.5 rounded bg-onedark-accent/10 text-onedark-accent text-[10px] font-mono flex items-center space-x-1">
                                   <FileCode2 className="w-2.5 h-2.5" />
                                   <span>{readCount} read{readCount > 1 ? 's' : ''}</span>
                                 </span>
                               )}
                               {webCount > 0 && (
-                                <span className="px-1.5 py-0.2 rounded bg-onedark-purple/10 text-onedark-purple border border-onedark-purple/20 text-[10px] font-mono flex items-center space-x-1">
+                                <span className="px-1.5 py-0.5 rounded bg-onedark-purple/10 text-onedark-purple text-[10px] font-mono flex items-center space-x-1">
                                   <Globe className="w-2.5 h-2.5" />
                                   <span>{webCount} web</span>
                                 </span>
                               )}
                               {prCount > 0 && (
-                                <span className="px-1.5 py-0.2 rounded bg-onedark-green/10 text-onedark-green border border-onedark-green/20 text-[10px] font-mono flex items-center space-x-1">
+                                <span className="px-1.5 py-0.5 rounded bg-onedark-green/10 text-onedark-green text-[10px] font-mono flex items-center space-x-1">
                                   <GitPullRequest className="w-2.5 h-2.5" />
                                   <span>{prCount} PR</span>
                                 </span>
@@ -2256,17 +2255,17 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                         <div className="flex items-center space-x-1.5 flex-shrink-0">
                           {/* Status indicator pill */}
                           {hasRunning ? (
-                            <span className="px-2 py-0.5 rounded-md bg-onedark-accent/15 text-onedark-accent border border-onedark-accent/30 text-[10px] font-mono flex items-center space-x-1 animate-pulse">
+                            <span className="px-2 py-0.5 rounded-md bg-onedark-accent/15 text-onedark-accent text-[10px] font-mono flex items-center space-x-1.5 animate-pulse">
                               <span className="w-1.5 h-1.5 rounded-full bg-onedark-accent" />
                               <span>Executing...</span>
                             </span>
                           ) : failedCount > 0 ? (
-                            <span className="px-2 py-0.5 rounded-md bg-onedark-red/10 text-onedark-red border border-onedark-red/30 text-[10px] font-mono flex items-center space-x-1">
+                            <span className="px-2 py-0.5 rounded-md bg-onedark-red/10 text-onedark-red text-[10px] font-mono flex items-center space-x-1">
                               <AlertCircle className="w-2.5 h-2.5" />
                               <span>{failedCount} error{failedCount > 1 ? 's' : ''}</span>
                             </span>
                           ) : (
-                            <span className="px-2 py-0.5 rounded-md bg-onedark-green/5 text-onedark-green/80 border border-onedark-green/20 text-[10px] font-mono flex items-center space-x-1">
+                            <span className="px-2 py-0.5 rounded-md bg-onedark-green/5 text-onedark-green/90 text-[10px] font-mono flex items-center space-x-1">
                               <Check className="w-2.5 h-2.5" />
                               <span>Done ({formattedDuration})</span>
                             </span>
@@ -2279,7 +2278,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                                 e.stopPropagation();
                                 onSelectAuxTab('activity');
                               }}
-                              className="hidden md:flex items-center space-x-1 px-1.5 py-0.5 rounded-md bg-onedark-surface/30 hover:bg-onedark-surface text-onedark-muted hover:text-onedark-accent text-[10.5px] font-mono border border-onedark-borderSubtle/60 transition-colors"
+                              className="hidden md:flex items-center space-x-1 px-1.5 py-0.5 rounded-md bg-onedark-surface/30 hover:bg-onedark-surface text-onedark-muted hover:text-onedark-accent text-[10.5px] font-mono transition-colors"
                               title="Inspect logs in Auxiliary Tool Activity tab"
                             >
                               <span>Activity</span>
@@ -2287,7 +2286,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                             </button>
                           )}
 
-                          <span className="px-2 py-0.5 rounded-md bg-onedark-surface/40 text-onedark-muted text-[10.5px] font-mono border border-onedark-borderSubtle/60 flex items-center space-x-1 group-hover/hdr:text-onedark-fgBright transition-colors">
+                          <span className="px-2 py-0.5 rounded-md bg-onedark-surface/40 text-onedark-muted text-[10.5px] font-mono flex items-center space-x-1 group-hover/hdr:text-onedark-fgBright transition-colors">
                             <span>{isActOpen ? 'Hide' : `Show (${turn.logs.length + (task?.active_tool && !turn.logs.some(l => l.isRunning) ? 1 : 0)})`}</span>
                             {isActOpen ? (
                               <ChevronDown className="w-3 h-3 ml-0.5 text-onedark-muted group-hover/hdr:text-onedark-fgBright" />
@@ -2300,7 +2299,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
                       {/* Inline Action Items Stream */}
                       {isActOpen && (
-                        <div className="p-2 border-t border-onedark-borderSubtle/60 space-y-1.5 bg-onedark-darker/80 animate-fadeIn">
+                        <div className="p-1.5 border-t border-white/[0.04] space-y-0.5 bg-onedark-darker/40 animate-fadeIn">
                           {turn.logs.map((log, idx) => {
                             const logKey = log.id || `log-${turn.id}-${idx}`;
                             const isExpanded = !!expandedLogIds[logKey];
@@ -2311,20 +2310,20 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                               <div key={logKey} className="space-y-1">
                                 <div
                                   onClick={() => setExpandedLogIds((prev) => ({ ...prev, [logKey]: !prev[logKey] }))}
-                                  className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg border text-xs font-mono transition-all cursor-pointer select-none group/action ${
+                                  className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-mono transition-colors cursor-pointer select-none group/action ${
                                     log.isRunning
-                                      ? 'bg-onedark-accent/10 border-onedark-accent/40 text-onedark-fgBright shadow-xs'
+                                      ? 'bg-onedark-accent/10 text-onedark-fgBright shadow-xs'
                                       : log.exit_code !== 0
-                                      ? 'bg-onedark-red/10 border-onedark-red/30 text-onedark-red'
-                                      : 'bg-onedark-surface/30 hover:bg-onedark-surface/60 border-onedark-borderSubtle/60 text-onedark-fg'
+                                      ? 'bg-onedark-red/10 text-onedark-red'
+                                      : 'hover:bg-onedark-surface/40 text-onedark-fg'
                                   }`}
                                 >
-                                  <div className="flex items-center space-x-2 min-w-0 pr-2">
-                                    <div className={`p-1 rounded ${actionInfo.badgeBg} border ${actionInfo.badgeBorder} flex items-center justify-center flex-shrink-0`}>
+                                  <div className="flex items-center space-x-2.5 min-w-0 pr-2">
+                                    <div className={`p-1 rounded ${actionInfo.badgeBg} flex items-center justify-center flex-shrink-0`}>
                                       {log.isRunning ? (
                                         <RefreshCw className="w-3 h-3 animate-spin text-onedark-accent" />
                                       ) : (
-                                        <ActionIcon className={`w-3 h-3 ${actionInfo.colorClass}`} />
+                                        <ActionIcon className={`w-3.5 h-3.5 ${actionInfo.colorClass}`} />
                                       )}
                                     </div>
                                     <div className="truncate flex items-center space-x-1.5 text-xs">
@@ -2339,26 +2338,26 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
                                   <div className="flex items-center space-x-2 flex-shrink-0 text-[10.5px] text-onedark-muted">
                                     {log.isRunning ? (
-                                      <span className="px-1.5 py-0.2 rounded bg-onedark-accent/20 text-onedark-accent border border-onedark-accent/30 animate-pulse">
+                                      <span className="px-1.5 py-0.5 rounded bg-onedark-accent/20 text-onedark-accent text-[10px] animate-pulse">
                                         running...
                                       </span>
                                     ) : (
                                       <>
-                                        <span className="font-mono">
+                                        <span className="font-mono text-onedark-muted/70">
                                           {log.duration_ms < 1000 ? `${log.duration_ms}ms` : `${(log.duration_ms / 1000).toFixed(1)}s`}
                                         </span>
                                         <span
-                                          className={`px-1.5 py-0.2 rounded text-[9.5px] border ${
+                                          className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono ${
                                             log.exit_code === 0
-                                              ? 'bg-onedark-green/10 text-onedark-green border-onedark-green/20'
-                                              : 'bg-onedark-red/10 text-onedark-red border-onedark-red/20'
+                                              ? 'bg-onedark-green/10 text-onedark-green'
+                                              : 'bg-onedark-red/10 text-onedark-red'
                                           }`}
                                         >
                                           exit {log.exit_code}
                                         </span>
                                       </>
                                     )}
-                                    <span className="text-onedark-muted group-hover/action:text-onedark-fg transition-colors">
+                                    <span className="text-onedark-muted/60 group-hover/action:text-onedark-fg transition-colors">
                                       {isExpanded ? (
                                         <ChevronDown className="w-3.5 h-3.5" />
                                       ) : (
@@ -2370,7 +2369,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
                                 {/* Expanded Individual Log */}
                                 {isExpanded && (
-                                  <div className="pl-2 pt-0.5 pb-1">
+                                  <div className="pl-3 pr-1 pt-0.5 pb-1">
                                     <FormattedLogView log={log} initiallyExpanded={true} isExpanded={true} />
                                   </div>
                                 )}
@@ -2383,9 +2382,9 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                             const actionInfo = getToolActionInfo(task.active_tool.tool_name, task.active_tool.tool_input, true);
                             const ActionIcon = actionInfo.icon;
                             return (
-                              <div className="flex items-center justify-between px-2.5 py-1.5 rounded-lg border text-xs font-mono bg-onedark-accent/10 border-onedark-accent/40 text-onedark-fgBright shadow-xs select-none">
-                                <div className="flex items-center space-x-2 min-w-0 pr-2">
-                                  <div className={`p-1 rounded ${actionInfo.badgeBg} border ${actionInfo.badgeBorder} flex items-center justify-center flex-shrink-0`}>
+                              <div className="flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-mono bg-onedark-accent/10 text-onedark-fgBright shadow-xs select-none">
+                                <div className="flex items-center space-x-2.5 min-w-0 pr-2">
+                                  <div className={`p-1 rounded ${actionInfo.badgeBg} flex items-center justify-center flex-shrink-0`}>
                                     <RefreshCw className="w-3 h-3 animate-spin text-onedark-accent" />
                                   </div>
                                   <div className="truncate flex items-center space-x-1.5 text-xs">
@@ -2398,7 +2397,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                                   </div>
                                 </div>
                                 <div className="flex items-center space-x-2 flex-shrink-0 text-[10.5px]">
-                                  <span className="px-1.5 py-0.2 rounded bg-onedark-accent/20 text-onedark-accent border border-onedark-accent/30 animate-pulse">
+                                  <span className="px-1.5 py-0.5 rounded bg-onedark-accent/20 text-onedark-accent animate-pulse">
                                     running...
                                   </span>
                                 </div>
