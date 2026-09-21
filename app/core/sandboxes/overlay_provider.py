@@ -36,19 +36,36 @@ class OverlayFSSandboxProvider(SandboxProvider):
             target_base.mkdir(parents=True, exist_ok=True)
             self.base_dir = target_base
         except Exception:
-            fallback = Path("/tmp/workspaces")
+            fallback = Path(tempfile.gettempdir()) / "cyclode_workspaces"
             fallback.mkdir(parents=True, exist_ok=True)
             self.base_dir = fallback
 
-        self.cache_dir = Path(cache_dir or (self.base_dir / ".repo_cache"))
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-
-        self.overlays_dir = self.base_dir / ".overlays"
-        self.overlays_dir.mkdir(parents=True, exist_ok=True)
-
+        self._cache_dir = Path(cache_dir) if cache_dir else None
         self._active_sandboxes: Dict[str, SandboxContext] = {}
         self._snapshots: Dict[str, Dict[str, Path]] = {}  # task_id -> {tag: snapshot_dir}
         self._is_overlay_supported: Optional[bool] = None
+
+    @property
+    def cache_dir(self) -> Path:
+        p = self._cache_dir or (self.base_dir / ".repo_cache")
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        return p
+
+    @cache_dir.setter
+    def cache_dir(self, val: Optional[Path]):
+        self._cache_dir = Path(val) if val else None
+
+    @property
+    def overlays_dir(self) -> Path:
+        p = self.base_dir / ".overlays"
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        return p
 
     def _check_overlay_fs_support(self) -> bool:
         """Detects if native Linux OverlayFS mounting is supported in this kernel/container context."""

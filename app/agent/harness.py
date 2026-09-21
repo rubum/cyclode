@@ -645,6 +645,41 @@ class AntigravityHarness:
                         }
                     },
                     {
+                        "name": "batch_replace_content",
+                        "description": "Atomically apply multiple text replacements across one or more files in a single turn. Dramatically reduces roundtrips and token usage when modifying several files or multiple locations in a single file.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "edits": {
+                                    "type": "ARRAY",
+                                    "description": "List of file replacement operations to perform atomically",
+                                    "items": {
+                                        "type": "OBJECT",
+                                        "properties": {
+                                            "file_path": {"type": "STRING", "description": "Relative path to target file"},
+                                            "target_content": {"type": "STRING", "description": "Exact target text block to find and replace"},
+                                            "replacement_content": {"type": "STRING", "description": "New replacement text"},
+                                            "allow_multiple": {"type": "BOOLEAN", "description": "Whether to replace multiple occurrences (default: false)"}
+                                        },
+                                        "required": ["file_path", "target_content", "replacement_content"]
+                                    }
+                                }
+                            },
+                            "required": ["edits"]
+                        }
+                    },
+                    {
+                        "name": "apply_unified_patch",
+                        "description": "Apply a unified diff patch across multiple files atomically. Highly efficient for multi-hunk code transformations.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "patch_content": {"type": "STRING", "description": "Standard unified diff patch string (e.g. diff --git a/... b/...) "}
+                            },
+                            "required": ["patch_content"]
+                        }
+                    },
+                    {
                         "name": "edit_file",
                         "description": "Write or overwrite complete content of a file in the workspace.",
                         "parameters": {
@@ -1132,6 +1167,30 @@ class AntigravityHarness:
                                             new_parts.append(new_p)
                                         else:
                                             new_parts.append(p)
+                                    elif fn == "batch_replace_content":
+                                        new_p = dict(p)
+                                        fc = dict(p["functionCall"])
+                                        args = dict(fc.get("args", {}))
+                                        edits = args.get("edits", [])
+                                        if len(edits) > 4:
+                                            args["edits"] = edits[:4] + [{"_notice": f"... [Compacted {len(edits)-4} additional historical batch edits]"}]
+                                            fc["args"] = args
+                                            new_p["functionCall"] = fc
+                                            new_parts.append(new_p)
+                                        else:
+                                            new_parts.append(p)
+                                    elif fn == "apply_unified_patch":
+                                        new_p = dict(p)
+                                        fc = dict(p["functionCall"])
+                                        args = dict(fc.get("args", {}))
+                                        p_str = args.get("patch_content", "")
+                                        if len(p_str) > 1500:
+                                            args["patch_content"] = p_str[:300] + f"\n\n... [Historical unified patch compacted ({len(p_str)} bytes total)]"
+                                            fc["args"] = args
+                                            new_p["functionCall"] = fc
+                                            new_parts.append(new_p)
+                                        else:
+                                            new_parts.append(p)
                                     else:
                                         new_parts.append(p)
                                 elif "functionResponse" in p:
@@ -1542,6 +1601,38 @@ class AntigravityHarness:
                                     out_str = f"Error replacing content: {tool_result['error']}"
                                 else:
                                     out_str = f"Successfully replaced target content in '{file_path}' ({tool_result.get('replacements_count', 1)} replacement(s))."
+                            elif fn_name == "batch_replace_content":
+                                mutating_tool_count += 1
+                                edits = args.get("edits", [])
+                                tool_result = WorkspaceTools.batch_replace_content(
+                                    workspace_path=workspace_path,
+                                    edits=edits
+                                )
+                                diffs = worktree_manager.get_git_diff(workspace_path)
+                                if diffs:
+                                    await on_diff_updated(diffs)
+                                if "error" in tool_result:
+                                    out_str = f"Error in batch edit: {tool_result['error']}"
+                                else:
+                                    f_count = tool_result.get("modified_files_count", 0)
+                                    r_count = tool_result.get("total_replacements", 0)
+                                    f_list = ", ".join(tool_result.get("modified_files", []))
+                                    out_str = f"Batch edit successfully applied {r_count} replacement(s) across {f_count} file(s) [{f_list}]."
+                            elif fn_name == "apply_unified_patch":
+                                mutating_tool_count += 1
+                                patch_content = args.get("patch_content", "")
+                                tool_result = WorkspaceTools.apply_unified_patch(
+                                    workspace_path=workspace_path,
+                                    patch_content=patch_content
+                                )
+                                diffs = worktree_manager.get_git_diff(workspace_path)
+                                if diffs:
+                                    await on_diff_updated(diffs)
+                                if "error" in tool_result:
+                                    out_str = f"Error applying patch: {tool_result['error']}"
+                                else:
+                                    m_files = ", ".join(tool_result.get("modified_files", []))
+                                    out_str = f"Unified patch successfully applied to: {m_files}."
                             elif fn_name == "edit_file":
                                 mutating_tool_count += 1
                                 file_path = args.get("file_path", "")

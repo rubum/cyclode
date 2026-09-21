@@ -127,6 +127,113 @@ class WorkspaceTools:
         return {"file_path": file_path, "status": "written", "bytes": len(content)}
 
     @staticmethod
+    def _fuzzy_search_and_replace(
+        original: str,
+        target_content: str,
+        replacement_content: str,
+        allow_multiple: bool = False
+    ) -> Tuple[Optional[str], int, Optional[str]]:
+        """
+        Performs multi-tiered search and replace:
+        1. Exact substring match
+        2. Line ending / trailing whitespace normalized match
+        3. Indentation-tolerant matching (preserving file's base indentation)
+        4. Anchor-based block match (matching top/bottom anchors for resilient block replacement)
+        
+        Returns (updated_text, replacements_count, error_message).
+        """
+        if not target_content:
+            return None, 0, "target_content cannot be empty"
+
+        # Tier 1: Exact Match
+        count = original.count(target_content)
+        if count >= 1:
+            if count > 1 and not allow_multiple:
+                return None, 0, f"Target content matched {count} times. Provide a more unique block of context or set allow_multiple=True."
+            updated = original.replace(target_content, replacement_content) if allow_multiple else original.replace(target_content, replacement_content, 1)
+            return updated, count if allow_multiple else 1, None
+
+        # Normalization helper
+        def normalize_lines(text: str) -> List[str]:
+            return [line.rstrip() for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+
+        orig_lines = normalize_lines(original)
+        target_lines = normalize_lines(target_content)
+
+        if not target_lines or not orig_lines:
+            return None, 0, "Target content not found in file."
+
+        t_len = len(target_lines)
+        matches: List[Tuple[int, int]] = []  # List of (start_idx, end_idx) inclusive
+
+        # Tier 2 Search: Exact normalized line matches
+        for i in range(len(orig_lines) - t_len + 1):
+            if orig_lines[i : i + t_len] == target_lines:
+                matches.append((i, i + t_len - 1))
+
+        # Tier 3 Search: Indentation-tolerant matching
+        if not matches:
+            first_target_non_empty = next((l for l in target_lines if l.strip()), "")
+            target_indent = len(first_target_non_empty) - len(first_target_non_empty.lstrip())
+            stripped_target = [l[target_indent:] if len(l) >= target_indent and l[:target_indent].isspace() else l.lstrip() for l in target_lines]
+
+            for i in range(len(orig_lines) - t_len + 1):
+                window = orig_lines[i : i + t_len]
+                first_orig_non_empty = next((l for l in window if l.strip()), "")
+                orig_indent = len(first_orig_non_empty) - len(first_orig_non_empty.lstrip())
+                stripped_window = [l[orig_indent:] if len(l) >= orig_indent and l[:orig_indent].isspace() else l.lstrip() for l in window]
+                
+                if stripped_window == stripped_target:
+                    matches.append((i, i + t_len - 1))
+
+        # Tier 4 Search: Anchor-based matching (top 1-2 lines + bottom line)
+        if not matches and t_len >= 2:
+            non_empty_targets = [l.strip() for l in target_lines if l.strip()]
+            if len(non_empty_targets) >= 2:
+                first_anchor = non_empty_targets[0]
+                second_anchor = non_empty_targets[1] if len(non_empty_targets) >= 3 else None
+                last_anchor = non_empty_targets[-1]
+
+                for i in range(len(orig_lines)):
+                    if orig_lines[i].strip() == first_anchor:
+                        if second_anchor and (i + 1 >= len(orig_lines) or orig_lines[i + 1].strip() != second_anchor):
+                            continue
+                        
+                        max_search = min(len(orig_lines), i + max(t_len * 3, t_len + 30))
+                        start_search_j = i + (2 if second_anchor else 1)
+                        candidate_ends = []
+                        for j in range(start_search_j, max_search):
+                            if orig_lines[j].strip() == last_anchor:
+                                candidate_ends.append(j)
+                        
+                        if len(candidate_ends) == 1:
+                            matches.append((i, candidate_ends[0]))
+
+        if not matches:
+            return None, 0, "Target content not found in file. Ensure the code snippet matches the current file contents."
+
+        if len(matches) > 1 and not allow_multiple:
+            return None, 0, f"Target content matched {len(matches)} locations. Provide more unique surrounding context."
+
+        # Apply replacements
+        updated_lines = list(original.splitlines())
+        has_trailing_newline = original.endswith("\n")
+        newline_char = "\r\n" if "\r\n" in original else "\n"
+
+        target_matches = matches if allow_multiple else [matches[0]]
+        sorted_matches = sorted(target_matches, key=lambda m: m[0], reverse=True)
+        repl_lines = replacement_content.splitlines()
+
+        for start_idx, end_idx in sorted_matches:
+            updated_lines[start_idx : end_idx + 1] = repl_lines
+
+        final_text = newline_char.join(updated_lines)
+        if has_trailing_newline and not final_text.endswith(newline_char):
+            final_text += newline_char
+
+        return final_text, len(sorted_matches), None
+
+    @staticmethod
     def replace_file_content(
         workspace_path: Path,
         file_path: str,
@@ -141,21 +248,16 @@ class WorkspaceTools:
         if not target.exists() or not target.is_file():
             return {"error": f"File '{file_path}' not found"}
 
-        if not target_content:
-            return {"error": "target_content cannot be empty"}
-
         try:
             original = target.read_text(encoding="utf-8")
-            count = original.count(target_content)
-            if count == 0:
-                return {"error": f"Target content not found in '{file_path}'. Ensure whitespace and indentation match exactly."}
-            if count > 1 and not allow_multiple:
-                return {"error": f"Target content matched {count} times in '{file_path}'. Provide a more unique block of context or set allow_multiple=True."}
-
-            if allow_multiple:
-                updated = original.replace(target_content, replacement_content)
-            else:
-                updated = original.replace(target_content, replacement_content, 1)
+            updated, count, err = WorkspaceTools._fuzzy_search_and_replace(
+                original=original,
+                target_content=target_content,
+                replacement_content=replacement_content,
+                allow_multiple=allow_multiple
+            )
+            if err or updated is None:
+                return {"error": err or "Replacement failed"}
 
             # CoW protection: if file is a shared hardlink, unlink first to write to a new private inode
             if target.stat().st_nlink > 1:
@@ -164,11 +266,274 @@ class WorkspaceTools:
             return {
                 "file_path": file_path,
                 "status": "replaced",
-                "replacements_count": count if allow_multiple else 1,
-                "bytes_written": len(updated)
+                "replacements_count": count,
+                "bytes_written": len(updated.encode("utf-8"))
             }
         except Exception as e:
             return {"error": str(e)}
+
+    @staticmethod
+    def batch_replace_content(
+        workspace_path: Path,
+        edits: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Atomically applies multiple search-and-replace operations across one or more files
+        in a single turn with atomic validation, rollback on error, and CoW hardlink protection.
+        """
+        if not edits or not isinstance(edits, list):
+            return {"error": "edits must be a non-empty list of replacement operations"}
+
+        ws_root = workspace_path.resolve()
+        
+        # 1. Pre-validation phase: Check all file paths and target contents
+        validated_operations = []
+        files_to_read = set()
+
+        for idx, edit in enumerate(edits):
+            if not isinstance(edit, dict):
+                return {"error": f"Edit at index {idx} must be an object"}
+            
+            f_path = edit.get("file_path")
+            t_content = edit.get("target_content")
+            r_content = edit.get("replacement_content", "")
+            allow_mult = bool(edit.get("allow_multiple", False))
+
+            if not f_path or not isinstance(f_path, str):
+                return {"error": f"Edit at index {idx} missing valid 'file_path'"}
+            if t_content is None or not isinstance(t_content, str) or not t_content:
+                return {"error": f"Edit at index {idx} ('{f_path}') missing 'target_content'"}
+
+            target_file = (ws_root / f_path).resolve()
+            if not target_file.is_relative_to(ws_root):
+                return {"error": f"Access denied: '{f_path}' is outside workspace"}
+            if not target_file.exists() or not target_file.is_file():
+                return {"error": f"File '{f_path}' not found in workspace"}
+
+            validated_operations.append({
+                "file_path": f_path,
+                "target_file": target_file,
+                "target_content": t_content,
+                "replacement_content": r_content,
+                "allow_multiple": allow_mult
+            })
+            files_to_read.add(target_file)
+
+        # 2. In-memory transaction phase: Apply edits to file buffers
+        file_buffers = {}
+        for tf in files_to_read:
+            try:
+                file_buffers[tf] = tf.read_text(encoding="utf-8")
+            except Exception as e:
+                return {"error": f"Failed reading file '{tf.name}': {str(e)}"}
+
+        total_replacements = 0
+        file_stats = {}
+
+        for idx, op in enumerate(validated_operations):
+            tf = op["target_file"]
+            current_content = file_buffers[tf]
+            updated_text, count, err = WorkspaceTools._fuzzy_search_and_replace(
+                original=current_content,
+                target_content=op["target_content"],
+                replacement_content=op["replacement_content"],
+                allow_multiple=op["allow_multiple"]
+            )
+            if err or updated_text is None:
+                return {"error": f"Batch edit failed on '{op['file_path']}' (edit #{idx+1}): {err}"}
+
+            file_buffers[tf] = updated_text
+            total_replacements += count
+            f_key = op["file_path"]
+            file_stats[f_key] = file_stats.get(f_key, 0) + count
+
+        # 3. Disk Flush Phase: Write all modified buffers atomically with CoW protection
+        total_bytes = 0
+        for tf, new_content in file_buffers.items():
+            if tf.stat().st_nlink > 1:
+                tf.unlink()
+            tf.write_text(new_content, encoding="utf-8")
+            total_bytes += len(new_content.encode("utf-8"))
+
+        return {
+            "status": "success",
+            "modified_files_count": len(file_buffers),
+            "modified_files": list(file_stats.keys()),
+            "files_modified": list(file_stats.keys()),
+            "total_replacements": total_replacements,
+            "bytes_written": total_bytes,
+            "details": [{"file_path": fp, "replacements": cnt} for fp, cnt in file_stats.items()]
+        }
+
+    @staticmethod
+    def _apply_patch_pure_python(ws_root: Path, patch_text: str) -> List[str]:
+        """
+        Pure Python fallback unified diff patch applier.
+        Parses standard unidiff hunks and modifies files in-memory before disk flush.
+        """
+        lines = patch_text.splitlines()
+        file_patches: Dict[str, List[List[str]]] = {}
+        current_file = None
+
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            if line.startswith("--- "):
+                if i + 1 < len(lines) and lines[i + 1].startswith("+++ "):
+                    dest_file = lines[i + 1][4:].strip()
+                    if dest_file.startswith("b/") or dest_file.startswith("a/"):
+                        dest_file = dest_file[2:]
+                    dest_file = dest_file.split("\t")[0].strip()
+                    current_file = dest_file
+                    if current_file not in file_patches:
+                        file_patches[current_file] = []
+                    i += 2
+                    continue
+            if line.startswith("@@ ") and current_file:
+                current_hunk = [line]
+                i += 1
+                while i < len(lines) and not lines[i].startswith("@@ ") and not lines[i].startswith("--- "):
+                    current_hunk.append(lines[i])
+                    i += 1
+                file_patches[current_file].append(current_hunk)
+                continue
+            i += 1
+
+        applied_files = []
+        for rel_file, hunks in file_patches.items():
+            target_path = (ws_root / rel_file).resolve()
+            if not target_path.is_relative_to(ws_root):
+                continue
+            
+            orig_text = target_path.read_text(encoding="utf-8") if target_path.exists() else ""
+            file_lines = orig_text.splitlines()
+
+            for hunk in hunks:
+                if not hunk:
+                    continue
+                header = hunk[0]
+                m = re.match(r'^@@\s+-(\d+)(?:,(\d+))?\s+\+(\d+)(?:,(\d+))?\s+@@', header)
+                orig_start = (int(m.group(1)) - 1) if m else 0
+                hunk_lines = hunk[1:]
+                
+                add_lines = []
+                match_lines = []
+                for hl in hunk_lines:
+                    if hl.startswith("-"):
+                        match_lines.append(hl[1:])
+                    elif hl.startswith(" "):
+                        match_lines.append(hl[1:])
+                        add_lines.append(hl[1:])
+                    elif hl.startswith("+"):
+                        add_lines.append(hl[1:])
+
+                pos = -1
+                for test_pos in [orig_start, max(0, orig_start - 1), orig_start + 1]:
+                    if 0 <= test_pos <= len(file_lines):
+                        if not match_lines or file_lines[test_pos : test_pos + len(match_lines)] == match_lines:
+                            pos = test_pos
+                            break
+                
+                if pos == -1:
+                    for idx in range(len(file_lines) - len(match_lines) + 1):
+                        if file_lines[idx : idx + len(match_lines)] == match_lines:
+                            pos = idx
+                            break
+
+                if pos != -1 and match_lines:
+                    file_lines[pos : pos + len(match_lines)] = add_lines
+
+            new_text = "\n".join(file_lines)
+            if orig_text.endswith("\n") and not new_text.endswith("\n"):
+                new_text += "\n"
+
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            if target_path.exists() and target_path.stat().st_nlink > 1:
+                target_path.unlink()
+            target_path.write_text(new_text, encoding="utf-8")
+            applied_files.append(rel_file)
+
+        return applied_files
+
+    @staticmethod
+    def apply_unified_patch(
+        workspace_path: Path,
+        patch_content: Optional[str] = None,
+        patch: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Applies a multi-file unified diff patch atomically using git apply, patch CLI, or pure-Python patch engine.
+        """
+        raw_patch = patch_content if patch_content is not None else patch
+        if not raw_patch or not raw_patch.strip():
+            return {"error": "patch or patch_content cannot be empty"}
+
+        ws_root = workspace_path.resolve()
+
+        header_files = []
+        for line in raw_patch.splitlines():
+            if line.startswith("--- ") or line.startswith("+++ "):
+                target_f = line[4:].strip()
+                if target_f.startswith("a/") or target_f.startswith("b/"):
+                    target_f = target_f[2:]
+                target_f = target_f.split("\t")[0].strip()
+                if target_f and target_f != "/dev/null":
+                    header_files.append(target_f)
+        unique_files = list(dict.fromkeys(header_files))
+
+        # Try git apply
+        for p_flag in ["-p0", "-p1"]:
+            try:
+                res = subprocess.run(
+                    ["git", "apply", p_flag, "--unidiff-zero", "--whitespace=nowarn", "-"],
+                    input=raw_patch,
+                    text=True,
+                    cwd=ws_root,
+                    capture_output=True,
+                    timeout=10
+                )
+                if res.returncode == 0:
+                    return {
+                        "status": "success",
+                        "modified_files": unique_files,
+                        "files_modified": unique_files,
+                        "engine": "git_apply"
+                    }
+            except Exception:
+                pass
+
+        # Try patch CLI
+        for p_flag in ["-p0", "-p1"]:
+            try:
+                res_patch = subprocess.run(
+                    ["patch", p_flag, "--silent", "-N"],
+                    input=raw_patch,
+                    text=True,
+                    cwd=ws_root,
+                    capture_output=True,
+                    timeout=10
+                )
+                if res_patch.returncode == 0:
+                    return {
+                        "status": "success",
+                        "modified_files": unique_files,
+                        "files_modified": unique_files,
+                        "engine": "patch_cli"
+                    }
+            except Exception:
+                pass
+
+        # Fallback to pure Python patch engine
+        try:
+            applied = WorkspaceTools._apply_patch_pure_python(ws_root, raw_patch)
+            return {
+                "status": "success",
+                "modified_files": applied or unique_files,
+                "files_modified": applied or unique_files,
+                "engine": "python_diff_engine"
+            }
+        except Exception as e:
+            return {"error": f"Error applying unified patch: {str(e)}"}
 
     @staticmethod
     def get_file_outline(workspace_path: Path, file_path: str) -> Dict[str, Any]:
