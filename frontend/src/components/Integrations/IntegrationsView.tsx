@@ -199,6 +199,9 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
       payload.api_key = tokenInput.trim();
       if (modelInput.trim()) payload.model = modelInput.trim();
       if (baseUrlInput.trim()) payload.base_url = baseUrlInput.trim();
+    } else if (selectedIntegration.id === 'typesafe') {
+      payload.api_key = tokenInput.trim();
+      if (baseUrlInput.trim()) payload.base_url = baseUrlInput.trim();
     } else if (selectedIntegration.id === 'linear') {
       payload.token = tokenInput.trim();
     } else if (selectedIntegration.id === 'sentry') {
@@ -320,6 +323,8 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
         return <Activity className="w-5 h-5 text-amber-400" />;
       case 'sentry':
         return <AlertTriangle className="w-5 h-5 text-rose-400" />;
+      case 'typesafe':
+        return <ShieldCheck className="w-5 h-5 text-emerald-400" />;
       default:
         return <PlugZap className="w-5 h-5 text-onedark-accent" />;
     }
@@ -343,6 +348,8 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
         return 'bg-amber-500/10 border-amber-500/30 text-amber-400';
       case 'sentry':
         return 'bg-rose-500/10 border-rose-500/30 text-rose-400';
+      case 'typesafe':
+        return 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400';
       default:
         return 'bg-onedark-accent/10 border-onedark-accent/30 text-onedark-accent';
     }
@@ -925,6 +932,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                      selectedIntegration.id === 'gemini' ? 'Google AI Studio / Gemini API Key' :
                      selectedIntegration.id === 'anthropic' ? 'Anthropic API Key (sk-ant-...)' :
                      selectedIntegration.id === 'openai' ? 'OpenAI API Key (sk-...)' :
+                     selectedIntegration.id === 'typesafe' ? 'TypeSafe AI API Key (from console.typesafe.ai)' :
                      selectedIntegration.id === 'linear' ? 'Linear API Key / Personal API Key (lin_api_...)' :
                      selectedIntegration.id === 'sentry' ? 'Sentry Auth Token' : 'API Token'}
                   </span>
@@ -940,6 +948,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                     selectedIntegration.id === 'gemini' ? 'AIzaSyxxxxxxxxxxxxxxxxxxxx' :
                     selectedIntegration.id === 'anthropic' ? 'sk-ant-xxxxxxxxxxxxxxxxxxxx' :
                     selectedIntegration.id === 'openai' ? 'sk-xxxxxxxxxxxxxxxxxxxx' :
+                    selectedIntegration.id === 'typesafe' ? 'ts_live_xxxxxxxxxxxxxxxxxxxx' :
                     selectedIntegration.id === 'linear' ? 'lin_api_xxxxxxxxxxxxxxxxxxxx' :
                     selectedIntegration.id === 'sentry' ? 'sntrys_xxxxxxxxxxxxxxxxxxxx' : 'Enter secret key...'
                   }
@@ -947,6 +956,26 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                   autoFocus
                 />
               </div>
+
+              {/* Optional Base URL for TypeSafe or OpenAI */}
+              {selectedIntegration.id === 'typesafe' && (
+                <div className="space-y-2 pt-1">
+                  <label className="text-xs font-mono font-semibold text-onedark-fgBright flex items-center justify-between">
+                    <span>TypeSafe Base URL</span>
+                    <span className="text-[10.5px] font-mono text-onedark-muted">Optional / Netlify Gateway</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={baseUrlInput}
+                    onChange={(e) => setBaseUrlInput(e.target.value)}
+                    placeholder="https://api.typesafe.ai/v1"
+                    className="w-full px-3.5 py-2 rounded-lg bg-onedark-bg border border-onedark-border text-xs text-onedark-fgBright font-mono focus:outline-none focus:border-onedark-accent shadow-xs"
+                  />
+                  <p className="text-[11px] text-onedark-muted">
+                    Defaults to official TypeSafe AI endpoint (<code className="text-emerald-400">https://api.typesafe.ai/v1</code>).
+                  </p>
+                </div>
+              )}
 
               {/* Optional Default Model Configuration for AI Providers */}
               {(selectedIntegration.id === 'gemini' || selectedIntegration.id === 'anthropic' || selectedIntegration.id === 'openai') && (

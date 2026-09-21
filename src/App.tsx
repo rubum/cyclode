@@ -12,6 +12,7 @@ import { PolicySettings } from './components/Policies/PolicySettings';
 import { IntegrationsView } from './components/Integrations/IntegrationsView';
 import { RepositoriesView } from './components/Repositories/RepositoriesView';
 import { SandboxInspectorModal } from './components/Sandbox/SandboxInspectorModal';
+import { GuardrailBenchmarkArena } from './components/AuxiliaryPane/GuardrailBenchmarkArena';
 import { Task, TaskMessage, TaskLog, EventItem, PolicyMap, Integration, AutomationRule, SkillCatalogItem, WebhookEndpoint, RepositoryConfig, LayoutPreset } from './types';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -42,7 +43,7 @@ const MainApp: React.FC = () => {
     }
     return 'split';
   });
-  const [activeAuxTab, setActiveAuxTab] = useState<'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'docs' | 'preview'>('activity');
+  const [activeAuxTab, setActiveAuxTab] = useState<'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'docs' | 'preview' | 'benchmark'>('activity');
   const [sessionPreviews, setSessionPreviews] = useState<Record<string, { url: string; title?: string } | null>>({});
   const activePreviewTarget = activeTaskId ? (sessionPreviews[activeTaskId] || null) : null;
   const [isClearingAll, setIsClearingAll] = useState<boolean>(false);
@@ -1130,6 +1131,12 @@ const MainApp: React.FC = () => {
             onRefreshIntegrations={fetchIntegrations}
             onBackToChat={() => setActiveView('chat')}
             onNavigateToPolicies={() => setActiveView('policies')}
+          />
+        );
+      case 'benchmark':
+        return (
+          <GuardrailBenchmarkArena
+            onNavigateToIntegrations={() => setActiveView('integrations')}
           />
         );
 

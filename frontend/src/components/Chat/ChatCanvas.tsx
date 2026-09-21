@@ -45,10 +45,7 @@ import {
   ListOrdered,
   Circle,
   Bot,
-  Cpu,
-  Undo2,
-  ShieldCheck,
-  Plus
+  Cpu
 } from 'lucide-react';
 import { Task, TaskMessage, TaskLog, RepositoryConfig, TaskPR, WorkspacePreviewInfo, TaskPlan, LayoutPreset } from '../../types';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
@@ -190,7 +187,6 @@ interface ChatCanvasProps {
   onNewChatWithPrompt?: (prompt: string, persona: string, modelName?: string) => void;
   onEditMessage?: (messageId: string, newContent: string) => void;
   onRetryTask?: (fromMessageId?: string) => void;
-  onResetTurn?: (turnIndex?: number) => void;
   onStopTask?: () => void;
   onUpdateTaskTitle?: (taskId: string, newTitle: string) => void;
   isSidebarCollapsed?: boolean;
@@ -506,7 +502,6 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   onNewChatWithPrompt,
   onEditMessage,
   onRetryTask,
-  onResetTurn,
   onStopTask,
   onUpdateTaskTitle,
   isSidebarCollapsed,
@@ -841,26 +836,6 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const emptyStateBackdropRef = useRef<HTMLDivElement>(null);
   const chatBackdropRef = useRef<HTMLDivElement>(null);
 
-  const adjustTextareaHeight = useCallback(() => {
-    const adjust = (el: HTMLTextAreaElement | null, minH = 36, maxH = 220) => {
-      if (!el) return;
-      el.style.height = 'auto';
-      const scrollHeight = el.scrollHeight;
-      const targetHeight = Math.min(Math.max(scrollHeight, minH), maxH);
-      el.style.height = `${targetHeight}px`;
-    };
-
-    if (task) {
-      adjust(textareaRef.current, 36, 220);
-    } else {
-      adjust(emptyStateTextareaRef.current, 72, 240);
-    }
-  }, [task]);
-
-  useEffect(() => {
-    adjustTextareaHeight();
-  }, [inputValue, adjustTextareaHeight]);
-
   const fetchRepos = useCallback(async () => {
     const apiBase = import.meta.env.VITE_API_URL || '';
     const endpoints = [
@@ -889,12 +864,40 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     fetchRepos();
   }, [fetchRepos]);
 
+const DEFAULT_STARTER_REPOS: RepositoryConfig[] = [
+  {
+    id: 'starter-auth',
+    name: 'auth-service',
+    full_name: 'acme/auth-service',
+    clone_url: 'https://github.com/acme/auth-service',
+    default_branch: 'main',
+    auth_provider: 'vault',
+    has_token: true,
+    tech_stack: ['Python', 'FastAPI'],
+    test_command: 'pytest',
+    status: 'CONNECTED',
+  },
+  {
+    id: 'starter-payments',
+    name: 'payments-api',
+    full_name: 'acme/payments-api',
+    clone_url: 'https://github.com/acme/payments-api',
+    default_branch: 'main',
+    auth_provider: 'vault',
+    has_token: true,
+    tech_stack: ['TypeScript', 'Node.js'],
+    test_command: 'npm test',
+    status: 'CONNECTED',
+  },
+];
+
   const effectiveRepos = useMemo(() => {
     const repos = (propRepositories && propRepositories.length > 0) ? propRepositories : localRepos;
     if (repos && repos.length > 0) {
-      return repos.filter(r => !r.id?.startsWith('starter-') && !r.full_name?.startsWith('acme/'));
+      const userRepos = repos.filter(r => !r.id?.startsWith('starter-') && !r.full_name?.startsWith('acme/'));
+      return userRepos.length > 0 ? userRepos : repos;
     }
-    return [];
+    return DEFAULT_STARTER_REPOS;
   }, [propRepositories, localRepos]);
 
   const filteredRepos = useMemo(() => {
@@ -1123,168 +1126,85 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     setEditValue('');
   };
 
-  const starterTemplates = useMemo(() => {
-    if (effectiveRepos.length > 0) {
-      const primaryRepo = effectiveRepos[0];
-      const repoTag = `@${primaryRepo.full_name || primaryRepo.name}`;
-      return [
-        {
-          title: 'Audit Architecture & Security',
-          description: `Analyze component architecture, dependencies, and potential security vulnerabilities in ${repoTag}.`,
-          prompt: `Perform a comprehensive architectural review and dependency security audit on ${repoTag}. Highlight circular dependencies, outdated packages, and potential performance bottlenecks.`,
-          persona: 'SoftwareEngineer',
-          icon: ShieldCheck,
-          color: 'text-onedark-accent',
-          bgColor: 'bg-onedark-accent/10',
-          badge: repoTag,
-        },
-        {
-          title: 'Generate Test Coverage',
-          description: `Discover untested edge cases and generate isolated test suites for ${repoTag}.`,
-          prompt: `Inspect ${repoTag} for missing unit and integration test coverage. Generate resilient test cases and verify them in the sandbox.`,
-          persona: 'SoftwareEngineer',
-          icon: CheckCircle2,
-          color: 'text-onedark-green',
-          bgColor: 'bg-onedark-green/10',
-          badge: repoTag,
-        },
-        {
-          title: 'Automated Code Review',
-          description: `Review recent changes or branch diffs in ${repoTag} for null safety and regressions.`,
-          prompt: `Review the latest branch changes in ${repoTag}. Check edge cases, null safety, code style, and verify that test suites pass.`,
-          persona: 'CodeReviewer',
-          icon: GitPullRequest,
-          color: 'text-onedark-purple',
-          bgColor: 'bg-onedark-purple/10',
-          badge: repoTag,
-        },
-        {
-          title: 'Scaffold Feature Branch',
-          description: `Design and implement a new feature branch in ${repoTag} with live sandbox preview.`,
-          prompt: `Scaffold a new feature in ${repoTag}: create the required data models, backend API routes, and frontend UI components.`,
-          persona: 'AppBuilder',
-          icon: LayoutGrid,
-          color: 'text-onedark-yellow',
-          bgColor: 'bg-onedark-yellow/10',
-          badge: repoTag,
-        },
-      ];
-    }
-
-    return [
-      {
-        title: 'Scaffold Fullstack App',
-        description: 'Generate a modern fullstack web app with React, TypeScript, Tailwind, and FastAPI in a live preview sandbox.',
-        prompt: 'Build a modern fullstack web application with React, TypeScript, Tailwind CSS, and a FastAPI backend with live preview.',
-        persona: 'AppBuilder',
-        icon: LayoutGrid,
-        color: 'text-onedark-accent',
-        bgColor: 'bg-onedark-accent/10',
-        badge: 'Sandbox',
-      },
-      {
-        title: 'Connect Remote Repository',
-        description: 'Link your GitHub or GitLab repository to enable automated PR reviews, audits, and auto-patching.',
-        prompt: 'Connect repository https://github.com/[owner]/[repo] and analyze the codebase architecture.',
-        persona: 'SoftwareEngineer',
-        action: 'connect_repo',
-        icon: FolderGit2,
-        color: 'text-onedark-purple',
-        bgColor: 'bg-onedark-purple/10',
-        badge: 'Git Integration',
-      },
-      {
-        title: 'Diagnose & Auto-Fix Error',
-        description: 'Paste an error traceback or failing test log to diagnose root cause and test fixes in an isolated sandbox.',
-        prompt: 'Diagnose and fix the following error:\n\n[Paste stack trace, error log, or failing test output here]\n\nAnalyze the root cause and generate a verified fix.',
-        persona: 'IssueResolver',
-        icon: Bug,
-        color: 'text-onedark-red',
-        bgColor: 'bg-onedark-red/10',
-        badge: 'Bugfixer',
-      },
-      {
-        title: 'Algorithmic Benchmark Sandbox',
-        description: 'Create an isolated workspace to prototype algorithms, test third-party libraries, or benchmark performance.',
-        prompt: 'Create an isolated Python/TypeScript benchmark workspace to evaluate and compare [algorithm or library name] with unit tests.',
-        persona: 'SoftwareEngineer',
-        icon: Terminal,
-        color: 'text-onedark-yellow',
-        bgColor: 'bg-onedark-yellow/10',
-        badge: 'Prototyping',
-      },
-    ];
-  }, [effectiveRepos]);
+  const starterTemplates = [
+    {
+      title: 'Build Fullstack App',
+      persona: 'AppBuilder',
+      prompt: 'Build a fullstack e-commerce app with customer storefront, merchant admin portal, and live preview.',
+      icon: LayoutGrid,
+      color: 'text-onedark-accent',
+      bgColor: 'bg-onedark-accent/10',
+    },
+    {
+      title: 'Auto Code Review',
+      persona: 'CodeReviewer',
+      prompt: 'Review PR #42 for acme/auth-service: check edge cases, null safety, and verify unit test passes.',
+      icon: GitPullRequest,
+      color: 'text-onedark-green',
+      bgColor: 'bg-onedark-green/10',
+    },
+    {
+      title: 'Fix Production Bug',
+      persona: 'SoftwareEngineer',
+      prompt: 'Investigate KeyError in auth_service.py: add defensive fallback and verify with pytest.',
+      icon: Bug,
+      color: 'text-onedark-red',
+      bgColor: 'bg-onedark-red/10',
+    },
+    {
+      title: 'APM Triage Alert',
+      persona: 'APMTriage',
+      prompt: 'Triage Sentry 500 spike alert on auth-service and create isolated regression test in sandbox.',
+      icon: Activity,
+      color: 'text-onedark-yellow',
+      bgColor: 'bg-onedark-yellow/10',
+    },
+  ];
 
   const personas = [
-    { id: 'SoftwareEngineer', label: 'Software Engineer' },
-    { id: 'AppBuilder', label: 'App Builder' },
-    { id: 'CodeReviewer', label: 'Code Reviewer' },
-    { id: 'IssueResolver', label: 'Issue Resolver' },
-    { id: 'APMTriage', label: 'APM Triage' },
+    { id: 'SoftwareEngineer', label: 'Software Engineer (Default)' },
+    { id: 'AppBuilder', label: 'App Builder (Fullstack & UI)' },
+    { id: 'CodeReviewer', label: 'Code Reviewer (PRs & Diffs)' },
+    { id: 'IssueResolver', label: 'Issue Resolver (Bugfixer)' },
+    { id: 'APMTriage', label: 'APM Triage (Sentry / AppSignal)' },
   ];
 
   const modelOptions = [
     {
       group: 'Adaptive Orchestration',
       models: [
-        { id: 'auto', label: 'Auto Tiering' },
+        { id: 'auto', label: 'Auto (Task-Adaptive Tiering: Major/Minor)' },
       ],
     },
     {
       group: 'Google Gemini',
       models: [
-        { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash' },
-        { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash' },
+        { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash (Agentic Workhorse)' },
+        { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash (Sub-second Agentic)' },
         { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-        { id: 'gemini-2.0-pro', label: 'Gemini 2.0 Pro' },
+        { id: 'gemini-2.0-pro', label: 'Gemini 2.0 Pro (Deep Reasoning)' },
       ],
     },
     {
       group: 'Anthropic Claude',
       models: [
-        { id: 'claude-3-7-sonnet', label: 'Claude 3.7 Sonnet' },
+        { id: 'claude-fable-5-1', label: 'Claude Fable 5.1 (Mythos Frontier)' },
+        { id: 'claude-3-7-sonnet', label: 'Claude 3.7 Sonnet (Thinking)' },
         { id: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet' },
-        { id: 'claude-3-5-haiku', label: 'Claude 3.5 Haiku' },
+        { id: 'claude-3-5-haiku', label: 'Claude 3.5 Haiku (Fast)' },
       ],
     },
     {
       group: 'OpenAI / Codex',
       models: [
-        { id: 'gpt-4o', label: 'GPT-4o' },
-        { id: 'o3-mini', label: 'o3-mini' },
+        { id: 'gpt-6-astra', label: 'GPT-6 Astra (Frontier Autonomous)' },
+        { id: 'gpt-4o', label: 'GPT-4o (Omni Multimodal)' },
+        { id: 'o3-mini', label: 'o3-mini (STEM Reasoning)' },
         { id: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+        { id: 'codex', label: 'Codex / GPT-4o' },
       ],
     },
   ];
-
-  const handleSelectTemplate = (item: any) => {
-    if (item.action === 'connect_repo') {
-      if (onNavigateToRepos) {
-        onNavigateToRepos();
-      }
-      return;
-    }
-
-    if (item.persona) {
-      setSelectedPersona(item.persona);
-    }
-
-    setInputValue(item.prompt);
-
-    setTimeout(() => {
-      if (emptyStateTextareaRef.current) {
-        emptyStateTextareaRef.current.focus();
-        if (item.prompt.includes('[')) {
-          const start = item.prompt.indexOf('[');
-          const end = item.prompt.indexOf(']') + 1;
-          if (start !== -1 && end !== -1) {
-            emptyStateTextareaRef.current.setSelectionRange(start, end);
-          }
-        }
-      }
-    }, 50);
-  };
 
   const contentMaxWidth = currentPreset === 'fullscreen'
     ? 'max-w-7xl 2xl:max-w-[1750px] px-2 sm:px-6'
@@ -1378,7 +1298,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               What do you want to build or automate?
             </h1>
             <p className="text-sm text-onedark-muted max-w-xl mx-auto leading-relaxed">
-              Scaffold fullstack web apps, review pull requests, or debug code in isolated, ephemeral sandboxes.
+              Connect to remote repositories, trigger standing event automations, or execute tasks in disposable ephemeral sandboxes.
             </p>
           </div>
 
@@ -1413,9 +1333,9 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                     emptyStateBackdropRef.current.scrollLeft = e.currentTarget.scrollLeft;
                   }
                 }}
-                placeholder="Describe what you want to build, paste a stack trace, or type '@' to reference a registered repo..."
+                placeholder="Ask Cyclode to review a PR, investigate a bug, write tests, or type '@' to reference a registered repo..."
                 rows={3}
-                className={`w-full bg-transparent text-[15px] placeholder-onedark-muted/60 focus:outline-none resize-none font-sans leading-relaxed p-2.5 min-h-[72px] max-h-[240px] overflow-y-auto caret-onedark-yellow ${
+                className={`w-full bg-transparent text-[15px] placeholder-onedark-muted/60 focus:outline-none resize-none font-sans leading-relaxed p-2.5 caret-onedark-yellow ${
                   inputValue ? 'text-transparent' : 'text-onedark-fgBright'
                 }`}
               />
@@ -1423,16 +1343,15 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               {renderMentionMenu("top-full left-0 mt-1.5")}
             </div>
 
-            <div className="flex items-center justify-between pt-2 border-t border-onedark-borderSubtle gap-2 flex-wrap sm:flex-nowrap">
-              {/* Persona Selector, Model Selector & Repo Pill */}
-              <div className="flex items-center space-x-2 min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden py-0.5">
-                {/* Persona Pill */}
+            <div className="flex items-center justify-between pt-2 border-t border-onedark-borderSubtle gap-2">
+              {/* Persona Selector & Quick Mention Pills */}
+              <div className="flex items-center space-x-2 min-w-0 flex-1 overflow-hidden">
                 <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-surface border border-onedark-border text-xs text-onedark-fg font-mono shadow-sm flex-shrink-0">
-                  <Sparkles className="w-3.5 h-3.5 text-onedark-yellow flex-shrink-0" />
+                  <Sparkles className="w-3.5 h-3.5 text-onedark-yellow" />
                   <select
                     value={selectedPersona}
                     onChange={(e) => setSelectedPersona(e.target.value)}
-                    className="bg-transparent text-onedark-fg focus:outline-none cursor-pointer text-xs pr-1"
+                    className="bg-transparent text-onedark-fg focus:outline-none cursor-pointer text-xs"
                   >
                     {personas.map((p) => (
                       <option key={p.id} value={p.id} className="bg-onedark-darker text-onedark-fg">
@@ -1444,11 +1363,11 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
                 {/* Model Selector Pill */}
                 <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-surface border border-onedark-border text-xs text-onedark-fg font-mono shadow-sm flex-shrink-0">
-                  <Bot className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
+                  <Bot className="w-3.5 h-3.5 text-onedark-accent" />
                   <select
                     value={selectedModel}
                     onChange={(e) => setSelectedModel(e.target.value)}
-                    className="bg-transparent text-onedark-fg focus:outline-none cursor-pointer text-xs pr-1"
+                    className="bg-transparent text-onedark-fg focus:outline-none cursor-pointer text-xs"
                   >
                     {modelOptions.map((g) => (
                       <optgroup key={g.group} label={g.group} className="bg-onedark-darker text-onedark-muted font-bold">
@@ -1462,9 +1381,9 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   </select>
                 </div>
 
-                {/* Quick Mention Repository Pills or Connect Repo CTA */}
-                {effectiveRepos.length > 0 ? (
-                  <div className="flex items-center space-x-1.5 min-w-0 flex-shrink-0">
+                {/* Quick Mention Repository Pills */}
+                {effectiveRepos.length > 0 && (
+                  <div className="flex items-center space-x-1.5 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden py-0.5 min-w-0 flex-1">
                     {effectiveRepos.slice(0, 3).map((r) => {
                       const tag = `@${r.full_name || r.name}`;
                       const isIncluded = inputValue.includes(tag);
@@ -1491,18 +1410,6 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                       );
                     })}
                   </div>
-                ) : (
-                  onNavigateToRepos && (
-                    <button
-                      type="button"
-                      onClick={onNavigateToRepos}
-                      className="px-2.5 py-1 rounded-lg border border-dashed border-onedark-border hover:border-onedark-accent/50 bg-onedark-surface/40 hover:bg-onedark-surface text-[11px] font-mono text-onedark-muted hover:text-onedark-fgBright transition-all flex items-center space-x-1.5 cursor-pointer flex-shrink-0"
-                      title="Connect a GitHub/GitLab repository"
-                    >
-                      <Plus className="w-3 h-3 text-onedark-accent flex-shrink-0" />
-                      <span>Connect Repo</span>
-                    </button>
-                  )
                 )}
               </div>
 
@@ -1510,7 +1417,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               <button
                 type="submit"
                 disabled={!inputValue.trim() || isSubmitting}
-                className="px-4 py-2 rounded-xl bg-onedark-fgBright hover:bg-white text-onedark-darker text-xs font-bold flex items-center space-x-1.5 transition-all duration-150 disabled:opacity-35 disabled:cursor-not-allowed shadow-sm active:scale-95 cursor-pointer flex-shrink-0"
+                className="px-4 py-2 rounded-xl bg-onedark-fgBright hover:bg-white text-onedark-darker text-xs font-bold flex items-center space-x-1.5 transition-all duration-150 disabled:opacity-35 disabled:cursor-not-allowed shadow-sm active:scale-95 cursor-pointer flex-shrink-0 ml-2"
               >
                 {isSubmitting ? (
                   <>
@@ -1534,34 +1441,28 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               return (
                 <button
                   key={idx}
-                  onClick={() => handleSelectTemplate(item)}
-                  className="p-4 rounded-xl bg-onedark-darker border border-onedark-borderSubtle hover:border-onedark-accent/50 hover:bg-onedark-surface/40 text-left transition-all duration-150 space-y-2.5 group shadow-sm flex flex-col justify-between cursor-pointer"
+                  onClick={() => {
+                    if (onNewChatWithPrompt) {
+                      onNewChatWithPrompt(item.prompt, item.persona);
+                    }
+                  }}
+                  className="p-4 rounded-xl bg-onedark-darker border border-onedark-borderSubtle hover:border-onedark-accent/50 hover:bg-onedark-surface/40 text-left transition-all duration-150 space-y-2 group shadow-sm flex flex-col justify-between"
                 >
                   <div className="space-y-1.5 w-full">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2 min-w-0">
-                        <div className={`p-1.5 rounded-lg ${item.bgColor} ${item.color} flex-shrink-0`}>
+                      <div className="flex items-center space-x-2">
+                        <div className={`p-1.5 rounded-lg ${item.bgColor} ${item.color}`}>
                           <Icon className="w-4 h-4" />
                         </div>
-                        <span className="text-sm font-semibold text-onedark-fgBright group-hover:text-onedark-accent transition-colors truncate">
+                        <span className="text-sm font-semibold text-onedark-fgBright group-hover:text-onedark-accent transition-colors">
                           {item.title}
                         </span>
                       </div>
-                      {item.badge && (
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-onedark-surface/80 border border-onedark-borderSubtle text-onedark-muted group-hover:text-onedark-fg transition-colors flex-shrink-0">
-                          {item.badge}
-                        </span>
-                      )}
+                      <ArrowRight className="w-3.5 h-3.5 text-onedark-muted opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
                     </div>
                     <p className="text-xs text-onedark-muted line-clamp-2 leading-relaxed pl-0.5">
-                      {item.description || item.prompt}
+                      {item.prompt}
                     </p>
-                  </div>
-                  <div className="flex items-center justify-between pt-1 text-[11px] text-onedark-muted/80 group-hover:text-onedark-accent transition-colors border-t border-onedark-borderSubtle/40">
-                    <span className="font-mono text-[10px]">
-                      {item.action === 'connect_repo' ? 'Open repository manager ➔' : 'Load prompt template ➔'}
-                    </span>
-                    <ArrowRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
                   </div>
                 </button>
               );
@@ -1827,18 +1728,6 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               <span className="hidden md:inline">Retry</span>
             </button>
           )}
-
-          {/* Reset Turn Action */}
-          {onResetTurn && !isRunning && (
-            <button
-              onClick={() => onResetTurn()}
-              className="px-2 py-0.5 rounded-md border border-onedark-border bg-onedark-surface hover:bg-onedark-surface/90 text-onedark-muted hover:text-onedark-yellow text-[11px] font-mono flex items-center space-x-1 transition-all shadow-xs active:scale-95 cursor-pointer flex-shrink-0"
-              title="Reset & Rollback to Previous Turn"
-            >
-              <Undo2 className="w-3 h-3 flex-shrink-0" />
-              <span className="hidden md:inline">Reset Turn</span>
-            </button>
-          )}
         </div>
       </div>
 
@@ -1944,15 +1833,6 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                               title="Retry from here"
                             >
                               <RotateCcw className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                          {onResetTurn && !isRunning && (
-                            <button
-                              onClick={() => onResetTurn(tIdx + 1)}
-                              className="p-1 rounded-md hover:bg-onedark-surface border border-transparent hover:border-onedark-border text-onedark-muted hover:text-onedark-yellow transition-colors"
-                              title="Reset Turn (Rollback files & context to this turn)"
-                            >
-                              <Undo2 className="w-3.5 h-3.5" />
                             </button>
                           )}
                           <button
@@ -2501,15 +2381,6 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                                 <RotateCcw className="w-3.5 h-3.5" />
                               </button>
                             )}
-                            {onResetTurn && !isRunning && (
-                              <button
-                                onClick={() => onResetTurn(tIdx + 1)}
-                                className="p-1 rounded-md hover:bg-onedark-surface border border-transparent hover:border-onedark-border text-onedark-muted hover:text-onedark-yellow transition-colors"
-                                title="Reset Turn (Rollback files & context to this turn)"
-                              >
-                                <Undo2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
                           </div>
                         </div>
                       )}
@@ -2583,8 +2454,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
             {/* Repository Mention Autocomplete Menu */}
             {renderMentionMenu("bottom-full left-0 mb-2")}
 
-            <div className="flex items-end space-x-2 bg-onedark-darker border border-onedark-border rounded-xl px-3.5 py-2 focus-within:border-onedark-accent/80 focus-within:ring-1 focus-within:ring-onedark-accent/20 transition-all shadow-inner min-h-[46px]">
-              <div className="relative flex-1 min-h-[36px] max-h-[220px] flex items-center">
+            <div className="flex items-center space-x-2 bg-onedark-darker border border-onedark-border rounded-xl px-3.5 py-2 focus-within:border-onedark-accent/80 focus-within:ring-1 focus-within:ring-onedark-accent/20 transition-all shadow-inner min-h-[46px]">
+              <div className="relative flex-1 min-h-[36px] max-h-36 flex items-center">
                 {/* Highlight backdrop overlay */}
                 {inputValue && (
                   <div
@@ -2611,7 +2482,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                     }
                   }}
                   placeholder={isRunning ? "Task is running... Type follow-up instructions or hit Stop..." : "Type instructions, or '@' to reference a registered repo (e.g. 'Get pending prs in @myproject')..."}
-                  className={`w-full bg-transparent text-[15px] placeholder-onedark-muted/60 focus:outline-none resize-none font-sans leading-relaxed py-1.5 min-h-[36px] max-h-[220px] overflow-y-auto caret-onedark-yellow ${
+                  className={`w-full bg-transparent text-[15px] placeholder-onedark-muted/60 focus:outline-none resize-none font-sans leading-relaxed py-1.5 max-h-36 min-h-[36px] caret-onedark-yellow ${
                     inputValue ? 'text-transparent' : 'text-onedark-fgBright'
                   }`}
                 />
@@ -2620,7 +2491,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 <button
                   type="button"
                   onClick={() => onStopTask && onStopTask()}
-                  className="h-9 px-3.5 rounded-xl bg-onedark-red hover:bg-onedark-red/90 text-white text-xs font-bold flex items-center space-x-1.5 transition-all shadow-sm flex-shrink-0 active:scale-95 animate-pulse cursor-pointer mb-0.5"
+                  className="h-9 px-3.5 rounded-xl bg-onedark-red hover:bg-onedark-red/90 text-white text-xs font-bold flex items-center space-x-1.5 transition-all shadow-sm flex-shrink-0 active:scale-95 animate-pulse cursor-pointer"
                   title="Stop execution (Esc)"
                 >
                   <Square className="w-3.5 h-3.5 fill-current" />
@@ -2630,7 +2501,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 <button
                   type="button"
                   disabled
-                  className="h-9 w-9 rounded-xl bg-onedark-accent/70 text-onedark-darker flex items-center justify-center transition-all shadow-sm flex-shrink-0 cursor-wait mb-0.5"
+                  className="h-9 w-9 rounded-xl bg-onedark-accent/70 text-onedark-darker flex items-center justify-center transition-all shadow-sm flex-shrink-0 cursor-wait"
                   title="Processing request..."
                 >
                   <Loader2 className="w-4 h-4 animate-spin stroke-[2.5]" />
@@ -2639,7 +2510,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 <button
                   type="submit"
                   disabled={!inputValue.trim()}
-                  className="h-9 w-9 rounded-xl bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-sm flex items-center justify-center flex-shrink-0 active:scale-95 cursor-pointer mb-0.5"
+                  className="h-9 w-9 rounded-xl bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-sm flex items-center justify-center flex-shrink-0 active:scale-95 cursor-pointer"
                   title="Send message (Enter ↵)"
                 >
                   <Send className="w-4 h-4 stroke-[2.5]" />

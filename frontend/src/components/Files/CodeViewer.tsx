@@ -246,8 +246,7 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ taskId, filePath, onFile
             key={previewReloadKey}
             src={previewUrl}
             title={data.name}
-            sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals allow-downloads allow-pointer-lock"
-            allow="accelerometer; camera; encrypted-media; display-capture; geolocation; gyroscope; microphone; midi; clipboard-read; clipboard-write; web-share; serial; xr-spatial-tracking; autoplay; fullscreen; pointer-lock"
+            sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals allow-downloads"
             className="w-full h-full border-none"
           />
         </div>

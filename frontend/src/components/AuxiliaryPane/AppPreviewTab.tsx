@@ -166,9 +166,9 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
       prevBuildTimestampRef.current = null;
       inspectPreview(false);
     } else {
-      // If task transitioned to COMPLETED, PAUSED, or CANCELLED, reload preview to reflect workspace changes
-      if (prevStatus !== task?.status) {
-        inspectPreview(false);
+      // If task transitioned from RUNNING -> COMPLETED, auto-reload preview to reflect new build
+      if (prevStatus === 'RUNNING' && task?.status === 'COMPLETED') {
+        inspectPreview(true);
         setIframeKey((prev) => prev + 1);
       } else {
         inspectPreview(true);
@@ -186,7 +186,7 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
     return () => {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
     };
-  }, [task?.id, task?.status, task?.updated_at, inspectPreview]);
+  }, [task?.id, task?.status, inspectPreview]);
 
   // Listen to message events from iframe
   useEffect(() => {
@@ -639,8 +639,7 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
             ref={iframeRef}
             src={previewUrl}
             title={previewInfo.title || 'App Preview'}
-            sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals allow-downloads allow-pointer-lock"
-            allow="accelerometer; camera; encrypted-media; display-capture; geolocation; gyroscope; microphone; midi; clipboard-read; clipboard-write; web-share; serial; xr-spatial-tracking; autoplay; fullscreen; pointer-lock"
+            sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals allow-downloads"
             className="w-full flex-1 border-none bg-white"
           />
         </div>

@@ -85,6 +85,15 @@ class IntegrationRegistry:
                 "auth_type": "Auth Token",
                 "skills": ["sentry.fetch_issue"],
                 "icon": "alert-triangle"
+            },
+            {
+                "id": "typesafe",
+                "name": "TypeSafe AI (Jev System One)",
+                "description": "Ultra-fast non-autoregressive pre-flight prompt guardrail, intent routing, and deterministic fast-path triage.",
+                "configured": bool(settings.get_typesafe_api_key()),
+                "auth_type": "API Key",
+                "skills": ["typesafe.system_one", "typesafe.preflight_guardrail", "typesafe.benchmark"],
+                "icon": "shield-check"
             }
         ]
 

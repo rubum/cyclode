@@ -369,3 +369,91 @@ export interface ModelSettings {
   };
 }
 
+export interface GuardrailEvaluation {
+  prompt: string;
+  is_safe: boolean;
+  safety_risk_probability: number;
+  intent_route: 'deterministic_tool' | 'system_two_reasoning' | 'direct_chat_response' | 'blocked' | string;
+  confidence: number;
+  complexity_score: number;
+  complexity_label: string;
+  target_tool: 'git_status' | 'list_files' | 'search_code' | 'test_runner' | 'diff_inspector' | 'none' | string;
+  requires_deep_reasoning: boolean;
+  deep_reasoning_probability: number;
+  dispatch_action: 'FAST_PATH_TOOL' | 'ESCALATE_SYSTEM_TWO' | 'DIRECT_CHAT' | 'BLOCK_INJECTION' | string;
+  latency_ms: number;
+  cost_usd: number;
+  reason: string;
+}
+
+export interface GuardrailSettings {
+  guardrail_enabled: boolean;
+  fastpath_enabled: boolean;
+  safety_threshold: number;
+  system_two_threshold: number;
+  typesafe_configured: boolean;
+  masked_api_key?: string;
+  base_url?: string;
+}
+
+export interface SingleBenchmarkRun {
+  prompt: string;
+  category: string;
+  jev: {
+    model: string;
+    latency_ms: number;
+    cost_usd: number;
+    is_safe: boolean;
+    safety_risk_probability: number;
+    intent_route: string;
+    confidence: number;
+    complexity_score: number;
+    complexity_label: string;
+    target_tool: string;
+    requires_deep_reasoning: boolean;
+    dispatch_action: string;
+    reason: string;
+  };
+  llm: {
+    model: string;
+    latency_ms: number;
+    cost_usd: number;
+    input_tokens: number;
+    output_tokens: number;
+    is_safe: boolean;
+    intent_route: string;
+    complexity_score: number;
+    target_tool: string;
+    dispatch_action: string;
+    parsed_valid: boolean;
+    raw_json: Record<string, any>;
+  };
+  speedup_factor: number;
+  cost_savings_factor: number;
+  cost_savings_pct: number;
+  decision_agreement: boolean;
+  agreement_details: {
+    safety: boolean;
+    intent_route: boolean;
+    dispatch_action: boolean;
+  };
+}
+
+export interface BenchmarkSuiteReport {
+  suite_name: string;
+  total_runs: number;
+  jev_mean_latency_ms: number;
+  jev_p95_latency_ms: number;
+  llm_mean_latency_ms: number;
+  llm_p95_latency_ms: number;
+  overall_speedup: number;
+  jev_total_cost_usd: number;
+  llm_total_cost_usd: number;
+  total_cost_savings_pct: number;
+  concordance_rate_pct: number;
+  jev_schema_error_rate_pct: number;
+  llm_schema_error_rate_pct: number;
+  runs: SingleBenchmarkRun[];
+}
+
+

@@ -141,7 +141,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
         clearInterval(pollTimerRef.current);
       }
     };
-  }, [task.id, task.sandbox_status, task.status, task.workspace_path, task.updated_at]);
+  }, [task.id, task.sandbox_status, task.status, task.workspace_path]);
 
   if (loading && !data && task.status !== 'INITIALIZING' && task.sandbox_status !== 'PROVISIONING') {
     return (

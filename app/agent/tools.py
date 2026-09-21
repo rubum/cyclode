@@ -39,8 +39,9 @@ class WorkspaceTools:
 
     @staticmethod
     def list_dir(workspace_path: Path, subpath: str = ".") -> Dict[str, Any]:
-        target = (workspace_path / subpath).resolve()
-        if not target.is_relative_to(workspace_path):
+        w_path = Path(workspace_path).resolve()
+        target = (w_path / subpath).resolve()
+        if not target.is_relative_to(w_path):
             return {"error": "Access denied outside workspace"}
         if not target.exists():
             return {"error": f"Path '{subpath}' does not exist"}
@@ -63,8 +64,9 @@ class WorkspaceTools:
         start_line: Optional[int] = None,
         end_line: Optional[int] = None
     ) -> Dict[str, Any]:
-        target = (workspace_path / file_path).resolve()
-        if not target.is_relative_to(workspace_path):
+        w_path = Path(workspace_path).resolve()
+        target = (w_path / file_path).resolve()
+        if not target.is_relative_to(w_path):
             return {"error": "Access denied outside workspace"}
         if not target.exists() or not target.is_file():
             return {"error": f"File '{file_path}' not found"}
@@ -112,8 +114,9 @@ class WorkspaceTools:
 
     @staticmethod
     def edit_file(workspace_path: Path, file_path: str, content: str) -> Dict[str, Any]:
-        target = (workspace_path / file_path).resolve()
-        if not target.is_relative_to(workspace_path):
+        w_path = Path(workspace_path).resolve()
+        target = (w_path / file_path).resolve()
+        if not target.is_relative_to(w_path):
             return {"error": "Access denied outside workspace"}
 
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -131,8 +134,9 @@ class WorkspaceTools:
         replacement_content: str,
         allow_multiple: bool = False
     ) -> Dict[str, Any]:
-        target = (workspace_path / file_path).resolve()
-        if not target.is_relative_to(workspace_path):
+        w_path = Path(workspace_path).resolve()
+        target = (w_path / file_path).resolve()
+        if not target.is_relative_to(w_path):
             return {"error": "Access denied outside workspace"}
         if not target.exists() or not target.is_file():
             return {"error": f"File '{file_path}' not found"}
@@ -169,8 +173,9 @@ class WorkspaceTools:
     @staticmethod
     def get_file_outline(workspace_path: Path, file_path: str) -> Dict[str, Any]:
         """Extracts AST symbols, function signatures, classes, and types without function bodies for token-efficient repo exploration."""
-        target = (workspace_path / file_path).resolve()
-        if not target.is_relative_to(workspace_path):
+        w_path = Path(workspace_path).resolve()
+        target = (w_path / file_path).resolve()
+        if not target.is_relative_to(w_path):
             return {"error": "Access denied outside workspace"}
         if not target.exists() or not target.is_file():
             return {"error": f"File '{file_path}' not found"}
