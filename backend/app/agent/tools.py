@@ -6,10 +6,30 @@ import fnmatch
 import subprocess
 import html
 import httpx
+import asyncio
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timezone
 import urllib.parse
+
+
+ANSI_ESCAPE_RE = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+
+
+def compact_command_output(text: str, max_lines: int = 50, max_chars: int = 3500) -> str:
+    """Strips ANSI sequences and applies middle-elision for long command outputs to preserve context tokens."""
+    if not text:
+        return ""
+    clean = ANSI_ESCAPE_RE.sub("", text)
+    lines = clean.splitlines()
+    if len(lines) > max_lines:
+        head = lines[:20]
+        tail = lines[-30:]
+        omitted = len(lines) - 50
+        return "\n".join(head) + f"\n\n... [Omitted {omitted} lines of intermediate command logs] ...\n\n" + "\n".join(tail)
+    if len(clean) > max_chars:
+        return clean[:1200] + f"\n\n... [Omitted intermediate log content ({len(clean)} chars total)] ...\n\n" + clean[-1800:]
+    return clean
 
 
 class WorkspaceTools:
@@ -37,16 +57,56 @@ class WorkspaceTools:
         return {"path": str(subpath), "items": files}
 
     @staticmethod
-    def read_file(workspace_path: Path, file_path: str) -> Dict[str, Any]:
+    def read_file(
+        workspace_path: Path,
+        file_path: str,
+        start_line: Optional[int] = None,
+        end_line: Optional[int] = None
+    ) -> Dict[str, Any]:
         target = (workspace_path / file_path).resolve()
         if not target.is_relative_to(workspace_path):
             return {"error": "Access denied outside workspace"}
         if not target.exists() or not target.is_file():
             return {"error": f"File '{file_path}' not found"}
 
+        lockfiles = {"package-lock.json", "pnpm-lock.yaml", "yarn.lock", "Cargo.lock", "poetry.lock", "composer.lock", "Pipfile.lock"}
+        minified_exts = {".min.js", ".min.css", ".map", ".bundle.js"}
+
+        filename = target.name.lower()
+        is_lockfile = filename in lockfiles
+        is_minified = any(filename.endswith(ext) for ext in minified_exts)
+
         try:
-            content = target.read_text(encoding="utf-8")
-            return {"file_path": file_path, "content": content}
+            raw_text = target.read_text(encoding="utf-8", errors="ignore")
+            lines = raw_text.splitlines()
+            total_lines = len(lines)
+
+            if (is_lockfile or is_minified) and start_line is None and end_line is None:
+                head_slice = "\n".join(lines[:50])
+                msg = (
+                    f"[Notice: '{file_path}' is a generated lockfile or bundle ({total_lines} lines, {len(raw_text)} bytes). "
+                    "Truncated to protect token context. Inspect manifest files (e.g. package.json, pyproject.toml) or specify start_line/end_line.]\n\n"
+                    f"{head_slice}\n\n... [Remaining {total_lines - 50} lines omitted] ..."
+                )
+                return {"file_path": file_path, "content": msg, "total_lines": total_lines, "truncated": True}
+
+            if start_line is not None or end_line is not None:
+                s = max(1, start_line or 1)
+                e = min(total_lines, end_line or total_lines)
+                if s > total_lines:
+                    return {"file_path": file_path, "content": f"(File has {total_lines} lines; start_line {s} is beyond EOF)", "total_lines": total_lines}
+                sliced = lines[s - 1 : e]
+                content = "\n".join(f"{s + i}: {line}" for i, line in enumerate(sliced))
+                return {"file_path": file_path, "content": content, "start_line": s, "end_line": e, "total_lines": total_lines}
+
+            if total_lines > 800:
+                head = "\n".join(lines[:800])
+                msg = (
+                    f"{head}\n\n... [File truncated at line 800 of {total_lines}. Use start_line=801, end_line={total_lines} to view remaining lines] ..."
+                )
+                return {"file_path": file_path, "content": msg, "total_lines": total_lines, "truncated": True}
+
+            return {"file_path": file_path, "content": raw_text, "total_lines": total_lines}
         except Exception as e:
             return {"error": str(e)}
 
@@ -57,30 +117,244 @@ class WorkspaceTools:
             return {"error": "Access denied outside workspace"}
 
         target.parent.mkdir(parents=True, exist_ok=True)
+        # CoW protection: if file is a shared hardlink, unlink first to write to a new private inode
+        if target.exists() and target.is_file() and target.stat().st_nlink > 1:
+            target.unlink()
         target.write_text(content, encoding="utf-8")
         return {"file_path": file_path, "status": "written", "bytes": len(content)}
 
     @staticmethod
-    def run_command(workspace_path: Path, command: str) -> Dict[str, Any]:
+    def replace_file_content(
+        workspace_path: Path,
+        file_path: str,
+        target_content: str,
+        replacement_content: str,
+        allow_multiple: bool = False
+    ) -> Dict[str, Any]:
+        target = (workspace_path / file_path).resolve()
+        if not target.is_relative_to(workspace_path):
+            return {"error": "Access denied outside workspace"}
+        if not target.exists() or not target.is_file():
+            return {"error": f"File '{file_path}' not found"}
+
+        if not target_content:
+            return {"error": "target_content cannot be empty"}
+
         try:
+            original = target.read_text(encoding="utf-8")
+            count = original.count(target_content)
+            if count == 0:
+                return {"error": f"Target content not found in '{file_path}'. Ensure whitespace and indentation match exactly."}
+            if count > 1 and not allow_multiple:
+                return {"error": f"Target content matched {count} times in '{file_path}'. Provide a more unique block of context or set allow_multiple=True."}
+
+            if allow_multiple:
+                updated = original.replace(target_content, replacement_content)
+            else:
+                updated = original.replace(target_content, replacement_content, 1)
+
+            # CoW protection: if file is a shared hardlink, unlink first to write to a new private inode
+            if target.stat().st_nlink > 1:
+                target.unlink()
+            target.write_text(updated, encoding="utf-8")
+            return {
+                "file_path": file_path,
+                "status": "replaced",
+                "replacements_count": count if allow_multiple else 1,
+                "bytes_written": len(updated)
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
+    @staticmethod
+    def get_file_outline(workspace_path: Path, file_path: str) -> Dict[str, Any]:
+        """Extracts AST symbols, function signatures, classes, and types without function bodies for token-efficient repo exploration."""
+        target = (workspace_path / file_path).resolve()
+        if not target.is_relative_to(workspace_path):
+            return {"error": "Access denied outside workspace"}
+        if not target.exists() or not target.is_file():
+            return {"error": f"File '{file_path}' not found"}
+
+        try:
+            code = target.read_text(encoding="utf-8", errors="ignore")
+            ext = target.suffix.lower()
+
+            symbols = []
+            if ext == ".py":
+                symbols = WorkspaceTools._extract_python_symbols(code, file_path)
+            elif ext in {".ts", ".tsx", ".js", ".jsx"}:
+                symbols = WorkspaceTools._extract_ts_js_symbols(code, file_path)
+            elif ext == ".go":
+                for idx, line in enumerate(code.splitlines(), start=1):
+                    m_fn = re.match(r'^\s*func\s+(?:\([^)]+\)\s+)?([A-Za-z0-9_]+)\s*\(([^)]*)\)', line)
+                    if m_fn:
+                        symbols.append({"name": m_fn.group(1), "type": "function", "line_number": idx, "signature": line.strip()})
+                    m_type = re.match(r'^\s*type\s+([A-Za-z0-9_]+)\s+(struct|interface)', line)
+                    if m_type:
+                        symbols.append({"name": m_type.group(1), "type": m_type.group(2), "line_number": idx, "signature": line.strip()})
+            elif ext == ".rs":
+                for idx, line in enumerate(code.splitlines(), start=1):
+                    m_fn = re.match(r'^\s*(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z0-9_]+)\s*\(', line)
+                    if m_fn:
+                        symbols.append({"name": m_fn.group(1), "type": "function", "line_number": idx, "signature": line.strip()})
+                    m_type = re.match(r'^\s*(?:pub\s+)?(struct|enum|trait)\s+([A-Za-z0-9_]+)', line)
+                    if m_type:
+                        symbols.append({"name": m_type.group(2), "type": m_type.group(1), "line_number": idx, "signature": line.strip()})
+
+            if not symbols:
+                head_lines = code.splitlines()[:40]
+                return {
+                    "file_path": file_path,
+                    "symbol_count": 0,
+                    "outline": "\n".join(head_lines),
+                    "symbols": []
+                }
+
+            outline_lines = [f"# Outline for {file_path} ({len(symbols)} symbols):"]
+            for s in symbols:
+                decorators = " ".join(s.get("decorators", []))
+                prefix = f"{decorators} " if decorators else ""
+                doc = f" -- {s['docstring']}" if s.get("docstring") else ""
+                outline_lines.append(f"  Line {s.get('line_number', '?')}: {prefix}{s.get('signature', s.get('name'))}{doc}")
+
+            return {
+                "file_path": file_path,
+                "symbol_count": len(symbols),
+                "outline": "\n".join(outline_lines),
+                "symbols": symbols
+            }
+        except Exception as e:
+            return {"error": str(e)}
+
+    @staticmethod
+    def run_command(workspace_path: Path, command: str) -> Dict[str, Any]:
+        from app.core.sandboxes.jailer import jailer
+        try:
+            cmd_args, use_shell = jailer.wrap_command(workspace_path, command)
+            clean_env = jailer.get_clean_environment()
+
             proc = subprocess.run(
-                command,
-                shell=True,
+                cmd_args if not use_shell else command,
+                shell=use_shell,
                 cwd=workspace_path,
                 capture_output=True,
                 text=True,
-                timeout=60
+                timeout=60,
+                env=clean_env
             )
             return {
                 "command": command,
                 "exit_code": proc.returncode,
-                "stdout": proc.stdout,
-                "stderr": proc.stderr
+                "stdout": compact_command_output(proc.stdout),
+                "stderr": compact_command_output(proc.stderr),
+                "isolation": jailer.isolation_type
             }
         except subprocess.TimeoutExpired:
             return {"command": command, "error": "Command timed out after 60 seconds", "exit_code": 124}
         except Exception as e:
             return {"command": command, "error": str(e), "exit_code": 1}
+
+    @staticmethod
+    async def speculative_branch_test(
+        workspace_path: Path,
+        hypotheses: List[Dict[str, Any]],
+        test_command: str,
+        timeout: int = 45
+    ) -> Dict[str, Any]:
+        """
+        Executes parallel multi-branch speculative testing across Copy-on-Write (CoW) sandbox forks in <10ms.
+        Evaluates alternative refactor/bug-fix hypotheses in parallel without state pollution.
+        """
+        if not hypotheses:
+            return {"error": "No hypotheses provided for speculative execution", "results": []}
+
+        import uuid
+        import time
+        from app.core.sandboxes.manager import sandbox_manager
+        from app.core.sandboxes.base import SandboxContext
+
+        parent_task_id = workspace_path.name.replace("sandbox-", "")
+        results = []
+
+        async def run_single_hypothesis(idx: int, hyp: Dict[str, Any]) -> Dict[str, Any]:
+            hyp_name = hyp.get("name", f"Hypothesis {chr(65 + idx)}")
+            fork_id = f"{parent_task_id}-hyp-{idx}-{uuid.uuid4().hex[:6]}"
+            fork_ctx = None
+            t0 = time.time()
+            try:
+                # 1. Fork workspace in sub-10ms
+                active_sandboxes = getattr(sandbox_manager.provider, "_active_sandboxes", {})
+                parent_ctx = active_sandboxes.get(parent_task_id)
+                if not parent_ctx and workspace_path.exists():
+                    parent_ctx = SandboxContext(
+                        task_id=parent_task_id,
+                        workspace_path=workspace_path
+                    )
+
+                if parent_ctx:
+                    fork_ctx = await sandbox_manager.fork_sandbox(parent_ctx, fork_id)
+                else:
+                    fork_ctx = await sandbox_manager.get_or_create(fork_id)
+
+                fork_ws = fork_ctx.workspace_path
+
+                # 2. Apply hypothesis edits to the fork
+                applied_edits = 0
+                for edit in hyp.get("edits", []):
+                    f_path = edit.get("file_path", "")
+                    tc = edit.get("target_content", "")
+                    rc = edit.get("replacement_content", "")
+                    if f_path and tc and rc is not None:
+                        rep_res = WorkspaceTools.replace_file_content(fork_ws, f_path, tc, rc)
+                        if rep_res.get("status") == "replaced":
+                            applied_edits += 1
+                    elif f_path and "content" in edit:
+                        WorkspaceTools.edit_file(fork_ws, f_path, edit["content"])
+                        applied_edits += 1
+
+                # 3. Run test command in the isolated fork
+                cmd_res = WorkspaceTools.run_command(fork_ws, test_command)
+                duration_ms = int((time.time() - t0) * 1000)
+
+                return {
+                    "index": idx,
+                    "hypothesis_name": hyp_name,
+                    "fork_task_id": fork_id,
+                    "applied_edits": applied_edits,
+                    "exit_code": cmd_res.get("exit_code", 1),
+                    "passed": cmd_res.get("exit_code") == 0,
+                    "stdout": cmd_res.get("stdout", "")[:800],
+                    "stderr": cmd_res.get("stderr", "")[:800],
+                    "duration_ms": duration_ms
+                }
+            except Exception as e:
+                return {
+                    "index": idx,
+                    "hypothesis_name": hyp_name,
+                    "fork_task_id": fork_id,
+                    "error": str(e),
+                    "passed": False,
+                    "exit_code": 1
+                }
+            finally:
+                if fork_ctx:
+                    await sandbox_manager.destroy(fork_ctx)
+
+        # Run all hypotheses concurrently in separate CoW forks
+        tasks = [run_single_hypothesis(i, h) for i, h in enumerate(hypotheses[:4])]
+        results = await asyncio.gather(*tasks)
+
+        # Identify winning hypothesis
+        passed_runs = [r for r in results if r.get("passed")]
+        winning_hyp = passed_runs[0] if passed_runs else None
+
+        return {
+            "total_hypotheses_tested": len(hypotheses),
+            "test_command": test_command,
+            "winning_hypothesis": winning_hyp.get("hypothesis_name") if winning_hyp else None,
+            "winner_index": winning_hyp.get("index") if winning_hyp else None,
+            "all_results": results
+        }
 
     @staticmethod
     def search_code(

@@ -242,6 +242,8 @@ class AgentTaskPool:
 
             task.status = "RUNNING"
             task.sandbox_status = "PROVISIONING"
+            if event_id:
+                task.event_id = event_id
             if commit_sha:
                 task.commit_sha = commit_sha
             task.result_summary = None
@@ -250,7 +252,7 @@ class AgentTaskPool:
             # Add system awakening notice
             sha_label = f"`{commit_sha[:7]}`" if commit_sha else "`HEAD`"
             awakening_text = (
-                f"⚡ **Session Awakened:** New event received: *{event_title}* (Commit: {sha_label})\n\n"
+                f"**Session Awakened:** New event received: *{event_title}* (Commit: {sha_label})\n\n"
                 f"{event_description}"
             )
             notice_msg = TaskMessageModel(

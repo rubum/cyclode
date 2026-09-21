@@ -158,3 +158,42 @@ async def test_task_pr_endpoints_and_actions():
         assert "count" in comments_data
 
 
+@pytest.mark.asyncio
+async def test_task_sandbox_resources_diagnostics():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Create a task
+        create_res = await client.post("/api/tasks", json={
+            "title": "Resource Inspection Test",
+            "description": "Checking sandbox CPU, disk, limits, and confinement",
+            "persona": "IssueResolver"
+        })
+        assert create_res.status_code == 200
+        task_id = create_res.json()["task_id"]
+
+        # Call /api/tasks/{task_id}/sandbox
+        sb_res = await client.get(f"/api/tasks/{task_id}/sandbox")
+        assert sb_res.status_code == 200
+        sb_data = sb_res.json()
+
+        assert "resources" in sb_data
+        res = sb_data["resources"]
+        assert "cpu" in res
+        assert res["cpu"]["allocation_mode"] == "shared_dynamic"
+        assert res["cpu"]["logical_cores"] >= 1
+        assert "CFS" in res["cpu"]["scheduler"]
+
+        assert "disk" in res
+        assert "partition_total_bytes" in res["disk"]
+        assert "partition_free_bytes" in res["disk"]
+
+        assert "limits" in res
+        assert res["limits"]["command_timeout_seconds"] == 60
+        assert res["limits"]["git_clone_timeout_seconds"] == 300
+        assert res["limits"]["archive_download_timeout_seconds"] == 45
+
+        assert "confinement" in res
+        assert res["confinement"]["path_jail_enforced"] is True
+
+
+

@@ -78,6 +78,10 @@ def _migrate_db(connection):
         ("is_subsession", "BOOLEAN DEFAULT 0"),
         ("parent_task_id", "VARCHAR(36)"),
         ("plan", "JSON"),
+        ("is_listening", "BOOLEAN DEFAULT 0"),
+        ("listening_events", "TEXT DEFAULT 'check_run,pull_request_review_comment,push'"),
+        ("listener_persona", "VARCHAR(50) DEFAULT 'PAIR_PROGRAMMER'"),
+        ("auto_commit_fixes", "BOOLEAN DEFAULT 1"),
     ]
     for col_name, col_type in new_task_columns:
         if col_name not in tasks_cols:
@@ -97,6 +101,24 @@ def _migrate_db(connection):
             connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN body TEXT")
         if "is_session_scoped" not in prs_cols:
             connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN is_session_scoped BOOLEAN DEFAULT 1")
+        if "is_listening" not in prs_cols:
+            connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN is_listening BOOLEAN DEFAULT 0")
+        if "listening_events" not in prs_cols:
+            connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN listening_events TEXT DEFAULT 'check_run,pull_request_review_comment,push'")
+        if "listener_persona" not in prs_cols:
+            connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN listener_persona VARCHAR(50) DEFAULT 'PAIR_PROGRAMMER'")
+        if "auto_commit_fixes" not in prs_cols:
+            connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN auto_commit_fixes BOOLEAN DEFAULT 1")
+
+    # Check repository_configs table columns
+    repo_cols = [row[1] for row in connection.exec_driver_sql("PRAGMA table_info(repository_configs)").fetchall()]
+    if repo_cols:
+        if "is_listening" not in repo_cols:
+            connection.exec_driver_sql("ALTER TABLE repository_configs ADD COLUMN is_listening BOOLEAN DEFAULT 0")
+        if "subscribed_events" not in repo_cols:
+            connection.exec_driver_sql("ALTER TABLE repository_configs ADD COLUMN subscribed_events TEXT DEFAULT 'pull_request.opened,issues.opened,check_run'")
+        if "default_persona" not in repo_cols:
+            connection.exec_driver_sql("ALTER TABLE repository_configs ADD COLUMN default_persona VARCHAR(50) DEFAULT 'AUTONOMOUS_WORKER'")
 
 
 async def ensure_default_repositories():
@@ -150,44 +172,11 @@ async def ensure_default_repositories():
                     session.add(new_repo)
                     existing_repos[full_name] = new_repo
 
-            if not existing_repos:
-                starter_repos = [
-                    RepositoryConfigModel(
-                        name="auth-service",
-                        full_name="acme/auth-service",
-                        clone_url="https://github.com/acme/auth-service",
-                        default_branch="main",
-                        encrypted_token=enc_token,
-                        auth_provider="github",
-                        test_command="pytest",
-                        tech_stack=["Python", "FastAPI"],
-                        status="CONNECTED",
-                        created_at=get_utc_now(),
-                        updated_at=get_utc_now(),
-                    ),
-                    RepositoryConfigModel(
-                        name="payments-api",
-                        full_name="acme/payments-api",
-                        clone_url="https://github.com/acme/payments-api",
-                        default_branch="main",
-                        encrypted_token=enc_token,
-                        auth_provider="github",
-                        test_command="npm test",
-                        tech_stack=["TypeScript", "Node.js"],
-                        status="CONNECTED",
-                        created_at=get_utc_now(),
-                        updated_at=get_utc_now(),
-                    ),
-                ]
-                for r in starter_repos:
-                    session.add(r)
-            # If user has real repositories, purge dummy starter fixtures
-            real_repos = [k for k in existing_repos.keys() if not k.startswith("acme/")]
-            if real_repos:
-                for dummy_name in ["acme/auth-service", "acme/payments-api"]:
-                    if dummy_name in existing_repos:
-                        dummy_obj = existing_repos.pop(dummy_name)
-                        await session.delete(dummy_obj)
+            # Purge any legacy dummy acme starter fixtures from previous test runs
+            for dummy_name in ["acme/auth-service", "acme/payments-api"]:
+                if dummy_name in existing_repos:
+                    dummy_obj = existing_repos.pop(dummy_name)
+                    await session.delete(dummy_obj)
 
             # Clean up any legacy default fake values on existing repos
             for full_name, repo in list(existing_repos.items()):

@@ -131,7 +131,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
     { id: 'prs', label: 'PRs', icon: GitPullRequest, count: task?.prs?.length || 0, badge: (previewTarget?.url && isPrForTask(previewTarget.url, task)) ? '●' : undefined },
     { id: 'activity', label: 'Tool Activity', icon: Activity, count: task?.logs?.length || 0 },
     { id: 'subagents', label: 'Subagents', icon: Cpu },
-    { id: 'event', label: 'Event', icon: Inbox },
+    { id: 'event', label: 'Event', icon: Inbox, badge: task?.event_id ? '●' : undefined },
   ];
 
   return (

@@ -57,6 +57,12 @@ class TaskModel(Base):
     result_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     plan: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
     
+    # Event Listener / Sentinel State
+    is_listening: Mapped[bool] = mapped_column(Boolean, default=False)
+    listening_events: Mapped[Optional[str]] = mapped_column(Text, default="check_run,pull_request_review_comment,push")
+    listener_persona: Mapped[Optional[str]] = mapped_column(String(50), default="PAIR_PROGRAMMER")
+    auto_commit_fixes: Mapped[bool] = mapped_column(Boolean, default=True)
+
     is_subsession: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     parent_task_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=True, index=True)
 
@@ -103,6 +109,13 @@ class TaskPRModel(Base):
     test_output: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     body: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_session_scoped: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # PR Event Listener / Sentinel State
+    is_listening: Mapped[bool] = mapped_column(Boolean, default=False)
+    listening_events: Mapped[Optional[str]] = mapped_column(Text, default="check_run,pull_request_review_comment,push")
+    listener_persona: Mapped[Optional[str]] = mapped_column(String(50), default="PAIR_PROGRAMMER")
+    auto_commit_fixes: Mapped[bool] = mapped_column(Boolean, default=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now, onupdate=get_utc_now)
 
@@ -204,6 +217,12 @@ class RepositoryConfigModel(Base):
     
     # Status & Timestamps
     status: Mapped[str] = mapped_column(String(50), default="CONNECTED")         # CONNECTED, AUTH_REQUIRED, UNREACHABLE
+    
+    # Repository Event Sentinel State
+    is_listening: Mapped[bool] = mapped_column(Boolean, default=False)
+    subscribed_events: Mapped[Optional[str]] = mapped_column(Text, default="pull_request.opened,issues.opened,check_run")
+    default_persona: Mapped[Optional[str]] = mapped_column(String(50), default="AUTONOMOUS_WORKER")
+
     last_synced_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now, onupdate=get_utc_now)

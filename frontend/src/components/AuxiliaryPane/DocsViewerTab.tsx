@@ -28,11 +28,13 @@ import {
   Loader2,
   MessageSquarePlus,
   Sparkles,
-  Bot
+  Bot,
+  Radio
 } from 'lucide-react';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { PRReviewAgentPopover, LineContext } from './PRReviewAgentPopover';
 import { LinearIssueDetailView } from './LinearIssueDetailView';
+import { RepoListenerConfigModal } from './RepoListenerConfigModal';
 import { Task } from '../../types';
 
 export interface DocNavItem {
@@ -833,6 +835,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
 
   const [isReviewPopoverOpen, setIsReviewPopoverOpen] = useState<boolean>(false);
   const [activeLineComment, setActiveLineComment] = useState<LineContext | null>(null);
+  const [isRepoSentinelModalOpen, setIsRepoSentinelModalOpen] = useState<boolean>(false);
 
   const [isOutlineOpen, setIsOutlineOpen] = useState<boolean>(false);
   const [isSiteTreeOpen, setIsSiteTreeOpen] = useState<boolean>(false);
@@ -1411,6 +1414,15 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
           </div>
 
           <div className="flex items-center space-x-1.5">
+            <button
+              onClick={() => setIsRepoSentinelModalOpen(true)}
+              className="flex items-center space-x-1 px-2 py-1 rounded bg-onedark-green/15 hover:bg-onedark-green/25 border border-onedark-green/30 text-onedark-green text-[11px] font-medium transition-all"
+              title="Configure autonomous webhook listeners for this repo"
+            >
+              <Radio className="w-3 h-3" />
+              <span>Listen / Sentinel</span>
+            </button>
+
             {onAskAboutRepo && data.repo_name && (
               <button
                 onClick={() => onAskAboutRepo(data.repo_name!)}
@@ -1674,6 +1686,26 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
               onNavigateToFileLine={(filename, line) => {
                 setPrTab('diff');
               }}
+            />
+          )}
+
+          {/* Repo Listener Config Modal */}
+          {isRepoSentinelModalOpen && data?.repo_name && (
+            <RepoListenerConfigModal
+              repo={{
+                id: data.repo_name,
+                name: data.repo_name.split('/')[1] || data.repo_name,
+                full_name: data.repo_name,
+                clone_url: data.clone_url || `https://github.com/${data.repo_name}`,
+                default_branch: data.default_branch || 'main',
+                auth_provider: 'github',
+                has_token: true,
+                tech_stack: data.language ? [data.language] : [],
+                test_command: '',
+                status: 'CONNECTED'
+              }}
+              isOpen={isRepoSentinelModalOpen}
+              onClose={() => setIsRepoSentinelModalOpen(false)}
             />
           )}
         </>

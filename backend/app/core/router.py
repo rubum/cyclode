@@ -43,19 +43,58 @@ class EventRouter:
         # 4. Resolve Title, Description, Persona, and Action
         title, description, persona, action = self._resolve_task_params(source, event_type, payload, rule)
 
-        # 5. Check if an existing session/task exists for this session_key
+        # 5. Check if an existing session/task or active PR listener exists
         existing_task_id = None
-        if session_key:
-            async with async_session_factory() as session:
+        custom_listener_persona = None
+
+        async with async_session_factory() as session:
+            from app.db.models import TaskPRModel, RepositoryConfigModel
+
+            # A. Check existing task by session_key
+            if session_key:
                 stmt = select(TaskModel).where(TaskModel.session_key == session_key).order_by(TaskModel.created_at.desc())
                 res = await session.execute(stmt)
                 existing_task = res.scalars().first()
                 if existing_task:
                     existing_task_id = existing_task.id
+                    if existing_task.is_listening and existing_task.listener_persona:
+                        custom_listener_persona = existing_task.listener_persona
+
+            # B. Check PR-level listener
+            pr_num = payload.get("number") or payload.get("issue", {}).get("number") or payload.get("pull_request", {}).get("number")
+            if pr_num and existing_task_id:
+                stmt_pr = select(TaskPRModel).where(TaskPRModel.task_id == existing_task_id, TaskPRModel.pr_number == pr_num)
+                res_pr = await session.execute(stmt_pr)
+                pr_model = res_pr.scalars().first()
+                if pr_model and pr_model.is_listening:
+                    action = "awaken_session"
+                    if pr_model.listener_persona:
+                        custom_listener_persona = pr_model.listener_persona
+
+            # C. Check Repository-level Sentinel listener
+            if not existing_task_id and repo_name:
+                stmt_repo = select(RepositoryConfigModel).where(
+                    (RepositoryConfigModel.full_name == repo_name) | (RepositoryConfigModel.name == repo_name)
+                )
+                res_repo = await session.execute(stmt_repo)
+                repo_conf = res_repo.scalars().first()
+                if repo_conf and repo_conf.is_listening:
+                    if repo_conf.default_persona:
+                        custom_listener_persona = repo_conf.default_persona
+
+        if custom_listener_persona:
+            persona = custom_listener_persona
 
         # 6. Dispatch: Awaken existing task OR Spawn new task
-        if existing_task_id and (action == "awaken_session" or event_type in ["pull_request.synchronize", "issue_comment.created"]):
-            logger.info(f"Awakening existing task {existing_task_id} for session {session_key}")
+        is_awakening_event = (
+            action == "awaken_session" or
+            event_type in ["pull_request.synchronize", "issue_comment.created", "check_run.completed"] or
+            event_type.startswith("issue_comment") or
+            event_type.startswith("pull_request_review_comment") or
+            event_type in ["check_run", "check_run.completed"]
+        )
+        if existing_task_id and is_awakening_event:
+            logger.info(f"Awakening existing task {existing_task_id} for session {session_key} (persona: {persona})")
             task_id = await agent_pool.awaken_task(
                 task_id=existing_task_id,
                 event_id=event_id,
@@ -65,7 +104,7 @@ class EventRouter:
             )
             is_awakened = True
         else:
-            logger.info(f"Spawning new task for {source}:{event_type}, session: {session_key}")
+            logger.info(f"Spawning new task for {source}:{event_type}, session: {session_key} (persona: {persona})")
             task_id = await agent_pool.spawn_task(
                 title=title,
                 description=description,
@@ -139,21 +178,21 @@ class EventRouter:
 
         if source == "github":
             repo_info = payload.get("repository", {}) or payload.get("repo", {})
-            repo_name = repo_info.get("full_name") or repo_info.get("name") or "acme/auth-service"
+            repo_name = repo_info.get("full_name") or repo_info.get("name") or "workspace/repository"
             repo_url = repo_info.get("clone_url") or repo_info.get("html_url")
 
-            if event_type.startswith("pull_request"):
+            if event_type.startswith("pull_request") and not event_type.startswith("pull_request_review_comment"):
                 pr = payload.get("pull_request", {})
                 pr_num = pr.get("number") or payload.get("number") or 1
                 session_key = f"github:{repo_name}:pr:{pr_num}"
                 branch = pr.get("head", {}).get("ref") or "main"
                 commit_sha = pr.get("head", {}).get("sha") or payload.get("after") or "c7a8b9f"
 
-            elif event_type == "issue_comment.created":
-                issue = payload.get("issue", {})
-                num = issue.get("number", 1)
-                is_pr = "pull_request" in issue
-                prefix = "pr" if is_pr else "issue"
+            elif event_type.startswith("issue_comment") or event_type.startswith("pull_request_review_comment"):
+                issue = payload.get("issue") or payload.get("pull_request") or {}
+                num = issue.get("number") or payload.get("number") or 1
+                is_pr = "pull_request" in issue or event_type.startswith("pull_request") or "pull_request" in payload
+                prefix = "pr" if is_pr else "pr"
                 session_key = f"github:{repo_name}:{prefix}:{num}"
                 branch = "main"
 
@@ -169,25 +208,45 @@ class EventRouter:
                 branch = ref
                 commit_sha = payload.get("after")
 
+            elif event_type in ["check_run", "check_run.completed", "status", "workflow_run", "workflow_run.completed"]:
+                # CI/CD failure event
+                check_run = payload.get("check_run", {})
+                workflow_run = payload.get("workflow_run", {})
+                
+                # Check PR references first
+                prs = check_run.get("pull_requests", []) or workflow_run.get("pull_requests", [])
+                if prs and isinstance(prs, list) and len(prs) > 0:
+                    pr_num = prs[0].get("number")
+                    if pr_num:
+                        session_key = f"github:{repo_name}:pr:{pr_num}"
+                
+                branches_list = payload.get("branches", [])
+                branch_from_list = branches_list[0].get("name") if isinstance(branches_list, list) and len(branches_list) > 0 and isinstance(branches_list[0], dict) else None
+                head_branch = check_run.get("check_suite", {}).get("head_branch") or workflow_run.get("head_branch") or payload.get("branch") or branch_from_list or "main"
+                branch = head_branch
+                if not session_key:
+                    session_key = f"github:{repo_name}:branch:{head_branch}"
+                commit_sha = check_run.get("head_sha") or check_run.get("check_suite", {}).get("head_sha") or workflow_run.get("head_sha") or payload.get("sha")
+
         elif source == "sentry":
             incident = payload.get("incident", {}) or payload.get("issue", {})
             issue_id = incident.get("id") or payload.get("id", "incident-101")
             proj = incident.get("project") or payload.get("project", "backend")
             session_key = f"sentry:{proj}:issue:{issue_id}"
-            repo_name = payload.get("repository") or "acme/auth-service"
+            repo_name = payload.get("repository") or f"{proj}-service"
 
         elif source == "appsignal":
             incident = payload.get("incident", {})
             exc_id = incident.get("id") or payload.get("id", "exc-202")
             session_key = f"appsignal:exception:{exc_id}"
-            repo_name = incident.get("repository") or "acme/auth-service"
+            repo_name = incident.get("repository") or "backend-service"
 
         elif source == "slack":
             channel = payload.get("channel", "general")
             thread_ts = payload.get("thread_ts") or payload.get("ts")
             if thread_ts:
                 session_key = f"slack:{channel}:{thread_ts}"
-            repo_name = "acme/auth-service"
+            repo_name = payload.get("repository") or "slack-channel"
 
         return session_key, repo_name, repo_url, branch, commit_sha
 
@@ -239,12 +298,15 @@ class EventRouter:
                 action = "awaken_session"
                 return title, description, persona, action
 
-            elif event_type == "issue_comment.created":
+            elif event_type.startswith("issue_comment") or event_type.startswith("pull_request_review_comment") or event_type in ["issue_comment", "pull_request_review_comment"]:
                 comment = payload.get("comment", {})
-                issue = payload.get("issue", {})
-                is_pr = "pull_request" in issue
+                issue = payload.get("issue", {}) or payload.get("pull_request", {})
+                pr_obj = payload.get("pull_request", {}) or issue.get("pull_request", {})
+                is_pr = bool(pr_obj) or event_type.startswith("pull_request")
                 target_type = "PR" if is_pr else "Issue"
-                title = f"Comment on {target_type} #{issue.get('number', '?')} by @{comment.get('user', {}).get('login', 'developer')}"
+                target_num = issue.get("number") or payload.get("number") or pr_obj.get("number", "?")
+                commenter = comment.get("user", {}).get("login", "developer") if isinstance(comment.get("user"), dict) else str(comment.get("user") or "developer")
+                title = f"Comment on {target_type} #{target_num} by @{commenter}"
                 description = comment.get("body", "")
                 persona = rule.persona if rule else "SoftwareEngineer"
                 action = "awaken_session"
@@ -255,6 +317,27 @@ class EventRouter:
                 title = f"GitHub Issue #{issue.get('number', '?')}: {issue.get('title', 'Untitled Issue')}"
                 description = issue.get("body", "")
                 persona = rule.persona if rule else "IssueResolver"
+                return title, description, persona, action
+
+            elif event_type in ["check_run", "check_run.completed", "status", "workflow_run", "workflow_run.completed"]:
+                check_run = payload.get("check_run", {})
+                workflow_run = payload.get("workflow_run", {})
+                check_name = check_run.get("name") or workflow_run.get("name") or payload.get("context", "CI Test Suite")
+                conclusion = check_run.get("conclusion") or workflow_run.get("conclusion") or payload.get("state", "failure")
+                html_url = check_run.get("html_url") or workflow_run.get("html_url") or payload.get("target_url", "")
+                output_summary = check_run.get("output", {}).get("summary") or check_run.get("output", {}).get("text") or payload.get("description", "CI build failed.")
+                
+                title = f"CI Failure: {check_name} ({conclusion})"
+                description = (
+                    f"**GitHub CI/CD Failure Detected**\n\n"
+                    f"- **Check Name:** `{check_name}`\n"
+                    f"- **Conclusion:** `{conclusion}`\n"
+                    f"- **Details URL:** {html_url}\n\n"
+                    f"**Failure Summary:**\n```\n{output_summary}\n```\n\n"
+                    f"Investigate failure logs, reproduce in isolated sandbox, and draft fix."
+                )
+                persona = rule.persona if rule else "SoftwareEngineer"
+                action = "awaken_session"
                 return title, description, persona, action
 
         elif source == "sentry":
@@ -294,3 +377,4 @@ class EventRouter:
 
 
 event_router = EventRouter()
+
