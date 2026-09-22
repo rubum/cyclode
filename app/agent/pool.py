@@ -356,11 +356,13 @@ class AgentTaskPool:
             workspace_path = sandbox_ctx.workspace_path
             task_model_name = settings.ANTIGRAVITY_MODEL
 
-            # Update status to RUNNING, sandbox to ACTIVE, and fetch model_name
+            task_branch = None
             async with async_session_factory() as session:
                 task_rec = await session.get(TaskModel, task_id)
-                if task_rec and task_rec.model_name:
-                    task_model_name = task_rec.model_name
+                if task_rec:
+                    if task_rec.model_name:
+                        task_model_name = task_rec.model_name
+                    task_branch = task_rec.git_branch
                 await session.execute(
                     update(TaskModel)
                     .where(TaskModel.id == task_id)
@@ -381,7 +383,7 @@ class AgentTaskPool:
 
             # Ensure workspace git repo and take baseline snapshot for this conversation turn
             from app.agent.harness import ensure_workspace_git_repo, create_turn_snapshot
-            ensure_workspace_git_repo(workspace_path)
+            ensure_workspace_git_repo(workspace_path, branch=task_branch)
             conv_turn_idx = len(history or []) // 2 + 1
             create_turn_snapshot(workspace_path, f"conv_turn_{conv_turn_idx}")
 
@@ -1605,7 +1607,8 @@ class AgentTaskPool:
 
             # 1. Rollback filesystem if workspace exists
             if workspace_path and workspace_path.exists():
-                from app.agent.harness import ensure_workspace_git_repo
+                from app.agent.harness import ensure_workspace_git_repo, _get_isolated_git_env
+                git_env = _get_isolated_git_env()
                 ensure_workspace_git_repo(workspace_path)
                 try:
                     target_sha = None
@@ -1616,6 +1619,7 @@ class AgentTaskPool:
                             cwd=str(workspace_path),
                             capture_output=True,
                             text=True,
+                            env=git_env,
                             timeout=5
                         )
                         if root_res.returncode == 0 and root_res.stdout.strip():
@@ -1628,6 +1632,7 @@ class AgentTaskPool:
                             cwd=str(workspace_path),
                             capture_output=True,
                             text=True,
+                            env=git_env,
                             timeout=5
                         )
                         commits = [line.strip().split(" ", 1) for line in log_res.stdout.split("\n") if line.strip()]
@@ -1654,14 +1659,15 @@ class AgentTaskPool:
                                     cwd=str(workspace_path),
                                     capture_output=True,
                                     text=True,
+                                    env=git_env,
                                     timeout=5
                                 )
                                 if root_res.returncode == 0 and root_res.stdout.strip():
                                     target_sha = root_res.stdout.strip().split("\n")[0]
 
                     if target_sha:
-                        subprocess.run(["git", "reset", "--hard", target_sha], cwd=str(workspace_path), capture_output=True, text=True, timeout=10)
-                        subprocess.run(["git", "clean", "-fd"], cwd=str(workspace_path), capture_output=True, text=True, timeout=10)
+                        subprocess.run(["git", "reset", "--hard", target_sha], cwd=str(workspace_path), capture_output=True, text=True, env=git_env, timeout=10)
+                        subprocess.run(["git", "clean", "-fd"], cwd=str(workspace_path), capture_output=True, text=True, env=git_env, timeout=10)
                         logger.info(f"Rolled back workspace {workspace_path} to {target_sha}")
 
                     # Also remove any generated/stale build artifacts to ensure preview & explorer are clean

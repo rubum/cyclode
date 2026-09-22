@@ -600,6 +600,16 @@ class WorkspaceTools:
     def run_command(workspace_path: Path, command: str) -> Dict[str, Any]:
         from app.core.sandboxes.jailer import jailer
         try:
+            is_safe, safety_err = jailer.validate_command_safety(command, workspace_path)
+            if not is_safe:
+                return {
+                    "command": command,
+                    "exit_code": 1,
+                    "error": safety_err,
+                    "stderr": safety_err,
+                    "stdout": ""
+                }
+
             cmd_args, use_shell = jailer.wrap_command(workspace_path, command)
             clean_env = jailer.get_clean_environment()
 

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
-  GitBranch, 
   GitCompare, 
   RefreshCw, 
   Search, 
@@ -9,9 +8,13 @@ import {
   Copy, 
   Check, 
   Compass, 
-  Folder
+  Folder,
+  AlignJustify,
+  Columns,
+  Sparkles
 } from 'lucide-react';
-import { Task, TaskDiff } from '../../types';
+import { Task, TaskDiff, TaskCommit } from '../../types';
+import { CommitHistoryDropdown } from './CommitHistoryDropdown';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -28,9 +31,11 @@ function parseUnifiedPatch(patch: string): ParsedDiffLine[] {
   const result: ParsedDiffLine[] = [];
   let oldLineNum = 1;
   let newLineNum = 1;
+  let inHunk = false;
 
   for (const rawLine of lines) {
     if (rawLine.startsWith('@@')) {
+      inHunk = true;
       const match = rawLine.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
       if (match) {
         oldLineNum = parseInt(match[1], 10);
@@ -42,7 +47,20 @@ function parseUnifiedPatch(patch: string): ParsedDiffLine[] {
         type: 'header',
         text: rawLine
       });
-    } else if (rawLine.startsWith('+') && !rawLine.startsWith('+++')) {
+      continue;
+    }
+
+    if (!inHunk) {
+      // Skip pre-hunk git header metadata (diff --git, index, ---, +++, mode, etc.)
+      continue;
+    }
+
+    if (rawLine.startsWith('\\')) {
+      // Skip git \ No newline at end of file markers
+      continue;
+    }
+
+    if (rawLine.startsWith('+') && !rawLine.startsWith('+++')) {
       result.push({
         oldLine: null,
         newLine: newLineNum,
@@ -72,6 +90,98 @@ function parseUnifiedPatch(patch: string): ParsedDiffLine[] {
   return result;
 }
 
+interface SideBySideRow {
+  leftLineNum: number | null;
+  leftText: string;
+  leftType: 'deletion' | 'context' | 'empty' | 'header';
+  rightLineNum: number | null;
+  rightText: string;
+  rightType: 'addition' | 'context' | 'empty' | 'header';
+}
+
+function parseSideBySidePatch(patch: string): SideBySideRow[] {
+  if (!patch) return [];
+  const lines = patch.split('\n');
+  const rows: SideBySideRow[] = [];
+  let oldLineNum = 1;
+  let newLineNum = 1;
+  let inHunk = false;
+
+  let pendingDeletions: { lineNum: number; text: string }[] = [];
+  let pendingAdditions: { lineNum: number; text: string }[] = [];
+
+  const flushPending = () => {
+    const maxLen = Math.max(pendingDeletions.length, pendingAdditions.length);
+    for (let i = 0; i < maxLen; i++) {
+      const del = pendingDeletions[i];
+      const add = pendingAdditions[i];
+      rows.push({
+        leftLineNum: del ? del.lineNum : null,
+        leftText: del ? del.text : '',
+        leftType: del ? 'deletion' : 'empty',
+        rightLineNum: add ? add.lineNum : null,
+        rightText: add ? add.text : '',
+        rightType: add ? 'addition' : 'empty',
+      });
+    }
+    pendingDeletions = [];
+    pendingAdditions = [];
+  };
+
+  for (const rawLine of lines) {
+    if (rawLine.startsWith('@@')) {
+      inHunk = true;
+      flushPending();
+      const match = rawLine.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+      if (match) {
+        oldLineNum = parseInt(match[1], 10);
+        newLineNum = parseInt(match[2], 10);
+      }
+      rows.push({
+        leftLineNum: null,
+        leftText: rawLine,
+        leftType: 'header',
+        rightLineNum: null,
+        rightText: rawLine,
+        rightType: 'header',
+      });
+      continue;
+    }
+
+    if (!inHunk) {
+      // Skip pre-hunk git header metadata
+      continue;
+    }
+
+    if (rawLine.startsWith('\\')) {
+      // Skip git \ No newline at end of file markers
+      continue;
+    }
+
+    if (rawLine.startsWith('+') && !rawLine.startsWith('+++')) {
+      pendingAdditions.push({ lineNum: newLineNum, text: rawLine });
+      newLineNum++;
+    } else if (rawLine.startsWith('-') && !rawLine.startsWith('---')) {
+      pendingDeletions.push({ lineNum: oldLineNum, text: rawLine });
+      oldLineNum++;
+    } else {
+      flushPending();
+      rows.push({
+        leftLineNum: oldLineNum,
+        leftText: rawLine,
+        leftType: 'context',
+        rightLineNum: newLineNum,
+        rightText: rawLine,
+        rightType: 'context',
+      });
+      oldLineNum++;
+      newLineNum++;
+    }
+  }
+  flushPending();
+  return rows;
+}
+
 interface ChangesDiffTabProps {
   task: Task | null;
   onSelectAuxTab?: (tab: any) => void;
@@ -80,36 +190,60 @@ interface ChangesDiffTabProps {
 export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({ task, onSelectAuxTab }) => {
   const [diffs, setDiffs] = useState<TaskDiff[]>(() => task?.diffs || []);
   const [branch, setBranch] = useState<string>(() => task?.git_branch || 'main');
+  const [commits, setCommits] = useState<TaskCommit[]>([]);
+  const [selectedMode, setSelectedMode] = useState<'all' | 'working_tree' | 'commit'>('all');
+  const [selectedCommit, setSelectedCommit] = useState<TaskCommit | null>(null);
+  const [diffLayout, setDiffLayout] = useState<'unified' | 'split'>('unified');
+
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [fileFilter, setFileFilter] = useState<string>('');
   const [collapsedFiles, setCollapsedFiles] = useState<Record<string, boolean>>({});
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
   const [copiedPatch, setCopiedPatch] = useState<string | null>(null);
-  const [copiedBranch, setCopiedBranch] = useState<boolean>(false);
 
-  // Sync with task updates from props/WebSocket
+  // Sync branch from task prop
   useEffect(() => {
-    if (task?.diffs) {
-      setDiffs(task.diffs);
-    }
     if (task?.git_branch) {
       setBranch(task.git_branch);
     }
-  }, [task?.diffs, task?.git_branch]);
+  }, [task?.git_branch]);
 
-  // Fetch live diff from endpoint
+  // Fetch commits on task load
+  const fetchCommits = useCallback(async () => {
+    if (!task?.id) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/tasks/${task.id}/commits`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.commits) {
+          setCommits(data.commits);
+        }
+        if (data.branch) {
+          setBranch(task?.git_branch || data.branch);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, [task?.id, task?.git_branch]);
+
+  // Fetch live diff according to selected mode
   const fetchLiveDiff = useCallback(async () => {
     if (!task?.id) return;
     setIsLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/tasks/${task.id}/diff`);
+      let url = `${API_BASE}/api/tasks/${task.id}/diff?mode=${selectedMode}`;
+      if (selectedMode === 'commit' && selectedCommit) {
+        url += `&commit_sha=${selectedCommit.sha}`;
+      }
+      const res = await fetch(url);
       if (res.ok) {
         const data = await res.json();
         if (data.diffs) {
           setDiffs(data.diffs);
         }
         if (data.branch) {
-          setBranch(data.branch);
+          setBranch(task?.git_branch || data.branch);
         }
       }
     } catch {
@@ -117,17 +251,24 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({ task, onSelectAu
     } finally {
       setIsLoading(false);
     }
-  }, [task?.id]);
+  }, [task?.id, task?.git_branch, selectedMode, selectedCommit]);
+
+  useEffect(() => {
+    fetchCommits();
+  }, [fetchCommits]);
 
   useEffect(() => {
     fetchLiveDiff();
   }, [fetchLiveDiff]);
 
-  const handleCopyBranch = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    navigator.clipboard.writeText(branch);
-    setCopiedBranch(true);
-    setTimeout(() => setCopiedBranch(false), 2000);
+  const handleSelectMode = (mode: 'all' | 'working_tree') => {
+    setSelectedMode(mode);
+    setSelectedCommit(null);
+  };
+
+  const handleSelectCommit = (commit: TaskCommit) => {
+    setSelectedMode('commit');
+    setSelectedCommit(commit);
   };
 
   const handleCopyPath = (filePath: string, e: React.MouseEvent) => {
@@ -195,33 +336,25 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({ task, onSelectAu
 
   return (
     <div className="flex flex-col h-full bg-onedark-darker text-onedark-fg select-none overflow-hidden">
-      {/* Top Header & Branch Telemetry Bar */}
+      {/* Top Header & Commit Telemetry Bar */}
       <div className="p-3 bg-onedark-surface/40 border-b border-onedark-borderSubtle flex flex-col gap-2.5 flex-shrink-0">
         <div className="flex items-center justify-between gap-2 flex-wrap">
-          {/* Branch Pill */}
-          <div className="flex items-center space-x-2 min-w-0">
-            <button
-              onClick={handleCopyBranch}
-              className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-surface/90 hover:bg-onedark-surface border border-onedark-borderSubtle text-onedark-fgBright font-mono text-xs truncate transition-all cursor-pointer shadow-xs group"
-              title={`Git Branch: ${branch} (Click to copy)`}
-            >
-              <GitBranch className="w-3.5 h-3.5 text-onedark-purple flex-shrink-0" />
-              <span className="font-semibold truncate max-w-[200px] sm:max-w-[280px]">{branch}</span>
-              {copiedBranch ? (
-                <Check className="w-3 h-3 text-onedark-green flex-shrink-0" />
-              ) : (
-                <Copy className="w-3 h-3 text-onedark-muted opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
-              )}
-            </button>
+          {/* Commit & Branch Telemetry Dropdown */}
+          <CommitHistoryDropdown
+            branch={branch}
+            commits={commits}
+            selectedMode={selectedMode}
+            selectedCommit={selectedCommit}
+            onSelectMode={handleSelectMode}
+            onSelectCommit={handleSelectCommit}
+            isLoading={isLoading}
+            onRefresh={() => {
+              fetchCommits();
+              fetchLiveDiff();
+            }}
+          />
 
-            {/* Live Indicator */}
-            <span className="hidden sm:inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-onedark-green/10 text-onedark-green text-[10px] font-mono border border-onedark-green/20">
-              <span className="w-1.5 h-1.5 rounded-full bg-onedark-green animate-pulse" />
-              <span>live tracking</span>
-            </span>
-          </div>
-
-          {/* Stats & Actions */}
+          {/* Stats, View Toggle, & Actions */}
           <div className="flex items-center space-x-2 flex-shrink-0">
             {diffs.length > 0 && (
               <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-bg border border-onedark-borderSubtle text-xs font-mono">
@@ -232,11 +365,42 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({ task, onSelectAu
               </div>
             )}
 
+            {/* Split / Unified View Toggle */}
+            <div className="flex items-center rounded-lg bg-onedark-bg p-0.5 border border-onedark-borderSubtle">
+              <button
+                onClick={() => setDiffLayout('unified')}
+                className={`px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer flex items-center space-x-1 ${
+                  diffLayout === 'unified'
+                    ? 'bg-onedark-surface text-onedark-fgBright shadow-xs'
+                    : 'text-onedark-muted hover:text-onedark-fg'
+                }`}
+                title="Unified Diff View"
+              >
+                <AlignJustify className="w-3 h-3" />
+                <span className="hidden sm:inline">Unified</span>
+              </button>
+              <button
+                onClick={() => setDiffLayout('split')}
+                className={`px-2 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer flex items-center space-x-1 ${
+                  diffLayout === 'split'
+                    ? 'bg-onedark-surface text-onedark-fgBright shadow-xs'
+                    : 'text-onedark-muted hover:text-onedark-fg'
+                }`}
+                title="Side-by-Side Split Diff View"
+              >
+                <Columns className="w-3 h-3" />
+                <span className="hidden sm:inline">Split</span>
+              </button>
+            </div>
+
             <button
-              onClick={fetchLiveDiff}
+              onClick={() => {
+                fetchCommits();
+                fetchLiveDiff();
+              }}
               disabled={isLoading}
               className="p-1.5 rounded-lg bg-onedark-surface/80 hover:bg-onedark-surface border border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fgBright transition-all cursor-pointer disabled:opacity-50"
-              title="Refresh git diff"
+              title="Refresh diff"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-onedark-accent' : ''}`} />
             </button>
@@ -274,6 +438,31 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({ task, onSelectAu
         )}
       </div>
 
+      {/* Active Commit Filter Banner (when inspecting a single commit/turn) */}
+      {selectedMode === 'commit' && selectedCommit && (
+        <div className="px-3 py-1.5 bg-onedark-purple/10 border-b border-onedark-purple/20 flex items-center justify-between text-xs flex-wrap gap-2">
+          <div className="flex items-center space-x-2 min-w-0">
+            <Sparkles className="w-3.5 h-3.5 text-onedark-purple flex-shrink-0" />
+            <span className="font-semibold text-onedark-fgBright">
+              Inspecting {selectedCommit.turn_label || 'Commit'}:
+            </span>
+            <code className="text-[11px] font-mono bg-onedark-darker px-1.5 py-0.5 rounded text-onedark-purple border border-onedark-purple/25">
+              {selectedCommit.short_sha}
+            </code>
+            <span className="text-onedark-muted truncate max-w-xs sm:max-w-md" title={selectedCommit.message}>
+              {selectedCommit.message}
+            </span>
+          </div>
+
+          <button
+            onClick={() => handleSelectMode('all')}
+            className="text-onedark-accent hover:underline text-xs font-semibold cursor-pointer flex-shrink-0 ml-auto"
+          >
+            Show All Task Changes
+          </button>
+        </div>
+      )}
+
       {/* Main Diff Content Stream */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3 select-text">
         {diffs.length === 0 ? (
@@ -285,12 +474,29 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({ task, onSelectAu
 
             <div className="space-y-1.5">
               <h3 className="text-sm font-bold text-onedark-fgBright">
-                No Working Tree Diffs Yet
+                {selectedMode === 'working_tree'
+                  ? 'No Uncommitted Changes'
+                  : selectedMode === 'commit'
+                  ? 'No Changes Found for This Commit'
+                  : 'No Task Diffs Recorded Yet'}
               </h3>
               <p className="text-xs text-onedark-muted leading-relaxed">
-                The agent is currently on branch <code className="text-onedark-purple font-mono font-semibold">{branch}</code>. As changes are made or files are edited according to the plan, unified diffs will appear here in real time.
+                {selectedMode === 'working_tree'
+                  ? 'The working tree is clean. All previous modifications have been committed to turn snapshots.'
+                  : selectedMode === 'commit'
+                  ? 'This commit does not contain file deltas or was an empty turn checkpoint.'
+                  : `The agent is currently on branch ${branch}. When files are edited or created according to the plan, diffs appear here automatically.`}
               </p>
             </div>
+
+            {selectedMode !== 'all' && (
+              <button
+                onClick={() => handleSelectMode('all')}
+                className="px-3 py-1.5 rounded-lg bg-onedark-accent/15 hover:bg-onedark-accent/25 border border-onedark-accent/30 text-xs font-semibold text-onedark-accent transition-all cursor-pointer"
+              >
+                View All Task Changes (Cumulative)
+              </button>
+            )}
 
             <div className="flex items-center space-x-2 pt-2">
               {onSelectAuxTab && (
@@ -320,7 +526,6 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({ task, onSelectAu
         ) : (
           filteredDiffs.map((d, idx) => {
             const isCollapsed = collapsedFiles[d.file_path] ?? false;
-            const parsedLines = d.diff_content ? parseUnifiedPatch(d.diff_content) : [];
             const pathParts = d.file_path.split('/');
             const fileNameOnly = pathParts.pop();
             const dirPath = pathParts.join('/');
@@ -380,53 +585,136 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({ task, onSelectAu
                 {/* Diff Line Renderer */}
                 {!isCollapsed && (
                   <div className="p-2.5 overflow-x-auto text-[12px] leading-relaxed font-mono bg-onedark-bg/80 select-text">
-                    {parsedLines.length > 0 ? (
-                      parsedLines.map((lineObj, lineIdx) => {
-                        const isAddition = lineObj.type === 'addition';
-                        const isDeletion = lineObj.type === 'deletion';
-                        const isHeader = lineObj.type === 'header';
-
+                    {diffLayout === 'split' ? (
+                      /* Side-by-Side (Split) View */
+                      (() => {
+                        const splitRows = d.diff_content ? parseSideBySidePatch(d.diff_content) : [];
+                        if (splitRows.length === 0) {
+                          return (
+                            <div className="p-3 text-xs text-onedark-muted italic">
+                              Binary file or no detailed hunk content available.
+                            </div>
+                          );
+                        }
                         return (
-                          <div
-                            key={lineIdx}
-                            className={`flex items-center px-1.5 py-0.5 rounded-xs transition-colors ${
-                              isAddition
-                                ? 'bg-onedark-green/15 text-onedark-green font-medium'
-                                : isDeletion
-                                ? 'bg-onedark-red/15 text-onedark-red font-medium'
-                                : isHeader
-                                ? 'text-onedark-purple bg-onedark-surface/40 font-semibold my-0.5'
-                                : 'text-onedark-fg hover:bg-onedark-surface/20'
-                            }`}
-                          >
-                            {/* Line Numbers */}
-                            {!isHeader ? (
-                              <div className="flex items-center space-x-2 text-[10px] font-mono text-onedark-muted/60 select-none w-14 flex-shrink-0 text-right pr-2">
-                                <span className="w-6">{lineObj.oldLine ?? ''}</span>
-                                <span className="w-6 text-onedark-fg/70">{lineObj.newLine ?? ''}</span>
-                              </div>
-                            ) : (
-                              <div className="w-14 flex-shrink-0 text-[10px] font-mono text-onedark-purple select-none pr-2">
-                                ...
-                              </div>
-                            )}
+                          <div className="w-full flex flex-col divide-y divide-onedark-borderSubtle/30">
+                            {/* Split Column Headers */}
+                            <div className="grid grid-cols-2 text-[10px] font-mono font-bold uppercase text-onedark-muted bg-onedark-darker/60 py-1 px-2 border-b border-onedark-borderSubtle/60 select-none">
+                              <div>Original (Before)</div>
+                              <div>Modified (After)</div>
+                            </div>
 
-                            {/* Gutter prefix indicator */}
-                            <span className="w-4 select-none font-bold text-center flex-shrink-0">
-                              {isAddition ? '+' : isDeletion ? '-' : ' '}
-                            </span>
+                            {splitRows.map((row, rIdx) => {
+                              if (row.leftType === 'header') {
+                                return (
+                                  <div
+                                    key={rIdx}
+                                    className="col-span-2 text-onedark-purple bg-onedark-surface/40 font-semibold px-2 py-0.5 my-0.5 text-center text-[11px]"
+                                  >
+                                    {row.leftText}
+                                  </div>
+                                );
+                              }
 
-                            {/* Content */}
-                            <span className="whitespace-pre flex-1 min-w-0">
-                              {lineObj.text.replace(/^[+-]/, '')}
-                            </span>
+                              const isDel = row.leftType === 'deletion';
+                              const isAdd = row.rightType === 'addition';
+
+                              return (
+                                <div key={rIdx} className="grid grid-cols-2 divide-x divide-onedark-borderSubtle/30 font-mono text-[11px]">
+                                  {/* Left (Old / Deletions) */}
+                                  <div
+                                    className={`flex items-start px-1.5 py-0.5 overflow-hidden ${
+                                      isDel ? 'bg-onedark-red/15 text-onedark-red' : 'text-onedark-fg/80'
+                                    }`}
+                                  >
+                                    <span className="w-7 flex-shrink-0 text-[10px] text-onedark-muted/60 text-right pr-2 select-none">
+                                      {row.leftLineNum ?? ''}
+                                    </span>
+                                    <span className="w-3 flex-shrink-0 select-none font-bold text-center">
+                                      {isDel ? '-' : ' '}
+                                    </span>
+                                    <span className="whitespace-pre flex-1 truncate">
+                                      {row.leftText.replace(/^[+-]/, '')}
+                                    </span>
+                                  </div>
+
+                                  {/* Right (New / Additions) */}
+                                  <div
+                                    className={`flex items-start px-1.5 py-0.5 overflow-hidden ${
+                                      isAdd ? 'bg-onedark-green/15 text-onedark-green' : 'text-onedark-fg/80'
+                                    }`}
+                                  >
+                                    <span className="w-7 flex-shrink-0 text-[10px] text-onedark-muted/60 text-right pr-2 select-none">
+                                      {row.rightLineNum ?? ''}
+                                    </span>
+                                    <span className="w-3 flex-shrink-0 select-none font-bold text-center">
+                                      {isAdd ? '+' : ' '}
+                                    </span>
+                                    <span className="whitespace-pre flex-1 truncate">
+                                      {row.rightText.replace(/^[+-]/, '')}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
                         );
-                      })
+                      })()
                     ) : (
-                      <div className="p-3 text-xs text-onedark-muted italic">
-                        Binary file or no detailed hunk content available.
-                      </div>
+                      /* Unified Diff View */
+                      (() => {
+                        const parsedLines = d.diff_content ? parseUnifiedPatch(d.diff_content) : [];
+                        if (parsedLines.length === 0) {
+                          return (
+                            <div className="p-3 text-xs text-onedark-muted italic">
+                              Binary file or no detailed hunk content available.
+                            </div>
+                          );
+                        }
+
+                        return parsedLines.map((lineObj, lineIdx) => {
+                          const isAddition = lineObj.type === 'addition';
+                          const isDeletion = lineObj.type === 'deletion';
+                          const isHeader = lineObj.type === 'header';
+
+                          return (
+                            <div
+                              key={lineIdx}
+                              className={`flex items-center px-1.5 py-0.5 rounded-xs transition-colors ${
+                                isAddition
+                                  ? 'bg-onedark-green/15 text-onedark-green font-medium'
+                                  : isDeletion
+                                  ? 'bg-onedark-red/15 text-onedark-red font-medium'
+                                  : isHeader
+                                  ? 'text-onedark-purple bg-onedark-surface/40 font-semibold my-0.5'
+                                  : 'text-onedark-fg hover:bg-onedark-surface/20'
+                              }`}
+                            >
+                              {/* Line Numbers */}
+                              {!isHeader ? (
+                                <div className="flex items-center space-x-2 text-[10px] font-mono text-onedark-muted/60 select-none w-14 flex-shrink-0 text-right pr-2">
+                                  <span className="w-6">{lineObj.oldLine ?? ''}</span>
+                                  <span className="w-6 text-onedark-fg/70">{lineObj.newLine ?? ''}</span>
+                                </div>
+                              ) : (
+                                <div className="w-14 flex-shrink-0 text-[10px] font-mono text-onedark-purple select-none pr-2">
+                                  ...
+                                </div>
+                              )}
+
+                              {/* Gutter prefix indicator */}
+                              <span className="w-4 select-none font-bold text-center flex-shrink-0">
+                                {isAddition ? '+' : isDeletion ? '-' : ' '}
+                              </span>
+
+                              {/* Content */}
+                              <span className="whitespace-pre flex-1 min-w-0">
+                                {lineObj.text.replace(/^[+-]/, '')}
+                              </span>
+                            </div>
+                          );
+                        });
+                      })()
                     )}
                   </div>
                 )}

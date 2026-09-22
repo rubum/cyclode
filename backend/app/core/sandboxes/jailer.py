@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import logging
 import subprocess
@@ -33,6 +34,12 @@ class Jailer:
         "ANTHROPIC_API_KEY",
         "CLAUDE_API_KEY",
         "LINEAR_API_KEY"
+    }
+
+    # Core protected directories that agents must never delete
+    PROTECTED_ROOT_DIRS = {
+        "app", "src", "backend", "frontend", "tests", "cyclode",
+        "components", "public", "core", "api", "agent", "db", "node_modules"
     }
 
     def __init__(self):
@@ -116,6 +123,79 @@ class Jailer:
                     env[k] = v
 
         return env
+
+    @classmethod
+    def validate_command_safety(cls, command: str, workspace_path: Optional[Path] = None) -> Tuple[bool, Optional[str]]:
+        """
+        Validates command against destructive mass-deletion patterns targeting core codebase trees.
+        Returns (is_safe, error_message).
+        """
+        if not command or not command.strip():
+            return True, None
+
+        cmd_lower = command.strip().lower()
+
+        # 1. Block destructive wildcard or root removals (e.g. rm -rf *, rm -rf ., rm -rf /)
+        dangerous_wildcard_patterns = [
+            r"\brm\s+-[a-zA-Z]*r[a-zA-Z]*\s+.*(?:\*|/\*|\.\s*$|\.\/|\.\.)",
+            r"\brm\s+-[a-zA-Z]*r[a-zA-Z]*\s+(?:/|/\w+)",
+            r"\brm\s+-[a-zA-Z]*f[a-zA-Z]*\s+\*",
+            r"\brm\s+\*",
+        ]
+        for pat in dangerous_wildcard_patterns:
+            if re.search(pat, cmd_lower):
+                return False, (
+                    "SECURITY CIRCUIT-BREAKER REJECTED COMMAND: Mass wildcard/root directory deletion "
+                    f"detected in '{command}'. Wiping workspace files via wildcards is prohibited by Cyclode safeguards."
+                )
+
+        # 2. Block recursive deletions targeting protected codebase directories
+        # Matches e.g.: rm -rf app, rm -r src/, rm -rf ./backend tests
+        rm_match = re.search(r"\brm\s+-[a-zA-Z]*r[a-zA-Z]*\s+(.+)", command, re.IGNORECASE)
+        if rm_match:
+            args_str = rm_match.group(1).strip()
+            # Split args by whitespace, ignoring shell redirection/chaining
+            tokens = re.split(r"\s+", re.split(r"[;&|><]", args_str)[0].strip())
+            for token in tokens:
+                clean_token = token.strip("\'\"").rstrip("/").lstrip("./")
+                if clean_token in cls.PROTECTED_ROOT_DIRS or clean_token == "*":
+                    return False, (
+                        f"SECURITY CIRCUIT-BREAKER REJECTED COMMAND: Deletion of protected directory '{clean_token}' "
+                        f"is prohibited. Cyclode strictly forbids deleting core codebase trees ('app', 'src', 'tests', etc.). "
+                        "Resolve configuration or import paths (e.g. pyproject.toml, PYTHONPATH) without deleting files."
+                    )
+
+        # 3. Block destructive git operations that purge workspace state
+        if re.search(r"\bgit\s+clean\s+-[a-zA-Z]*f", cmd_lower):
+            return False, (
+                "SECURITY CIRCUIT-BREAKER REJECTED COMMAND: 'git clean -f' is prohibited as it causes irreversible "
+                "data loss of untracked files in the active workspace."
+            )
+        if re.search(r"\bgit\s+rm\s+-[a-zA-Z]*r", cmd_lower):
+            for p_dir in cls.PROTECTED_ROOT_DIRS:
+                if re.search(rf"\bgit\s+rm\s+-[a-zA-Z]*r[a-zA-Z]*\s+.*?\b{p_dir}\b", cmd_lower):
+                    return False, (
+                        f"SECURITY CIRCUIT-BREAKER REJECTED COMMAND: 'git rm -r' targeting protected directory '{p_dir}' "
+                        "is prohibited by Cyclode structural safeguards."
+                    )
+
+        # 4. Block destructive python inline calls (e.g. shutil.rmtree)
+        if "shutil.rmtree" in cmd_lower or "os.removedirs" in cmd_lower:
+            for p_dir in cls.PROTECTED_ROOT_DIRS:
+                if p_dir in cmd_lower:
+                    return False, (
+                        f"SECURITY CIRCUIT-BREAKER REJECTED COMMAND: Scripted directory deletion targeting '{p_dir}' "
+                        "is prohibited by Cyclode structural safeguards."
+                    )
+
+        # 5. Block find bulk deletes
+        if re.search(r"\bfind\s+.*-(?:delete|exec\s+rm)", cmd_lower):
+            return False, (
+                "SECURITY CIRCUIT-BREAKER REJECTED COMMAND: Bulk search-and-delete via 'find -delete/-exec rm' "
+                "is prohibited by Cyclode structural safeguards."
+            )
+
+        return True, None
 
     def wrap_command(self, workspace_path: Path, command: str) -> Tuple[List[str], bool]:
         """

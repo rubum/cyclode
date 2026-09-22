@@ -232,3 +232,41 @@ async def test_execute_task_semantic_cache_hit_zero_tokens(monkeypatch, tmp_path
     assert any("Semantic Vector Cache" in c["name"] for c in final_plan["evaluation"]["checks"])
     assert any("Grafana Alert Rules Architecture" in m["content"] for m in emitted_messages)
     assert any("Semantic Vector Cache Hit" in t for t in emitted_thoughts)
+
+
+@pytest.mark.asyncio
+async def test_semantic_cache_bypassed_in_multiturn_conversation(tmp_path, monkeypatch):
+    harness = AntigravityHarness()
+    emitted_messages = []
+
+    async def mock_on_message(sender, content, plan=None):
+        emitted_messages.append({"sender": sender, "content": content, "plan": plan})
+
+    async def noop(*args, **kwargs):
+        pass
+
+    history = [
+        {"sender": "user", "content": "Implement Phase 1"},
+        {"sender": "agent", "content": "Phase 1 complete."}
+    ]
+
+    # In a multi-turn conversation, even if title is cached ("Explain grafana alert rules"),
+    # the follow-up prompt "Describe Phase 2" must NOT be intercepted by the cache.
+    result = await harness.execute_task(
+        task_id="task-multiturn-cache-bypass",
+        workspace_path=tmp_path,
+        title="Explain grafana alert rules",
+        description="Describe Phase 2: Security Hardening (SSRF Elimination & Cryptographic Key Management)",
+        persona_name="SoftwareEngineer",
+        history=history,
+        on_thought=noop,
+        on_tool_start=noop,
+        on_tool_end=noop,
+        on_message=mock_on_message,
+        on_approval_required=noop,
+        on_diff_updated=noop,
+        on_plan=noop
+    )
+
+    # Cached flag is False because multi-turn history bypasses the semantic cache
+    assert result.get("cached", False) is False

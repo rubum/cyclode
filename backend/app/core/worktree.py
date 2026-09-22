@@ -77,12 +77,14 @@ class WorktreeManager:
             subprocess.run(["git", "commit", "-m", "initial commit"], cwd=path, capture_output=True, env=git_env)
             subprocess.run(["git", "branch", "-M", "main"], cwd=path, capture_output=True, env=git_env)
 
-    def get_git_branch(self, workspace_path: Path) -> Optional[str]:
+    def get_git_branch(self, workspace_path: Path, expected_branch: Optional[str] = None) -> Optional[str]:
         """
         Determines current git branch or HEAD reference for a workspace path.
+        If expected_branch is provided (e.g. cyclode/task-...), ensures the workspace
+        is checked out to that branch.
         """
         if not (workspace_path / ".git").exists():
-            return None
+            return expected_branch or None
         git_env = self._get_git_env()
         try:
             res = subprocess.run(
@@ -94,6 +96,27 @@ class WorktreeManager:
                 timeout=5
             )
             branch = res.stdout.strip()
+            if branch == "master":
+                subprocess.run(
+                    ["git", "branch", "-M", "main"],
+                    cwd=workspace_path,
+                    capture_output=True,
+                    env=git_env,
+                    timeout=5
+                )
+                branch = "main"
+
+            # If expected_branch is specified and not main, ensure workspace is checked out
+            if expected_branch and expected_branch not in ("main", "master") and branch != expected_branch:
+                subprocess.run(
+                    ["git", "checkout", "-B", expected_branch],
+                    cwd=workspace_path,
+                    capture_output=True,
+                    env=git_env,
+                    timeout=5
+                )
+                branch = expected_branch
+
             if branch and branch != "HEAD":
                 return branch
             res_sha = subprocess.run(
@@ -104,19 +127,141 @@ class WorktreeManager:
                 env=git_env,
                 timeout=5
             )
-            return res_sha.stdout.strip() or None
+            return res_sha.stdout.strip() or expected_branch or None
         except Exception:
-            return None
+            return expected_branch or None
 
-    def get_git_diff(self, workspace_path: Path) -> List[Dict[str, Any]]:
+    def _format_relative_time(self, iso_str: str) -> str:
+        """Formats ISO 8601 timestamp string into human-friendly relative time."""
+        try:
+            from datetime import datetime, timezone
+            dt = datetime.fromisoformat(iso_str)
+            now = datetime.now(timezone.utc)
+            diff_sec = max(0, int((now - dt).total_seconds()))
+            if diff_sec < 60:
+                return "Just now"
+            elif diff_sec < 3600:
+                m = diff_sec // 60
+                return f"{m}m ago"
+            elif diff_sec < 86400:
+                h = diff_sec // 3600
+                return f"{h}h ago"
+            elif diff_sec < 604800:
+                d = diff_sec // 86400
+                return f"{d}d ago"
+            else:
+                return dt.strftime("%b %d, %Y")
+        except Exception:
+            return ""
+
+    def get_git_commits(self, workspace_path: Path, limit: int = 50) -> List[Dict[str, Any]]:
         """
-        Extracts current git diff from the workspace path, including untracked added files.
+        Retrieves recent git commit log for the current workspace with creation timestamps,
+        inferred turn labels, and diff addition/deletion statistics.
         """
         if not (workspace_path / ".git").exists():
             return []
 
         git_env = self._get_git_env()
         try:
+            log_proc = subprocess.run(
+                ["git", "log", f"-n{limit}", "--pretty=format:%H|%h|%an|%ae|%aI|%s"],
+                cwd=workspace_path,
+                capture_output=True,
+                text=True,
+                env=git_env,
+                timeout=5
+            )
+            if log_proc.returncode != 0 or not log_proc.stdout.strip():
+                return []
+
+            commits: List[Dict[str, Any]] = []
+            for line in log_proc.stdout.strip().splitlines():
+                if not line:
+                    continue
+                parts = line.split("|", 5)
+                if len(parts) < 6:
+                    continue
+                sha, short_sha, author, email, committed_at, message = parts
+
+                # Inferred turn label
+                turn_label = None
+                m = re.search(r"(?:cyclode:turn_|conv_turn_|turn[_\s-])(\d+)", message, re.IGNORECASE)
+                if m:
+                    turn_label = f"Turn {m.group(1)}"
+
+                rel_time = self._format_relative_time(committed_at)
+
+                # Fetch additions / deletions for this commit
+                numstat = subprocess.run(
+                    ["git", "show", "--numstat", "--format=", sha],
+                    cwd=workspace_path,
+                    capture_output=True,
+                    text=True,
+                    env=git_env,
+                    timeout=5
+                )
+                adds, dels = 0, 0
+                if numstat.returncode == 0 and numstat.stdout.strip():
+                    for s_line in numstat.stdout.strip().splitlines():
+                        s_parts = s_line.split()
+                        if len(s_parts) >= 2:
+                            if s_parts[0].isdigit():
+                                adds += int(s_parts[0])
+                            if s_parts[1].isdigit():
+                                dels += int(s_parts[1])
+
+                commits.append({
+                    "sha": sha,
+                    "short_sha": short_sha,
+                    "turn_label": turn_label,
+                    "message": message,
+                    "author": author,
+                    "email": email,
+                    "committed_at": committed_at,
+                    "relative_time": rel_time,
+                    "additions": adds,
+                    "deletions": dels
+                })
+            return commits
+        except Exception:
+            return []
+
+    def get_git_diff(
+        self,
+        workspace_path: Path,
+        mode: str = "all",
+        base_branch: str = "main",
+        commit_sha: Optional[str] = None,
+        expected_branch: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Extracts git diff from the workspace path according to the chosen comparison scope:
+        - mode='working_tree': uncommitted changes against HEAD (including untracked added files)
+        - mode='all': cumulative diff from base_branch to HEAD (including working tree changes)
+        - mode='commit': isolated patch for a specific commit_sha
+        """
+        if not (workspace_path / ".git").exists():
+            return []
+
+        git_env = self._get_git_env()
+        try:
+            # Exclude internal artifacts in .git/info/exclude
+            exclude_file = workspace_path / ".git" / "info" / "exclude"
+            if exclude_file.parent.exists():
+                try:
+                    existing = exclude_file.read_text(encoding="utf-8") if exclude_file.exists() else ""
+                    patterns = [".cyclode*", ".cyclode_symbols_cache.json", ".DS_Store"]
+                    missing = [p for p in patterns if p not in existing]
+                    if missing:
+                        with open(exclude_file, "a", encoding="utf-8") as ef:
+                            if existing and not existing.endswith("\n"):
+                                ef.write("\n")
+                            for m in missing:
+                                ef.write(f"{m}\n")
+                except Exception:
+                    pass
+
             # Stage intent-to-add for untracked files so new files appear in git diff
             subprocess.run(
                 ["git", "add", "-N", "."],
@@ -126,28 +271,21 @@ class WorktreeManager:
                 timeout=5
             )
 
-            # Check unstaged and staged diff
-            diff_proc = subprocess.run(
-                ["git", "diff", "HEAD"],
-                cwd=workspace_path,
-                capture_output=True,
-                text=True,
-                env=git_env,
-                timeout=10
-            )
-            raw_diff = diff_proc.stdout
+            diffs: List[Dict[str, Any]] = []
 
-            # Parse files from diff
-            diffs = []
-            if raw_diff:
+            if mode == "commit" and commit_sha:
+                # Mode: Specific Commit
                 files_proc = subprocess.run(
-                    ["git", "diff", "--name-status", "HEAD"],
+                    ["git", "diff-tree", "--no-commit-id", "--name-status", "--root", "-r", commit_sha],
                     cwd=workspace_path,
                     capture_output=True,
                     text=True,
                     env=git_env,
                     timeout=5
                 )
+                if files_proc.returncode != 0:
+                    return []
+
                 for line in files_proc.stdout.strip().splitlines():
                     if not line:
                         continue
@@ -156,21 +294,23 @@ class WorktreeManager:
                     file_name = parts[1] if len(parts) > 1 else ""
                     if not file_name:
                         continue
-                    
-                    # Extract file-specific patch snippet
-                    file_diff_proc = subprocess.run(
-                        ["git", "diff", "HEAD", "--", file_name],
+                    if file_name.startswith(".cyclode") or file_name == ".DS_Store" or "/.cyclode" in file_name:
+                        continue
+
+                    # Patch content
+                    patch_proc = subprocess.run(
+                        ["git", "diff-tree", "-p", "--no-commit-id", "--root", commit_sha, "--", file_name],
                         cwd=workspace_path,
                         capture_output=True,
                         text=True,
                         env=git_env,
                         timeout=5
                     )
-                    file_diff = file_diff_proc.stdout if file_diff_proc.stdout else raw_diff
+                    file_diff = patch_proc.stdout if patch_proc.returncode == 0 else ""
 
-                    # Estimate additions/deletions
+                    # Additions and deletions
                     numstat = subprocess.run(
-                        ["git", "diff", "--numstat", "HEAD", "--", file_name],
+                        ["git", "diff-tree", "--numstat", "--no-commit-id", "--root", commit_sha, "--", file_name],
                         cwd=workspace_path,
                         capture_output=True,
                         text=True,
@@ -178,7 +318,7 @@ class WorktreeManager:
                         timeout=5
                     )
                     adds, dels = 0, 0
-                    if numstat.stdout.strip():
+                    if numstat.returncode == 0 and numstat.stdout.strip():
                         stat_parts = numstat.stdout.strip().split()
                         if len(stat_parts) >= 2:
                             adds = int(stat_parts[0]) if stat_parts[0].isdigit() else 0
@@ -191,6 +331,126 @@ class WorktreeManager:
                         "additions": adds,
                         "deletions": dels
                     })
+                return diffs
+
+            # Determine diff reference for 'all' vs 'working_tree'
+            diff_ref = "HEAD"
+            if mode == "all":
+                # Check if base_branch exists
+                has_base = subprocess.run(
+                    ["git", "rev-parse", "--verify", base_branch],
+                    cwd=workspace_path,
+                    capture_output=True,
+                    env=git_env,
+                    timeout=5
+                )
+                current_branch = self.get_git_branch(workspace_path, expected_branch=expected_branch)
+                if has_base.returncode == 0 and current_branch != base_branch:
+                    diff_ref = base_branch
+                else:
+                    diff_ref = "HEAD"
+
+            # Check unstaged and staged diff
+            raw_diff_proc = subprocess.run(
+                ["git", "diff", diff_ref],
+                cwd=workspace_path,
+                capture_output=True,
+                text=True,
+                env=git_env,
+                timeout=10
+            )
+            raw_diff = raw_diff_proc.stdout
+
+            # If raw_diff is empty and diff_ref == "HEAD" and mode == "all",
+            # check if there are commits on the branch to show cumulative changes
+            if not raw_diff.strip() and mode == "all":
+                log_proc = subprocess.run(
+                    ["git", "rev-list", "--count", "HEAD"],
+                    cwd=workspace_path,
+                    capture_output=True,
+                    text=True,
+                    env=git_env,
+                    timeout=5
+                )
+                commit_count = int(log_proc.stdout.strip()) if log_proc.stdout.strip().isdigit() else 0
+                if commit_count > 1:
+                    first_commit_proc = subprocess.run(
+                        ["git", "rev-list", "--max-parents=0", "HEAD"],
+                        cwd=workspace_path,
+                        capture_output=True,
+                        text=True,
+                        env=git_env,
+                        timeout=5
+                    )
+                    first_sha = first_commit_proc.stdout.strip().splitlines()[0] if first_commit_proc.stdout.strip() else ""
+                    if first_sha:
+                        diff_ref = f"{first_sha}..HEAD"
+                        raw_diff_proc = subprocess.run(
+                            ["git", "diff", diff_ref],
+                            cwd=workspace_path,
+                            capture_output=True,
+                            text=True,
+                            env=git_env,
+                            timeout=10
+                        )
+                        raw_diff = raw_diff_proc.stdout
+
+            if not raw_diff:
+                return []
+
+            files_proc = subprocess.run(
+                ["git", "diff", "--name-status", diff_ref],
+                cwd=workspace_path,
+                capture_output=True,
+                text=True,
+                env=git_env,
+                timeout=5
+            )
+            for line in files_proc.stdout.strip().splitlines():
+                if not line:
+                    continue
+                parts = line.split(maxsplit=1)
+                status = parts[0]
+                file_name = parts[1] if len(parts) > 1 else ""
+                if not file_name:
+                    continue
+                if file_name.startswith(".cyclode") or file_name == ".DS_Store" or "/.cyclode" in file_name:
+                    continue
+
+                # Extract file-specific patch snippet
+                file_diff_proc = subprocess.run(
+                    ["git", "diff", diff_ref, "--", file_name],
+                    cwd=workspace_path,
+                    capture_output=True,
+                    text=True,
+                    env=git_env,
+                    timeout=5
+                )
+                file_diff = file_diff_proc.stdout if file_diff_proc.stdout else raw_diff
+
+                # Estimate additions/deletions
+                numstat = subprocess.run(
+                    ["git", "diff", "--numstat", diff_ref, "--", file_name],
+                    cwd=workspace_path,
+                    capture_output=True,
+                    text=True,
+                    env=git_env,
+                    timeout=5
+                )
+                adds, dels = 0, 0
+                if numstat.stdout.strip():
+                    stat_parts = numstat.stdout.strip().split()
+                    if len(stat_parts) >= 2:
+                        adds = int(stat_parts[0]) if stat_parts[0].isdigit() else 0
+                        dels = int(stat_parts[1]) if stat_parts[1].isdigit() else 0
+
+                diffs.append({
+                    "file_path": file_name,
+                    "status": status,
+                    "diff_content": file_diff,
+                    "additions": adds,
+                    "deletions": dels
+                })
             return diffs
         except Exception:
             return []

@@ -2404,19 +2404,28 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                         <div className="p-1.5 border-t border-white/[0.04] space-y-0.5 bg-onedark-darker/40">
                           {turn.logs.map((log, idx) => {
                             const logKey = log.id || `log-${turn.id}-${idx}`;
-                            const isExpanded = !!expandedLogIds[logKey];
+                            const isLatestLogInTurn = idx === turn.logs.length - 1;
+                            const isNextToolExecuting = Boolean(
+                              (task?.active_tool && !turn.logs.some((l) => l.isRunning)) || !isLatestLogInTurn
+                            );
+                            const defaultExpanded = Boolean(
+                              log.isRunning || (isLatestLogInTurn && (isTurnRunning || turn.isLatest) && !isNextToolExecuting)
+                            );
+                            const isExpanded = expandedLogIds[logKey] !== undefined ? expandedLogIds[logKey] : defaultExpanded;
                             const actionInfo = getToolActionInfo(log.tool_name, log.tool_input, log.isRunning);
                             const ActionIcon = actionInfo.icon;
 
                             return (
                               <div key={logKey} className="space-y-1">
                                 <div
-                                  onClick={() => setExpandedLogIds((prev) => ({ ...prev, [logKey]: !prev[logKey] }))}
+                                  onClick={() => setExpandedLogIds((prev) => ({ ...prev, [logKey]: !isExpanded }))}
                                   className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-mono border transition-colors cursor-pointer select-none group/action ${
                                     log.isRunning
                                       ? 'bg-onedark-accent/10 text-onedark-fgBright border-onedark-accent/30 shadow-xs'
                                       : log.exit_code !== 0
                                       ? 'bg-onedark-red/10 text-onedark-red border-onedark-red/20 hover:bg-onedark-red/15 hover:border-onedark-red/30'
+                                      : isExpanded
+                                      ? 'bg-onedark-surface/40 border-onedark-borderSubtle text-onedark-fgBright'
                                       : 'border-transparent hover:bg-onedark-surface/60 hover:border-onedark-borderSubtle hover:text-onedark-fgBright text-onedark-fg'
                                   }`}
                                 >
@@ -2472,7 +2481,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                                 {/* Expanded Individual Log */}
                                 {isExpanded && (
                                   <div className="pl-3 pr-1 pt-0.5 pb-1">
-                                    <FormattedLogView log={log} initiallyExpanded={true} isExpanded={true} />
+                                    <FormattedLogView log={log} initiallyExpanded={true} isExpanded={true} hideHeader={true} />
                                   </div>
                                 )}
                               </div>

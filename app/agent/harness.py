@@ -34,18 +34,56 @@ task_evaluations: Dict[str, EvaluationScorecard] = {}
 
 
 
-def ensure_workspace_git_repo(ws_path: Optional[Path]) -> bool:
-    """Ensures the workspace is initialized as a git repository for turn snapshots."""
+def _get_isolated_git_env() -> Dict[str, str]:
+    env = dict(os.environ)
+    env["GIT_CONFIG_GLOBAL"] = "/dev/null"
+    env["GIT_CONFIG_NOSYSTEM"] = "1"
+    return env
+
+
+def ensure_workspace_git_repo(ws_path: Optional[Path], branch: Optional[str] = None) -> bool:
+    """
+    Ensures the workspace is initialized as a git repository for turn snapshots.
+    Defaults root branch to 'main' (never legacy 'master'), and switches to 'branch' if specified.
+    """
     try:
         if not ws_path or not ws_path.exists():
             return False
         git_dir = ws_path / ".git"
+        git_env = _get_isolated_git_env()
         if not git_dir.exists():
-            subprocess.run(["git", "init"], cwd=str(ws_path), capture_output=True, text=True, timeout=5)
-            subprocess.run(["git", "config", "user.name", "Cyclode Agent"], cwd=str(ws_path), capture_output=True, text=True, timeout=5)
-            subprocess.run(["git", "config", "user.email", "agent@cyclode.local"], cwd=str(ws_path), capture_output=True, text=True, timeout=5)
-            subprocess.run(["git", "add", "-A"], cwd=str(ws_path), capture_output=True, text=True, timeout=5)
-            subprocess.run(["git", "commit", "-m", "initial workspace commit", "--allow-empty"], cwd=str(ws_path), capture_output=True, text=True, timeout=5)
+            subprocess.run(["git", "init", "-b", "main"], cwd=str(ws_path), capture_output=True, text=True, timeout=5, env=git_env)
+            subprocess.run(["git", "config", "user.name", "Cyclode Agent"], cwd=str(ws_path), capture_output=True, text=True, timeout=5, env=git_env)
+            subprocess.run(["git", "config", "user.email", "agent@cyclode.local"], cwd=str(ws_path), capture_output=True, text=True, timeout=5, env=git_env)
+            subprocess.run(["git", "add", "-A"], cwd=str(ws_path), capture_output=True, text=True, timeout=5, env=git_env)
+            subprocess.run(["git", "commit", "-m", "initial workspace commit", "--allow-empty"], cwd=str(ws_path), capture_output=True, text=True, timeout=5, env=git_env)
+            subprocess.run(["git", "branch", "-M", "main"], cwd=str(ws_path), capture_output=True, text=True, timeout=5, env=git_env)
+        else:
+            # Auto-rename legacy 'master' branch to 'main'
+            curr_res = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=str(ws_path), capture_output=True, text=True, timeout=5, env=git_env)
+            if curr_res.stdout.strip() == "master":
+                subprocess.run(["git", "branch", "-M", "main"], cwd=str(ws_path), capture_output=True, text=True, timeout=5, env=git_env)
+
+        # Exclude internal artifacts in .git/info/exclude
+        exclude_file = git_dir / "info" / "exclude"
+        if exclude_file.parent.exists():
+            try:
+                existing = exclude_file.read_text(encoding="utf-8") if exclude_file.exists() else ""
+                patterns = [".cyclode*", ".cyclode_symbols_cache.json", ".DS_Store"]
+                missing = [p for p in patterns if p not in existing]
+                if missing:
+                    with open(exclude_file, "a", encoding="utf-8") as ef:
+                        if existing and not existing.endswith("\n"):
+                            ef.write("\n")
+                        for m in missing:
+                            ef.write(f"{m}\n")
+            except Exception:
+                pass
+
+        # Switch to target task branch if specified
+        if branch and branch != "master":
+            subprocess.run(["git", "checkout", "-B", branch], cwd=str(ws_path), capture_output=True, text=True, timeout=5, env=git_env)
+
         return True
     except Exception as e:
         logger.debug(f"ensure_workspace_git_repo error: {e}")
@@ -57,10 +95,11 @@ def create_turn_snapshot(ws_path: Optional[Path], turn_idx: Any) -> Optional[str
     try:
         if not ws_path or not ws_path.exists() or not ensure_workspace_git_repo(ws_path):
             return None
-        subprocess.run(["git", "add", "-A"], cwd=str(ws_path), capture_output=True, text=True, timeout=5)
+        git_env = _get_isolated_git_env()
+        subprocess.run(["git", "add", "-A"], cwd=str(ws_path), capture_output=True, text=True, timeout=5, env=git_env)
         tag = f"cyclode:turn_{turn_idx}" if not str(turn_idx).startswith("cyclode:") else str(turn_idx)
-        subprocess.run(["git", "commit", "-m", tag, "--allow-empty"], cwd=str(ws_path), capture_output=True, text=True, timeout=5)
-        rev = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(ws_path), capture_output=True, text=True, timeout=5)
+        subprocess.run(["git", "commit", "-m", tag, "--allow-empty"], cwd=str(ws_path), capture_output=True, text=True, timeout=5, env=git_env)
+        rev = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(ws_path), capture_output=True, text=True, timeout=5, env=git_env)
         if rev.returncode == 0:
             return rev.stdout.strip()
     except Exception as e:
@@ -73,8 +112,9 @@ def rollback_workspace_to_commit(ws_path: Optional[Path], git_sha: str) -> bool:
     try:
         if not ws_path or not ws_path.exists():
             return False
-        subprocess.run(["git", "reset", "--hard", git_sha], cwd=str(ws_path), capture_output=True, text=True, timeout=10)
-        subprocess.run(["git", "clean", "-fd"], cwd=str(ws_path), capture_output=True, text=True, timeout=10)
+        git_env = _get_isolated_git_env()
+        subprocess.run(["git", "reset", "--hard", git_sha], cwd=str(ws_path), capture_output=True, text=True, timeout=10, env=git_env)
+        subprocess.run(["git", "clean", "-fd"], cwd=str(ws_path), capture_output=True, text=True, timeout=10, env=git_env)
         return True
     except Exception as e:
         logger.error(f"rollback_workspace_to_commit error: {e}")
@@ -780,6 +820,19 @@ class AntigravityHarness:
         plan_data["markdown"] = generate_plan_markdown(plan_data, title, prompt)
         return plan_data
 
+    @staticmethod
+    def sanitize_plan_phases(raw_phases: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        phases = []
+        for p in raw_phases:
+            p_copy = dict(p)
+            p_text = f"{p_copy.get('title', '')} {p_copy.get('objective', '')}".lower()
+            if any(k in p_text for k in ["eliminate stale root", "delete root mirror", "deduplicate root mirror", "delete 'app/'", "delete 'src/'", "delete 'tests/'", "delete backend", "delete frontend"]):
+                p_copy["title"] = "Phase 1: Environment & Path Configuration Alignment"
+                p_copy["objective"] = "Align pyproject.toml, PYTHONPATH, and test paths without deleting codebase directory trees."
+                p_copy["file_touchpoints"] = ["pyproject.toml: Configure pythonpath and test runner options"]
+            phases.append(p_copy)
+        return phases
+
     async def _generate_dynamic_plan(
         self,
         client: httpx.AsyncClient,
@@ -895,7 +948,8 @@ class AntigravityHarness:
             f"- If the prompt asks to review PR, diff, or code audit, set intent_category='review_audit'.\n"
             f"- If the prompt asks to fix an error or debug code, set intent_category='debugging'.\n"
             f"- If the prompt asks to configure Docker, CI/CD, or deployment, set intent_category='devops'.\n"
-            f"- Otherwise, set intent_category='code_modification'.\n\n"
+            f"- Otherwise, set intent_category='code_modification'.\n"
+            f"- ABSOLUTE STRUCTURAL INTEGRITY RULE: NEVER propose deleting, removing, or 'deduplicating' root codebase directories (such as 'app/', 'src/', 'tests/', 'backend/', 'frontend/'). Repositories often maintain dual-tree structures for container or packaging reasons. Always propose resolving path/import errors via configuration (pyproject.toml, pytest settings, PYTHONPATH), NEVER via mass directory deletion!\n\n"
             f"Respond ONLY with a valid JSON object matching this schema:\n"
             f"{{\n"
             f'  "intent_category": "planning | qa_research | app_building | code_modification | review_audit | debugging | devops",\n'
@@ -938,7 +992,8 @@ class AntigravityHarness:
                 intent_cat = "qa_research"
 
             obj = parsed.get("objective") or objective
-            phases = parsed.get("phases", [])
+            raw_phases = parsed.get("phases", [])
+            phases = Harness.sanitize_plan_phases(raw_phases)
             overview = parsed.get("overview") or obj
             plan_title = parsed.get("title") or title
             raw_steps = parsed.get("steps", [])
@@ -1511,10 +1566,13 @@ class AntigravityHarness:
         unique_models = list(dict.fromkeys(m for m in model_candidates if m))
 
         # 0. Check Semantic Vector Cache for Q&A / Research queries (Tier 4)
+        # Note: Semantic caching is strictly reserved for standalone single-turn knowledge lookups.
+        # It must NEVER intercept multi-turn conversations where prompts are contextual follow-ups.
         is_potential_qa = (
             persona_name in ["IssueResolver", "SoftwareEngineer", "PairProgrammer"]
+            and not (history and len(history) > 1)
             and any(
-                (prompt + " " + title).lower().strip().startswith(prefix)
+                (prompt or "").lower().strip().startswith(prefix)
                 for prefix in ["what is", "what are", "how does", "how do", "how to", "why is", "why does", "explain", "describe", "tell me about", "compare", "contrast"]
             )
         )
@@ -1525,7 +1583,7 @@ class AntigravityHarness:
                 async with async_session_factory() as cache_sess:
                     cache_hit = await lookup_semantic_cache(
                         db=cache_sess,
-                        query=title or prompt,
+                        query=prompt or title,
                         api_key=api_key,
                         client=None,
                         threshold=0.90,
@@ -1533,11 +1591,11 @@ class AntigravityHarness:
                     )
                     if cache_hit:
                         cached_entry, sim_score = cache_hit
-                        logger.info(f"Semantic Vector Cache Hit (similarity: {sim_score:.3f}) for query '{title or prompt[:60]}'")
+                        logger.info(f"Semantic Vector Cache Hit (similarity: {sim_score:.3f}) for query '{(prompt or title)[:60]}'")
                         
                         cached_plan = cached_entry.plan_json or {
                             "intent_category": "qa_research",
-                            "objective": title or prompt[:100],
+                            "objective": (prompt or title)[:100],
                             "steps": [
                                 {"id": "step-1", "title": "Analyze architectural concepts from semantic knowledge cache", "status": "completed"},
                                 {"id": "step-2", "title": "Synthesize comprehensive technical explanation", "status": "completed"},
@@ -2096,14 +2154,14 @@ class AntigravityHarness:
                                     "agent", final_agent_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
                                 )
 
-                            if intent_category == "qa_research" and final_agent_text and len(final_agent_text.strip()) > 30:
+                            if intent_category == "qa_research" and final_agent_text and len(final_agent_text.strip()) > 30 and not (history and len(history) > 1):
                                 try:
                                     from app.agent.semantic_cache import store_semantic_cache
                                     from app.db.session import async_session_factory
                                     async with async_session_factory() as store_sess:
                                         await store_semantic_cache(
                                             db=store_sess,
-                                            query=title or prompt,
+                                            query=prompt or title,
                                             plan=current_plan,
                                             response_text=final_agent_text,
                                             api_key=api_key,
@@ -2296,11 +2354,31 @@ class AntigravityHarness:
                                 exit_code = tool_result.get("exit_code", 0)
                                 stdout = tool_result.get("stdout", "")
                                 stderr = tool_result.get("stderr", "")
+                                err_msg = tool_result.get("error", "")
+
+                                if err_msg and "SECURITY CIRCUIT-BREAKER" in err_msg:
+                                    if on_approval_required:
+                                        try:
+                                            res = on_approval_required(
+                                                "DESTRUCTIVE_COMMAND_BLOCKED",
+                                                {
+                                                    "command": cmd,
+                                                    "error": err_msg,
+                                                    "description": f"Destructive command blocked by security circuit-breaker: {cmd}"
+                                                }
+                                            )
+                                            if inspect.isawaitable(res):
+                                                await res
+                                        except Exception as cb_err:
+                                            logger.warning(f"Failed to notify on_approval_required for blocked command: {cb_err}")
+
                                 out_parts = []
                                 if stdout:
                                     out_parts.append(stdout)
                                 if stderr:
                                     out_parts.append(f"stderr:\n{stderr}")
+                                elif err_msg:
+                                    out_parts.append(f"error:\n{err_msg}")
                                 if not out_parts:
                                     out_parts.append(f"(Command executed with exit code {exit_code})")
 
@@ -3183,4 +3261,5 @@ def get_task_evaluation(task_id: str) -> Optional[EvaluationScorecard]:
 
 
 antigravity_harness = AntigravityHarness()
+Harness = AntigravityHarness
 

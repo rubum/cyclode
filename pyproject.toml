@@ -62,3 +62,12 @@ include = ["app*", "cyclode*"]
 [tool.setuptools.package-data]
 "cyclode" = ["static/**/*", "skills/**/*", "templates/**/*"]
 "app" = ["static/**/*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["backend", "."]
+testpaths = ["backend/tests"]
+asyncio_mode = "strict"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+

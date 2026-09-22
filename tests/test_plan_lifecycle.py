@@ -654,3 +654,148 @@ async def test_get_task_plan_document_self_heals_from_agent_message():
         assert doc["plan"]["evaluation"]["status"] == "ready_for_review"
 
 
+@pytest.mark.asyncio
+async def test_get_task_diff_endpoint(tmp_path):
+    from app.api.tasks import get_task_diff
+    from app.db.models import TaskModel, TaskDiffModel
+    from app.db.session import async_session_factory, init_db
+
+    await init_db()
+    task_id = "task-diff-test-endpoint"
+
+    async with async_session_factory() as session:
+        task = TaskModel(
+            id=task_id,
+            title="Task with Diffs",
+            description="Testing diff endpoint",
+            workspace_path=str(tmp_path),
+            git_branch="cyclode/feature-test-diff",
+            status="RUNNING"
+        )
+        session.add(task)
+
+        diff1 = TaskDiffModel(
+            task_id=task_id,
+            file_path="src/components/App.tsx",
+            diff_content="@@ -1,2 +1,3 @@\n+import React from 'react';\n",
+            additions=1,
+            deletions=0
+        )
+        session.add(diff1)
+        await session.commit()
+
+    async with async_session_factory() as session:
+        res = await get_task_diff(task_id, db=session)
+        assert res["ok"] is True
+        assert res["task_id"] == task_id
+        assert res["branch"] == "cyclode/feature-test-diff"
+        assert res["total_files"] == 1
+        assert res["total_additions"] == 1
+        assert res["total_deletions"] == 0
+        assert res["diffs"][0]["file_path"] == "src/components/App.tsx"
+
+
+@pytest.mark.asyncio
+async def test_get_task_commits_endpoint(tmp_path):
+    from app.api.tasks import get_task_commits, get_task_diff
+    from app.db.models import TaskModel
+    from app.db.session import async_session_factory, init_db
+    import subprocess
+
+    await init_db()
+    task_id = "task-commits-test-endpoint"
+
+    # Initialize a git repo with two commits in tmp_path
+    git_env = {"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1", "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"}
+    subprocess.run(["git", "init"], cwd=str(tmp_path), capture_output=True, env=git_env)
+    subprocess.run(["git", "config", "user.name", "Cyclode Agent"], cwd=str(tmp_path), capture_output=True, env=git_env)
+    subprocess.run(["git", "config", "user.email", "agent@cyclode.ai"], cwd=str(tmp_path), capture_output=True, env=git_env)
+
+    f1 = tmp_path / "index.ts"
+    f1.write_text("console.log('v1');\n")
+    subprocess.run(["git", "add", "."], cwd=str(tmp_path), capture_output=True, env=git_env)
+    subprocess.run(["git", "commit", "-m", "initial workspace commit"], cwd=str(tmp_path), capture_output=True, env=git_env)
+
+    f1.write_text("console.log('v1');\nconsole.log('v2');\n")
+    subprocess.run(["git", "add", "."], cwd=str(tmp_path), capture_output=True, env=git_env)
+    subprocess.run(["git", "commit", "-m", "cyclode:turn_1 - added v2 log"], cwd=str(tmp_path), capture_output=True, env=git_env)
+
+    async with async_session_factory() as session:
+        task = TaskModel(
+            id=task_id,
+            title="Task with Commits",
+            description="Testing commits endpoint",
+            workspace_path=str(tmp_path),
+            git_branch="main",
+            status="RUNNING"
+        )
+        session.add(task)
+        await session.commit()
+
+    async with async_session_factory() as session:
+        # Test /commits
+        res_commits = await get_task_commits(task_id, db=session)
+        assert res_commits["ok"] is True
+        assert res_commits["total"] == 2
+        assert res_commits["commits"][0]["turn_label"] == "Turn 1"
+        assert "cyclode:turn_1" in res_commits["commits"][0]["message"]
+        assert res_commits["commits"][0]["additions"] == 1
+
+        # Test /diff with mode=commit
+        head_sha = res_commits["commits"][0]["sha"]
+        res_diff_commit = await get_task_diff(task_id, mode="commit", commit_sha=head_sha, db=session)
+        assert res_diff_commit["ok"] is True
+        assert res_diff_commit["total_files"] == 1
+        assert res_diff_commit["diffs"][0]["file_path"] == "index.ts"
+        assert res_diff_commit["total_additions"] == 1
+
+
+@pytest.mark.asyncio
+async def test_get_task_diff_filters_cyclode_cache_and_aligns_branch(tmp_path):
+    from app.api.tasks import get_task_diff
+    from app.db.models import TaskModel
+    from app.db.session import async_session_factory, init_db
+    import subprocess
+
+    await init_db()
+    task_id = "task-diff-cache-filter-test"
+    target_branch = "cyclode/task-20260922120000"
+
+    git_env = {"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1", "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"}
+    subprocess.run(["git", "init", "-b", "main"], cwd=str(tmp_path), capture_output=True, env=git_env)
+    subprocess.run(["git", "config", "user.name", "Cyclode Agent"], cwd=str(tmp_path), capture_output=True, env=git_env)
+    subprocess.run(["git", "config", "user.email", "agent@cyclode.ai"], cwd=str(tmp_path), capture_output=True, env=git_env)
+
+    # Initial file on main
+    (tmp_path / "README.md").write_text("# Project\n")
+    subprocess.run(["git", "add", "."], cwd=str(tmp_path), capture_output=True, env=git_env)
+    subprocess.run(["git", "commit", "-m", "initial commit"], cwd=str(tmp_path), capture_output=True, env=git_env)
+
+    # Agent creates real change and also creates internal symbols cache file
+    (tmp_path / "app.py").write_text("print('hello world')\n")
+    (tmp_path / ".cyclode_symbols_cache.json").write_text('{"symbols": []}\n')
+
+    async with async_session_factory() as session:
+        task = TaskModel(
+            id=task_id,
+            title="Task with Cache and Real File",
+            description="Testing cache exclusion",
+            workspace_path=str(tmp_path),
+            git_branch=target_branch,
+            status="RUNNING"
+        )
+        session.add(task)
+        await session.commit()
+
+    async with async_session_factory() as session:
+        res = await get_task_diff(task_id, db=session)
+        assert res["ok"] is True
+        assert res["branch"] == target_branch
+        file_paths = [d["file_path"] for d in res["diffs"]]
+        assert "app.py" in file_paths
+        assert ".cyclode_symbols_cache.json" not in file_paths
+
+
+
+
+

@@ -1196,28 +1196,57 @@ async def search_sandbox_files(
         }
 
 
-@router.get("/{task_id}/diff")
-async def get_task_diff(task_id: str, db: AsyncSession = Depends(get_db)):
+@router.get("/{task_id}/commits")
+async def get_task_commits(task_id: str, limit: int = 50, db: AsyncSession = Depends(get_db)):
     stmt = select(TaskModel).where(TaskModel.id == task_id)
     res = await db.execute(stmt)
     task = res.scalars().first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    workspace_path = Path(task.workspace_path)
-    branch = worktree_manager.get_git_branch(workspace_path) or task.git_branch or "main"
+    workspace_path = Path(task.workspace_path) if task.workspace_path else worktree_manager.get_task_workspace_path(task_id)
+    branch = worktree_manager.get_git_branch(workspace_path, expected_branch=task.git_branch) or task.git_branch or "main"
+    commits = worktree_manager.get_git_commits(workspace_path, limit=limit)
+
+    return {
+        "ok": True,
+        "task_id": task_id,
+        "branch": branch,
+        "commits": commits,
+        "total": len(commits)
+    }
+
+
+@router.get("/{task_id}/diff")
+async def get_task_diff(
+    task_id: str,
+    mode: str = "all",
+    base: str = "main",
+    commit_sha: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    res = await db.execute(stmt)
+    task = res.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    workspace_path = Path(task.workspace_path) if task.workspace_path else worktree_manager.get_task_workspace_path(task_id)
+    branch = worktree_manager.get_git_branch(workspace_path, expected_branch=task.git_branch) or task.git_branch or "main"
 
     # 1. Attempt to read live git diff from workspace
-    diffs = worktree_manager.get_git_diff(workspace_path)
+    diffs = worktree_manager.get_git_diff(workspace_path, mode=mode, base_branch=base, commit_sha=commit_sha, expected_branch=task.git_branch)
 
-    # 2. If workspace has no live diffs, fallback to recorded TaskDiffModel records
-    if not diffs:
+    # 2. If workspace has no live diffs and mode != "commit", fallback to recorded TaskDiffModel records
+    if not diffs and mode != "commit":
         stmt_diffs = select(TaskDiffModel).where(TaskDiffModel.task_id == task_id).order_by(TaskDiffModel.created_at.desc())
         res_diffs = await db.execute(stmt_diffs)
         persisted = res_diffs.scalars().all()
         if persisted:
             seen_files = set()
             for p in persisted:
+                if p.file_path.startswith(".cyclode") or p.file_path == ".DS_Store" or "/.cyclode" in p.file_path:
+                    continue
                 if p.file_path not in seen_files:
                     seen_files.add(p.file_path)
                     diffs.append({
@@ -1235,6 +1264,8 @@ async def get_task_diff(task_id: str, db: AsyncSession = Depends(get_db)):
         "ok": True,
         "task_id": task_id,
         "branch": branch,
+        "mode": mode,
+        "commit_sha": commit_sha,
         "workspace_path": str(workspace_path),
         "diffs": diffs,
         "total_files": len(diffs),

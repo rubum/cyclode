@@ -29,6 +29,7 @@ interface FormattedLogViewProps {
   isTerminalTab?: boolean;
   isExpanded?: boolean;
   onToggle?: () => void;
+  hideHeader?: boolean;
 }
 
 const maskSecretsInText = (text?: string): string => {
@@ -82,6 +83,7 @@ export const FormattedLogView: React.FC<FormattedLogViewProps> = ({
   isTerminalTab = false,
   isExpanded: controlledExpanded,
   onToggle,
+  hideHeader = false,
 }) => {
   const [internalExpanded, setInternalExpanded] = useState(initiallyExpanded);
   const [activeViewTab, setActiveViewTab] = useState<'visual' | 'raw' | 'input'>('visual');
@@ -267,53 +269,57 @@ export const FormattedLogView: React.FC<FormattedLogViewProps> = ({
 
   return (
     <div
-      className={`rounded-xl transition-colors overflow-hidden text-xs group ${
-        isExpanded
-          ? 'bg-onedark-darker/95 shadow-sm my-1.5'
-          : 'hover:bg-onedark-surface/40 text-onedark-fg'
+      className={`rounded-lg transition-colors overflow-hidden text-xs ${
+        hideHeader
+          ? 'bg-onedark-darker/90 border border-white/[0.06]'
+          : isExpanded
+          ? 'bg-onedark-darker/95 shadow-sm my-1.5 group'
+          : 'hover:bg-onedark-surface/40 text-onedark-fg group'
       }`}
     >
-      {/* Header bar */}
-      <div
-        onClick={handleHeaderClick}
-        className="px-2.5 py-1.5 flex items-center justify-between cursor-pointer select-none text-onedark-fg hover:text-onedark-fgBright transition-colors"
-      >
-        <div className="flex items-center space-x-2 truncate pr-2">
-          {renderIcon()}
-          <div className="truncate text-xs font-mono">{renderTitle()}</div>
-          <span className="text-[10px] text-onedark-muted font-mono flex-shrink-0">
-            ({log.duration_ms < 1000 ? `${log.duration_ms}ms` : `${(log.duration_ms / 1000).toFixed(1)}s`})
-          </span>
-        </div>
-
-        <div className="flex items-center space-x-1.5 text-xs font-mono flex-shrink-0">
-          {log.exit_code !== 0 && (
-            <span className="px-1.5 py-0.5 rounded text-[9.5px] font-mono bg-onedark-red/15 text-onedark-red font-semibold">
-              exit {log.exit_code}
+      {/* Header bar (only if not embedded/hidden) */}
+      {!hideHeader && (
+        <div
+          onClick={handleHeaderClick}
+          className="px-2.5 py-1.5 flex items-center justify-between cursor-pointer select-none text-onedark-fg hover:text-onedark-fgBright transition-colors"
+        >
+          <div className="flex items-center space-x-2 truncate pr-2">
+            {renderIcon()}
+            <div className="truncate text-xs font-mono">{renderTitle()}</div>
+            <span className="text-[10px] text-onedark-muted font-mono flex-shrink-0">
+              ({log.duration_ms < 1000 ? `${log.duration_ms}ms` : `${(log.duration_ms / 1000).toFixed(1)}s`})
             </span>
-          )}
+          </div>
 
-          <button
-            onClick={handleCopy}
-            className="p-1 rounded hover:bg-onedark-darker text-onedark-muted hover:text-onedark-fg transition-colors opacity-0 group-hover:opacity-100"
-            title="Copy log output"
-          >
-            {copied ? <Check className="w-3 h-3 text-onedark-green" /> : <Copy className="w-3 h-3" />}
-          </button>
+          <div className="flex items-center space-x-1.5 text-xs font-mono flex-shrink-0">
+            {log.exit_code !== 0 && (
+              <span className="px-1.5 py-0.5 rounded text-[9.5px] font-mono bg-onedark-red/15 text-onedark-red font-semibold">
+                exit {log.exit_code}
+              </span>
+            )}
 
-          {isExpanded ? (
-            <ChevronDown className="w-3.5 h-3.5 text-onedark-muted" />
-          ) : (
-            <ChevronRight className="w-3.5 h-3.5 text-onedark-muted/40 group-hover:text-onedark-muted transition-colors" />
-          )}
+            <button
+              onClick={handleCopy}
+              className="p-1 rounded hover:bg-onedark-darker text-onedark-muted hover:text-onedark-fg transition-colors opacity-0 group-hover:opacity-100"
+              title="Copy log output"
+            >
+              {copied ? <Check className="w-3 h-3 text-onedark-green" /> : <Copy className="w-3 h-3" />}
+            </button>
+
+            {isExpanded ? (
+              <ChevronDown className="w-3.5 h-3.5 text-onedark-muted" />
+            ) : (
+              <ChevronRight className="w-3.5 h-3.5 text-onedark-muted/40 group-hover:text-onedark-muted transition-colors" />
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Body / Content */}
       {isExpanded && (
         <div className="bg-onedark-darker flex flex-col max-h-[520px]">
           {/* Sub-tab Toolbar */}
-          <div className="flex items-center justify-between px-3 py-1.5 bg-onedark-darker/90 text-[11px] font-mono flex-shrink-0 select-none">
+          <div className="flex items-center justify-between px-3 py-1.5 bg-onedark-darker/90 text-[11px] font-mono flex-shrink-0 select-none border-b border-white/[0.04]">
             <div className="flex items-center space-x-1">
               <button
                 type="button"

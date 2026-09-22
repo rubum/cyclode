@@ -123,6 +123,19 @@ export interface TaskDiff {
   created_at?: string;
 }
 
+export interface TaskCommit {
+  sha: string;
+  short_sha: string;
+  turn_label?: string | null;
+  message: string;
+  author: string;
+  email?: string;
+  committed_at: string;
+  relative_time: string;
+  additions?: number;
+  deletions?: number;
+}
+
 export interface TaskPR {
   id?: string;
   task_id: string;
