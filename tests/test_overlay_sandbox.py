@@ -133,7 +133,11 @@ def test_jailer_wrap_command(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_speculative_branch_test(tmp_path):
+async def test_speculative_branch_test(tmp_path, monkeypatch):
+    from app.core.sandboxes.manager import sandbox_manager
+    monkeypatch.setattr(sandbox_manager.provider, "base_dir", tmp_path / "sandboxes")
+    monkeypatch.setattr(sandbox_manager.provider, "cache_dir", tmp_path / "cache")
+    
     workspace = tmp_path / "sandbox-spec_ws"
     workspace.mkdir()
 
@@ -178,7 +182,11 @@ async def test_speculative_branch_test(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_sandbox_api_fork_and_rollback(tmp_path):
+async def test_sandbox_api_fork_and_rollback(tmp_path, monkeypatch):
+    from app.core.sandboxes.manager import sandbox_manager
+    monkeypatch.setattr(sandbox_manager.provider, "base_dir", tmp_path / "sandboxes")
+    monkeypatch.setattr(sandbox_manager.provider, "cache_dir", tmp_path / "cache")
+
     # Setup test task in db
     async with async_session_factory() as db:
         task = TaskModel(
@@ -217,3 +225,4 @@ async def test_sandbox_api_fork_and_rollback(tmp_path):
         promote_res = await client.post(f"/api/tasks/{task_id}/sandbox/promote_cache")
         # May return 400 or ok depending on memory presence, but should not 500
         assert promote_res.status_code in (200, 400)
+
