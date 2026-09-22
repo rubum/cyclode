@@ -679,7 +679,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
               {filteredIntegrations.map((item) => (
                 <div
                   key={item.id}
-                  className="p-5 rounded-xl bg-onedark-darker/90 hover:bg-onedark-surface/30 border border-onedark-border hover:border-onedark-borderSubtle/80 space-y-4 shadow-sm transition-all flex flex-col justify-between"
+                  className="p-5 rounded-xl bg-onedark-darker/90 hover:bg-onedark-surface/30 border border-onedark-border hover:border-onedark-borderSubtle space-y-4 shadow-sm transition-all flex flex-col justify-between"
                 >
                   <div className="space-y-2.5">
                     <div className="flex items-start justify-between gap-3">
@@ -754,7 +754,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                 return (
                   <div
                     key={skill.id}
-                    className="p-5 rounded-xl bg-onedark-darker/90 hover:bg-onedark-surface/30 border border-onedark-border hover:border-onedark-borderSubtle/80 transition-all flex flex-col justify-between space-y-3 shadow-sm"
+                    className="p-5 rounded-xl bg-onedark-darker/90 hover:bg-onedark-surface/30 border border-onedark-border hover:border-onedark-borderSubtle transition-all flex flex-col justify-between space-y-3 shadow-sm"
                   >
                     <div className="space-y-2">
                       <div className="flex items-start justify-between gap-3">
@@ -813,7 +813,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                 return (
                   <div
                     key={ep.id}
-                    className="p-5 rounded-xl bg-onedark-darker/90 hover:bg-onedark-surface/30 border border-onedark-border hover:border-onedark-borderSubtle/80 space-y-3.5 flex flex-col justify-between shadow-sm transition-all"
+                    className="p-5 rounded-xl bg-onedark-darker/90 hover:bg-onedark-surface/30 border border-onedark-border hover:border-onedark-borderSubtle space-y-3.5 flex flex-col justify-between shadow-sm transition-all"
                   >
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">

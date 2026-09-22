@@ -400,7 +400,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
             {onBackToChat && (
               <button
                 onClick={onBackToChat}
-                className="inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright text-xs font-medium border border-onedark-border transition-all active:scale-95 shadow-xs"
+                className="inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright text-xs font-medium border border-onedark-borderSubtle transition-all active:scale-95 shadow-xs"
                 title="Return to Workstation / Chat"
               >
                 <ArrowLeft className="w-3.5 h-3.5 text-onedark-accent" />
@@ -412,7 +412,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
               <h1 className="text-base font-bold text-onedark-fgBright flex items-center space-x-2">
                 <FolderGit2 className="w-4 h-4 text-onedark-folder" />
                 <span>Repository & Vault Manager</span>
-                <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-onedark-surface text-onedark-fgBright border border-onedark-border">
+                <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-onedark-surface text-onedark-fgBright border border-onedark-borderSubtle">
                   {repositories.length}
                 </span>
               </h1>
@@ -425,7 +425,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
           {/* Top Actions */}
           <div className="flex items-center space-x-2">
             {/* View Mode Toggle */}
-            <div className="flex items-center bg-onedark-darker p-0.5 rounded-lg border border-onedark-border">
+            <div className="flex items-center bg-onedark-darker p-0.5 rounded-lg border border-onedark-borderSubtle">
               <button
                 onClick={() => setViewMode('grid')}
                 className={`p-1.5 rounded-md text-xs transition-colors ${
@@ -453,7 +453,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
             <button
               onClick={handleDiscoverRepositories}
               disabled={discovering}
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-onedark-darker hover:bg-onedark-surface text-onedark-fgBright rounded-lg text-xs font-medium transition-all border border-onedark-border disabled:opacity-50 cursor-pointer"
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-onedark-darker hover:bg-onedark-surface text-onedark-fgBright rounded-lg text-xs font-medium transition-all border border-onedark-borderSubtle disabled:opacity-50 cursor-pointer shadow-xs"
               title="Scan task history and environment to auto-register repositories"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${discovering ? 'animate-spin text-onedark-accent' : 'text-onedark-accent'}`} />
@@ -463,7 +463,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
             {repositories.length > 0 && (
               <button
                 onClick={handlePromptClearAll}
-                className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-onedark-darker hover:bg-onedark-red/15 text-onedark-muted hover:text-onedark-red rounded-lg text-xs font-medium transition-all border border-onedark-borderSubtle hover:border-onedark-red/30 cursor-pointer"
+                className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-onedark-darker hover:bg-onedark-red/10 text-onedark-muted hover:text-onedark-red rounded-lg text-xs font-medium transition-all border border-onedark-borderSubtle hover:border-onedark-red/30 cursor-pointer"
                 title="Clear all repository configurations and credentials from local Vault"
               >
                 <Trash2 className="w-3.5 h-3.5" />
@@ -510,7 +510,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
               className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap border ${
                 statusFilter === 'all'
                   ? 'bg-onedark-surface text-onedark-fgBright border-onedark-border shadow-xs'
-                  : 'bg-onedark-darker/60 text-onedark-muted hover:text-onedark-fg border-transparent'
+                  : 'bg-onedark-darker/60 text-onedark-muted hover:text-onedark-fg border-onedark-borderSubtle'
               }`}
             >
               All <span className="font-mono text-[10px] ml-1 opacity-70">({counts.total})</span>
@@ -521,7 +521,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
               className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap border flex items-center space-x-1 ${
                 statusFilter === 'connected'
                   ? 'bg-onedark-green/15 text-onedark-green border-onedark-green/30 shadow-xs'
-                  : 'bg-onedark-darker/60 text-onedark-muted hover:text-onedark-green border-transparent'
+                  : 'bg-onedark-darker/60 text-onedark-muted hover:text-onedark-green border-onedark-borderSubtle'
               }`}
             >
               <CheckCircle2 className="w-3 h-3" />
@@ -534,7 +534,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
               className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap border flex items-center space-x-1 ${
                 statusFilter === 'auth_required'
                   ? 'bg-onedark-yellow/15 text-onedark-yellow border-onedark-yellow/30 shadow-xs'
-                  : 'bg-onedark-darker/60 text-onedark-muted hover:text-onedark-yellow border-transparent'
+                  : 'bg-onedark-darker/60 text-onedark-muted hover:text-onedark-yellow border-onedark-borderSubtle'
               }`}
             >
               <AlertCircle className="w-3 h-3" />
@@ -547,7 +547,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
               className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap border flex items-center space-x-1 ${
                 statusFilter === 'webhook_active'
                   ? 'bg-onedark-accent/15 text-onedark-accent border-onedark-accent/30 shadow-xs'
-                  : 'bg-onedark-darker/60 text-onedark-muted hover:text-onedark-accent border-transparent'
+                  : 'bg-onedark-darker/60 text-onedark-muted hover:text-onedark-accent border-onedark-borderSubtle'
               }`}
             >
               <Radio className="w-3 h-3" />
@@ -570,7 +570,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
           <div className="flex items-center space-x-2.5">
             <Radio className="w-4 h-4 text-onedark-accent" />
             <span className="text-xs font-bold text-onedark-fgBright">Webhook Ingestion & Vault Status</span>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-onedark-green/10 text-onedark-green border border-onedark-green/20">
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-onedark-green/15 text-onedark-green font-medium border border-onedark-green/30">
               HMAC SHA-256
             </span>
           </div>
@@ -581,11 +581,11 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
         </div>
 
         {!isBannerCollapsed && (
-          <div className="p-4 pt-0 border-t border-onedark-borderSubtle/60 space-y-3.5 mt-2">
+          <div className="p-4 pt-0 border-t border-onedark-borderSubtle space-y-3.5 mt-2">
             {/* Overview Stats */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2">
               <div className="p-3 rounded-lg bg-onedark-bg border border-onedark-borderSubtle flex items-center space-x-3">
-                <div className="p-2 rounded-md bg-onedark-surface text-onedark-folder border border-onedark-border">
+                <div className="p-2 rounded-md bg-onedark-surface text-onedark-folder border border-onedark-borderSubtle">
                   <FolderGit2 className="w-4 h-4" />
                 </div>
                 <div>
@@ -595,7 +595,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
               </div>
 
               <div className="p-3 rounded-lg bg-onedark-bg border border-onedark-borderSubtle flex items-center space-x-3">
-                <div className="p-2 rounded-md bg-onedark-surface text-onedark-green border border-onedark-border">
+                <div className="p-2 rounded-md bg-onedark-surface text-onedark-green border border-onedark-borderSubtle">
                   <ShieldCheck className="w-4 h-4" />
                 </div>
                 <div>
@@ -605,7 +605,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
               </div>
 
               <div className="p-3 rounded-lg bg-onedark-bg border border-onedark-borderSubtle flex items-center space-x-3">
-                <div className="p-2 rounded-md bg-onedark-surface text-onedark-purple border border-onedark-border">
+                <div className="p-2 rounded-md bg-onedark-surface text-onedark-purple border border-onedark-borderSubtle">
                   <Sparkles className="w-4 h-4" />
                 </div>
                 <div>
@@ -622,7 +622,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
                 <div className="flex items-center space-x-2">
                   <button
                     onClick={handleCopyWebhookUrl}
-                    className="inline-flex items-center space-x-1.5 px-2.5 py-1 bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright rounded-lg text-xs font-mono border border-onedark-border transition-colors"
+                    className="inline-flex items-center space-x-1.5 px-2.5 py-1 bg-onedark-surface hover:bg-onedark-darker text-onedark-fgBright rounded-lg text-xs font-mono transition-colors border border-onedark-borderSubtle shadow-xs"
                   >
                     {copiedUrl ? (
                       <>
@@ -699,7 +699,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
                 <button
                   onClick={handleDiscoverRepositories}
                   disabled={discovering}
-                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright rounded-lg text-xs font-mono border border-onedark-border disabled:opacity-50"
+                  className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-onedark-surface hover:bg-onedark-darker text-onedark-fgBright rounded-lg text-xs font-mono border border-onedark-borderSubtle disabled:opacity-50"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${discovering ? 'animate-spin text-onedark-accent' : 'text-onedark-muted'}`} />
                   <span>{discovering ? 'Discovering...' : 'Discover from Task History'}</span>
@@ -715,7 +715,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
             ) : (
               <button
                 onClick={() => { setSearchQuery(''); setStatusFilter('all'); }}
-                className="px-3 py-1.5 bg-onedark-surface text-onedark-fgBright rounded-lg text-xs font-medium border border-onedark-border"
+                className="px-3 py-1.5 bg-onedark-surface hover:bg-onedark-darker text-onedark-fgBright rounded-lg text-xs font-medium border border-onedark-borderSubtle"
               >
                 Reset Filters
               </button>
@@ -734,7 +734,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
                   <th className="py-3 px-3 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-onedark-borderSubtle/60">
+              <tbody className="divide-y divide-onedark-borderSubtle">
                 {filteredRepositories.map((repo) => {
                   const isConnected = repo.status === 'CONNECTED';
                   const hasListener = Boolean(repo.manifest_cache?.webhook_listener?.installed);
@@ -789,7 +789,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
                             <button
                               onClick={() => handleInstallWebhook(repo.id)}
                               disabled={webhookActionId === repo.id || !repo.has_token}
-                              className="inline-flex items-center space-x-1 text-onedark-fgBright hover:text-onedark-accent text-[11px] bg-onedark-surface px-2 py-0.5 rounded border border-onedark-border disabled:opacity-40"
+                              className="inline-flex items-center space-x-1 text-onedark-fgBright hover:text-onedark-accent text-[11px] bg-onedark-surface px-2 py-0.5 rounded border border-onedark-borderSubtle disabled:opacity-40"
                               title={repo.has_token ? "Auto-install webhook on GitHub" : "Requires GitHub PAT token in Vault"}
                             >
                               <Radio className={`w-3 h-3 text-onedark-accent ${webhookActionId === repo.id ? 'animate-pulse' : ''}`} />
@@ -800,7 +800,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
                           <button
                             onClick={() => handleSimulateEvent(repo.id)}
                             disabled={webhookActionId === repo.id}
-                            className="p-1 rounded bg-onedark-surface hover:bg-onedark-border text-onedark-yellow border border-onedark-border disabled:opacity-40"
+                            className="p-1 rounded bg-onedark-surface hover:bg-onedark-borderSubtle text-onedark-yellow border border-onedark-borderSubtle disabled:opacity-40"
                             title="Simulate Event"
                           >
                             <Zap className="w-3 h-3" />
@@ -813,7 +813,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
                           <button
                             onClick={() => handleTestConnection(repo.id)}
                             disabled={isTesting}
-                            className="p-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright border border-onedark-border transition-colors"
+                            className="p-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-borderSubtle text-onedark-fgBright border border-onedark-borderSubtle transition-colors"
                             title="Test Connection"
                           >
                             <RefreshCw className={`w-3 h-3 ${isTesting ? 'animate-spin text-onedark-accent' : ''}`} />
@@ -821,7 +821,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
 
                           <button
                             onClick={() => handleOpenEdit(repo)}
-                            className="p-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright border border-onedark-border transition-colors"
+                            className="p-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-borderSubtle text-onedark-fgBright border border-onedark-borderSubtle transition-colors"
                             title="Edit Settings"
                           >
                             <Edit2 className="w-3 h-3" />
@@ -829,7 +829,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
 
                           <button
                             onClick={() => handlePromptDeleteRepo(repo)}
-                            className="p-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-red/20 text-onedark-fg/70 hover:text-onedark-red border border-onedark-border transition-colors cursor-pointer"
+                            className="p-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-red/20 text-onedark-fg/70 hover:text-onedark-red border border-onedark-borderSubtle transition-colors cursor-pointer"
                             title="Delete Repo from Vault"
                           >
                             <Trash2 className="w-3 h-3" />
@@ -935,7 +935,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
                     )}
 
                     {/* Webhook Listener Controls */}
-                    <div className="pt-2.5 border-t border-onedark-borderSubtle/60 space-y-2">
+                    <div className="pt-2.5 border-t border-onedark-borderSubtle space-y-2">
                       <div className="flex items-center justify-between text-xs">
                         <span className="text-onedark-fgBright flex items-center space-x-1.5 font-medium">
                           <Radio className="w-3.5 h-3.5 text-onedark-accent" />
@@ -958,7 +958,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
                         <button
                           onClick={() => handleInstallWebhook(repo.id)}
                           disabled={webhookActionId === repo.id || !repo.has_token}
-                          className="flex-1 py-1.5 px-2.5 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright text-xs font-medium border border-onedark-border flex items-center justify-center space-x-1.5 transition-colors disabled:opacity-40"
+                          className="flex-1 py-1.5 px-2.5 rounded-lg bg-onedark-surface hover:bg-onedark-darker text-onedark-fgBright text-xs font-medium border border-onedark-borderSubtle flex items-center justify-center space-x-1.5 transition-colors disabled:opacity-40 shadow-xs"
                           title={repo.has_token ? "Auto-install webhook on GitHub via PAT" : "Requires GitHub PAT token in Vault"}
                         >
                           <Radio className={`w-3.5 h-3.5 text-onedark-accent ${webhookActionId === repo.id ? 'animate-pulse' : ''}`} />
@@ -968,7 +968,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
                         <button
                           onClick={() => handleSimulateEvent(repo.id)}
                           disabled={webhookActionId === repo.id}
-                          className="py-1.5 px-3 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-yellow hover:text-onedark-accent text-xs font-mono font-medium border border-onedark-border flex items-center space-x-1 transition-colors disabled:opacity-40"
+                          className="py-1.5 px-3 rounded-lg bg-onedark-surface hover:bg-onedark-darker text-onedark-yellow hover:text-onedark-accent text-xs font-mono font-medium border border-onedark-borderSubtle flex items-center space-x-1 transition-colors disabled:opacity-40 shadow-xs"
                           title="Simulate a pull_request.opened event on this repo"
                         >
                           <Zap className="w-3.5 h-3.5" />
@@ -977,7 +977,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
                       </div>
 
                       {actionFeedback && actionFeedback.id === repo.id && (
-                        <div className={`p-2 rounded-lg text-xs font-mono ${actionFeedback.success ? 'bg-onedark-green/15 text-onedark-green border border-onedark-green/30' : 'bg-onedark-red/15 text-onedark-red border border-onedark-red/30'}`}>
+                        <div className={`p-2 rounded-lg text-xs font-mono border ${actionFeedback.success ? 'bg-onedark-green/15 text-onedark-green border-onedark-green/30' : 'bg-onedark-red/15 text-onedark-red border border-onedark-red/30'}`}>
                           {actionFeedback.message}
                         </div>
                       )}
@@ -990,7 +990,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
                       <button
                         onClick={() => handleTestConnection(repo.id)}
                         disabled={isTesting}
-                        className="px-2.5 py-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright transition-colors text-xs font-medium flex items-center space-x-1 border border-onedark-border"
+                        className="px-2.5 py-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-darker text-onedark-fgBright transition-colors text-xs font-medium flex items-center space-x-1 border border-onedark-borderSubtle shadow-xs"
                         title="Test Git Connectivity"
                       >
                         <RefreshCw className={`w-3 h-3 ${isTesting ? 'animate-spin text-onedark-accent' : 'text-onedark-muted'}`} />
@@ -999,7 +999,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
 
                       <button
                         onClick={() => handleOpenEdit(repo)}
-                        className="px-2.5 py-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright transition-colors text-xs font-medium flex items-center space-x-1 border border-onedark-border"
+                        className="px-2.5 py-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-darker text-onedark-fgBright transition-colors text-xs font-medium flex items-center space-x-1 border border-onedark-borderSubtle shadow-xs"
                         title="Edit Repository Settings"
                       >
                         <Edit2 className="w-3 h-3 text-onedark-muted" />
@@ -1008,7 +1008,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
 
                       <button
                         onClick={() => handlePromptDeleteRepo(repo)}
-                        className="p-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-red/20 text-onedark-fg/60 hover:text-onedark-red transition-colors text-xs border border-onedark-border cursor-pointer"
+                        className="p-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-red/20 text-onedark-fg/70 hover:text-onedark-red border border-onedark-borderSubtle transition-colors text-xs cursor-pointer shadow-xs"
                         title="Delete from Vault"
                       >
                         <Trash2 className="w-3 h-3" />
@@ -1039,7 +1039,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
           onClick={(e) => { if (e.target === e.currentTarget) setIsAddModalOpen(false); }}
           className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200"
         >
-          <div className="bg-onedark-darker border border-onedark-border rounded-xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+          <div className="bg-onedark-darker border border-onedark-borderSubtle rounded-xl max-w-md w-full p-5 space-y-4 shadow-2xl">
             <div className="flex items-center justify-between border-b border-onedark-borderSubtle pb-3">
               <h3 className="text-sm font-bold text-onedark-fgBright flex items-center space-x-2">
                 <FolderGit2 className="w-4 h-4 text-onedark-folder" />
@@ -1065,7 +1065,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
                   onChange={(e) => setRepoFullName(e.target.value)}
                   disabled={!!editingRepo}
                   placeholder="e.g. organization/repository or https://github.com/organization/repository"
-                  className="w-full bg-onedark-bg border border-onedark-border rounded-lg px-3 py-1.5 text-xs text-onedark-fgBright font-mono focus:outline-none focus:border-onedark-accent disabled:opacity-50"
+                  className="w-full bg-onedark-bg border border-onedark-border rounded-lg px-3 py-1.5 text-xs text-onedark-fgBright font-mono focus:outline-none focus:border-onedark-accent disabled:opacity-50 transition-colors"
                   required
                 />
               </div>
@@ -1080,7 +1080,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
                   value={repoToken}
                   onChange={(e) => setRepoToken(e.target.value)}
                   placeholder={editingRepo?.has_token ? 'Leave blank to keep existing encrypted token' : 'ghp_...'}
-                  className="w-full bg-onedark-bg border border-onedark-border rounded-lg px-3 py-1.5 text-xs text-onedark-fgBright font-mono focus:outline-none focus:border-onedark-accent"
+                  className="w-full bg-onedark-bg border border-onedark-border rounded-lg px-3 py-1.5 text-xs text-onedark-fgBright font-mono focus:outline-none focus:border-onedark-accent transition-colors"
                 />
               </div>
 
@@ -1092,7 +1092,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
                     value={defaultBranch}
                     onChange={(e) => setDefaultBranch(e.target.value)}
                     placeholder="main"
-                    className="w-full bg-onedark-bg border border-onedark-border rounded-lg px-3 py-1.5 text-xs text-onedark-fgBright font-mono focus:outline-none focus:border-onedark-accent"
+                    className="w-full bg-onedark-bg border border-onedark-border rounded-lg px-3 py-1.5 text-xs text-onedark-fgBright font-mono focus:outline-none focus:border-onedark-accent transition-colors"
                   />
                 </div>
 
@@ -1103,16 +1103,16 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
                     value={testCommand}
                     onChange={(e) => setTestCommand(e.target.value)}
                     placeholder="e.g. pytest, npm test"
-                    className="w-full bg-onedark-bg border border-onedark-border rounded-lg px-3 py-1.5 text-xs text-onedark-fgBright font-mono focus:outline-none focus:border-onedark-accent"
+                    className="w-full bg-onedark-bg border border-onedark-border rounded-lg px-3 py-1.5 text-xs text-onedark-fgBright font-mono focus:outline-none focus:border-onedark-accent transition-colors"
                   />
                 </div>
               </div>
 
               {feedback && (
                 <div
-                  className={`p-2.5 rounded-lg text-xs flex items-center space-x-2 ${
+                  className={`p-2.5 rounded-lg text-xs flex items-center space-x-2 border ${
                     feedback.success
-                      ? 'bg-onedark-green/15 text-onedark-green border border-onedark-green/30'
+                      ? 'bg-onedark-green/15 text-onedark-green border-onedark-green/30'
                       : 'bg-onedark-red/15 text-onedark-red border border-onedark-red/30'
                   }`}
                 >

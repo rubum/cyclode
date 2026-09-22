@@ -874,7 +874,7 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
                           <table className="w-full text-[11px] font-mono">
                             <tbody>
                               {(diagnosticsData?.assets_found || []).map((asset) => (
-                                <tr key={asset.name} className="border-b border-onedark-borderSubtle/50 hover:bg-onedark-surface/40">
+                                <tr key={asset.name} className="border-b border-onedark-borderSubtle hover:bg-onedark-surface/40">
                                   <td className="px-2 py-1 text-onedark-fg flex items-center space-x-1.5">
                                     <FileCode className="w-3 h-3 text-onedark-accent flex-shrink-0" />
                                     <span className="truncate">{asset.name}</span>

@@ -291,12 +291,12 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, o
           return (
             <div
               key={`${f.filename}-${idx}`}
-              className="rounded-xl border border-onedark-border overflow-hidden bg-onedark-darker transition-colors"
+              className="rounded-xl border border-onedark-borderSubtle overflow-hidden bg-onedark-darker transition-colors shadow-xs"
             >
               {/* File Header */}
               <div
                 onClick={() => toggleFile(f.filename)}
-                className="px-3 py-2 bg-onedark-surface/40 hover:bg-onedark-surface/60 border-b border-onedark-borderSubtle/60 flex items-center justify-between cursor-pointer select-none gap-2"
+                className="px-3 py-2 bg-onedark-surface/40 hover:bg-onedark-surface/60 border-b border-onedark-borderSubtle flex items-center justify-between cursor-pointer select-none gap-2"
               >
                 <div className="flex items-center space-x-2 min-w-0 flex-1">
                   <ChevronDown
@@ -352,7 +352,7 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, o
                           }`}
                         >
                           {!isHeader ? (
-                            <div className="flex items-center flex-shrink-0 w-20 text-[11px] font-mono text-onedark-muted/40 select-none mr-2 border-r border-onedark-borderSubtle/40 pr-1.5 justify-between">
+                            <div className="flex items-center flex-shrink-0 w-20 text-[11px] font-mono text-onedark-muted/40 select-none mr-2 border-r border-onedark-borderSubtle pr-1.5 justify-between">
                               <span className="w-7 text-right">{lineObj.oldLine ?? ''}</span>
                               <span className="w-7 text-right">{lineObj.newLine ?? ''}</span>
                               {onLineComment && (
@@ -369,7 +369,7 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, o
                               )}
                             </div>
                           ) : (
-                            <div className="w-20 text-[11px] font-mono text-onedark-purple/60 select-none mr-2 border-r border-onedark-borderSubtle/40 pr-1.5 text-center flex-shrink-0">
+                            <div className="w-20 text-[11px] font-mono text-onedark-purple/60 select-none mr-2 border-r border-onedark-borderSubtle pr-1.5 text-center flex-shrink-0">
                               @@
                             </div>
                           )}
@@ -564,7 +564,7 @@ export const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ commits, rep
           return (
             <div
               key={`${c.sha}-${idx}`}
-              className="rounded-xl border border-onedark-border bg-onedark-darker overflow-hidden hover:border-onedark-borderSubtle transition-all shadow-xs"
+              className="rounded-xl border border-onedark-borderSubtle bg-onedark-darker overflow-hidden hover:border-onedark-border transition-all shadow-xs"
             >
               <div className="p-3.5 flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                 <div className="flex items-start space-x-3 min-w-0 flex-1">
@@ -599,7 +599,7 @@ export const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ commits, rep
 
                     {/* Commit Description Body Box */}
                     {(parsed.bodyProse || parsed.trailers.length > 0) && (
-                      <div className="mt-2.5 bg-onedark-bg/95 p-3.5 rounded-lg border border-onedark-borderSubtle/80 text-[12.5px] text-onedark-fg/90 font-sans leading-relaxed shadow-xs select-text">
+                      <div className="mt-2.5 bg-onedark-bg/95 p-3.5 rounded-lg border border-onedark-borderSubtle text-[12.5px] text-onedark-fg/90 font-sans leading-relaxed shadow-xs select-text">
                         {parsed.bodyProse && (
                           <div>
                             <div className={`max-w-none text-onedark-fg text-[12.5px] leading-relaxed ${!isBodyExpanded && parsed.bodyProse.length > 220 ? 'line-clamp-3' : ''}`}>
@@ -620,7 +620,7 @@ export const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ commits, rep
 
                         {/* Git Trailers: Co-Authored-By, Signed-Off-By, Issue References */}
                         {parsed.trailers.length > 0 && (
-                          <div className={`flex flex-wrap items-center gap-1.5 ${parsed.bodyProse ? 'mt-3 pt-2.5 border-t border-onedark-borderSubtle/60' : ''}`}>
+                          <div className={`flex flex-wrap items-center gap-1.5 ${parsed.bodyProse ? 'mt-3 pt-2.5 border-t border-onedark-borderSubtle' : ''}`}>
                             {parsed.trailers.map((t, tIdx) => {
                               if (t.type === 'co-author') {
                                 const nameMatch = t.value.match(/^([^<]+)(?:<([^>]+)>)?$/);
@@ -794,7 +794,7 @@ export const MiniDiffHunkViewer: React.FC<{
         </div>
       )}
 
-      <div className="overflow-x-auto divide-y divide-onedark-borderSubtle/20 max-h-64 leading-tight">
+      <div className="overflow-x-auto divide-y divide-onedark-borderSubtle max-h-64 leading-tight">
         {parsedLines.map((line, idx) => {
           const isTarget = targetLine && (line.newLine === targetLine || line.oldLine === targetLine);
           if (line.type === 'header') {
@@ -825,7 +825,7 @@ export const MiniDiffHunkViewer: React.FC<{
               <span className="w-7 text-right select-none opacity-40 font-mono text-[10px] pr-1.5 flex-shrink-0">
                 {line.oldLine || ''}
               </span>
-              <span className="w-7 text-right select-none opacity-40 font-mono text-[10px] pr-2 flex-shrink-0 border-r border-onedark-borderSubtle/40">
+              <span className="w-7 text-right select-none opacity-40 font-mono text-[10px] pr-2 flex-shrink-0 border-r border-onedark-borderSubtle">
                 {line.newLine || ''}
               </span>
               <span className="w-4 text-center select-none font-bold text-xs flex-shrink-0">
@@ -1209,7 +1209,7 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
               }`}
             >
               {/* Comment Header */}
-              <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-onedark-borderSubtle/60 bg-onedark-surface/60 gap-2">
+              <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-onedark-borderSubtle bg-onedark-surface/60 gap-2">
                 <div className="flex items-center space-x-2.5 min-w-0 flex-wrap gap-y-1">
                   {c.author_avatar ? (
                     <img
@@ -1291,7 +1291,7 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
 
               {/* Bot Metadata Chip Bar (Category, Severity, Effort) */}
               {(botMeta.category || botMeta.severity || botMeta.effort) && (
-                <div className="flex items-center gap-1.5 flex-wrap px-3.5 pt-2.5 pb-1 bg-onedark-surface/30 border-b border-onedark-borderSubtle/40">
+                <div className="flex items-center gap-1.5 flex-wrap px-3.5 pt-2.5 pb-1 bg-onedark-surface/30 border-b border-onedark-borderSubtle">
                   {botMeta.category && (
                     <span className={`px-2 py-0.5 rounded-md font-mono text-[10.5px] font-semibold border ${botMeta.category.colorClass}`}>
                       {botMeta.category.label}
@@ -1312,7 +1312,7 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
 
               {/* Code Comment Anchor & Diff Snippet Context */}
               {isCodeComment && (c.diff_hunk || c.path) && (
-                <div className="px-3.5 py-2 bg-onedark-darker/40 border-b border-onedark-borderSubtle/60">
+                <div className="px-3.5 py-2 bg-onedark-darker/40 border-b border-onedark-borderSubtle">
                   {c.diff_hunk ? (
                     <MiniDiffHunkViewer
                       diffHunk={c.diff_hunk}
@@ -1389,7 +1389,7 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
               </div>
 
               {/* Comment Footer: Reactions & Actions */}
-              <div className="px-3.5 py-2 border-t border-onedark-borderSubtle/40 bg-onedark-surface/20 rounded-b-xl flex items-center justify-between gap-2">
+              <div className="px-3.5 py-2 border-t border-onedark-borderSubtle bg-onedark-surface/20 rounded-b-xl flex items-center justify-between gap-2">
                 {/* Reaction Counters */}
                 <div className="flex items-center space-x-1.5 flex-wrap">
                   {c.reactions && Object.entries(c.reactions).map(([emojiKey, count]) => {
@@ -1451,7 +1451,7 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
 
       {/* Interactive Comment Composer */}
       {task?.id && prNumber && (
-        <div className="mt-6 p-3.5 rounded-xl border border-onedark-border bg-onedark-darker/90 shadow-sm space-y-2.5">
+        <div className="mt-6 p-3.5 rounded-xl border border-onedark-borderSubtle bg-onedark-darker/90 shadow-xs space-y-2.5">
           <div className="flex items-center justify-between">
             <span className="font-semibold text-onedark-fgBright text-xs flex items-center space-x-1.5">
               <MessageSquarePlus className="w-3.5 h-3.5 text-onedark-accent" />
@@ -2333,8 +2333,8 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
       </div>
 
       {/* GitHub PR Hero Header */}
-      <div className="bg-onedark-surface/30 border-b border-onedark-borderSubtle/60 select-none flex-shrink-0">
-        <div className="px-3 py-2 flex flex-wrap items-center justify-between gap-2 border-b border-onedark-borderSubtle/40 text-xs">
+      <div className="bg-onedark-surface/30 border-b border-onedark-borderSubtle select-none flex-shrink-0">
+        <div className="px-3 py-2 flex flex-wrap items-center justify-between gap-2 border-b border-onedark-borderSubtle text-xs">
           {/* Metadata Row */}
           <div className="flex flex-wrap items-center gap-2 min-w-0">
             {/* Status Badge */}

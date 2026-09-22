@@ -405,7 +405,7 @@ class AgentTaskPool:
                     "plan": plan_data
                 })
 
-            async def on_thought(thought_text: str):
+            async def on_thought(thought_text: str, stream_id: Optional[str] = None):
                 t_tokens = estimate_tokens(thought_text)
                 async with async_session_factory() as session:
                     msg = TaskMessageModel(
@@ -417,8 +417,12 @@ class AgentTaskPool:
                     )
                     session.add(msg)
                     await session.commit()
+                    await session.refresh(msg)
+                    msg_id = msg.id
 
                 await ws_manager.broadcast("AGENT_THOUGHT", {
+                    "id": msg_id,
+                    "stream_id": stream_id,
                     "task_id": task_id,
                     "thought": thought_text,
                     "tokens": t_tokens,
@@ -445,8 +449,11 @@ class AgentTaskPool:
                     )
                     session.add(log)
                     await session.commit()
+                    await session.refresh(log)
+                    log_id = log.id
 
                 await ws_manager.broadcast("TOOL_END", {
+                    "id": log_id,
                     "task_id": task_id,
                     "tool_name": tool_name,
                     "tool_input": tool_input or {},
@@ -456,7 +463,7 @@ class AgentTaskPool:
                     "timestamp": datetime.now(timezone.utc).isoformat()
                 })
 
-            async def on_message(sender: str, content: str):
+            async def on_message(sender: str, content: str, stream_id: Optional[str] = None):
                 m_tokens = estimate_tokens(content)
                 async with async_session_factory() as session:
                     msg = TaskMessageModel(
@@ -473,8 +480,12 @@ class AgentTaskPool:
                         .values(total_tokens=TaskModel.total_tokens + m_tokens)
                     )
                     await session.commit()
+                    await session.refresh(msg)
+                    msg_id = msg.id
 
                 await ws_manager.broadcast("CHAT_MESSAGE", {
+                    "id": msg_id,
+                    "stream_id": stream_id,
                     "task_id": task_id,
                     "sender": sender,
                     "content": content,

@@ -281,7 +281,7 @@ export const AutomationsView: React.FC<AutomationsViewProps> = ({
         </div>
 
         {!isBannerCollapsed && (
-          <div className="p-4 pt-0 border-t border-onedark-borderSubtle/60 grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3">
+          <div className="p-4 pt-0 border-t border-onedark-borderSubtle grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3">
             <div className="p-3 rounded-lg bg-onedark-bg border border-onedark-borderSubtle">
               <div className="text-[10px] font-semibold text-onedark-fg/60 uppercase">Active Handlers</div>
               <div className="text-sm font-bold text-onedark-green mt-0.5">{activeCount} Trigger Rules</div>
@@ -343,7 +343,7 @@ export const AutomationsView: React.FC<AutomationsViewProps> = ({
                   <th className="py-3 px-3 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-onedark-borderSubtle/60">
+              <tbody className="divide-y divide-onedark-borderSubtle font-mono text-xs">
                 {filteredRules.map((rule) => {
                   const SourceIcon = getSourceIcon(rule.source);
                   return (

@@ -510,12 +510,12 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
                   <tr 
                     key={i} 
                     id={`line-row-${lineNum}`}
-                    className={`hover:bg-onedark-surface/40 group/line transition-colors ${
+                    className={`hover:bg-onedark-surface/50 group/line transition-colors ${
                       isTarget ? 'bg-onedark-accent/20 ring-1 ring-inset ring-onedark-accent' : ''
                     }`}
                   >
                     {/* Gutter with line number and hover 💬 button */}
-                    <td className="select-none pr-2 pl-3 text-right text-onedark-muted/40 group-hover/line:text-onedark-muted border-r border-onedark-borderSubtle/60 font-mono text-[11px] leading-[20px] align-top w-16 min-w-[4rem] sticky left-0 bg-onedark-bg group-hover/line:bg-onedark-surface/40 z-10">
+                    <td className="select-none pr-2 pl-3 text-right text-onedark-muted/40 group-hover/line:text-onedark-muted border-r border-onedark-borderSubtle font-mono text-[11px] leading-[20px] align-top w-16 min-w-[4rem] sticky left-0 bg-onedark-bg group-hover/line:bg-onedark-surface/50 z-10">
                       <div className="flex items-center justify-end space-x-1.5">
                         {onAskAboutLine && (
                           <button

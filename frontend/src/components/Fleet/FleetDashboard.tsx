@@ -286,7 +286,7 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
           </div>
 
           {!isBannerCollapsed && (
-            <div className="p-4 pt-0 border-t border-onedark-borderSubtle/60 grid grid-cols-2 md:grid-cols-4 gap-3 pt-3">
+            <div className="p-4 pt-0 border-t border-onedark-borderSubtle grid grid-cols-2 md:grid-cols-4 gap-3 pt-3">
               <div className="p-3 rounded-lg bg-onedark-bg border border-onedark-borderSubtle">
                 <div className="text-[10px] font-semibold text-onedark-fg/60 uppercase">Active Workers</div>
                 <div className="text-base font-bold text-onedark-yellow mt-0.5">{counts.running} Active</div>
@@ -361,7 +361,7 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
                   <th className="py-3 px-3 text-right">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-onedark-borderSubtle/60">
+              <tbody className="divide-y divide-onedark-borderSubtle">
                 {filteredTasks.map((t) => {
                   const statusInfo = getStatusBadge(t.status);
                   const StatusIcon = statusInfo.icon;

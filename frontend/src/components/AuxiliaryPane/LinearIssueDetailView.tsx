@@ -362,7 +362,7 @@ export const LinearIssueDetailView: React.FC<LinearIssueDetailViewProps> = ({
               </div>
 
               {/* Attributes Chips */}
-              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-onedark-borderSubtle/40 text-xs">
+              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-onedark-borderSubtle text-xs">
                 {/* Priority */}
                 {(() => {
                   const pBadge = getPriorityBadge(issue.priority, issue.priorityLabel);
@@ -467,7 +467,7 @@ export const LinearIssueDetailView: React.FC<LinearIssueDetailViewProps> = ({
                   ))}
                 </div>
               ) : (
-                <div className="p-4 rounded-xl bg-onedark-darker/20 border border-onedark-borderSubtle/40 text-xs text-onedark-muted text-center italic">
+                <div className="p-4 rounded-xl bg-onedark-darker/20 border border-onedark-borderSubtle text-xs text-onedark-muted text-center italic">
                   No comments yet on this ticket.
                 </div>
               )}

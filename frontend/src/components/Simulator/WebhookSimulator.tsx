@@ -338,7 +338,7 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({
           )}
 
           {/* Sticky Search & Filter Toolbar */}
-          <div className="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 border-t border-onedark-borderSubtle/60">
+          <div className="mt-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 border-t border-onedark-borderSubtle">
             <div className="relative flex-1 max-w-md">
               <Search className="w-3.5 h-3.5 text-onedark-muted absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
@@ -426,7 +426,7 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({
                     </p>
                   </div>
 
-                  <div className="flex items-center justify-between text-[10.5px] font-mono text-onedark-muted pt-2 border-t border-onedark-borderSubtle/60 w-full mt-2">
+                  <div className="flex items-center justify-between text-[10.5px] font-mono text-onedark-muted pt-2 border-t border-onedark-borderSubtle w-full mt-2">
                     <span className="truncate">{p.source} • {p.eventType}</span>
                     {isCurrent && (
                       <span className="text-onedark-accent font-bold text-[10px] flex items-center space-x-1">

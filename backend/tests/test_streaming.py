@@ -77,3 +77,39 @@ async def test_emit_streamed_message():
     assert ends[0] == ("message", "test-msg-1", "Hello world! Cyclode is ready.")
     assert len(messages) == 1
     assert messages[0] == ("agent", "Hello world! Cyclode is ready.")
+
+
+@pytest.mark.asyncio
+async def test_emit_streamed_message_propagates_stream_id():
+    received_stream_ids = []
+
+    async def on_message_3args(sender, content, s_id):
+        received_stream_ids.append((sender, content, s_id))
+
+    await antigravity_harness._emit_streamed_message(
+        sender="agent",
+        content="Reconciliation test message",
+        on_message=on_message_3args,
+        stream_id="stream-uuid-999"
+    )
+
+    assert len(received_stream_ids) == 1
+    assert received_stream_ids[0] == ("agent", "Reconciliation test message", "stream-uuid-999")
+
+
+@pytest.mark.asyncio
+async def test_emit_streamed_thought_propagates_stream_id():
+    received_thought_ids = []
+
+    async def on_thought_2args(thought, s_id):
+        received_thought_ids.append((thought, s_id))
+
+    await antigravity_harness._emit_streamed_thought(
+        thought_text="Analyzing repository structure...",
+        on_thought=on_thought_2args,
+        stream_id="stream-thought-888"
+    )
+
+    assert len(received_thought_ids) == 1
+    assert received_thought_ids[0] == ("Analyzing repository structure...", "stream-thought-888")
+

@@ -1,3 +1,12 @@
+function withOpacity(variableName) {
+  return ({ opacityValue }) => {
+    if (opacityValue !== undefined && !String(opacityValue).startsWith('var(--tw-')) {
+      return `rgba(var(${variableName}-rgb), ${opacityValue})`;
+    }
+    return `var(${variableName})`;
+  };
+}
+
 /** @type {import('tailwindcss').Config} */
 export default {
   content: [
@@ -7,31 +16,34 @@ export default {
   darkMode: 'class',
   theme: {
     extend: {
+      borderColor: {
+        DEFAULT: 'var(--color-border-subtle)',
+      },
       colors: {
         onedark: {
-          bg: 'var(--color-bg, #282C34)',
-          darker: 'var(--color-darker, #21252B)',
-          surface: 'var(--color-surface, #2C313A)',
-          border: 'var(--color-border, #3E4451)',
-          borderSubtle: 'var(--color-border-subtle, #1E2227)',
-          fg: 'var(--color-fg, #ABB2BF)',
-          fgBright: 'var(--color-fg-bright, #E5E5E5)',
-          muted: 'var(--color-muted, #5C6370)',
-          accent: 'var(--color-accent, #E5C07B)',
-          folder: 'var(--color-folder, #E5C07B)',
-          green: 'var(--color-green, #98C379)',
-          red: 'var(--color-red, #E06C75)',
-          yellow: 'var(--color-yellow, #E5C07B)',
-          purple: 'var(--color-purple, #C678DD)',
-          bronze: 'var(--color-bronze, #D19A66)'
+          bg: withOpacity('--color-bg'),
+          darker: withOpacity('--color-darker'),
+          surface: withOpacity('--color-surface'),
+          border: withOpacity('--color-border'),
+          borderSubtle: withOpacity('--color-border-subtle'),
+          fg: withOpacity('--color-fg'),
+          fgBright: withOpacity('--color-fg-bright'),
+          muted: withOpacity('--color-muted'),
+          accent: withOpacity('--color-accent'),
+          folder: withOpacity('--color-folder'),
+          green: withOpacity('--color-green'),
+          red: withOpacity('--color-red'),
+          yellow: withOpacity('--color-yellow'),
+          purple: withOpacity('--color-purple'),
+          bronze: withOpacity('--color-bronze')
         },
         dark: {
-          950: 'var(--color-darker, #21252B)',
-          900: 'var(--color-bg, #282C34)',
-          850: 'var(--color-surface, #2C313A)',
-          800: 'var(--color-border, #3E4451)',
-          750: 'var(--color-border-subtle, #4B5263)',
-          700: 'var(--color-muted, #5C6370)',
+          950: withOpacity('--color-darker'),
+          900: withOpacity('--color-bg'),
+          850: withOpacity('--color-surface'),
+          800: withOpacity('--color-border'),
+          750: withOpacity('--color-border-subtle'),
+          700: withOpacity('--color-muted'),
         }
       },
       fontFamily: {

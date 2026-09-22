@@ -163,9 +163,15 @@ class AntigravityHarness:
                 logger.debug(f"Streaming thought notice: {e}")
 
         if inspect.iscoroutinefunction(on_thought):
-            await on_thought(thought_text)
+            try:
+                await on_thought(thought_text, s_id)
+            except TypeError:
+                await on_thought(thought_text)
         else:
-            on_thought(thought_text)
+            try:
+                on_thought(thought_text, s_id)
+            except TypeError:
+                on_thought(thought_text)
 
     async def _emit_streamed_message(
         self,
@@ -217,9 +223,15 @@ class AntigravityHarness:
                 logger.debug(f"Streaming message notice: {e}")
 
         if inspect.iscoroutinefunction(on_message):
-            await on_message(sender, content)
+            try:
+                await on_message(sender, content, s_id)
+            except TypeError:
+                await on_message(sender, content)
         else:
-            on_message(sender, content)
+            try:
+                on_message(sender, content, s_id)
+            except TypeError:
+                on_message(sender, content)
 
     async def _upsert_task_prs(
         self,

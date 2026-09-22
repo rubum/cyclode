@@ -480,7 +480,7 @@ const InquiryCard: React.FC<InquiryCardProps> = ({ taskId, approval, onResolved 
       </div>
 
       {defaultOption && (
-        <div className="text-[10.5px] text-onedark-muted font-mono flex items-center justify-between pt-1 border-t border-onedark-borderSubtle/40">
+        <div className="text-[10.5px] text-onedark-muted font-mono flex items-center justify-between pt-1 border-t border-onedark-borderSubtle">
           <span>
             Default: <strong className="text-onedark-fg">{defaultOption.label}</strong>
           </span>
@@ -654,14 +654,17 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
             });
           }
           const currentTurn = result[result.length - 1];
-          const existingThoughtIdx = currentTurn.thoughts.findIndex((t) => t.id === m.id);
+          const existingThoughtIdx = currentTurn.thoughts.findIndex(
+            (t) => t.id === m.id || (t.thought.trim() === m.thought.trim() && m.thought.trim().length > 0)
+          );
           if (existingThoughtIdx >= 0) {
             currentTurn.thoughts[existingThoughtIdx] = {
-              id: m.id,
+              ...currentTurn.thoughts[existingThoughtIdx],
+              id: m.id.startsWith('thought-') ? currentTurn.thoughts[existingThoughtIdx].id : m.id,
               thought: m.thought,
               created_at: m.created_at,
-              tokens: m.tokens,
-              isStreaming: m.isStreaming,
+              tokens: m.tokens ?? currentTurn.thoughts[existingThoughtIdx].tokens,
+              isStreaming: m.isStreaming ?? false,
             };
           } else {
             const lastThought = currentTurn.thoughts[currentTurn.thoughts.length - 1];
@@ -688,9 +691,25 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
           });
         }
         const currentTurn = result[result.length - 1];
-        const existingMsgIdx = currentTurn.agentMessages.findIndex((msg) => msg.id === m.id);
+        const existingMsgIdx = currentTurn.agentMessages.findIndex((msg) => {
+          if (msg.id === m.id) return true;
+          if (msg.sender === m.sender && msg.content.trim().length > 0 && m.content.trim().length > 0) {
+            if (msg.content.trim() === m.content.trim()) return true;
+            if (msg.isStreaming && m.content.trim().startsWith(msg.content.trim())) return true;
+            if (m.isStreaming && msg.content.trim().startsWith(m.content.trim())) return true;
+          }
+          return false;
+        });
+
         if (existingMsgIdx >= 0) {
-          currentTurn.agentMessages[existingMsgIdx] = m;
+          currentTurn.agentMessages[existingMsgIdx] = {
+            ...currentTurn.agentMessages[existingMsgIdx],
+            ...m,
+            id: m.id.startsWith('msg-') || m.id.startsWith('stream_') ? currentTurn.agentMessages[existingMsgIdx].id : m.id,
+            tokens: m.tokens ?? currentTurn.agentMessages[existingMsgIdx].tokens,
+            plan: m.plan || currentTurn.agentMessages[existingMsgIdx].plan,
+            isStreaming: m.isStreaming ?? false,
+          };
         } else {
           currentTurn.agentMessages.push(m);
         }
@@ -744,7 +763,21 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
         if (msgWithPlan?.plan) {
           turn.plan = msgWithPlan.plan;
         } else if (isLatestTurn && task.plan) {
-          turn.plan = task.plan;
+          // If the latest turn is waiting for its own new plan to be generated
+          // (i.e. it only has an optimistic user message or is in initial running state, with 0 agent messages and 0 logs)
+          // and task.plan is an already completed historical plan, attribute task.plan to the preceding turn.
+          const isFreshTurnWaiting = turn.agentMessages.length === 0 && turn.logs.length === 0 && (turn.userMessage?.isOptimistic || task.status === 'RUNNING');
+          const planCompleted = task.plan.evaluation && task.plan.evaluation.status !== 'pending';
+
+          if (isFreshTurnWaiting && planCompleted && result.length > 1) {
+            // Attribute the completed plan to the preceding turn that actually ran it
+            if (!result[result.length - 2].plan) {
+              result[result.length - 2].plan = task.plan;
+            }
+            turn.plan = null;
+          } else {
+            turn.plan = task.plan;
+          }
         }
       });
     }
@@ -1038,7 +1071,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
     return (
       <div className={`absolute ${positionClasses} w-full max-w-sm max-h-64 overflow-y-auto bg-onedark-surface border border-onedark-border rounded-xl shadow-2xl z-50 p-1.5 font-sans text-xs`}>
-        <div className="px-2.5 py-1.5 text-[10px] font-semibold text-onedark-muted uppercase tracking-wider flex items-center justify-between border-b border-onedark-borderSubtle/60 mb-1">
+        <div className="px-2.5 py-1.5 text-[10px] font-semibold text-onedark-muted uppercase tracking-wider flex items-center justify-between border-b border-onedark-borderSubtle mb-1">
           <span>Registered Repositories</span>
           {filteredRepos.length > 0 && (
             <span className="text-onedark-accent font-mono text-[9px]">↑↓ to navigate · ↵ select</span>
@@ -1307,7 +1340,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     return (
       <div className="flex flex-col h-full bg-onedark-bg relative font-sans text-onedark-fg overflow-y-auto">
         {/* Top Control Bar in Empty State */}
-        <div className="h-10 px-4 border-b border-onedark-borderSubtle bg-onedark-darker/70 flex items-center justify-between text-xs text-onedark-muted select-none flex-shrink-0">
+        <div className="h-10 px-4 bg-onedark-darker/70 flex items-center justify-between text-xs text-onedark-muted select-none flex-shrink-0">
           <div className="flex items-center space-x-2">
             {onToggleSidebar && (
               <button
@@ -1323,12 +1356,12 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
           <div className="flex items-center space-x-2">
             {onSetPreset && (
-              <div className="flex items-center space-x-0.5 bg-onedark-darker p-0.5 rounded-lg border border-onedark-borderSubtle font-mono text-[10.5px]">
+              <div className="flex items-center space-x-0.5 bg-onedark-surface/40 p-0.5 rounded-lg font-mono text-[10.5px]">
                 <button
                   onClick={() => onSetPreset('split')}
                   className={`px-2 py-0.5 rounded-md transition-all ${
                     currentPreset === 'split' || currentPreset === 'standard'
-                      ? 'bg-onedark-surface text-onedark-fgBright font-semibold border border-onedark-border/60 shadow-xs'
+                      ? 'bg-onedark-surface text-onedark-fgBright font-semibold shadow-xs'
                       : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
                   }`}
                   title="Split Studio (Default - 48% Auxiliary Pane)"
@@ -1339,7 +1372,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   onClick={() => onSetPreset('preview')}
                   className={`px-2 py-0.5 rounded-md transition-all ${
                     currentPreset === 'preview'
-                      ? 'bg-onedark-surface text-onedark-fgBright font-semibold border border-onedark-border/60 shadow-xs'
+                      ? 'bg-onedark-surface text-onedark-fgBright font-semibold shadow-xs'
                       : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
                   }`}
                   title="Preview Focus (60% Auxiliary Pane)"
@@ -1350,7 +1383,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   onClick={() => onSetPreset('wide')}
                   className={`px-2 py-0.5 rounded-md transition-all ${
                     currentPreset === 'wide'
-                      ? 'bg-onedark-surface text-onedark-fgBright font-semibold border border-onedark-border/60 shadow-xs'
+                      ? 'bg-onedark-surface text-onedark-fgBright font-semibold shadow-xs'
                       : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
                   }`}
                   title="Wide Chat (25% Auxiliary Pane)"
@@ -1361,7 +1394,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   onClick={() => onSetPreset('fullscreen')}
                   className={`px-2 py-0.5 rounded-md transition-all ${
                     currentPreset === 'fullscreen'
-                      ? 'bg-onedark-surface text-onedark-fgBright font-semibold border border-onedark-border/60 shadow-xs'
+                      ? 'bg-onedark-surface text-onedark-fgBright font-semibold shadow-xs'
                       : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
                   }`}
                   title="Zen View (Canvas only)"
@@ -1387,7 +1420,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
           {/* Prompt Launcher Form */}
           <form
             onSubmit={handleSubmit}
-            className="p-3.5 rounded-2xl bg-onedark-darker border border-onedark-border shadow-xl focus-within:border-onedark-muted/60 transition-all space-y-3 relative"
+            className="p-3.5 rounded-2xl bg-onedark-surface/90 shadow-md backdrop-blur-md focus-within:ring-2 focus-within:ring-onedark-accent/20 transition-all space-y-3 relative"
           >
             <div className="relative w-full z-20">
               {/* Highlight backdrop overlay */}
@@ -1425,11 +1458,11 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               {renderMentionMenu("top-full left-0 mt-1.5")}
             </div>
 
-            <div className="flex items-center justify-between pt-2 border-t border-onedark-borderSubtle gap-2 flex-wrap sm:flex-nowrap">
+            <div className="flex items-center justify-between pt-2 border-t border-transparent gap-2 flex-wrap sm:flex-nowrap">
               {/* Persona Selector, Model Selector & Repo Pill */}
               <div className="flex items-center space-x-2 min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden py-0.5">
                 {/* Persona Pill */}
-                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-surface border border-onedark-border text-xs text-onedark-fg font-mono shadow-sm flex-shrink-0">
+                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-darker/60 hover:bg-onedark-darker text-xs text-onedark-fg font-mono shadow-xs flex-shrink-0 transition-colors">
                   <Sparkles className="w-3.5 h-3.5 text-onedark-yellow flex-shrink-0" />
                   <select
                     value={selectedPersona}
@@ -1445,7 +1478,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 </div>
 
                 {/* Model Selector Pill */}
-                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-surface border border-onedark-border text-xs text-onedark-fg font-mono shadow-sm flex-shrink-0">
+                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-darker/60 hover:bg-onedark-darker text-xs text-onedark-fg font-mono shadow-xs flex-shrink-0 transition-colors">
                   <Bot className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
                   <select
                     value={selectedModel}
@@ -1480,10 +1513,10 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                             }
                             emptyStateTextareaRef.current?.focus();
                           }}
-                          className={`px-2 py-1 rounded-lg border text-[11px] font-mono transition-all flex items-center space-x-1 cursor-pointer flex-shrink-0 max-w-[170px] ${
+                          className={`px-2 py-1 rounded-lg text-[11px] font-mono transition-all flex items-center space-x-1 cursor-pointer flex-shrink-0 max-w-[170px] ${
                             isIncluded
-                              ? 'bg-onedark-accent/20 border-onedark-accent/50 text-onedark-accent font-semibold'
-                              : 'bg-onedark-surface/80 hover:bg-onedark-surface border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fgBright'
+                              ? 'bg-onedark-accent/20 text-onedark-accent font-semibold'
+                              : 'bg-onedark-darker/60 hover:bg-onedark-darker text-onedark-muted hover:text-onedark-fgBright'
                           }`}
                           title={`Click to reference ${tag}`}
                         >
@@ -1498,7 +1531,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                     <button
                       type="button"
                       onClick={onNavigateToRepos}
-                      className="px-2.5 py-1 rounded-lg border border-dashed border-onedark-border hover:border-onedark-accent/50 bg-onedark-surface/40 hover:bg-onedark-surface text-[11px] font-mono text-onedark-muted hover:text-onedark-fgBright transition-all flex items-center space-x-1.5 cursor-pointer flex-shrink-0"
+                      className="px-2.5 py-1 rounded-lg bg-onedark-darker/60 hover:bg-onedark-darker text-[11px] font-mono text-onedark-muted hover:text-onedark-fgBright transition-all flex items-center space-x-1.5 cursor-pointer flex-shrink-0"
                       title="Connect a GitHub/GitLab repository"
                     >
                       <Plus className="w-3 h-3 text-onedark-accent flex-shrink-0" />
@@ -1537,7 +1570,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 <button
                   key={idx}
                   onClick={() => handleSelectTemplate(item)}
-                  className="p-4 rounded-xl bg-onedark-darker border border-onedark-borderSubtle hover:border-onedark-accent/50 hover:bg-onedark-surface/40 text-left transition-all duration-150 space-y-2.5 group shadow-sm flex flex-col justify-between cursor-pointer"
+                  className="p-4 rounded-xl bg-onedark-surface/40 hover:bg-onedark-surface text-left transition-all duration-200 space-y-2.5 group shadow-xs hover:shadow-md hover:-translate-y-0.5 flex flex-col justify-between cursor-pointer"
                 >
                   <div className="space-y-1.5 w-full">
                     <div className="flex items-center justify-between">
@@ -1550,7 +1583,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                         </span>
                       </div>
                       {item.badge && (
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-onedark-surface/80 border border-onedark-borderSubtle text-onedark-muted group-hover:text-onedark-fg transition-colors flex-shrink-0">
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-onedark-darker/60 text-onedark-muted group-hover:text-onedark-fg transition-colors flex-shrink-0">
                           {item.badge}
                         </span>
                       )}
@@ -1559,7 +1592,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                       {item.description || item.prompt}
                     </p>
                   </div>
-                  <div className="flex items-center justify-between pt-1 text-[11px] text-onedark-muted/80 group-hover:text-onedark-accent transition-colors border-t border-onedark-borderSubtle/40">
+                  <div className="flex items-center justify-between pt-1 text-[11px] text-onedark-muted/80 group-hover:text-onedark-accent transition-colors">
                     <span className="font-mono text-[10px]">
                       {item.action === 'connect_repo' ? 'Open repository manager ➔' : 'Load prompt template ➔'}
                     </span>
@@ -1582,7 +1615,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   return (
     <div className="flex flex-col h-full bg-onedark-bg relative font-sans text-onedark-fg">
       {/* Sleek Workstation Title & Control Bar */}
-      <div className="h-10 px-3 border-b border-onedark-borderSubtle bg-onedark-darker/95 backdrop-blur-sm flex items-center justify-between gap-2 z-10 select-none flex-shrink-0 min-w-0">
+      <div className="h-10 px-3 bg-onedark-darker/95 backdrop-blur-sm flex items-center justify-between gap-2 z-10 select-none flex-shrink-0 min-w-0">
         {/* Left: Sidebar Toggle, Repo Breadcrumb, Task Title */}
         <div className="flex items-center space-x-2 min-w-0 flex-1 overflow-hidden">
           {onToggleSidebar && (
@@ -1597,7 +1630,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
           {task.repo_name && (
             <div 
-              className="flex items-center space-x-1 px-2 py-0.5 rounded-md bg-onedark-surface/60 border border-onedark-borderSubtle text-[11px] font-mono text-onedark-fgBright flex-shrink-0 max-w-[120px] sm:max-w-[150px] truncate"
+              className="flex items-center space-x-1 px-2 py-0.5 rounded-md bg-onedark-surface/60 text-[11px] font-mono text-onedark-fgBright flex-shrink-0 max-w-[120px] sm:max-w-[150px] truncate"
               title={`Repository: ${task.repo_name}`}
             >
               <FolderGit2 className="w-3 h-3 text-onedark-folder flex-shrink-0" />
@@ -1665,12 +1698,12 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
           {/* Model Badge */}
           {task.model_name && (
             <div 
-              className={`hidden sm:flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10.5px] font-mono border ${
+              className={`hidden sm:flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10.5px] font-mono ${
                 task.model_name.startsWith('claude') 
-                  ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                  ? 'bg-amber-500/15 text-amber-400' 
                   : task.model_name.startsWith('gpt') || task.model_name.startsWith('o') || task.model_name.startsWith('codex')
-                  ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
-                  : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
+                  ? 'bg-emerald-500/15 text-emerald-400' 
+                  : 'bg-cyan-500/15 text-cyan-400'
               }`}
               title={`Active Model: ${task.model_name}`}
             >
@@ -1822,7 +1855,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
       <div 
         ref={scrollContainerRef} 
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-4 py-6 relative [overflow-anchor:none]"
+        className="flex-1 overflow-y-auto px-4 py-6 relative [overflow-anchor:auto]"
       >
         <div className={`w-full ${contentMaxWidth} mx-auto space-y-6`}>
           {turns.map((turn, tIdx) => {
@@ -1889,17 +1922,17 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                       <div className={`relative ${userMsgMaxWidth} flex flex-col items-end space-y-1`}>
                         <div className="flex items-center space-x-2 mb-0.5 pr-1 text-[11px] font-mono text-onedark-muted">
                           {turn.userMessage.isOptimistic ? (
-                            <span className="px-2 py-0.5 rounded-full bg-onedark-accent/10 text-onedark-accent border border-onedark-accent/30 flex items-center space-x-1">
+                            <span className="px-2 py-0.5 rounded-full bg-onedark-accent/10 text-onedark-accent flex items-center space-x-1">
                               <span className="w-1.5 h-1.5 rounded-full bg-onedark-accent animate-pulse" />
                               <span>Sending...</span>
                             </span>
                           ) : (
-                            <span className="px-2 py-0.5 rounded-full bg-onedark-surface border border-onedark-borderSubtle text-onedark-muted">
+                            <span className="px-2 py-0.5 rounded-full bg-onedark-surface/60 text-onedark-muted">
                               ~{turn.userMessage.tokens || estimateTokens(turn.userMessage.content)} tokens in
                             </span>
                           )}
                         </div>
-                        <div className="px-4 py-2.5 rounded-2xl bg-onedark-surface border border-onedark-border text-onedark-fgBright font-sans text-[13px] sm:text-[13.5px] leading-relaxed shadow-sm">
+                        <div className="px-4 py-2.5 rounded-2xl bg-onedark-surface/80 text-onedark-fgBright font-sans text-[13px] sm:text-[13.5px] leading-relaxed shadow-xs">
                           <div className="whitespace-pre-wrap">{renderStyledMessageContent(turn.userMessage.content)}</div>
                         </div>
                         {/* Hover Action Bar */}
@@ -1934,7 +1967,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                           <button
                             onClick={() => handleCopyText(turn.userMessage!.id, turn.userMessage!.content)}
                             className="p-1 rounded-md hover:bg-onedark-surface border border-transparent hover:border-onedark-border text-onedark-muted hover:text-onedark-fgBright transition-colors"
-                            title="Copy text"
+                            title="Copy prompt"
                           >
                             {copiedId === turn.userMessage.id ? (
                               <Check className="w-3.5 h-3.5 text-onedark-green" />
@@ -1950,7 +1983,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
                 {/* 2. Execution Plan Accordion (Situated ABOVE Reasoning & Activity) */}
                 {hasPlan && (
-                  <div className="rounded-xl border border-white/[0.06] bg-onedark-darker/60 overflow-hidden shadow-xs transition-all">
+                  <div className="rounded-xl bg-onedark-darker/40 hover:bg-onedark-darker/60 overflow-hidden shadow-xs transition-colors">
                     <button
                       type="button"
                       onClick={() => {
@@ -2016,7 +2049,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                         )}
 
                         {/* Connected Stepper Timeline */}
-                        <div className="relative pl-6 space-y-2.5 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-px before:bg-onedark-borderSubtle/40">
+                        <div className="relative pl-6 space-y-2.5 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-px before:bg-onedark-borderSubtle">
                           {turn.plan?.steps?.map((step, sIdx) => {
                             const isDone = step.status === 'completed';
                             const isInProgress = step.status === 'in_progress';
@@ -2116,7 +2149,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
                 {/* 3. Reasoning Process Accordion */}
                 {hasThoughts && (
-                  <div className="rounded-xl border border-onedark-border bg-onedark-darker/60 overflow-hidden shadow-sm transition-all">
+                  <div className="rounded-xl bg-onedark-darker/40 hover:bg-onedark-darker/60 overflow-hidden shadow-xs transition-colors">
                     <button
                       type="button"
                       onClick={() => setOpenThoughts((prev) => ({ ...prev, [turn.id]: !isTurnOpen }))}
@@ -2134,12 +2167,12 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
                       <div className="flex items-center space-x-2">
                         {isRunning && turn.isLatest ? (
-                          <span className="px-2 py-0.5 rounded-full bg-onedark-yellow/10 text-onedark-yellow text-[10.5px] font-mono border border-onedark-yellow/30 flex items-center space-x-1">
+                          <span className="px-2 py-0.5 rounded-full bg-onedark-yellow/10 text-onedark-yellow text-[10.5px] font-mono flex items-center space-x-1">
                             <span className="w-1.5 h-1.5 rounded-full bg-onedark-yellow animate-pulse" />
                             <span>Thinking...</span>
                           </span>
                         ) : (
-                          <span className="px-2 py-0.5 rounded-md bg-onedark-surface text-onedark-muted text-[10.5px] font-mono border border-onedark-borderSubtle">
+                          <span className="px-2 py-0.5 rounded-md bg-onedark-surface/60 text-onedark-muted text-[10.5px] font-mono">
                             {isTurnOpen ? 'Hide' : 'Show details'}
                           </span>
                         )}
@@ -2152,7 +2185,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                     </button>
 
                     {isTurnOpen && (
-                      <div className="p-3.5 border-t border-onedark-borderSubtle space-y-2 text-xs text-onedark-fg font-mono leading-relaxed bg-onedark-darker/90 max-h-80 overflow-y-auto">
+                      <div className="p-3.5 border-t border-transparent space-y-2 text-xs text-onedark-fg font-mono leading-relaxed bg-onedark-darker/90 max-h-80 overflow-y-auto">
                         {turn.thoughts.map((m, idx) => (
                           <div key={m.id || idx} className="pl-3 border-l-2 border-onedark-accent/40 py-0.5">
                             <div className="whitespace-pre-wrap">
@@ -2184,16 +2217,16 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   const hasRunning = turn.logs.some((l) => l.isRunning) || (isTurnRunning && turn.isLatest && !!task?.active_tool);
 
                   return (
-                    <div className="rounded-xl border border-white/[0.06] bg-onedark-darker/60 overflow-hidden shadow-xs transition-all space-y-0">
+                    <div className="rounded-xl bg-onedark-darker/40 hover:bg-onedark-darker/60 overflow-hidden shadow-xs transition-colors space-y-0">
                       {/* Summary Header */}
                       <div
                         onClick={() => setUserToggledActivities((prev) => ({ ...prev, [turn.id]: !isActOpen }))}
                         className={`w-full px-3.5 py-2.5 flex items-center justify-between text-xs transition-colors cursor-pointer select-none group/hdr ${
-                          isActOpen ? 'bg-onedark-surface/30' : 'hover:bg-onedark-surface/20'
+                          isActOpen ? 'bg-onedark-surface/30' : 'hover:bg-onedark-surface/40'
                         }`}
                       >
                         <div className="flex items-center space-x-2.5 min-w-0 pr-2">
-                          <div className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 transition-all ${
+                          <div className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 transition-colors ${
                             hasRunning
                               ? 'bg-onedark-accent/20 text-onedark-accent animate-pulse'
                               : failedCount > 0
@@ -2299,7 +2332,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
                       {/* Inline Action Items Stream */}
                       {isActOpen && (
-                        <div className="p-1.5 border-t border-white/[0.04] space-y-0.5 bg-onedark-darker/40 animate-fadeIn">
+                        <div className="p-1.5 border-t border-white/[0.04] space-y-0.5 bg-onedark-darker/40">
                           {turn.logs.map((log, idx) => {
                             const logKey = log.id || `log-${turn.id}-${idx}`;
                             const isExpanded = !!expandedLogIds[logKey];
@@ -2310,12 +2343,12 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                               <div key={logKey} className="space-y-1">
                                 <div
                                   onClick={() => setExpandedLogIds((prev) => ({ ...prev, [logKey]: !prev[logKey] }))}
-                                  className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-mono transition-colors cursor-pointer select-none group/action ${
+                                  className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-mono border transition-colors cursor-pointer select-none group/action ${
                                     log.isRunning
-                                      ? 'bg-onedark-accent/10 text-onedark-fgBright shadow-xs'
+                                      ? 'bg-onedark-accent/10 text-onedark-fgBright border-onedark-accent/30 shadow-xs'
                                       : log.exit_code !== 0
-                                      ? 'bg-onedark-red/10 text-onedark-red'
-                                      : 'hover:bg-onedark-surface/40 text-onedark-fg'
+                                      ? 'bg-onedark-red/10 text-onedark-red border-onedark-red/20 hover:bg-onedark-red/15 hover:border-onedark-red/30'
+                                      : 'border-transparent hover:bg-onedark-surface/60 hover:border-onedark-borderSubtle hover:text-onedark-fgBright text-onedark-fg'
                                   }`}
                                 >
                                   <div className="flex items-center space-x-2.5 min-w-0 pr-2">
@@ -2410,26 +2443,17 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   );
                 })()}
 
-                {/* 4. Live Status Indicator (Shown only when waiting between model/tool steps) */}
-                {isTurnRunning && (() => {
-                  // If messages or thoughts are streaming, or if an active tool is visible in-place in logs, suppress detached status pill
-                  if (turn.agentMessages.some((m) => m.isStreaming)) {
-                    return null;
-                  }
-                  if (task?.active_tool || turn.logs.some((l) => l.isRunning)) {
-                    return null;
-                  }
-                  if (turn.thoughts.some((t) => t.isStreaming)) {
-                    return null;
-                  }
-
-                  return (
-                    <div className="flex items-center space-x-2 py-1.5 px-1 text-xs font-mono select-none animate-fadeIn text-onedark-muted">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-onedark-accent" />
-                      <span className="font-medium text-onedark-fg">Generating response...</span>
+                {/* 4. Live Terminal Pulsing Cursor (Shown when turn is active before first agent message arrives) */}
+                {isTurnRunning && turn.agentMessages.length === 0 && !task?.active_tool && !turn.logs.some((l) => l.isRunning) && !turn.thoughts.some((t) => t.isStreaming) && (
+                  <div className="w-full flex flex-col items-start space-y-1.5">
+                    <div className="flex items-center justify-between w-full px-0.5 text-[11px] font-mono text-onedark-muted">
+                      <span className="font-sans font-medium text-onedark-fg">{task.persona}</span>
                     </div>
-                  );
-                })()}
+                    <div className="text-onedark-fg text-[13px] sm:text-[13.5px] leading-relaxed w-full flex items-center min-h-[22px]">
+                      <span className="terminal-cursor" title="Generating..." />
+                    </div>
+                  </div>
+                )}
 
                 {/* 5. Agent Messages (with Token Output Metric) */}
                 {turn.agentMessages.map((m) => {
@@ -2449,12 +2473,18 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                         <div className="w-full flex flex-col items-start space-y-1.5">
                           <div className="flex items-center justify-between w-full px-0.5 text-[11px] font-mono text-onedark-muted">
                             <span className="font-sans font-medium text-onedark-fg">{task.persona}</span>
-                            <span className="px-2 py-0.5 rounded-md bg-onedark-surface border border-onedark-borderSubtle text-onedark-muted">
+                            <span className="px-2 py-0.5 rounded-md bg-onedark-surface/60 text-onedark-muted">
                               ~{outTokens} tokens out
                             </span>
                           </div>
                           <div className="text-onedark-fg text-[13px] sm:text-[13.5px] leading-relaxed w-full">
-                            <MarkdownRenderer content={maskSecretsInText(m.content)} isStreaming={m.isStreaming} onLinkClick={onOpenPreview} />
+                            {m.content ? (
+                              <MarkdownRenderer content={maskSecretsInText(m.content)} isStreaming={m.isStreaming} onLinkClick={onOpenPreview} />
+                            ) : m.isStreaming ? (
+                              <div className="flex items-center min-h-[22px]">
+                                <span className="terminal-cursor" title="Generating..." />
+                              </div>
+                            ) : null}
                           </div>
                           {/* Hover Action Bar */}
                           <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center space-x-1 pl-0.5 pt-0.5">
@@ -2554,7 +2584,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
       </div>
 
       {/* Centralized Bottom Chat Input Bar */}
-      <div className="p-4 border-t border-onedark-borderSubtle bg-onedark-darker/90">
+      <div className="p-4 bg-onedark-darker/90">
         <div className={`w-full ${contentMaxWidth} mx-auto`}>
           <form onSubmit={handleSubmit} className="flex flex-col space-y-2 relative z-20">
             {/* Repository Mention Autocomplete Menu */}
@@ -2626,7 +2656,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
             <div className="flex items-center justify-between px-1 text-[11px] text-onedark-muted font-mono select-none">
               <div className="flex items-center space-x-3 min-w-0 flex-1">
                 <span className="flex-shrink-0">
-                  <kbd className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-border text-onedark-fgBright text-[10px]">Enter ↵</kbd> to send · <kbd className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-border text-onedark-fgBright text-[10px]">Shift + Enter</kbd> for newline
+                  <kbd className="px-1.5 py-0.5 rounded bg-onedark-surface/60 text-onedark-fgBright text-[10px]">Enter ↵</kbd> to send · <kbd className="px-1.5 py-0.5 rounded bg-onedark-surface/60 text-onedark-fgBright text-[10px]">Shift + Enter</kbd> for newline
                 </span>
                 {effectiveRepos.length > 0 && (
                   <div className="hidden sm:flex items-center space-x-1.5 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden py-0.5 min-w-0">
@@ -2643,10 +2673,10 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                             }
                             textareaRef.current?.focus();
                           }}
-                          className={`px-1.5 py-0.5 rounded border text-[10px] font-mono transition-all flex items-center space-x-1 cursor-pointer flex-shrink-0 max-w-[150px] ${
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-all flex items-center space-x-1 cursor-pointer flex-shrink-0 max-w-[150px] ${
                             isIncluded
-                              ? 'bg-onedark-accent/20 border-onedark-accent/50 text-onedark-accent font-semibold'
-                              : 'bg-onedark-surface/80 hover:bg-onedark-surface border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fgBright'
+                              ? 'bg-onedark-accent/20 text-onedark-accent font-semibold'
+                              : 'bg-onedark-surface/60 hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright'
                           }`}
                           title={`Click to reference ${tag}`}
                         >
@@ -2674,7 +2704,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               </div>
               {isRunning && (
                 <span className="text-onedark-yellow flex items-center space-x-1 flex-shrink-0">
-                  <kbd className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-border text-onedark-yellow text-[10px]">Esc</kbd>
+                  <kbd className="px-1.5 py-0.5 rounded bg-onedark-surface/60 text-onedark-yellow text-[10px]">Esc</kbd>
                   <span>to stop</span>
                 </span>
               )}

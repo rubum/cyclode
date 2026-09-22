@@ -239,7 +239,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
                     type="button"
                     onClick={() => toggleFolder(node.path)}
                     style={{ paddingLeft: `${depth * 14 + 8}px` }}
-                    className="w-full flex items-center space-x-1.5 py-1 pr-2 rounded-md hover:bg-onedark-surface/60 text-[12.5px] font-mono text-onedark-fg hover:text-onedark-fgBright transition-colors text-left group cursor-pointer"
+                    className="w-full flex items-center space-x-1.5 py-1 pr-2 rounded-md border border-transparent hover:bg-onedark-surface/60 hover:border-onedark-borderSubtle text-[12.5px] font-mono text-onedark-fg hover:text-onedark-fgBright transition-all text-left group cursor-pointer"
                   >
                     {isExpanded ? (
                       <FolderOpen className="w-4 h-4 text-onedark-folder flex-shrink-0" />
@@ -281,10 +281,10 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
                   type="button"
                   onClick={() => onSelectFile(node.path)}
                   style={{ paddingLeft: `${depth * 14 + 8}px` }}
-                  className={`w-full flex items-center space-x-1.5 py-1 pr-2.5 rounded-md text-[12.5px] font-mono transition-all text-left cursor-pointer ${
+                  className={`w-full flex items-center space-x-1.5 py-1 pr-2.5 rounded-md text-[12.5px] font-mono border transition-all text-left cursor-pointer ${
                     isSelected
-                      ? 'bg-onedark-accent/20 text-onedark-accent font-semibold border border-onedark-accent/40 shadow-xs'
-                      : 'hover:bg-onedark-surface text-onedark-fg/90 hover:text-onedark-fgBright'
+                      ? 'bg-onedark-accent/20 text-onedark-accent font-semibold border-onedark-accent/40 shadow-xs'
+                      : 'border-transparent hover:bg-onedark-surface/60 hover:border-onedark-borderSubtle text-onedark-fg/90 hover:text-onedark-fgBright'
                   }`}
                 >
                   <FileCode className={`w-3.5 h-3.5 flex-shrink-0 ${
@@ -339,12 +339,12 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
         </div>
 
         {/* Search Mode Toggle Tabs */}
-        <div className="flex items-center p-0.5 bg-onedark-darker rounded-lg border border-onedark-borderSubtle text-[11px] font-mono">
+        <div className="flex items-center p-0.5 bg-onedark-darker/60 rounded-lg text-[11px] font-mono">
           <button
             onClick={() => setSearchMode('files')}
             className={`flex-1 py-1 px-1.5 rounded-md text-center transition-all cursor-pointer font-medium flex items-center justify-center space-x-1.5 whitespace-nowrap ${
               searchMode === 'files'
-                ? 'bg-onedark-surface text-onedark-fgBright font-semibold border border-onedark-border/60 shadow-xs'
+                ? 'bg-onedark-surface text-onedark-fgBright font-semibold shadow-xs'
                 : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
             }`}
             title="Browse File Tree"
@@ -356,7 +356,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
             onClick={() => setSearchMode('grep')}
             className={`flex-1 py-1 px-1.5 rounded-md text-center transition-all cursor-pointer font-medium flex items-center justify-center space-x-1.5 whitespace-nowrap ${
               searchMode === 'grep'
-                ? 'bg-onedark-surface text-onedark-accent font-semibold border border-onedark-accent/40 shadow-xs'
+                ? 'bg-onedark-surface text-onedark-accent font-semibold shadow-xs'
                 : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
             }`}
             title="Full-Text Content Search (Grep)"
@@ -368,7 +368,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
             onClick={() => setSearchMode('ast')}
             className={`flex-1 py-1 px-1.5 rounded-md text-center transition-all cursor-pointer font-medium flex items-center justify-center space-x-1.5 whitespace-nowrap ${
               searchMode === 'ast'
-                ? 'bg-onedark-surface text-onedark-purple font-semibold border border-onedark-purple/40 shadow-xs'
+                ? 'bg-onedark-surface text-onedark-purple font-semibold shadow-xs'
                 : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
             }`}
             title="AST Structural Search (tgrep)"
@@ -392,7 +392,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
                 ? 'Search text or regex across files...'
                 : 'Search AST (@router, class:, func:)...'
             }
-            className="w-full bg-onedark-bg border border-onedark-borderSubtle focus:border-onedark-accent rounded-md pl-7 pr-16 py-1 text-[11.5px] text-onedark-fg focus:outline-none placeholder:text-onedark-muted font-mono"
+            className="w-full bg-onedark-bg/80 border border-transparent focus:border-onedark-accent/60 rounded-md pl-7 pr-16 py-1 text-[11.5px] text-onedark-fg focus:outline-none placeholder:text-onedark-muted/60 font-mono"
           />
 
           {/* Quick Option Buttons inside search box */}
@@ -522,12 +522,12 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
               return (
                 <div
                   key={filePath}
-                  className="rounded-lg border border-onedark-borderSubtle bg-onedark-surface/30 overflow-hidden text-xs"
+                  className="rounded-lg border border-onedark-borderSubtle bg-onedark-surface/20 overflow-hidden text-xs shadow-xs"
                 >
                   {/* File Header */}
                   <div
                     onClick={() => toggleSearchFileCollapse(filePath)}
-                    className="flex items-center justify-between px-2.5 py-1.5 bg-onedark-surface/70 hover:bg-onedark-surface border-b border-onedark-borderSubtle/60 cursor-pointer select-none gap-2"
+                    className="flex items-center justify-between px-2.5 py-1.5 bg-onedark-surface/50 hover:bg-onedark-surface/80 border-b border-onedark-borderSubtle cursor-pointer select-none gap-2 transition-colors"
                   >
                     <div className="flex items-center space-x-1.5 min-w-0">
                       <ChevronDown
@@ -548,13 +548,13 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
 
                   {/* Matching Lines */}
                   {!isCollapsed && (
-                    <div className="divide-y divide-onedark-borderSubtle/20 bg-onedark-bg/80 font-mono text-[11px]">
+                    <div className="divide-y divide-onedark-borderSubtle/60 bg-onedark-bg/60 font-mono text-[11px]">
                       {matches.map((match, idx) => (
                         <button
                           key={idx}
                           type="button"
                           onClick={() => onSelectFile(match.file_path, match.line_number)}
-                          className="w-full text-left px-2 py-1.5 hover:bg-onedark-surface/60 transition-colors flex items-start space-x-2 group cursor-pointer"
+                          className="w-full text-left px-2 py-1.5 border border-transparent hover:bg-onedark-surface/60 hover:border-onedark-borderSubtle hover:text-onedark-fgBright transition-all flex items-start space-x-2 group cursor-pointer"
                         >
                           <span className="w-8 text-right font-mono text-onedark-muted/60 group-hover:text-onedark-accent flex-shrink-0 select-none">
                             {match.line_number}

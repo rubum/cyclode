@@ -35,13 +35,13 @@ export const SubagentsTab: React.FC<SubagentsTabProps> = ({ task }) => {
       </div>
 
       {subagents.map((sub) => (
-        <div key={sub.id} className="p-3 rounded-lg bg-dark-950 border border-dark-800 text-xs space-y-1.5">
+        <div key={sub.id} className="p-3.5 rounded-xl bg-onedark-surface/40 hover:bg-onedark-surface/60 border border-onedark-borderSubtle text-xs space-y-2 shadow-xs transition-colors">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2 font-medium text-zinc-200">
-              <Cpu className="w-3.5 h-3.5 text-brand-400" />
+            <div className="flex items-center space-x-2 font-medium text-onedark-fgBright">
+              <Cpu className="w-3.5 h-3.5 text-onedark-accent" />
               <span>{sub.role}</span>
             </div>
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-dark-850 text-zinc-400 border border-dark-800">
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-onedark-surface text-onedark-muted font-medium border border-onedark-borderSubtle">
               {sub.status}
             </span>
           </div>

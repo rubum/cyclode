@@ -38,15 +38,15 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({ logs = [] }) => {
   return (
     <div className="flex flex-col h-full bg-onedark-darker overflow-hidden text-onedark-fg font-mono text-xs">
       {/* Search & Filter Bar */}
-      <div className="p-2.5 border-b border-onedark-borderSubtle/60 bg-onedark-darker/80 flex items-center justify-between space-x-2 flex-shrink-0">
-        <div className="flex items-center space-x-1.5 flex-1 bg-onedark-surface/40 border border-onedark-borderSubtle rounded-md px-2 py-1 text-xs">
+      <div className="px-3 py-2 bg-onedark-darker flex items-center justify-between space-x-2 flex-shrink-0">
+        <div className="flex items-center space-x-1.5 flex-1 bg-onedark-surface/40 focus-within:bg-onedark-surface/70 rounded-lg px-2.5 py-1 text-xs border border-transparent focus-within:border-onedark-accent/40 transition-colors">
           <Search className="w-3.5 h-3.5 text-onedark-muted" />
           <input
             type="text"
             value={filterQuery}
             onChange={(e) => setFilterQuery(e.target.value)}
-            placeholder="Filter tool activities, files, or commands..."
-            className="w-full bg-transparent text-onedark-fgBright placeholder-onedark-muted focus:outline-none text-[11px] font-mono"
+            placeholder="Filter activities, files, or commands..."
+            className="w-full bg-transparent text-onedark-fgBright placeholder-onedark-muted/60 focus:outline-none text-[11.5px] font-mono"
           />
         </div>
         <div className="flex items-center space-x-1.5 text-[11px] text-onedark-muted font-mono flex-shrink-0">
@@ -54,20 +54,20 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({ logs = [] }) => {
             <button
               type="button"
               onClick={() => setExpandedLogId((prev) => (prev ? null : (logs[logs.length - 1]?.id || 'log-0')))}
-              className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-colors"
+              className="p-1 rounded-md hover:bg-onedark-surface/60 text-onedark-muted hover:text-onedark-fg transition-colors"
               title={expandedLogId ? 'Collapse all activities' : 'Expand latest activity'}
             >
               <ChevronsUpDown className="w-3.5 h-3.5" />
             </button>
           )}
-          <span>
+          <span className="text-[10.5px]">
             {logs.length} tool{logs.length === 1 ? '' : 's'}
           </span>
         </div>
       </div>
 
       {/* Logs Feed */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-2 select-text">
+      <div className="flex-1 overflow-y-auto p-2 space-y-0.5 select-text">
         {filteredLogs.length === 0 ? (
           <div className="text-onedark-muted text-xs p-8 text-center font-sans space-y-1">
             <Activity className="w-6 h-6 text-onedark-muted mx-auto mb-2 opacity-50" />

@@ -267,35 +267,31 @@ export const FormattedLogView: React.FC<FormattedLogViewProps> = ({
 
   return (
     <div
-      className={`rounded-lg border transition-all overflow-hidden text-xs shadow-sm group ${
+      className={`rounded-xl transition-colors overflow-hidden text-xs group ${
         isExpanded
-          ? 'border-onedark-accent/50 bg-onedark-darker/95 shadow-md ring-1 ring-onedark-accent/20'
-          : 'border-onedark-borderSubtle bg-onedark-surface/40 hover:bg-onedark-surface/60'
+          ? 'bg-onedark-darker/95 shadow-sm my-1.5'
+          : 'hover:bg-onedark-surface/40 text-onedark-fg'
       }`}
     >
       {/* Header bar */}
       <div
         onClick={handleHeaderClick}
-        className="px-3 py-2 flex items-center justify-between cursor-pointer select-none text-onedark-fg hover:text-onedark-fgBright transition-colors"
+        className="px-2.5 py-1.5 flex items-center justify-between cursor-pointer select-none text-onedark-fg hover:text-onedark-fgBright transition-colors"
       >
         <div className="flex items-center space-x-2 truncate pr-2">
           {renderIcon()}
           <div className="truncate text-xs font-mono">{renderTitle()}</div>
-          <span className="text-[10.5px] text-onedark-muted font-mono flex-shrink-0">
-            ({log.duration_ms}ms)
+          <span className="text-[10px] text-onedark-muted font-mono flex-shrink-0">
+            ({log.duration_ms < 1000 ? `${log.duration_ms}ms` : `${(log.duration_ms / 1000).toFixed(1)}s`})
           </span>
         </div>
 
-        <div className="flex items-center space-x-2 text-xs font-mono flex-shrink-0">
-          <span
-            className={`px-1.5 py-0.2 rounded text-[10px] font-mono border ${
-              log.exit_code === 0
-                ? 'bg-onedark-green/10 text-onedark-green border-onedark-green/20'
-                : 'bg-onedark-red/10 text-onedark-red border-onedark-red/20'
-            }`}
-          >
-            exit {log.exit_code}
-          </span>
+        <div className="flex items-center space-x-1.5 text-xs font-mono flex-shrink-0">
+          {log.exit_code !== 0 && (
+            <span className="px-1.5 py-0.5 rounded text-[9.5px] font-mono bg-onedark-red/15 text-onedark-red font-semibold">
+              exit {log.exit_code}
+            </span>
+          )}
 
           <button
             onClick={handleCopy}
@@ -308,16 +304,16 @@ export const FormattedLogView: React.FC<FormattedLogViewProps> = ({
           {isExpanded ? (
             <ChevronDown className="w-3.5 h-3.5 text-onedark-muted" />
           ) : (
-            <ChevronRight className="w-3.5 h-3.5 text-onedark-muted" />
+            <ChevronRight className="w-3.5 h-3.5 text-onedark-muted/40 group-hover:text-onedark-muted transition-colors" />
           )}
         </div>
       </div>
 
       {/* Body / Content */}
       {isExpanded && (
-        <div className="border-t border-onedark-borderSubtle bg-onedark-darker flex flex-col max-h-[520px]">
+        <div className="bg-onedark-darker flex flex-col max-h-[520px]">
           {/* Sub-tab Toolbar */}
-          <div className="flex items-center justify-between px-3 py-1.5 bg-onedark-darker/90 border-b border-onedark-borderSubtle/60 text-[11px] font-mono flex-shrink-0 select-none">
+          <div className="flex items-center justify-between px-3 py-1.5 bg-onedark-darker/90 text-[11px] font-mono flex-shrink-0 select-none">
             <div className="flex items-center space-x-1">
               <button
                 type="button"
@@ -388,7 +384,7 @@ export const FormattedLogView: React.FC<FormattedLogViewProps> = ({
               <button
                 type="button"
                 onClick={handleCopy}
-                className="flex items-center space-x-1 px-2 py-0.5 rounded bg-onedark-surface/60 hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg border border-onedark-borderSubtle transition-all cursor-pointer"
+                className="flex items-center space-x-1 px-2 py-0.5 rounded bg-onedark-surface/60 hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-all cursor-pointer"
                 title="Copy current tab contents"
               >
                 {copied ? <Check className="w-3 h-3 text-onedark-green" /> : <Copy className="w-3 h-3" />}
@@ -401,7 +397,7 @@ export const FormattedLogView: React.FC<FormattedLogViewProps> = ({
           <div className="p-3 font-mono text-xs overflow-y-auto overflow-x-auto select-text leading-relaxed flex-1">
             {activeViewTab === 'input' ? (
               <div className="space-y-1">
-                <div className="text-[10.5px] text-onedark-muted pb-1 border-b border-onedark-borderSubtle/40 flex items-center justify-between">
+                <div className="text-[10.5px] text-onedark-muted pb-1 flex items-center justify-between">
                   <span>Input Arguments Payload</span>
                   <span className="text-onedark-accent font-semibold">{log.tool_name}</span>
                 </div>
@@ -414,7 +410,7 @@ export const FormattedLogView: React.FC<FormattedLogViewProps> = ({
               </div>
             ) : activeViewTab === 'raw' ? (
               <div className="space-y-1">
-                <div className="text-[10.5px] text-onedark-muted pb-1 border-b border-onedark-borderSubtle/40 flex items-center justify-between">
+                <div className="text-[10.5px] text-onedark-muted pb-1 flex items-center justify-between">
                   <span>Raw Terminal / Output Stream</span>
                   <span>{(log.tool_output || '').length} chars</span>
                 </div>
@@ -444,7 +440,7 @@ export const FormattedLogView: React.FC<FormattedLogViewProps> = ({
                         target="_blank"
                         rel="noopener noreferrer"
                         onClick={(e) => e.stopPropagation()}
-                        className="flex items-center justify-between p-2 rounded-lg bg-onedark-surface/30 hover:bg-onedark-surface/80 border border-onedark-borderSubtle/60 hover:border-onedark-accent/40 transition-all text-xs group/link no-underline"
+                        className="flex items-center justify-between p-2 rounded-lg bg-onedark-surface/30 hover:bg-onedark-surface/80 border border-onedark-borderSubtle hover:border-onedark-accent/40 transition-all text-xs group/link no-underline"
                       >
                         <div className="flex items-center space-x-2.5 min-w-0 pr-2">
                           <div className="w-5 h-5 rounded bg-onedark-accent/10 border border-onedark-accent/20 flex items-center justify-center flex-shrink-0 text-onedark-accent">
@@ -476,7 +472,7 @@ export const FormattedLogView: React.FC<FormattedLogViewProps> = ({
                   {meta.dirItems.map((item, idx) => (
                     <div
                       key={idx}
-                      className="flex items-center space-x-2 px-2.5 py-1.5 rounded-md bg-onedark-surface/40 border border-onedark-borderSubtle/50 text-xs font-mono"
+                      className="flex items-center space-x-2 px-2.5 py-1.5 rounded-md bg-onedark-surface/40 border border-onedark-borderSubtle text-xs font-mono"
                     >
                       {item.is_dir || item.type === 'directory' ? (
                         <Folder className="w-3.5 h-3.5 text-onedark-folder flex-shrink-0" />
@@ -496,7 +492,7 @@ export const FormattedLogView: React.FC<FormattedLogViewProps> = ({
                 /* File view with line numbers */
                 <div className="space-y-1">
                   {meta.filePath && (
-                    <div className="text-[11px] text-onedark-accent font-semibold pb-1 border-b border-onedark-borderSubtle/60 flex items-center justify-between">
+                    <div className="text-[11px] text-onedark-accent font-semibold pb-1 border-b border-onedark-borderSubtle flex items-center justify-between">
                       <span>{meta.filePath}</span>
                       <span className="text-onedark-muted font-normal text-[10px]">
                         {meta.formattedOutput.split('\n').length} lines
@@ -519,7 +515,7 @@ export const FormattedLogView: React.FC<FormattedLogViewProps> = ({
                     </pre>
                   )}
                   {meta.stderr && (
-                    <div className="pt-1.5 border-t border-onedark-borderSubtle/60">
+                    <div className="pt-1.5 border-t border-onedark-borderSubtle">
                       <div className="text-onedark-red text-[10.5px] font-bold mb-1 flex items-center space-x-1">
                         <AlertCircle className="w-3 h-3" />
                         <span>stderr</span>

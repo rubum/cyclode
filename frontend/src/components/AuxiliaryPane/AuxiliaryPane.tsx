@@ -135,9 +135,9 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
   ];
 
   return (
-    <div className="flex flex-col h-full bg-onedark-darker overflow-hidden select-none border-l border-onedark-borderSubtle text-onedark-fg">
+    <div className="flex flex-col h-full bg-onedark-darker overflow-hidden select-none text-onedark-fg">
       {/* Tab bar */}
-      <div className="flex items-center border-b border-onedark-borderSubtle bg-onedark-darker px-2 pt-1 space-x-1 overflow-x-auto no-scrollbar">
+      <div className="flex items-center bg-onedark-darker px-2.5 py-1.5 space-x-1 overflow-x-auto no-scrollbar">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -145,10 +145,10 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
             <button
               key={tab.id}
               onClick={() => handleTabClick(tab.id as any)}
-              className={`flex items-center space-x-1.5 px-2.5 py-2 text-xs font-medium border-b-2 transition-all cursor-pointer flex-shrink-0 ${
+              className={`flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium transition-all cursor-pointer flex-shrink-0 rounded-lg ${
                 isActive
-                  ? 'border-onedark-accent text-onedark-fgBright bg-onedark-surface/60 rounded-t-md'
-                  : 'border-transparent text-onedark-muted hover:text-onedark-fg'
+                  ? 'bg-onedark-surface text-onedark-fgBright shadow-xs font-semibold'
+                  : 'text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface/40'
               }`}
             >
               <Icon className={`w-3.5 h-3.5 ${tab.iconClass || ''}`} />
@@ -157,7 +157,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
                 <span className="w-1.5 h-1.5 rounded-full bg-onedark-green animate-pulse ml-0.5" />
               )}
               {tab.count !== undefined && tab.count > 0 && (
-                <span className="ml-1 text-[10px] font-mono text-onedark-accent">
+                <span className={`ml-1 text-[10px] font-mono ${isActive ? 'text-onedark-accent font-bold' : 'text-onedark-muted'}`}>
                   {tab.count}
                 </span>
               )}

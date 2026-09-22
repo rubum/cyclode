@@ -237,14 +237,14 @@ export const EventInspectorTab: React.FC<EventInspectorTabProps> = ({ task }) =>
   return (
     <div className="flex flex-col h-full bg-onedark-darker font-mono text-xs text-onedark-fg select-text">
       {/* Top Header & Subtabs */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-onedark-borderSubtle bg-onedark-bg">
+      <div className="flex items-center justify-between px-3 py-2 bg-onedark-bg border-b border-onedark-borderSubtle">
         <div className="flex items-center space-x-1">
           <button
             onClick={() => setActiveSubTab('timeline')}
-            className={`px-2.5 py-1 text-xs rounded transition-colors ${
+            className={`px-2.5 py-1 text-xs rounded-lg transition-colors cursor-pointer ${
               activeSubTab === 'timeline'
-                ? 'bg-onedark-surface text-onedark-fgBright font-semibold border border-onedark-border'
-                : 'text-onedark-muted hover:text-onedark-fg'
+                ? 'bg-onedark-surface text-onedark-fgBright font-semibold shadow-xs'
+                : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
             }`}
           >
             <div className="flex items-center space-x-1.5">
@@ -255,10 +255,10 @@ export const EventInspectorTab: React.FC<EventInspectorTabProps> = ({ task }) =>
 
           <button
             onClick={() => setActiveSubTab('trajectory')}
-            className={`px-2.5 py-1 text-xs rounded transition-colors ${
+            className={`px-2.5 py-1 text-xs rounded-lg transition-colors cursor-pointer ${
               activeSubTab === 'trajectory'
-                ? 'bg-onedark-surface text-onedark-fgBright font-semibold border border-onedark-border'
-                : 'text-onedark-muted hover:text-onedark-fg'
+                ? 'bg-onedark-surface text-onedark-fgBright font-semibold shadow-xs'
+                : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
             }`}
           >
             <div className="flex items-center space-x-1.5">
@@ -269,10 +269,10 @@ export const EventInspectorTab: React.FC<EventInspectorTabProps> = ({ task }) =>
 
           <button
             onClick={() => setActiveSubTab('evals')}
-            className={`px-2.5 py-1 text-xs rounded transition-colors ${
+            className={`px-2.5 py-1 text-xs rounded-lg transition-colors cursor-pointer ${
               activeSubTab === 'evals'
-                ? 'bg-onedark-surface text-onedark-fgBright font-semibold border border-onedark-border'
-                : 'text-onedark-muted hover:text-onedark-fg'
+                ? 'bg-onedark-surface text-onedark-fgBright font-semibold shadow-xs'
+                : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
             }`}
           >
             <div className="flex items-center space-x-1.5">
@@ -300,7 +300,7 @@ export const EventInspectorTab: React.FC<EventInspectorTabProps> = ({ task }) =>
         {activeSubTab === 'timeline' && (
           <div className="space-y-3">
             {/* Quick Simulation Bar */}
-            <div className="p-2.5 rounded-lg bg-onedark-bg border border-onedark-borderSubtle space-y-2">
+            <div className="p-3 rounded-xl bg-onedark-surface/30 border border-onedark-borderSubtle space-y-2 shadow-xs">
               <div className="flex items-center justify-between text-[11px] text-onedark-muted">
                 <span className="flex items-center space-x-1.5 font-semibold text-onedark-fg">
                   <Sparkles className="w-3.5 h-3.5 text-onedark-accent" />
@@ -326,7 +326,7 @@ export const EventInspectorTab: React.FC<EventInspectorTabProps> = ({ task }) =>
                     })
                   }
                   disabled={injecting}
-                  className="px-2 py-1 rounded bg-onedark-surface hover:bg-onedark-border border border-onedark-borderSubtle text-[11px] text-onedark-red flex items-center space-x-1 transition-colors cursor-pointer active:scale-95"
+                  className="px-2.5 py-1 rounded-lg bg-onedark-surface/70 hover:bg-onedark-surface border border-onedark-borderSubtle text-[11px] text-onedark-red flex items-center space-x-1 transition-colors cursor-pointer shadow-xs active:scale-95"
                 >
                   <Bug className="w-3 h-3" />
                   <span>CI Failure (check_run)</span>
@@ -345,7 +345,7 @@ export const EventInspectorTab: React.FC<EventInspectorTabProps> = ({ task }) =>
                     })
                   }
                   disabled={injecting}
-                  className="px-2 py-1 rounded bg-onedark-surface hover:bg-onedark-border border border-onedark-borderSubtle text-[11px] text-onedark-cyan flex items-center space-x-1 transition-colors cursor-pointer active:scale-95"
+                  className="px-2.5 py-1 rounded-lg bg-onedark-surface/70 hover:bg-onedark-surface border border-onedark-borderSubtle text-[11px] text-onedark-cyan flex items-center space-x-1 transition-colors cursor-pointer shadow-xs active:scale-95"
                 >
                   <GitPullRequest className="w-3 h-3" />
                   <span>PR Review Comment</span>
@@ -362,7 +362,7 @@ export const EventInspectorTab: React.FC<EventInspectorTabProps> = ({ task }) =>
                     })
                   }
                   disabled={injecting}
-                  className="px-2 py-1 rounded bg-onedark-surface hover:bg-onedark-border border border-onedark-borderSubtle text-[11px] text-onedark-yellow flex items-center space-x-1 transition-colors cursor-pointer active:scale-95"
+                  className="px-2.5 py-1 rounded-lg bg-onedark-surface/70 hover:bg-onedark-surface border border-onedark-borderSubtle text-[11px] text-onedark-yellow flex items-center space-x-1 transition-colors cursor-pointer shadow-xs active:scale-95"
                 >
                   <Clock className="w-3 h-3" />
                   <span>Push (Debounce Coalesce)</span>
@@ -379,7 +379,7 @@ export const EventInspectorTab: React.FC<EventInspectorTabProps> = ({ task }) =>
                     })
                   }
                   disabled={injecting}
-                  className="px-2 py-1 rounded bg-onedark-surface hover:bg-onedark-border border border-onedark-borderSubtle text-[11px] text-onedark-purple flex items-center space-x-1 transition-colors cursor-pointer active:scale-95"
+                  className="px-2.5 py-1 rounded-lg bg-onedark-surface/70 hover:bg-onedark-surface border border-onedark-borderSubtle text-[11px] text-onedark-purple flex items-center space-x-1 transition-colors cursor-pointer shadow-xs active:scale-95"
                 >
                   <AlertTriangle className="w-3 h-3" />
                   <span>Sentry Alert</span>
@@ -387,7 +387,7 @@ export const EventInspectorTab: React.FC<EventInspectorTabProps> = ({ task }) =>
 
                 <button
                   onClick={() => setShowCustomModal(!showCustomModal)}
-                  className="px-2 py-1 rounded bg-onedark-surface hover:bg-onedark-border border border-onedark-borderSubtle text-[11px] text-onedark-muted hover:text-onedark-fg transition-colors cursor-pointer"
+                  className="px-2.5 py-1 rounded-lg bg-onedark-surface/70 hover:bg-onedark-surface border border-onedark-borderSubtle text-[11px] text-onedark-muted hover:text-onedark-fg transition-colors cursor-pointer shadow-xs"
                 >
                   <span>Custom JSON...</span>
                 </button>
@@ -450,10 +450,10 @@ export const EventInspectorTab: React.FC<EventInspectorTabProps> = ({ task }) =>
                   <button
                     key={f}
                     onClick={() => setEventFilter(f)}
-                    className={`px-2 py-0.5 rounded text-[10px] uppercase font-semibold transition-colors ${
+                    className={`px-2 py-0.5 rounded-md text-[10px] uppercase font-semibold transition-colors cursor-pointer ${
                       eventFilter === f
-                        ? 'bg-onedark-surface text-onedark-fgBright border border-onedark-border'
-                        : 'text-onedark-muted hover:text-onedark-fg'
+                        ? 'bg-onedark-surface text-onedark-fgBright shadow-xs font-bold'
+                        : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
                     }`}
                   >
                     {f}
@@ -464,7 +464,7 @@ export const EventInspectorTab: React.FC<EventInspectorTabProps> = ({ task }) =>
 
             {/* Events List */}
             {filteredEvents.length === 0 ? (
-              <div className="p-8 text-center text-onedark-muted text-xs space-y-2 border border-dashed border-onedark-borderSubtle rounded-lg">
+              <div className="p-8 text-center text-onedark-muted text-xs space-y-2 rounded-xl bg-onedark-surface/20 border border-onedark-borderSubtle">
                 <Inbox className="w-6 h-6 mx-auto opacity-40 text-onedark-accent" />
                 <p>No {eventFilter !== 'all' ? eventFilter : ''} events recorded for this task session yet.</p>
                 <p className="text-[11px] text-onedark-muted/80">
@@ -479,7 +479,7 @@ export const EventInspectorTab: React.FC<EventInspectorTabProps> = ({ task }) =>
                   return (
                     <div
                       key={evt.id}
-                      className="p-2.5 rounded-lg bg-onedark-bg border border-onedark-borderSubtle space-y-2 hover:border-onedark-border transition-colors"
+                      className="p-2.5 rounded-xl bg-onedark-surface/30 hover:bg-onedark-surface/60 border border-onedark-borderSubtle hover:border-onedark-border space-y-2 transition-colors shadow-xs"
                     >
                       <div 
                         className="flex items-center justify-between cursor-pointer"

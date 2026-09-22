@@ -167,7 +167,7 @@ export const ResizablePanes: React.FC<ResizablePanesProps> = ({
       {/* Left Sidebar */}
       <div
         style={{ width: isSidebarCollapsed ? '0px' : `${sidebarWidth}px` }}
-        className={`relative flex-shrink-0 transition-all duration-150 overflow-hidden border-r border-onedark-borderSubtle bg-onedark-darker ${
+        className={`relative flex-shrink-0 transition-all duration-150 overflow-hidden bg-onedark-darker ${
           isSidebarCollapsed ? 'w-0' : ''
         }`}
       >
@@ -184,7 +184,7 @@ export const ResizablePanes: React.FC<ResizablePanesProps> = ({
             document.body.style.cursor = 'col-resize';
             document.body.style.userSelect = 'none';
           }}
-          className="w-1 hover:w-1.5 hover:bg-onedark-accent/60 cursor-col-resize transition-colors flex-shrink-0 z-10 bg-onedark-borderSubtle"
+          className="w-1.5 -ml-1 hover:bg-onedark-accent/60 cursor-col-resize transition-colors flex-shrink-0 z-10 bg-transparent"
         />
       )}
 
@@ -211,12 +211,12 @@ export const ResizablePanes: React.FC<ResizablePanesProps> = ({
               document.body.style.cursor = 'col-resize';
               document.body.style.userSelect = 'none';
             }}
-            className="w-1 hover:w-1.5 hover:bg-onedark-accent/60 cursor-col-resize transition-colors flex-shrink-0 z-10 bg-onedark-borderSubtle"
+            className="w-1.5 -mr-1 hover:bg-onedark-accent/60 cursor-col-resize transition-colors flex-shrink-0 z-10 bg-transparent"
           />
 
           <div
             style={{ width: `${auxiliaryWidthPercent}%` }}
-            className="flex-shrink-0 h-full border-l border-onedark-borderSubtle bg-onedark-darker overflow-hidden flex flex-col"
+            className="flex-shrink-0 h-full bg-onedark-darker overflow-hidden flex flex-col"
           >
             {auxiliary}
           </div>

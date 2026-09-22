@@ -160,18 +160,18 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
           const isCollapsed = !!collapsedCodeBlocks[index];
 
           return (
-            <div key={index} className="my-3 rounded-xl border border-onedark-border bg-onedark-darker overflow-hidden shadow-xs">
-              <div className="flex items-center justify-between px-3.5 py-1.5 bg-onedark-surface/70 border-b border-onedark-border text-[11px] text-onedark-muted font-mono select-none">
+            <div key={index} className="my-3 rounded-xl bg-onedark-darker/80 overflow-hidden shadow-xs group/code">
+              <div className="flex items-center justify-between px-3.5 py-1.5 bg-onedark-surface/40 text-[11px] text-onedark-muted font-mono select-none">
                 <div className="flex items-center space-x-2">
-                  <span className="text-onedark-accent font-semibold uppercase tracking-wider">{language || 'code'}</span>
-                  <span className="text-[10px] text-onedark-muted">({codeLines.length} line{codeLines.length > 1 ? 's' : ''})</span>
+                  <span className="text-onedark-accent font-semibold uppercase tracking-wider text-[10.5px]">{language || 'code'}</span>
+                  <span className="text-[10px] text-onedark-muted/70">({codeLines.length} line{codeLines.length > 1 ? 's' : ''})</span>
                 </div>
                 <div className="flex items-center space-x-1.5">
                   {codeLines.length > 8 && (
                     <button
                       type="button"
                       onClick={() => toggleCodeBlock(index)}
-                      className="flex items-center space-x-1 hover:text-onedark-fgBright transition-colors px-2 py-0.5 rounded hover:bg-onedark-surface text-[11px] text-onedark-muted cursor-pointer"
+                      className="flex items-center space-x-1 hover:text-onedark-fgBright transition-colors px-2 py-0.5 rounded hover:bg-onedark-surface/60 text-[11px] text-onedark-muted cursor-pointer"
                     >
                       <ChevronRight className={`w-3 h-3 transition-transform ${!isCollapsed ? 'rotate-90' : ''}`} />
                       <span>{isCollapsed ? 'Expand' : 'Collapse'}</span>
@@ -180,7 +180,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                   <button
                     type="button"
                     onClick={() => handleCopy(code, index)}
-                    className="flex items-center space-x-1 hover:text-onedark-fgBright transition-colors px-2 py-0.5 rounded hover:bg-onedark-surface text-[11px] cursor-pointer"
+                    className="flex items-center space-x-1 hover:text-onedark-fgBright transition-colors px-2 py-0.5 rounded hover:bg-onedark-surface/60 text-[11px] cursor-pointer"
                   >
                     {copiedIndex === index ? (
                       <>
@@ -199,7 +199,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
               {!isCollapsed && (
                 <div className="flex font-mono text-[12px] sm:text-[12.5px] leading-relaxed overflow-x-auto selection:bg-onedark-accent/30 p-3.5">
                   {codeLines.length > 2 && (
-                    <div className="select-none text-onedark-muted/50 text-right pr-3 border-r border-onedark-borderSubtle font-mono text-[11.5px] flex-shrink-0">
+                    <div className="select-none text-onedark-muted/40 text-right pr-3 border-r border-transparent font-mono text-[11.5px] flex-shrink-0">
                       {codeLines.map((_, i) => (
                         <div key={i}>{i + 1}</div>
                       ))}
@@ -226,7 +226,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
           return (
             <div
               key={index}
-              className="my-3 py-3 px-4 rounded-xl bg-onedark-darker border border-onedark-borderSubtle overflow-x-auto text-center text-onedark-fgBright shadow-xs selection:bg-onedark-accent/30"
+              className="my-3 py-3 px-4 rounded-xl bg-onedark-darker/80 overflow-x-auto text-center text-onedark-fgBright shadow-xs selection:bg-onedark-accent/30"
               dangerouslySetInnerHTML={{ __html: renderKatex(math, true) }}
             />
           );
@@ -267,15 +267,15 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                 };
 
                 return (
-                  <div key={bIdx} className="my-3 overflow-x-auto rounded-xl border border-onedark-border bg-onedark-darker/70 shadow-xs [scrollbar-gutter:stable]">
-                    <table className="w-full border-collapse text-[12px] table-auto">
+                  <div key={bIdx} className="my-3 overflow-x-auto rounded-xl bg-onedark-darker/40 shadow-xs [scrollbar-gutter:stable]">
+                    <table className="w-full border-collapse text-[12.5px] table-auto">
                       {block.tableHeaders && block.tableHeaders.length > 0 && (
                         <thead>
-                          <tr className="bg-onedark-surface/70 border-b border-onedark-border text-onedark-fgBright font-semibold">
+                          <tr className="bg-onedark-surface/60 text-onedark-fgBright font-medium">
                             {block.tableHeaders.map((h, hIdx) => (
                               <th
                                 key={hIdx}
-                                className={`px-3 py-2 font-mono text-[11.5px] whitespace-nowrap ${getAlignmentClass(hIdx)}`}
+                                className={`px-3.5 py-2 font-mono text-[11.5px] whitespace-nowrap ${getAlignmentClass(hIdx)}`}
                               >
                                 {inline(h)}
                               </th>
@@ -290,11 +290,11 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                             cells.push('');
                           }
                           return (
-                            <tr key={rIdx} className="border-b border-onedark-borderSubtle last:border-0 hover:bg-onedark-surface/30 transition-colors">
+                            <tr key={rIdx} className="odd:bg-transparent even:bg-onedark-surface/20 hover:bg-onedark-surface/40 transition-colors">
                               {cells.map((cell, cIdx) => (
                                 <td
                                   key={cIdx}
-                                  className={`px-3 py-2 text-onedark-fg break-words ${getAlignmentClass(cIdx)}`}
+                                  className={`px-3.5 py-2 text-onedark-fg break-words ${getAlignmentClass(cIdx)}`}
                                 >
                                   {inline(cell)}
                                 </td>
@@ -328,7 +328,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
               }
 
               if (block.type === 'hr') {
-                return <hr key={bIdx} className="border-t border-onedark-borderSubtle/60 my-3.5" />;
+                return <div key={bIdx} className="my-6 h-px bg-gradient-to-r from-transparent via-onedark-fg/15 to-transparent border-0" />;
               }
 
               if ((block.type === 'ul' || block.type === 'ol') && block.items) {
@@ -853,7 +853,7 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
       return (
         <code
           key={i}
-          className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-borderSubtle text-onedark-accent font-mono text-[12.5px] font-semibold tracking-tight mx-0.5 align-baseline select-text shadow-2xs"
+          className="px-1.5 py-0.5 rounded-md bg-onedark-surface/60 text-onedark-accent font-mono text-[12.5px] font-medium tracking-tight mx-0.5 align-baseline select-text"
         >
           {codeMatch[2]}
         </code>
@@ -993,7 +993,7 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
           key={i}
           src={imgUrl}
           alt={altText}
-          className="inline-block max-w-full max-h-[360px] object-contain rounded-lg my-2 align-middle border border-onedark-borderSubtle/50 shadow-xs"
+          className="inline-block max-w-full max-h-[360px] object-contain rounded-lg my-2 align-middle border border-onedark-borderSubtle shadow-xs"
           loading="lazy"
           onError={(e) => {
             (e.currentTarget as HTMLElement).style.display = 'none';
@@ -1014,7 +1014,7 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
             key={i}
             src={srcMatch[1]}
             alt={altMatch ? altMatch[1] : ''}
-            className="inline-block max-w-full max-h-[360px] object-contain rounded-lg my-2 align-middle border border-onedark-borderSubtle/50 shadow-xs"
+            className="inline-block max-w-full max-h-[360px] object-contain rounded-lg my-2 align-middle border border-onedark-borderSubtle shadow-xs"
             loading="lazy"
             onError={(e) => {
               (e.currentTarget as HTMLElement).style.display = 'none';

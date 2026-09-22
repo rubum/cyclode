@@ -554,7 +554,7 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
                     </span>
                   </div>
                   <div className="space-y-1.5">
-                    <div className="bg-onedark-darker/80 p-2 rounded-lg border border-onedark-borderSubtle/60 text-[11px] space-y-1">
+                    <div className="bg-onedark-darker/80 p-2 rounded-lg border border-onedark-borderSubtle text-[11px] space-y-1">
                       <div className="flex items-center justify-between text-onedark-muted text-[10px]">
                         <span className="font-semibold text-onedark-fgBright">Host Machine Path</span>
                         <button
@@ -570,7 +570,7 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
                       </div>
                     </div>
                     {containerPath && containerPath !== hostPath && (
-                      <div className="bg-onedark-darker/50 px-2 py-1.5 rounded-lg border border-onedark-borderSubtle/40 text-[10.5px] flex items-center justify-between">
+                      <div className="bg-onedark-darker/50 px-2 py-1.5 rounded-lg border border-onedark-borderSubtle text-[10.5px] flex items-center justify-between">
                         <span className="text-onedark-muted truncate mr-2" title={`Container: ${containerPath}`}>
                           Container: <span className="text-onedark-fg font-mono">{containerPath}</span>
                         </span>
@@ -598,13 +598,13 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-2 pt-0.5">
-                    <div className="p-2 rounded-lg bg-onedark-darker/60 border border-onedark-borderSubtle/40">
+                    <div className="p-2 rounded-lg bg-onedark-darker/60 border border-onedark-borderSubtle">
                       <div className="text-[10px] text-onedark-muted">Total Files</div>
                       <div className="text-base font-bold text-onedark-fgBright mt-0.5">
                         {data.file_count.toLocaleString()}
                       </div>
                     </div>
-                    <div className="p-2 rounded-lg bg-onedark-darker/60 border border-onedark-borderSubtle/40">
+                    <div className="p-2 rounded-lg bg-onedark-darker/60 border border-onedark-borderSubtle">
                       <div className="text-[10px] text-onedark-muted">Disk Footprint</div>
                       <div className="text-base font-bold text-onedark-fgBright mt-0.5">
                         {formatBytes(data.total_size_bytes)}
@@ -669,7 +669,7 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
                 {/* CoW Storage Layer Breakdown Grid */}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs">
                   {/* Base Layer */}
-                  <div className="p-2.5 rounded-lg bg-onedark-darker/70 border border-onedark-borderSubtle/50 space-y-1">
+                  <div className="p-2.5 rounded-lg bg-onedark-darker/70 border border-onedark-borderSubtle space-y-1">
                     <div className="flex items-center justify-between text-[10px] text-onedark-muted uppercase font-bold tracking-wider">
                       <span className="flex items-center space-x-1">
                         <Database className="w-3 h-3 text-onedark-blue" />
@@ -688,7 +688,7 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
                   </div>
 
                   {/* Ephemeral Diff Layer */}
-                  <div className="p-2.5 rounded-lg bg-onedark-darker/70 border border-onedark-borderSubtle/50 space-y-1">
+                  <div className="p-2.5 rounded-lg bg-onedark-darker/70 border border-onedark-borderSubtle space-y-1">
                     <div className="flex items-center justify-between text-[10px] text-onedark-muted uppercase font-bold tracking-wider">
                       <span className="flex items-center space-x-1">
                         <Layers className="w-3 h-3 text-onedark-purple" />
@@ -707,7 +707,7 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
                   </div>
 
                   {/* Deduplicated Savings */}
-                  <div className="p-2.5 rounded-lg bg-onedark-darker/70 border border-onedark-borderSubtle/50 space-y-1">
+                  <div className="p-2.5 rounded-lg bg-onedark-darker/70 border border-onedark-borderSubtle space-y-1">
                     <div className="flex items-center justify-between text-[10px] text-onedark-muted uppercase font-bold tracking-wider">
                       <span className="flex items-center space-x-1">
                         <HardDrive className="w-3 h-3 text-onedark-green" />
@@ -727,7 +727,7 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
                 </div>
 
                 {/* Kernel Jail & Namespace Security Details */}
-                <div className="p-2.5 rounded-lg bg-onedark-darker/60 border border-onedark-borderSubtle/40 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <div className="p-2.5 rounded-lg bg-onedark-darker/60 border border-onedark-borderSubtle flex flex-wrap items-center justify-between gap-2 text-xs">
                   <div className="flex items-center space-x-3 flex-wrap gap-y-1">
                     <div className="flex items-center space-x-1.5 text-onedark-fgBright">
                       <Lock className="w-3.5 h-3.5 text-onedark-green" />
@@ -778,7 +778,7 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
 
                 {/* Snapshots Rollback Section if any */}
                 {data.resources?.cow_layers?.snapshots && data.resources.cow_layers.snapshots.length > 0 && (
-                  <div className="p-2.5 rounded-lg bg-onedark-darker/60 border border-onedark-borderSubtle/40 space-y-1.5">
+                  <div className="p-2.5 rounded-lg bg-onedark-darker/60 border border-onedark-borderSubtle space-y-1.5">
                     <div className="flex items-center justify-between text-[10px] text-onedark-muted uppercase font-bold tracking-wider">
                       <span className="flex items-center space-x-1">
                         <RotateCcw className="w-3 h-3 text-onedark-yellow" />
@@ -825,7 +825,7 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
                   {/* CPU Allocation */}
-                  <div className="p-2.5 rounded-lg bg-onedark-darker/70 border border-onedark-borderSubtle/50 space-y-1.5">
+                  <div className="p-2.5 rounded-lg bg-onedark-darker/70 border border-onedark-borderSubtle space-y-1.5">
                     <div className="flex items-center justify-between text-[10px] text-onedark-muted uppercase font-bold tracking-wider">
                       <span className="flex items-center space-x-1">
                         <Cpu className="w-3 h-3 text-onedark-blue" />
@@ -844,7 +844,7 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
                   </div>
 
                   {/* Disk Capacity & Headroom */}
-                  <div className="p-2.5 rounded-lg bg-onedark-darker/70 border border-onedark-borderSubtle/50 space-y-1.5">
+                  <div className="p-2.5 rounded-lg bg-onedark-darker/70 border border-onedark-borderSubtle space-y-1.5">
                     <div className="flex items-center justify-between text-[10px] text-onedark-muted uppercase font-bold tracking-wider">
                       <span className="flex items-center space-x-1">
                         <HardDrive className="w-3 h-3 text-onedark-accent" />
@@ -874,7 +874,7 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
                   </div>
 
                   {/* Subprocess Execution Watchdogs */}
-                  <div className="p-2.5 rounded-lg bg-onedark-darker/70 border border-onedark-borderSubtle/50 space-y-1.5">
+                  <div className="p-2.5 rounded-lg bg-onedark-darker/70 border border-onedark-borderSubtle space-y-1.5">
                     <div className="flex items-center justify-between text-[10px] text-onedark-muted uppercase font-bold tracking-wider">
                       <span className="flex items-center space-x-1">
                         <Clock className="w-3 h-3 text-onedark-yellow" />
@@ -893,7 +893,7 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
                   </div>
 
                   {/* Filesystem Jail & Lifecycle */}
-                  <div className="p-2.5 rounded-lg bg-onedark-darker/70 border border-onedark-borderSubtle/50 space-y-1.5">
+                  <div className="p-2.5 rounded-lg bg-onedark-darker/70 border border-onedark-borderSubtle space-y-1.5">
                     <div className="flex items-center justify-between text-[10px] text-onedark-muted uppercase font-bold tracking-wider">
                       <span className="flex items-center space-x-1">
                         <Shield className="w-3 h-3 text-onedark-green" />
@@ -940,7 +940,7 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
                         return (
                           <div
                             key={`${dir.name}-${idx}`}
-                            className="p-2 rounded-lg bg-onedark-darker/60 border border-onedark-borderSubtle/40 text-xs font-mono flex items-center justify-between"
+                            className="p-2 rounded-lg bg-onedark-darker/60 border border-onedark-borderSubtle text-xs font-mono flex items-center justify-between"
                           >
                             <div className="flex items-center space-x-2 min-w-0 flex-1 mr-2">
                               <Folder className="w-3.5 h-3.5 text-onedark-folder flex-shrink-0" />
@@ -985,7 +985,7 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
 
                   {/* Segmented language distribution bar */}
                   {data.languages && data.languages.length > 0 && (
-                    <div className="w-full h-2 rounded-full overflow-hidden flex bg-onedark-surface/80 border border-onedark-borderSubtle/60">
+                    <div className="w-full h-2 rounded-full overflow-hidden flex bg-onedark-surface/80 border border-onedark-borderSubtle">
                       {data.languages.map((l, i) => (
                         <div
                           key={i}
@@ -1002,7 +1002,7 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
                     {data.languages?.map((lang, idx) => (
                       <div
                         key={idx}
-                        className="p-2 rounded-lg bg-onedark-darker/60 border border-onedark-borderSubtle/40 flex items-center justify-between text-xs font-mono"
+                        className="p-2 rounded-lg bg-onedark-darker/60 border border-onedark-borderSubtle flex items-center justify-between text-xs font-mono"
                       >
                         <span className="font-semibold text-onedark-fgBright text-[11px] truncate mr-1">
                           {lang.name}
@@ -1055,7 +1055,7 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
                 </div>
 
                 {!data.recent_logs || data.recent_logs.length === 0 ? (
-                  <div className="p-4 rounded-lg bg-onedark-darker/40 border border-onedark-borderSubtle/30 text-center text-xs text-onedark-muted font-mono">
+                  <div className="p-4 rounded-lg bg-onedark-darker/40 border border-onedark-borderSubtle text-center text-xs text-onedark-muted font-mono">
                     No tool commands recorded in this sandbox session yet.
                   </div>
                 ) : (
@@ -1065,7 +1065,7 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
                       return (
                         <div
                           key={idx}
-                          className="p-2 rounded-lg bg-onedark-darker/60 border border-onedark-borderSubtle/40 flex items-center justify-between text-xs"
+                          className="p-2 rounded-lg bg-onedark-darker/60 border border-onedark-borderSubtle flex items-center justify-between text-xs"
                         >
                           <div className="flex items-center space-x-2 min-w-0 flex-1 mr-2">
                             <span className={`w-2 h-2 rounded-full flex-shrink-0 ${

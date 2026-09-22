@@ -116,7 +116,7 @@ const UserSnippetMessageBubble: React.FC<{
 
         {/* Expanded Code View */}
         {isSnippetExpanded && (
-          <div className="p-3 bg-onedark-bg/95 border-t border-onedark-borderSubtle/60 max-h-72 overflow-auto text-[11.5px] leading-relaxed select-text">
+          <div className="p-3 bg-onedark-bg/95 border-t border-onedark-borderSubtle max-h-72 overflow-auto text-[11.5px] leading-relaxed select-text">
             <pre className="font-mono whitespace-pre text-onedark-fg/90">{snippetCode}</pre>
           </div>
         )}

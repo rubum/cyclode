@@ -68,7 +68,7 @@ const UserSnippetMessageBubble: React.FC<{
   return (
     <div className="space-y-2">
       {/* Collapsible Snippet Card */}
-      <div className="rounded-xl border border-onedark-accent/40 bg-onedark-darker/90 overflow-hidden font-mono text-[11px] shadow-xs">
+      <div className="rounded-xl bg-onedark-darker/90 overflow-hidden font-mono text-[11px] shadow-xs">
         <div
           onClick={() => setIsSnippetExpanded(!isSnippetExpanded)}
           className="flex items-center justify-between px-3 py-1.5 bg-onedark-surface/60 hover:bg-onedark-surface cursor-pointer select-none gap-2 transition-colors"
@@ -99,7 +99,7 @@ const UserSnippetMessageBubble: React.FC<{
 
         {/* Expanded Code View */}
         {isSnippetExpanded && (
-          <div className="p-3 bg-onedark-bg/95 border-t border-onedark-borderSubtle/60 max-h-72 overflow-auto text-[11.5px] leading-relaxed select-text">
+          <div className="p-3 bg-onedark-bg/95 border-t border-transparent max-h-72 overflow-auto text-[11.5px] leading-relaxed select-text">
             <pre className="font-mono whitespace-pre text-onedark-fg/90">{snippetCode}</pre>
           </div>
         )}
@@ -518,15 +518,15 @@ export const FileAgentPopover: React.FC<FileAgentPopoverProps> = ({
       </div>
 
       {/* Header Bar */}
-      <div className="flex items-center justify-between px-3.5 py-2.5 bg-onedark-surface/90 border-b border-onedark-border select-none flex-shrink-0">
+      <div className="flex items-center justify-between px-3.5 py-2.5 bg-onedark-surface/90 border-b border-onedark-borderSubtle select-none flex-shrink-0">
         <div className="flex items-center space-x-2 truncate">
-          <div className="w-6 h-6 rounded-lg bg-onedark-accent/20 border border-onedark-accent/40 flex items-center justify-center text-onedark-accent flex-shrink-0">
+          <div className="w-6 h-6 rounded-lg bg-onedark-accent/20 flex items-center justify-center text-onedark-accent flex-shrink-0">
             <Bot className="w-3.5 h-3.5" />
           </div>
           <div className="flex flex-col min-w-0">
             <div className="flex items-center space-x-1.5">
               <span className="font-semibold text-xs text-onedark-fgBright font-sans">Cyclode Code Assistant</span>
-              <span className="px-1.5 py-0.2 rounded-full bg-onedark-accent/15 border border-onedark-accent/30 text-[10px] font-mono font-bold text-onedark-accent">
+              <span className="px-1.5 py-0.2 rounded-full bg-onedark-accent/15 text-[10px] font-mono font-bold text-onedark-accent">
                 Subsession
               </span>
             </div>
@@ -576,7 +576,7 @@ export const FileAgentPopover: React.FC<FileAgentPopoverProps> = ({
         <button
           onClick={() => handleSendMessage(`Explain the logic, architecture, and control flow of ${filePath ? "`" + filePath + "`" : "this file"}, highlighting key dependencies and error paths.`)}
           disabled={isLoading || isInitializing}
-          className="flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-onedark-purple/15 hover:bg-onedark-purple/25 border border-onedark-purple/30 text-onedark-purple font-semibold transition-colors whitespace-nowrap cursor-pointer shadow-xs"
+          className="flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-onedark-purple/20 hover:bg-onedark-purple/30 text-onedark-purple font-semibold transition-colors whitespace-nowrap cursor-pointer shadow-xs"
         >
           <Sparkles className="w-3 h-3" />
           <span>Explain File</span>
@@ -585,7 +585,7 @@ export const FileAgentPopover: React.FC<FileAgentPopoverProps> = ({
         <button
           onClick={() => handleSendMessage(`Perform a security, bug, and edge-case audit on ${filePath ? "`" + filePath + "`" : "the active file"}. Look for unhandled exceptions, race conditions, memory leaks, and input validation risks.`)}
           disabled={isLoading || isInitializing}
-          className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-onedark-bg hover:bg-onedark-surface border border-onedark-borderSubtle text-onedark-fg hover:text-onedark-fgBright transition-colors whitespace-nowrap cursor-pointer"
+          className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-onedark-surface/60 hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright transition-colors whitespace-nowrap cursor-pointer"
         >
           <ShieldCheck className="w-3 h-3 text-onedark-red" />
           <span>Security & Bug Audit</span>
@@ -594,7 +594,7 @@ export const FileAgentPopover: React.FC<FileAgentPopoverProps> = ({
         <button
           onClick={() => handleSendMessage(`Suggest refactorings for ${filePath ? "`" + filePath + "`" : "this file"} to improve performance, readability, and idiomatic maintainability.`)}
           disabled={isLoading || isInitializing}
-          className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-onedark-bg hover:bg-onedark-surface border border-onedark-borderSubtle text-onedark-fg hover:text-onedark-fgBright transition-colors whitespace-nowrap cursor-pointer"
+          className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-onedark-surface/60 hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright transition-colors whitespace-nowrap cursor-pointer"
         >
           <Code2 className="w-3 h-3 text-onedark-blue" />
           <span>Refactor & Optimize</span>
@@ -603,7 +603,7 @@ export const FileAgentPopover: React.FC<FileAgentPopoverProps> = ({
         <button
           onClick={() => handleSendMessage(`Generate unit tests for ${filePath ? "`" + filePath + "`" : "this file"} covering both happy path and edge-case failure modes.`)}
           disabled={isLoading || isInitializing}
-          className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-onedark-bg hover:bg-onedark-surface border border-onedark-borderSubtle text-onedark-fg hover:text-onedark-fgBright transition-colors whitespace-nowrap cursor-pointer"
+          className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-onedark-surface/60 hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright transition-colors whitespace-nowrap cursor-pointer"
         >
           <TestTube className="w-3 h-3 text-onedark-green" />
           <span>Generate Tests</span>
@@ -682,8 +682,8 @@ export const FileAgentPopover: React.FC<FileAgentPopoverProps> = ({
                 <div 
                   className={`p-3 rounded-2xl max-w-[94%] shadow-xs leading-relaxed group relative ${
                     isAgent
-                      ? "bg-onedark-surface/80 border border-onedark-border text-onedark-fg"
-                      : "bg-onedark-accent/20 border border-onedark-accent/40 text-onedark-fgBright"
+                      ? "bg-onedark-surface/80 text-onedark-fg"
+                      : "bg-onedark-accent/20 text-onedark-fgBright"
                   }`}
                 >
                   {isAgent ? (
@@ -750,10 +750,10 @@ export const FileAgentPopover: React.FC<FileAgentPopoverProps> = ({
       )}
 
       {/* Composer Area */}
-      <div className="p-3 bg-onedark-surface/80 border-t border-onedark-border space-y-2 flex-shrink-0 select-none">
+      <div className="p-3 bg-onedark-surface/80 border-t border-onedark-borderSubtle space-y-2 flex-shrink-0 select-none">
         {/* Attached Snippet Context Chip */}
         {attachedContext && (
-          <div className="flex items-center justify-between px-2.5 py-1 rounded-lg bg-onedark-bg border border-onedark-accent/40 text-xs text-onedark-accent animate-in fade-in">
+          <div className="flex items-center justify-between px-2.5 py-1 rounded-lg bg-onedark-accent/15 text-xs text-onedark-accent animate-in fade-in">
             <div className="flex items-center space-x-1.5 truncate">
               <FileCode2 className="w-3.5 h-3.5 flex-shrink-0" />
               <span className="font-mono text-[11px] font-semibold truncate">
@@ -777,7 +777,7 @@ export const FileAgentPopover: React.FC<FileAgentPopoverProps> = ({
         )}
 
         {/* Textarea Input */}
-        <div className="relative flex items-end bg-onedark-bg rounded-xl border border-onedark-borderSubtle focus-within:border-onedark-accent transition-colors p-2">
+        <div className="relative flex items-end bg-onedark-bg rounded-xl border border-transparent focus-within:border-onedark-accent/60 transition-colors p-2">
           <textarea
             ref={inputRef}
             value={inputPrompt}
