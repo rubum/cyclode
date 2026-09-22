@@ -18,7 +18,7 @@ import {
   Bug,
   X
 } from 'lucide-react';
-import { highlightCode, resolveLanguage } from '../../utils/syntaxHighlighter';
+import { highlightCode, resolveLanguage, escapeHtml } from '../../utils/syntaxHighlighter';
 
 export interface LineContext {
   filename: string;
@@ -43,7 +43,12 @@ interface FileContentResponse {
   content: string;
   size: number;
   lines: number;
+  total_lines?: number;
   language: string;
+  start_line?: number;
+  end_line?: number;
+  is_truncated?: boolean;
+  is_binary?: boolean;
 }
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -58,12 +63,19 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
 }) => {
   const [data, setData] = useState<FileContentResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [wrapLines, setWrapLines] = useState(false);
   const [viewMode, setViewMode] = useState<'code' | 'preview'>('code');
   const [previewReloadKey, setPreviewReloadKey] = useState<number>(0);
   const [activeHighlightLine, setActiveHighlightLine] = useState<number | null>(null);
+
+  // Virtualized Viewport State (20px fixed row height)
+  const ROW_HEIGHT = 20;
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(600);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Floating Selection State
   const [selectionRange, setSelectionRange] = useState<{
@@ -75,6 +87,25 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
   } | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    setViewportHeight(el.clientHeight || 600);
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentRect.height > 0) {
+          setViewportHeight(entry.contentRect.height);
+        }
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    setScrollTop(e.currentTarget.scrollTop);
+  };
 
   useEffect(() => {
     if (!taskId || !filePath) {
@@ -115,27 +146,75 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
     };
   }, [taskId, filePath]);
 
-  // Handle auto-scroll to targetLine
+  const handleLoadNextChunk = async () => {
+    if (!taskId || !filePath || !data || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const currentEnd = data.end_line || data.lines;
+      const nextStart = currentEnd + 1;
+      const nextEnd = currentEnd + 1000;
+      const res = await fetch(
+        `${API_BASE}/api/tasks/${taskId}/files/content?path=${encodeURIComponent(filePath)}&start_line=${nextStart}&end_line=${nextEnd}`
+      );
+      if (!res.ok) throw new Error('Failed to load next chunk');
+      const json = await res.json();
+      setData((prev) => {
+        if (!prev) return json;
+        return {
+          ...prev,
+          content: prev.content + '\n' + json.content,
+          end_line: json.end_line,
+          lines: prev.lines + json.lines,
+          is_truncated: json.is_truncated,
+        };
+      });
+    } catch (err: any) {
+      console.error('Failed to load next chunk', err);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const handleLoadEntireFile = async () => {
+    if (!taskId || !filePath || !data || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const res = await fetch(
+        `${API_BASE}/api/tasks/${taskId}/files/content?path=${encodeURIComponent(filePath)}&start_line=1&end_line=${data.total_lines || 100000}&max_bytes=10485760`
+      );
+      if (!res.ok) throw new Error('Failed to load full file');
+      const json = await res.json();
+      setData(json);
+    } catch (err: any) {
+      console.error('Failed to load full file', err);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  // Handle auto-scroll to targetLine with virtual window calculation
   useEffect(() => {
     if (!targetLine || !data) return;
 
     setActiveHighlightLine(targetLine);
-    const timer = setTimeout(() => {
-      const rowElem = document.getElementById(`line-row-${targetLine}`);
-      if (rowElem) {
-        rowElem.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      }
-    }, 150);
+    const fileBaseLine = data.start_line || 1;
+    const targetIdx = targetLine - fileBaseLine;
+    if (targetIdx >= 0 && scrollContainerRef.current) {
+      const targetOffset = (targetIdx * ROW_HEIGHT) - (viewportHeight / 2) + (ROW_HEIGHT / 2);
+      scrollContainerRef.current.scrollTo({
+        top: Math.max(0, targetOffset),
+        behavior: 'smooth'
+      });
+    }
 
     const fadeTimer = setTimeout(() => {
       setActiveHighlightLine(null);
     }, 4000);
 
     return () => {
-      clearTimeout(timer);
       clearTimeout(fadeTimer);
     };
-  }, [targetLine, data]);
+  }, [targetLine, data, viewportHeight]);
 
   const handleCopy = () => {
     if (!data?.content) return;
@@ -164,13 +243,25 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
 
   const highlightedLines = useMemo(() => {
     if (!data?.content) return [];
+    // If file is very large (>500KB or >5000 lines), bypass heavy Prism grammar to prevent freezing UI thread
+    if (data.size > 500 * 1024 || rawLines.length > 5000) {
+      return rawLines.map(escapeHtml);
+    }
     const html = highlightCode(data.content, data.language, data.name);
     return html.split('\n');
-  }, [data]);
+  }, [data, rawLines]);
 
   const lineCount = useMemo(() => {
     return highlightedLines.length;
   }, [highlightedLines]);
+
+  // Virtual window slice calculations
+  const OVERSCAN = 25;
+  const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+  const endIndex = Math.min(lineCount, Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) + OVERSCAN);
+  const topSpacerHeight = startIndex * ROW_HEIGHT;
+  const bottomSpacerHeight = Math.max(0, (lineCount - endIndex) * ROW_HEIGHT);
+  const visibleLines = highlightedLines.slice(startIndex, endIndex);
 
   // Selection detection
   const handleMouseUp = useCallback(() => {
@@ -231,7 +322,9 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
 
   const handleAskAboutGutterLine = (lineNum: number) => {
     if (!filePath || !data) return;
-    const lineContent = rawLines[lineNum - 1] || '';
+    const baseLine = data.start_line || 1;
+    const lineIndex = lineNum - baseLine;
+    const lineContent = rawLines[lineIndex] || '';
     const context: LineContext = {
       filename: filePath,
       startLine: lineNum,
@@ -349,13 +442,29 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
           {onAskAboutLine && (
             <button
               onClick={() => {
-                const wholeFileContext: LineContext = {
-                  filename: filePath,
-                  startLine: 1,
-                  endLine: lineCount,
-                  content: data.content.slice(0, 3000),
-                };
-                onAskAboutLine(wholeFileContext);
+                const baseLine = data.start_line || 1;
+                const totalFileLines = data.total_lines || lineCount;
+                if (lineCount <= 200 && !data.is_truncated) {
+                  const wholeFileContext: LineContext = {
+                    filename: filePath,
+                    startLine: baseLine,
+                    endLine: baseLine + lineCount - 1,
+                    content: data.content,
+                  };
+                  onAskAboutLine(wholeFileContext);
+                } else {
+                  const headSlice = rawLines.slice(0, 80).join('\n');
+                  const summaryMsg = `// [Context Outline for ${filePath} (${totalFileLines} lines, ${formatBytes(data.size)})]\n` +
+                    `// Initial 80 lines displayed below. To read specific sections, call read_file(file_path="${filePath}", start_line=..., end_line=...)\n\n` +
+                    headSlice;
+                  const outlineContext: LineContext = {
+                    filename: filePath,
+                    startLine: baseLine,
+                    endLine: Math.min(baseLine + 79, baseLine + lineCount - 1),
+                    content: summaryMsg,
+                  };
+                  onAskAboutLine(outlineContext);
+                }
               }}
               className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-onedark-accent/15 hover:bg-onedark-accent/25 text-onedark-accent border border-onedark-accent/30 transition-all cursor-pointer shadow-2xs"
               title="Discuss this file with Cyclode Agent"
@@ -369,7 +478,9 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
             {resolvedLang}
           </span>
           <span className="text-[11px] text-onedark-muted hidden md:inline">
-            {lineCount} lines · {formatBytes(data.size)}
+            {data.total_lines && data.total_lines !== lineCount
+              ? `Lines ${data.start_line || 1}–${data.end_line || lineCount} of ${data.total_lines}`
+              : `${lineCount} lines`} · {formatBytes(data.size)}
           </span>
 
           {viewMode === 'code' ? (
@@ -485,8 +596,16 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
         </div>
       )}
 
-      {/* Main Body: Code or Live Preview */}
-      {viewMode === 'preview' && isHtml ? (
+      {/* Main Body: Binary, Live Preview, or Virtualized Code Table */}
+      {data.is_binary ? (
+        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-onedark-muted font-mono select-none">
+          <FileCode className="w-12 h-12 text-onedark-accent/50 mb-3" />
+          <div className="text-sm font-semibold text-onedark-fg">Binary File ({formatBytes(data.size)})</div>
+          <p className="text-xs text-onedark-muted mt-1 max-w-sm">
+            Cyclode does not render binary files in the code viewer to prevent memory corruption.
+          </p>
+        </div>
+      ) : viewMode === 'preview' && isHtml ? (
         <div className="flex-1 overflow-hidden bg-white relative">
           <iframe
             key={previewReloadKey}
@@ -498,49 +617,94 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
           />
         </div>
       ) : (
-        /* Syntax Highlighted Code Table (Line-synchronized, GitHub style) */
-        <div className="flex-1 overflow-auto font-mono text-[12.5px] select-text">
-          <table className={`border-collapse font-mono text-[12.5px] ${wrapLines ? 'min-w-full w-full table-fixed' : 'min-w-full w-max'}`}>
-            <tbody>
-              {highlightedLines.map((lineHtml, i) => {
-                const lineNum = i + 1;
-                const isTarget = activeHighlightLine === lineNum;
-
-                return (
-                  <tr 
-                    key={i} 
-                    id={`line-row-${lineNum}`}
-                    className={`hover:bg-onedark-surface/50 group/line transition-colors ${
-                      isTarget ? 'bg-onedark-accent/20 ring-1 ring-inset ring-onedark-accent' : ''
-                    }`}
-                  >
-                    {/* Gutter with line number and hover 💬 button */}
-                    <td className="select-none pr-2 pl-3 text-right text-onedark-muted/40 group-hover/line:text-onedark-muted border-r border-onedark-borderSubtle font-mono text-[11px] leading-[20px] align-top w-16 min-w-[4rem] sticky left-0 bg-onedark-bg group-hover/line:bg-onedark-surface/50 z-10">
-                      <div className="flex items-center justify-end space-x-1.5">
-                        {onAskAboutLine && (
-                          <button
-                            onClick={() => handleAskAboutGutterLine(lineNum)}
-                            className="opacity-0 group-hover/line:opacity-100 transition-opacity p-0.5 rounded bg-onedark-accent text-onedark-bg hover:scale-110 shadow-xs cursor-pointer"
-                            title={`Ask Cyclode Agent about line ${lineNum}`}
-                          >
-                            <MessageSquarePlus className="w-2.5 h-2.5" />
-                          </button>
-                        )}
-                        <span>{lineNum}</span>
-                      </div>
-                    </td>
-
-                    <td
-                      className={`pl-3.5 pr-4 font-mono text-[12.5px] leading-[20px] align-top text-onedark-fg ${
-                        wrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'
-                      }`}
-                      dangerouslySetInnerHTML={{ __html: lineHtml || ' ' }}
-                    />
+        /* Syntax Highlighted Code Table (Virtual Window, Line-synchronized) */
+        <div 
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="flex-1 overflow-auto font-mono text-[12.5px] select-text relative flex flex-col"
+        >
+          <div className="flex-1">
+            <table className={`border-collapse font-mono text-[12.5px] ${wrapLines ? 'min-w-full w-full table-fixed' : 'min-w-full w-max'}`}>
+              <tbody>
+                {topSpacerHeight > 0 && (
+                  <tr style={{ height: `${topSpacerHeight}px` }} aria-hidden="true">
+                    <td colSpan={2} />
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                )}
+                {visibleLines.map((lineHtml, i) => {
+                  const lineNum = (data.start_line || 1) + startIndex + i;
+                  const isTarget = activeHighlightLine === lineNum;
+
+                  return (
+                    <tr 
+                      key={lineNum} 
+                      id={`line-row-${lineNum}`}
+                      style={{ height: `${ROW_HEIGHT}px` }}
+                      className={`hover:bg-onedark-surface/50 group/line transition-colors ${
+                        isTarget ? 'bg-onedark-accent/20 ring-1 ring-inset ring-onedark-accent' : ''
+                      }`}
+                    >
+                      {/* Gutter with line number and hover 💬 button */}
+                      <td className="select-none pr-2 pl-3 text-right text-onedark-muted/40 group-hover/line:text-onedark-muted border-r border-onedark-borderSubtle font-mono text-[11px] leading-[20px] align-top w-16 min-w-[4rem] sticky left-0 bg-onedark-bg group-hover/line:bg-onedark-surface/50 z-10">
+                        <div className="flex items-center justify-end space-x-1.5">
+                          {onAskAboutLine && (
+                            <button
+                              onClick={() => handleAskAboutGutterLine(lineNum)}
+                              className="opacity-0 group-hover/line:opacity-100 transition-opacity p-0.5 rounded bg-onedark-accent text-onedark-bg hover:scale-110 shadow-xs cursor-pointer"
+                              title={`Ask Cyclode Agent about line ${lineNum}`}
+                            >
+                              <MessageSquarePlus className="w-2.5 h-2.5" />
+                            </button>
+                          )}
+                          <span>{lineNum}</span>
+                        </div>
+                      </td>
+
+                      <td
+                        className={`pl-3.5 pr-4 font-mono text-[12.5px] leading-[20px] align-top text-onedark-fg ${
+                          wrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'
+                        }`}
+                        dangerouslySetInnerHTML={{ __html: lineHtml || ' ' }}
+                      />
+                    </tr>
+                  );
+                })}
+                {bottomSpacerHeight > 0 && (
+                  <tr style={{ height: `${bottomSpacerHeight}px` }} aria-hidden="true">
+                    <td colSpan={2} />
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination Truncation Banner */}
+          {data.is_truncated && (
+            <div className="sticky bottom-0 left-0 right-0 p-2.5 bg-onedark-darker/95 backdrop-blur-md border-t border-onedark-borderSubtle flex items-center justify-between text-xs z-20">
+              <div className="flex items-center space-x-2 text-onedark-muted font-mono text-[11.5px]">
+                <AlertCircle className="w-3.5 h-3.5 text-onedark-yellow flex-shrink-0" />
+                <span>
+                  Showing lines {data.start_line || 1}–{data.end_line || lineCount} of {data.total_lines || lineCount} ({formatBytes(data.size)})
+                </span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={handleLoadNextChunk}
+                  disabled={loadingMore}
+                  className="px-2.5 py-1 rounded bg-onedark-surface hover:bg-onedark-surface/80 border border-onedark-borderSubtle text-onedark-fg font-mono text-[11px] cursor-pointer transition-colors disabled:opacity-50"
+                >
+                  {loadingMore ? 'Loading...' : 'Load Next 1,000 Lines'}
+                </button>
+                <button
+                  onClick={handleLoadEntireFile}
+                  disabled={loadingMore}
+                  className="px-2.5 py-1 rounded bg-onedark-accent/20 hover:bg-onedark-accent/30 border border-onedark-accent/40 text-onedark-accent font-mono text-[11px] cursor-pointer transition-colors disabled:opacity-50"
+                >
+                  Load Entire File
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

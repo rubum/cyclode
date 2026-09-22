@@ -87,8 +87,32 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
     return initial;
   });
 
-  const toggleFolder = (path: string) => {
-    setExpandedFolders((prev) => ({ ...prev, [path]: !prev[path] }));
+  const [dynamicChildren, setDynamicChildren] = useState<Record<string, FileNode[]>>({});
+  const [loadingFolders, setLoadingFolders] = useState<Record<string, boolean>>({});
+
+  const toggleFolder = async (node: FileNode) => {
+    const nextState = !expandedFolders[node.path];
+    setExpandedFolders((prev) => ({ ...prev, [node.path]: nextState }));
+
+    const hasStaticChildren = Boolean(node.children && node.children.length > 0);
+    const hasDynamic = Boolean(dynamicChildren[node.path] && dynamicChildren[node.path].length > 0);
+
+    if (nextState && !hasStaticChildren && !hasDynamic && (node.child_count === undefined || node.child_count > 0) && taskId) {
+      setLoadingFolders((prev) => ({ ...prev, [node.path]: true }));
+      try {
+        const res = await fetch(`${API_BASE}/api/tasks/${taskId}/files/children?path=${encodeURIComponent(node.path)}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.children) {
+            setDynamicChildren((prev) => ({ ...prev, [node.path]: json.children }));
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch subtree children for', node.path, err);
+      } finally {
+        setLoadingFolders((prev) => ({ ...prev, [node.path]: false }));
+      }
+    }
   };
 
   const expandAll = () => {
@@ -231,13 +255,18 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
           const isSelected = selectedFile === node.path;
           const childCount = node.child_count !== undefined ? node.child_count : (node.children ? node.children.length : 0);
 
+          const effectiveChildren = (node.children && node.children.length > 0)
+            ? node.children
+            : (dynamicChildren[node.path] || []);
+          const isLoadingFolder = Boolean(loadingFolders[node.path]);
+
           return (
             <div key={node.path}>
               {node.is_dir ? (
                 <div>
                   <button
                     type="button"
-                    onClick={() => toggleFolder(node.path)}
+                    onClick={() => toggleFolder(node)}
                     style={{ paddingLeft: `${depth * 14 + 8}px` }}
                     className="w-full flex items-center space-x-1.5 py-1 pr-2 rounded-md border border-transparent hover:bg-onedark-surface/60 hover:border-onedark-borderSubtle text-[12.5px] font-mono text-onedark-fg hover:text-onedark-fgBright transition-all text-left group cursor-pointer"
                   >
@@ -255,16 +284,31 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
                   </button>
 
                   {isExpanded && (
-                    node.children && node.children.length > 0 ? (
+                    isLoadingFolder ? (
+                      <div
+                        style={{ paddingLeft: `${(depth + 1) * 14 + 8}px` }}
+                        className="py-1 text-[11px] text-onedark-muted flex items-center space-x-1.5 select-none"
+                      >
+                        <Loader2 className="w-3 h-3 animate-spin text-onedark-accent" />
+                        <span>Loading directory...</span>
+                      </div>
+                    ) : effectiveChildren.length > 0 ? (
                       <div className="mt-0.5">
-                        {renderNodes(node.children, depth + 1)}
+                        {renderNodes(effectiveChildren, depth + 1)}
                       </div>
                     ) : childCount > 0 ? (
                       <div 
                         style={{ paddingLeft: `${(depth + 1) * 14 + 8}px` }}
-                        className="py-1 text-[11px] text-onedark-muted italic select-none"
+                        className="py-1 text-[11px] text-onedark-muted select-none flex items-center space-x-2"
                       >
-                        (Subtree depth limit reached)
+                        <span className="italic">Directory not loaded</span>
+                        <button
+                          type="button"
+                          onClick={() => toggleFolder(node)}
+                          className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-borderSubtle text-[10px] text-onedark-accent hover:underline cursor-pointer"
+                        >
+                          Fetch contents
+                        </button>
                       </div>
                     ) : (
                       <div 

@@ -653,7 +653,7 @@ EXTENSION_MAP = {
 
 
 @router.get("/{task_id}/sandbox")
-async def get_task_sandbox_info(task_id: str, depth: int = 7, db: AsyncSession = Depends(get_db)):
+async def get_task_sandbox_info(task_id: str, depth: int = 3, db: AsyncSession = Depends(get_db)):
     stmt = select(TaskModel).where(TaskModel.id == task_id)
     result = await db.execute(stmt)
     task = result.scalars().first()
@@ -1031,10 +1031,109 @@ async def promote_task_warm_cache(task_id: str, cache_key: Optional[str] = None,
     return {"ok": success, "task_id": task.id}
 
 
+@router.get("/{task_id}/files/children")
+async def get_sandbox_folder_children(
+    task_id: str,
+    path: str = Query("", description="Relative directory path inside sandbox"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Retrieves the immediate children of a specific directory in the task workspace.
+    Enables scalable on-demand lazy expansion for large codebases without deep recursive scanning.
+    """
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    result = await db.execute(stmt)
+    task = result.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    ws_path = Path(task.workspace_path).resolve() if task.workspace_path else None
+    if ws_path and ws_path.name != f"sandbox-{task.id}":
+        specific_sb = Path(settings.WORKSPACE_ROOT) / f"sandbox-{task.id}"
+        if specific_sb.exists() and specific_sb.is_dir():
+            ws_path = specific_sb
+
+    if not ws_path or not ws_path.exists() or not ws_path.is_dir():
+        raise HTTPException(status_code=404, detail="Sandbox workspace does not exist on disk")
+
+    clean_rel = path.lstrip("/\\")
+    if clean_rel.startswith(ws_path.name + "/"):
+        clean_rel = clean_rel[len(ws_path.name) + 1:]
+    elif clean_rel.startswith(ws_path.name + "\\"):
+        clean_rel = clean_rel[len(ws_path.name) + 1:]
+    elif clean_rel.startswith("sandbox-"):
+        parts = re.split(r"[/\\]", clean_rel, 1)
+        if len(parts) > 1 and parts[0].startswith("sandbox-"):
+            clean_rel = parts[1]
+
+    target_dir = (ws_path / clean_rel).resolve() if clean_rel else ws_path
+
+    try:
+        target_dir.relative_to(ws_path)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied: Path outside sandbox workspace")
+
+    if not target_dir.exists() or not target_dir.is_dir():
+        raise HTTPException(status_code=404, detail=f"Directory '{clean_rel}' not found")
+
+    IGNORE_TREE_NAMES = {
+        ".git", "__pycache__", ".pytest_cache", "node_modules",
+        "dist", "build", ".gemini", ".next", ".cache", ".idea", ".vscode"
+    }
+
+    try:
+        entries = [
+            p for p in target_dir.iterdir()
+            if p.name not in IGNORE_TREE_NAMES
+        ]
+        entries.sort(key=lambda x: (not x.is_dir(), x.name.lower()))
+        
+        items = []
+        for p in entries[:300]:
+            rel = str(p.relative_to(ws_path))
+            if p.is_dir():
+                try:
+                    direct_count = sum(1 for child in p.iterdir() if child.name not in IGNORE_TREE_NAMES)
+                except Exception:
+                    direct_count = 0
+                items.append({
+                    "name": p.name,
+                    "path": rel,
+                    "is_dir": True,
+                    "type": "directory",
+                    "child_count": direct_count,
+                    "children": []
+                })
+            else:
+                items.append({
+                    "name": p.name,
+                    "path": rel,
+                    "is_dir": False,
+                    "type": "file",
+                    "size": p.stat().st_size
+                })
+        return {
+            "path": clean_rel,
+            "children": items,
+            "total_entries": len(entries),
+            "has_more": len(entries) > 300
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read directory: {str(e)}")
+
+
 @router.get("/{task_id}/files/content")
-async def get_sandbox_file_content(task_id: str, path: str, db: AsyncSession = Depends(get_db)):
+async def get_sandbox_file_content(
+    task_id: str,
+    path: str,
+    start_line: Optional[int] = Query(None, ge=1, description="1-indexed starting line"),
+    end_line: Optional[int] = Query(None, ge=1, description="1-indexed ending line"),
+    max_bytes: int = Query(1048576, description="Max raw bytes safety cap (default 1MB)"),
+    db: AsyncSession = Depends(get_db)
+):
     """
     Safely retrieves the content and metadata of a file located within the task sandbox workspace.
+    Enforces line pagination, byte boundaries, and binary detection for safe UI and agent consumption.
     """
     stmt = select(TaskModel).where(TaskModel.id == task_id)
     result = await db.execute(stmt)
@@ -1075,6 +1174,34 @@ async def get_sandbox_file_content(task_id: str, path: str, db: AsyncSession = D
     if not target_file.exists() or not target_file.is_file():
         raise HTTPException(status_code=404, detail=f"File '{clean_rel}' not found")
 
+    file_stat = target_file.stat()
+    file_size = file_stat.st_size
+
+    # Check for binary file by inspecting initial 4KB buffer
+    is_binary = False
+    try:
+        with open(target_file, "rb") as bf:
+            chunk = bf.read(4096)
+            if b"\x00" in chunk:
+                is_binary = True
+    except Exception:
+        pass
+
+    if is_binary:
+        return {
+            "path": clean_rel,
+            "name": target_file.name,
+            "content": "",
+            "size": file_size,
+            "lines": 0,
+            "total_lines": 0,
+            "language": "binary",
+            "is_binary": True,
+            "is_truncated": False,
+            "start_line": 1,
+            "end_line": 0
+        }
+
     # Determine syntax language
     ext = target_file.suffix.lower()
     name = target_file.name.lower()
@@ -1110,17 +1237,55 @@ async def get_sandbox_file_content(task_id: str, path: str, db: AsyncSession = D
     language = "dockerfile" if "dockerfile" in name else lang_map.get(ext, "plaintext")
 
     try:
-        content = target_file.read_text(encoding="utf-8", errors="replace")
+        raw_text = target_file.read_text(encoding="utf-8", errors="replace")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to read file: {str(e)}")
+
+    all_lines = raw_text.splitlines()
+    total_lines = len(all_lines)
+    DEFAULT_WINDOW = 1000
+    is_truncated = False
+
+    start_val = start_line if isinstance(start_line, int) else None
+    end_val = end_line if isinstance(end_line, int) else None
+    max_b = max_bytes if isinstance(max_bytes, int) else 1048576
+
+    if start_val is not None or end_val is not None:
+        s = max(1, start_val or 1)
+        e = min(total_lines, end_val or total_lines)
+        if s > total_lines:
+            slice_lines = []
+            s = total_lines
+            e = total_lines
+        else:
+            slice_lines = all_lines[s - 1:e]
+        content = "\n".join(slice_lines)
+        is_truncated = (s > 1 or e < total_lines)
+        returned_start = s
+        returned_end = e
+    elif total_lines > DEFAULT_WINDOW or file_size > max_b:
+        slice_lines = all_lines[:DEFAULT_WINDOW]
+        content = "\n".join(slice_lines)
+        is_truncated = True
+        returned_start = 1
+        returned_end = min(DEFAULT_WINDOW, total_lines)
+    else:
+        content = raw_text
+        returned_start = 1
+        returned_end = total_lines
 
     return {
         "path": clean_rel,
         "name": target_file.name,
         "content": content,
-        "size": target_file.stat().st_size,
+        "size": file_size,
         "lines": len(content.splitlines()),
-        "language": language
+        "total_lines": total_lines,
+        "language": language,
+        "start_line": returned_start,
+        "end_line": returned_end,
+        "is_truncated": is_truncated,
+        "is_binary": False
     }
 
 

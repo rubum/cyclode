@@ -324,12 +324,24 @@ class WorktreeManager:
                             adds = int(stat_parts[0]) if stat_parts[0].isdigit() else 0
                             dels = int(stat_parts[1]) if stat_parts[1].isdigit() else 0
 
+                    diff_truncated = False
+                    is_lockfile = file_name.lower().endswith(("-lock.json", ".lock", "pnpm-lock.yaml", "yarn.lock"))
+                    if is_lockfile and (adds + dels > 50):
+                        file_diff = f"[Lockfile update: {adds} additions, {dels} deletions in {file_name}. Full diff suppressed for performance]"
+                        diff_truncated = True
+                    else:
+                        d_lines = file_diff.splitlines()
+                        if len(d_lines) > 1000 or len(file_diff) > 64 * 1024:
+                            file_diff = "\n".join(d_lines[:1000]) + f"\n\n... [Diff truncated: {len(d_lines) - 1000} lines omitted for performance] ...\n"
+                            diff_truncated = True
+
                     diffs.append({
                         "file_path": file_name,
                         "status": status,
                         "diff_content": file_diff,
                         "additions": adds,
-                        "deletions": dels
+                        "deletions": dels,
+                        "diff_truncated": diff_truncated
                     })
                 return diffs
 
@@ -426,7 +438,7 @@ class WorktreeManager:
                     env=git_env,
                     timeout=5
                 )
-                file_diff = file_diff_proc.stdout if file_diff_proc.stdout else raw_diff
+                file_diff = file_diff_proc.stdout if file_diff_proc.returncode == 0 else ""
 
                 # Estimate additions/deletions
                 numstat = subprocess.run(
@@ -444,12 +456,24 @@ class WorktreeManager:
                         adds = int(stat_parts[0]) if stat_parts[0].isdigit() else 0
                         dels = int(stat_parts[1]) if stat_parts[1].isdigit() else 0
 
+                diff_truncated = False
+                is_lockfile = file_name.lower().endswith(("-lock.json", ".lock", "pnpm-lock.yaml", "yarn.lock"))
+                if is_lockfile and (adds + dels > 50):
+                    file_diff = f"[Lockfile update: {adds} additions, {dels} deletions in {file_name}. Full diff suppressed for performance]"
+                    diff_truncated = True
+                else:
+                    d_lines = file_diff.splitlines()
+                    if len(d_lines) > 1000 or len(file_diff) > 64 * 1024:
+                        file_diff = "\n".join(d_lines[:1000]) + f"\n\n... [Diff truncated: {len(d_lines) - 1000} lines omitted for performance] ...\n"
+                        diff_truncated = True
+
                 diffs.append({
                     "file_path": file_name,
                     "status": status,
                     "diff_content": file_diff,
                     "additions": adds,
-                    "deletions": dels
+                    "deletions": dels,
+                    "diff_truncated": diff_truncated
                 })
             return diffs
         except Exception:

@@ -1768,15 +1768,24 @@ class AntigravityHarness:
                                     resp_data = fr.get("response", {})
                                     if isinstance(resp_data, dict):
                                         resp_copy = dict(resp_data)
-                                        for key in ["output", "stdout", "content", "result"]:
+                                        # Compact large text values
+                                        for key in ["output", "stdout", "content", "result", "diff", "text"]:
                                             val = resp_copy.get(key)
-                                            if isinstance(val, str) and len(val) > 1500:
+                                            if isinstance(val, str) and len(val) > 1200:
                                                 lines = val.split("\n")
-                                                if len(lines) > 30:
-                                                    compacted_val = "\n".join(lines[:15]) + f"\n\n... [Output compacted for token efficiency: {len(lines)-30} lines omitted] ...\n\n" + "\n".join(lines[-15:])
+                                                if len(lines) > 25:
+                                                    compacted_val = "\n".join(lines[:12]) + f"\n\n... [Historical output compacted: {len(lines)-22} lines omitted for token efficiency] ...\n\n" + "\n".join(lines[-10:])
                                                 else:
-                                                    compacted_val = val[:600] + f"\n\n... [Output compacted ({len(val)} chars)] ...\n\n" + val[-600:]
+                                                    compacted_val = val[:500] + f"\n\n... [Historical output compacted ({len(val)} chars)] ...\n\n" + val[-500:]
                                                 resp_copy[key] = compacted_val
+                                        # Compact large list results (symbols, search matches, dir items)
+                                        for list_key in ["matches", "symbols", "items", "entries"]:
+                                            list_val = resp_copy.get(list_key)
+                                            if isinstance(list_val, list) and len(list_val) > 8:
+                                                resp_copy[list_key] = list_val[:5] + [{
+                                                    "_compacted": True,
+                                                    "notice": f"... [{len(list_val) - 5} additional historical {list_key} compacted for token efficiency]"
+                                                }]
                                         fr["response"] = resp_copy
                                         new_parts.append({"functionResponse": fr})
                                     else:

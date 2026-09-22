@@ -8,6 +8,8 @@ import pytest_asyncio
 TEST_DB_FILE = Path(f"/tmp/cyclode_test_{uuid.uuid4().hex[:8]}.db")
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{TEST_DB_FILE}"
 os.environ["DEBUG"] = "false"
+os.environ["GIT_TERMINAL_PROMPT"] = "0"
+os.environ["GIT_CONFIG_GLOBAL"] = "/dev/null"
 os.environ.setdefault("GEMINI_API_KEY", "test-mock-gemini-key")
 
 from app.db.session import init_db, engine

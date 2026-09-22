@@ -79,12 +79,33 @@ class WorkspaceTools:
         is_minified = any(filename.endswith(ext) for ext in minified_exts)
 
         try:
+            # Check for binary file by inspecting initial 4KB buffer
+            try:
+                with open(target, "rb") as bf:
+                    if b"\x00" in bf.read(4096):
+                        return {
+                            "file_path": file_path,
+                            "content": f"[Notice: '{file_path}' is a binary file ({target.stat().st_size} bytes). Binary files cannot be inspected as text.]",
+                            "total_lines": 0,
+                            "is_binary": True
+                        }
+            except Exception:
+                pass
+
             raw_text = target.read_text(encoding="utf-8", errors="ignore")
             lines = raw_text.splitlines()
             total_lines = len(lines)
 
+            # Sanitize runaway single lines (>1000 chars)
+            sanitized_lines = [
+                line if len(line) <= 1000 else (line[:1000] + " ... [Line truncated: length exceeded 1000 characters]")
+                for line in lines
+            ]
+
+            MAX_READ_BYTES = 64 * 1024
+
             if (is_lockfile or is_minified) and start_line is None and end_line is None:
-                head_slice = "\n".join(lines[:50])
+                head_slice = "\n".join(sanitized_lines[:50])
                 msg = (
                     f"[Notice: '{file_path}' is a generated lockfile or bundle ({total_lines} lines, {len(raw_text)} bytes). "
                     "Truncated to protect token context. Inspect manifest files (e.g. package.json, pyproject.toml) or specify start_line/end_line.]\n\n"
@@ -97,18 +118,25 @@ class WorkspaceTools:
                 e = min(total_lines, end_line or total_lines)
                 if s > total_lines:
                     return {"file_path": file_path, "content": f"(File has {total_lines} lines; start_line {s} is beyond EOF)", "total_lines": total_lines}
-                sliced = lines[s - 1 : e]
+                sliced = sanitized_lines[s - 1 : e]
                 content = "\n".join(f"{s + i}: {line}" for i, line in enumerate(sliced))
+                if len(content) > MAX_READ_BYTES:
+                    content = content[:MAX_READ_BYTES] + f"\n\n... [Content truncated at {MAX_READ_BYTES} bytes. Specify a smaller start_line/end_line range] ..."
                 return {"file_path": file_path, "content": content, "start_line": s, "end_line": e, "total_lines": total_lines}
 
-            if total_lines > 800:
-                head = "\n".join(lines[:800])
+            if total_lines > 250:
+                head = "\n".join(sanitized_lines[:250])
                 msg = (
-                    f"{head}\n\n... [File truncated at line 800 of {total_lines}. Use start_line=801, end_line={total_lines} to view remaining lines] ..."
+                    f"{head}\n\n... [File truncated at line 250 of {total_lines}. Use start_line=251, end_line={min(total_lines, 500)} to view next chunk] ..."
                 )
+                if len(msg) > MAX_READ_BYTES:
+                    msg = msg[:MAX_READ_BYTES] + f"\n\n... [Content truncated at {MAX_READ_BYTES} bytes] ..."
                 return {"file_path": file_path, "content": msg, "total_lines": total_lines, "truncated": True}
 
-            return {"file_path": file_path, "content": raw_text, "total_lines": total_lines}
+            content = "\n".join(sanitized_lines)
+            if len(content) > MAX_READ_BYTES:
+                content = content[:MAX_READ_BYTES] + f"\n\n... [Content truncated at {MAX_READ_BYTES} bytes] ..."
+            return {"file_path": file_path, "content": content, "total_lines": total_lines}
         except Exception as e:
             return {"error": str(e)}
 
@@ -965,6 +993,7 @@ class WorkspaceTools:
             "dist", "build", ".next", ".cache", ".pytest_cache", ".gemini", "assets"
         }
         supported_exts = {".py", ".ts", ".tsx", ".js", ".jsx"}
+        MAX_AST_FILE_SIZE = 500 * 1024
 
         updated_cache = False
         all_symbols = []
@@ -979,17 +1008,28 @@ class WorkspaceTools:
                 if ext not in supported_exts or f.startswith("."):
                     continue
 
+                f_lower = f.lower()
+                if f_lower.endswith((".min.js", ".min.ts", ".bundle.js", ".chunk.js", ".map")):
+                    continue
+
                 rel_file_path = str(rel_root / f) if str(rel_root) != "." else f
                 full_path = Path(root) / f
 
                 try:
-                    mtime = full_path.stat().st_mtime
+                    fstat = full_path.stat()
+                    if fstat.st_size > MAX_AST_FILE_SIZE:
+                        continue
+                    mtime = fstat.st_mtime
                     file_cache = cache_data.get("files", {}).get(rel_file_path)
 
                     if file_cache and file_cache.get("mtime") == mtime:
                         file_symbols = file_cache.get("symbols", [])
                     else:
                         content = full_path.read_text(encoding="utf-8", errors="ignore")
+                        # Skip files with runaway lines (>2000 chars)
+                        first_lines = content.splitlines()[:5]
+                        if any(len(line) > 2000 for line in first_lines):
+                            continue
                         if ext == ".py":
                             file_symbols = WorkspaceTools._extract_python_symbols(content, rel_file_path)
                         else:
