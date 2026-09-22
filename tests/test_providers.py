@@ -30,8 +30,7 @@ def test_provider_factory_routing():
     assert isinstance(get_provider_for_model("gemini-3.7-flash"), GeminiProvider)
     assert isinstance(get_provider_for_model("gemini-3.8-flash"), GeminiProvider)
     assert isinstance(get_provider_for_model("google:gemini-3.7-flash"), GeminiProvider)
-    assert isinstance(get_provider_for_model("gemini-2.5-flash"), GeminiProvider)
-    assert isinstance(get_provider_for_model("gemini-2.0-pro"), GeminiProvider)
+    assert isinstance(get_provider_for_model("google:gemini-3.8-flash"), GeminiProvider)
     assert isinstance(get_provider_for_model(""), GeminiProvider)
     assert isinstance(get_provider_for_model(None), GeminiProvider)
 

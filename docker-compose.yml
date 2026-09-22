@@ -23,7 +23,7 @@ services:
       - DATABASE_URL=sqlite+aiosqlite:////data/cyclode.db
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
-      - ANTIGRAVITY_MODEL=${ANTIGRAVITY_MODEL:-gemini-2.5-flash}
+      - ANTIGRAVITY_MODEL=${ANTIGRAVITY_MODEL:-gemini-3.7-flash}
       - ANTIGRAVITY_ENABLE_THINKING=${ANTIGRAVITY_ENABLE_THINKING:-true}
       - POLICY_GIT_PUSH=${POLICY_GIT_PUSH:-require_approval}
       - POLICY_CREATE_PR=${POLICY_CREATE_PR:-require_approval}

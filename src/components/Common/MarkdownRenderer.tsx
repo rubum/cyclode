@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Copy, Check, Info, AlertTriangle, AlertCircle, Sparkles, Flame, ExternalLink, ChevronRight } from 'lucide-react';
+import { Copy, Check, Info, AlertTriangle, AlertCircle, Sparkles, Flame, ChevronRight, Compass, ArrowRight } from 'lucide-react';
 import katex from 'katex';
 import { highlightCode, resolveLanguage, escapeHtml } from '../../utils/syntaxHighlighter';
 
@@ -54,10 +54,10 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
           className={`list-decimal list-outside ${depth === 0 ? 'pl-5 my-2 space-y-2' : 'pl-4 my-1 space-y-1'} marker:text-onedark-accent marker:font-semibold font-sans text-[14px] leading-[1.7]`}
         >
           {items.map((item, idx) => (
-            <li key={idx} className="leading-[1.7] pl-1 text-[#D1D5DB]">
+            <li key={idx} className="leading-[1.7] pl-1 text-onedark-fg">
               <span>{inline(item.content)}</span>
               {item.children && item.children.length > 0 && (
-                <div className="mt-1.5 mb-1 pl-2 border-l border-onedark-borderSubtle/50 ml-1">
+                <div className="mt-1.5 mb-1 pl-2 border-l border-onedark-borderSubtle ml-1">
                   {renderNestedList(item.children, item.childType || 'ul', undefined, depth + 1)}
                 </div>
               )}
@@ -69,7 +69,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
     return (
       <ul
-        className={`list-disc list-outside ${depth === 0 ? 'pl-5 my-2 space-y-1.5' : 'pl-4 my-1 space-y-1'} ${depth > 0 ? 'marker:text-onedark-muted/80 list-[circle]' : 'marker:text-onedark-accent/80'} text-[14px] leading-[1.7]`}
+        className={`list-disc list-outside ${depth === 0 ? 'pl-5 my-2 space-y-1.5' : 'pl-4 my-1 space-y-1'} ${depth > 0 ? 'marker:text-onedark-muted list-[circle]' : 'marker:text-onedark-accent'} text-[14px] leading-[1.7]`}
       >
         {items.map((item, idx) => {
           if (item.isTask) {
@@ -81,10 +81,10 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                   checked={item.isTaskChecked}
                   className="mt-1 rounded border-onedark-border bg-onedark-darker text-onedark-accent focus:ring-0 focus:ring-offset-0 cursor-default"
                 />
-                <div className="flex-1 text-[#D1D5DB]">
+                <div className="flex-1 text-onedark-fg">
                   <span>{inline(item.content)}</span>
                   {item.children && item.children.length > 0 && (
-                    <div className="mt-1.5 mb-1 pl-2 border-l border-onedark-borderSubtle/50 ml-1">
+                    <div className="mt-1.5 mb-1 pl-2 border-l border-onedark-borderSubtle ml-1">
                       {renderNestedList(item.children, item.childType || 'ul', undefined, depth + 1)}
                     </div>
                   )}
@@ -93,10 +93,10 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
             );
           }
           return (
-            <li key={idx} className="leading-[1.7] pl-1 text-[#D1D5DB]">
+            <li key={idx} className="leading-[1.7] pl-1 text-onedark-fg">
               <span>{inline(item.content)}</span>
               {item.children && item.children.length > 0 && (
-                <div className="mt-1.5 mb-1 pl-2 border-l border-onedark-borderSubtle/50 ml-1">
+                <div className="mt-1.5 mb-1 pl-2 border-l border-onedark-borderSubtle ml-1">
                   {renderNestedList(item.children, item.childType || 'ul', undefined, depth + 1)}
                 </div>
               )}
@@ -140,8 +140,14 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
     );
   };
 
+  const [collapsedCodeBlocks, setCollapsedCodeBlocks] = useState<Record<number, boolean>>({});
+
+  const toggleCodeBlock = (idx: number) => {
+    setCollapsedCodeBlocks((prev) => ({ ...prev, [idx]: !prev[idx] }));
+  };
+
   return (
-    <div className={`space-y-3 text-[14px] leading-[1.7] text-[#D1D5DB] font-sans ${className}`}>
+    <div className={`space-y-3 text-[14px] leading-[1.7] text-onedark-fg font-sans ${className}`}>
       {parts.map((part, index) => {
         if (part.startsWith('```') && part.endsWith('```')) {
           // Code block
@@ -151,47 +157,62 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
           const language = hasLang ? firstLine : '';
           const codeLines = hasLang ? lines.slice(1) : lines;
           const code = codeLines.join('\n');
+          const isCollapsed = !!collapsedCodeBlocks[index];
 
           return (
-            <div key={index} className="my-3 rounded-xl border border-onedark-border bg-onedark-darker overflow-hidden shadow-xs">
-              <div className="flex items-center justify-between px-3.5 py-1.5 bg-onedark-surface/70 border-b border-onedark-border text-[11px] text-onedark-muted font-mono select-none">
+            <div key={index} className="my-3 rounded-xl bg-onedark-darker/80 overflow-hidden shadow-xs group/code">
+              <div className="flex items-center justify-between px-3.5 py-1.5 bg-onedark-surface/40 text-[11px] text-onedark-muted font-mono select-none">
                 <div className="flex items-center space-x-2">
-                  <span className="text-onedark-accent font-semibold uppercase tracking-wider">{language || 'code'}</span>
-                  <span className="text-[10px] text-onedark-muted">({codeLines.length} line{codeLines.length > 1 ? 's' : ''})</span>
+                  <span className="text-onedark-accent font-semibold uppercase tracking-wider text-[10.5px]">{language || 'code'}</span>
+                  <span className="text-[10px] text-onedark-muted/70">({codeLines.length} line{codeLines.length > 1 ? 's' : ''})</span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => handleCopy(code, index)}
-                  className="flex items-center space-x-1 hover:text-onedark-fgBright transition-colors px-2 py-0.5 rounded hover:bg-onedark-surface text-[11px]"
-                >
-                  {copiedIndex === index ? (
-                    <>
-                      <Check className="w-3.5 h-3.5 text-onedark-green" />
-                      <span className="text-[10.5px] text-onedark-green">Copied</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3.5 h-3.5" />
-                      <span className="text-[10.5px]">Copy</span>
-                    </>
+                <div className="flex items-center space-x-1.5">
+                  {codeLines.length > 8 && (
+                    <button
+                      type="button"
+                      onClick={() => toggleCodeBlock(index)}
+                      className="flex items-center space-x-1 hover:text-onedark-fgBright transition-colors px-2 py-0.5 rounded hover:bg-onedark-surface/60 text-[11px] text-onedark-muted cursor-pointer"
+                    >
+                      <ChevronRight className={`w-3 h-3 transition-transform ${!isCollapsed ? 'rotate-90' : ''}`} />
+                      <span>{isCollapsed ? 'Expand' : 'Collapse'}</span>
+                    </button>
                   )}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => handleCopy(code, index)}
+                    className="flex items-center space-x-1 hover:text-onedark-fgBright transition-colors px-2 py-0.5 rounded hover:bg-onedark-surface/60 text-[11px] cursor-pointer"
+                  >
+                    {copiedIndex === index ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-onedark-green" />
+                        <span className="text-[10.5px] text-onedark-green">Copied</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span className="text-[10.5px]">Copy</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
-              <div className="flex font-mono text-[12px] sm:text-[12.5px] leading-relaxed overflow-x-auto selection:bg-onedark-accent/30 p-3.5">
-                {codeLines.length > 2 && (
-                  <div className="select-none text-onedark-muted/50 text-right pr-3 border-r border-onedark-borderSubtle font-mono text-[11.5px] flex-shrink-0">
-                    {codeLines.map((_, i) => (
-                      <div key={i}>{i + 1}</div>
-                    ))}
-                  </div>
-                )}
-                <pre className={`text-onedark-fg font-mono ${codeLines.length > 2 ? 'pl-3' : ''} flex-1 overflow-x-auto`}>
-                  <code
-                    className={`language-${language || 'text'} font-mono leading-relaxed`}
-                    dangerouslySetInnerHTML={{ __html: getHighlightedHtml(code, language) }}
-                  />
-                </pre>
-              </div>
+              {!isCollapsed && (
+                <div className="flex font-mono text-[12px] sm:text-[12.5px] leading-relaxed overflow-x-auto selection:bg-onedark-accent/30 p-3.5">
+                  {codeLines.length > 2 && (
+                    <div className="select-none text-onedark-muted/40 text-right pr-3 border-r border-transparent font-mono text-[11.5px] flex-shrink-0">
+                      {codeLines.map((_, i) => (
+                        <div key={i}>{i + 1}</div>
+                      ))}
+                    </div>
+                  )}
+                  <pre className={`text-onedark-fg font-mono ${codeLines.length > 2 ? 'pl-3' : ''} flex-1 overflow-x-auto`}>
+                    <code
+                      className={`language-${language || 'text'} font-mono leading-relaxed`}
+                      dangerouslySetInnerHTML={{ __html: getHighlightedHtml(code, language) }}
+                    />
+                  </pre>
+                </div>
+              )}
             </div>
           );
         }
@@ -205,7 +226,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
           return (
             <div
               key={index}
-              className="my-3 py-3 px-4 rounded-xl bg-onedark-darker/90 border border-onedark-borderSubtle overflow-x-auto text-center text-[#F4F4F5] shadow-xs selection:bg-onedark-accent/30"
+              className="my-3 py-3 px-4 rounded-xl bg-onedark-darker/80 overflow-x-auto text-center text-onedark-fgBright shadow-xs selection:bg-onedark-accent/30"
               dangerouslySetInnerHTML={{ __html: renderKatex(math, true) }}
             />
           );
@@ -236,26 +257,51 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
               }
 
               if (block.type === 'table' && block.tableRows) {
+                const headerCount = block.tableHeaders?.length || 0;
+                const alignments = block.tableAlignments || [];
+                const getAlignmentClass = (idx: number) => {
+                  const align = alignments[idx];
+                  if (align === 'center') return 'text-center';
+                  if (align === 'right') return 'text-right';
+                  return 'text-left';
+                };
+
                 return (
-                  <div key={bIdx} className="my-3 overflow-x-auto rounded-xl border border-onedark-border bg-onedark-darker/70 shadow-xs">
-                    <table className="w-full text-left border-collapse text-[12px]">
-                      {block.tableHeaders && (
+                  <div key={bIdx} className="my-3 overflow-x-auto rounded-xl bg-onedark-darker/40 shadow-xs [scrollbar-gutter:stable]">
+                    <table className="w-full border-collapse text-[12.5px] table-auto">
+                      {block.tableHeaders && block.tableHeaders.length > 0 && (
                         <thead>
-                          <tr className="bg-onedark-surface/70 border-b border-onedark-border text-onedark-fgBright font-semibold">
+                          <tr className="bg-onedark-surface/60 text-onedark-fgBright font-medium">
                             {block.tableHeaders.map((h, hIdx) => (
-                              <th key={hIdx} className="px-3 py-1.5 font-mono text-[11.5px]">{inline(h)}</th>
+                              <th
+                                key={hIdx}
+                                className={`px-3.5 py-2 font-mono text-[11.5px] whitespace-nowrap ${getAlignmentClass(hIdx)}`}
+                              >
+                                {inline(h)}
+                              </th>
                             ))}
                           </tr>
                         </thead>
                       )}
                       <tbody>
-                        {block.tableRows.map((row, rIdx) => (
-                          <tr key={rIdx} className="border-b border-onedark-borderSubtle last:border-0 hover:bg-onedark-surface/30">
-                            {row.map((cell, cIdx) => (
-                              <td key={cIdx} className="px-3 py-1.5 text-onedark-fg">{inline(cell)}</td>
-                            ))}
-                          </tr>
-                        ))}
+                        {block.tableRows.map((row, rIdx) => {
+                          const cells = [...row];
+                          while (headerCount > 0 && cells.length < headerCount) {
+                            cells.push('');
+                          }
+                          return (
+                            <tr key={rIdx} className="odd:bg-transparent even:bg-onedark-surface/20 hover:bg-onedark-surface/40 transition-colors">
+                              {cells.map((cell, cIdx) => (
+                                <td
+                                  key={cIdx}
+                                  className={`px-3.5 py-2 text-onedark-fg break-words ${getAlignmentClass(cIdx)}`}
+                                >
+                                  {inline(cell)}
+                                </td>
+                              ))}
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -282,7 +328,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
               }
 
               if (block.type === 'hr') {
-                return <hr key={bIdx} className="border-t border-onedark-borderSubtle/60 my-3.5" />;
+                return <div key={bIdx} className="my-6 h-px bg-gradient-to-r from-transparent via-onedark-fg/15 to-transparent border-0" />;
               }
 
               if ((block.type === 'ul' || block.type === 'ol') && block.items) {
@@ -308,7 +354,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
               if (block.type === 'h1' && block.content) {
                 const hId = slugify(block.content);
                 return (
-                  <h1 id={hId} key={bIdx} className="text-[17px] font-bold text-[#F4F4F5] tracking-tight pt-3.5 pb-1 border-b border-onedark-borderSubtle/60 scroll-mt-4">
+                  <h1 id={hId} key={bIdx} className="text-[17px] font-bold text-onedark-fgBright tracking-tight pt-3.5 pb-1 border-b border-onedark-borderSubtle scroll-mt-4">
                     {inline(block.content)}
                     {shouldAttachCursor && renderCursor()}
                   </h1>
@@ -318,7 +364,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
               if (block.type === 'h2' && block.content) {
                 const hId = slugify(block.content);
                 return (
-                  <h2 id={hId} key={bIdx} className="text-[15.5px] font-bold text-[#F4F4F5] tracking-tight pt-3 pb-0.5 scroll-mt-4">
+                  <h2 id={hId} key={bIdx} className="text-[15.5px] font-bold text-onedark-fgBright tracking-tight pt-3 pb-0.5 scroll-mt-4">
                     {inline(block.content)}
                     {shouldAttachCursor && renderCursor()}
                   </h2>
@@ -328,7 +374,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
               if (block.type === 'h3' && block.content) {
                 const hId = slugify(block.content);
                 return (
-                  <h3 id={hId} key={bIdx} className="text-[14.5px] font-semibold text-[#F4F4F5] pt-2 pb-0.5 scroll-mt-4">
+                  <h3 id={hId} key={bIdx} className="text-[14.5px] font-semibold text-onedark-fgBright pt-2 pb-0.5 scroll-mt-4">
                     {inline(block.content)}
                     {shouldAttachCursor && renderCursor()}
                   </h3>
@@ -338,7 +384,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
               if (block.type === 'h4' && block.content) {
                 const hId = slugify(block.content);
                 return (
-                  <h4 id={hId} key={bIdx} className="text-[13.5px] font-semibold text-[#F4F4F5] pt-1.5 pb-0.5 scroll-mt-4">
+                  <h4 id={hId} key={bIdx} className="text-[13.5px] font-semibold text-onedark-fgBright pt-1.5 pb-0.5 scroll-mt-4">
                     {inline(block.content)}
                     {shouldAttachCursor && renderCursor()}
                   </h4>
@@ -348,7 +394,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
               if (block.type === 'h5' && block.content) {
                 const hId = slugify(block.content);
                 return (
-                  <h5 id={hId} key={bIdx} className="text-[12.5px] font-semibold text-[#E5E5E5] pt-1 pb-0.5 scroll-mt-4">
+                  <h5 id={hId} key={bIdx} className="text-[12.5px] font-semibold text-onedark-fgBright pt-1 pb-0.5 scroll-mt-4">
                     {inline(block.content)}
                     {shouldAttachCursor && renderCursor()}
                   </h5>
@@ -367,7 +413,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.type === 'blockquote' && block.content) {
                 return (
-                  <blockquote key={bIdx} className="border-l-2 border-onedark-accent/70 pl-3 py-1.5 my-2 bg-onedark-surface/40 rounded-r-lg text-[#D1D5DB] leading-[1.7] text-[13.5px]">
+                  <blockquote key={bIdx} className="border-l-2 border-onedark-accent pl-3 py-1.5 my-2 bg-onedark-surface/60 rounded-r-lg text-onedark-fg leading-[1.7] text-[13.5px]">
                     {inline(block.content)}
                     {shouldAttachCursor && renderCursor()}
                   </blockquote>
@@ -376,7 +422,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.content) {
                 return (
-                  <p key={bIdx} className="leading-[1.7] text-[#D1D5DB]">
+                  <p key={bIdx} className="leading-[1.7] text-onedark-fg">
                     {inline(block.content)}
                     {shouldAttachCursor && renderCursor()}
                   </p>
@@ -419,6 +465,7 @@ interface BlockItem {
   alertType?: string;
   tableHeaders?: string[];
   tableRows?: string[][];
+  tableAlignments?: ('left' | 'center' | 'right')[];
   summary?: string;
 }
 
@@ -436,7 +483,7 @@ function parseBlocks(text: string): BlockItem[] {
   const lines = text.split('\n');
   const blocks: BlockItem[] = [];
   let currentList: { type: 'ul' | 'ol'; items: NestedListItem[]; startNumber?: number } | null = null;
-  let currentTable: { headers: string[]; rows: string[][] } | null = null;
+  let currentTable: { headers: string[]; rows: string[][]; alignments?: ('left' | 'center' | 'right')[] } | null = null;
   let currentParagraph: string[] = [];
 
   const flushParagraph = () => {
@@ -455,7 +502,12 @@ function parseBlocks(text: string): BlockItem[] {
 
   const flushTable = () => {
     if (currentTable) {
-      blocks.push({ type: 'table', tableHeaders: currentTable.headers, tableRows: currentTable.rows });
+      blocks.push({
+        type: 'table',
+        tableHeaders: currentTable.headers,
+        tableRows: currentTable.rows,
+        tableAlignments: currentTable.alignments
+      });
       currentTable = null;
     }
   };
@@ -573,16 +625,28 @@ function parseBlocks(text: string): BlockItem[] {
       continue;
     }
 
-    // Table Row: | a | b |
-    if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+    // Table Row: starts with '|' or contains multiple pipes when table is already active
+    if (trimmed.startsWith('|') || (currentTable && trimmed.includes('|'))) {
       flushParagraph();
       flushList();
-      const cells = trimmed.slice(1, -1).split('|').map(c => c.trim());
-      if (cells.every(c => /^:?-+:?$/.test(c))) {
+      let rawRow = trimmed;
+      if (rawRow.startsWith('|')) rawRow = rawRow.slice(1);
+      if (rawRow.endsWith('|')) rawRow = rawRow.slice(0, -1);
+      const cells = rawRow.split('|').map(c => c.trim());
+      // Check delimiter row
+      const isDelimiter = cells.length > 0 && cells.every(c => /^:?-+:?$/.test(c));
+      if (isDelimiter) {
+        if (currentTable) {
+          currentTable.alignments = cells.map(c => {
+            if (c.startsWith(':') && c.endsWith(':')) return 'center';
+            if (c.endsWith(':')) return 'right';
+            return 'left';
+          });
+        }
         continue;
       }
       if (!currentTable) {
-        currentTable = { headers: cells, rows: [] };
+        currentTable = { headers: cells, rows: [], alignments: [] };
       } else {
         currentTable.rows.push(cells);
       }
@@ -762,7 +826,7 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
       return (
         <span
           key={i}
-          className="my-2.5 block overflow-x-auto text-center py-2 px-3 rounded-lg bg-onedark-darker/70 border border-onedark-borderSubtle/50 text-[#F4F4F5] selection:bg-onedark-accent/30"
+          className="my-2.5 block overflow-x-auto text-center py-2 px-3 rounded-lg bg-onedark-darker border border-onedark-borderSubtle text-onedark-fgBright selection:bg-onedark-accent/30"
           dangerouslySetInnerHTML={{ __html: renderKatex(math, true) }}
         />
       );
@@ -777,7 +841,7 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
       return (
         <span
           key={i}
-          className="inline-math px-0.5 text-[#F4F4F5] align-baseline"
+          className="inline-math px-0.5 text-onedark-fgBright align-baseline"
           dangerouslySetInnerHTML={{ __html: renderKatex(math, false) }}
         />
       );
@@ -789,7 +853,7 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
       return (
         <code
           key={i}
-          className="px-1.5 py-0.5 rounded bg-onedark-surface/90 border border-onedark-borderSubtle text-onedark-yellow font-mono text-[12.5px] font-medium tracking-tight mx-0.5 align-baseline select-text"
+          className="px-1.5 py-0.5 rounded-md bg-onedark-surface/60 text-onedark-accent font-mono text-[12.5px] font-medium tracking-tight mx-0.5 align-baseline select-text"
         >
           {codeMatch[2]}
         </code>
@@ -802,7 +866,7 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
       (token.startsWith('__') && token.endsWith('__') && token.length > 4)
     ) {
       return (
-        <strong key={i} className="font-semibold text-[#F4F4F5]">
+        <strong key={i} className="font-semibold text-onedark-fgBright">
           {renderInline(token.slice(2, -2), onLinkClick)}
         </strong>
       );
@@ -878,7 +942,7 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
       return (
         <code
           key={i}
-          className="px-1.5 py-0.5 rounded bg-onedark-surface/90 border border-onedark-borderSubtle text-onedark-yellow font-mono text-[12px] font-medium tracking-tight mx-0.5 align-baseline select-text"
+          className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-borderSubtle text-onedark-accent font-mono text-[12px] font-semibold tracking-tight mx-0.5 align-baseline select-text shadow-2xs"
         >
           {htmlCodeMatch[1]}
         </code>
@@ -929,7 +993,7 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
           key={i}
           src={imgUrl}
           alt={altText}
-          className="inline-block max-w-full max-h-[360px] object-contain rounded-lg my-2 align-middle border border-onedark-borderSubtle/50 shadow-xs"
+          className="inline-block max-w-full max-h-[360px] object-contain rounded-lg my-2 align-middle border border-onedark-borderSubtle shadow-xs"
           loading="lazy"
           onError={(e) => {
             (e.currentTarget as HTMLElement).style.display = 'none';
@@ -950,7 +1014,7 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
             key={i}
             src={srcMatch[1]}
             alt={altMatch ? altMatch[1] : ''}
-            className="inline-block max-w-full max-h-[360px] object-contain rounded-lg my-2 align-middle border border-onedark-borderSubtle/50 shadow-xs"
+            className="inline-block max-w-full max-h-[360px] object-contain rounded-lg my-2 align-middle border border-onedark-borderSubtle shadow-xs"
             loading="lazy"
             onError={(e) => {
               (e.currentTarget as HTMLElement).style.display = 'none';
@@ -967,43 +1031,32 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
       const rawLinkContent = htmlAnchorMatch[2].trim();
       const linkText = rawLinkContent.replace(/<[^>]+>/g, '').trim() || linkUrl;
       return (
-        <span key={i} className="inline-flex items-center space-x-0.5 group/link">
-          <a
-            href={linkUrl}
-            onClick={(e) => {
-              if (linkUrl.startsWith('#')) {
-                e.preventDefault();
-                const targetId = linkUrl.slice(1);
-                const targetEl = document.getElementById(targetId);
-                if (targetEl) {
-                  targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
-                return;
-              }
-              if (e.metaKey || e.ctrlKey || !onLinkClick) {
-                return;
-              }
+        <a
+          key={i}
+          href={linkUrl}
+          onClick={(e) => {
+            if (linkUrl.startsWith('#')) {
               e.preventDefault();
-              onLinkClick(linkUrl, linkText);
-            }}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-onedark-accent underline underline-offset-2 hover:text-onedark-accent/80 transition-colors font-medium cursor-pointer"
-            title={`Preview ${linkText} in sidebar (Cmd/Ctrl + click for new tab)`}
-          >
-            {linkText}
-          </a>
-          <a
-            href={linkUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="opacity-0 group-hover/link:opacity-100 text-onedark-muted hover:text-onedark-accent transition-all p-0.5"
-            title="Open in external browser tab"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <ExternalLink className="w-2.5 h-2.5 inline" />
-          </a>
-        </span>
+              const targetId = linkUrl.slice(1);
+              const targetEl = document.getElementById(targetId);
+              if (targetEl) {
+                targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }
+              return;
+            }
+            if (e.metaKey || e.ctrlKey || !onLinkClick) {
+              return;
+            }
+            e.preventDefault();
+            onLinkClick(linkUrl, linkText);
+          }}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-onedark-accent underline underline-offset-2 hover:text-onedark-accent/80 transition-colors font-medium cursor-pointer inline"
+          title={`Preview ${linkText} in sidebar (Cmd/Ctrl + click for new tab)`}
+        >
+          {linkText}
+        </a>
       );
     }
 
@@ -1012,44 +1065,57 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
     if (linkMatch) {
       const linkText = linkMatch[1];
       const linkUrl = linkMatch[2];
-      return (
-        <span key={i} className="inline-flex items-center space-x-0.5 group/link">
-          <a
-            href={linkUrl}
+
+      const isPlanAction = linkUrl.startsWith('plan://') || linkUrl === '#open-plan-doc' || linkUrl === 'action://open-plan-doc';
+      if (isPlanAction) {
+        return (
+          <button
+            key={i}
+            type="button"
             onClick={(e) => {
-              if (linkUrl.startsWith('#')) {
-                e.preventDefault();
-                const targetId = linkUrl.slice(1);
-                const targetEl = document.getElementById(targetId);
-                if (targetEl) {
-                  targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
-                return;
-              }
-              if (e.metaKey || e.ctrlKey || !onLinkClick) {
-                return;
-              }
               e.preventDefault();
-              onLinkClick(linkUrl, linkText);
+              e.stopPropagation();
+              if (onLinkClick) {
+                onLinkClick(linkUrl, linkText);
+              }
             }}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-onedark-accent underline underline-offset-2 hover:text-onedark-accent/80 transition-colors font-medium cursor-pointer"
-            title={`Preview ${linkText} in sidebar (Cmd/Ctrl + click for new tab)`}
+            className="inline-flex items-center space-x-2 my-2 px-3.5 py-2 rounded-lg bg-onedark-accent/15 hover:bg-onedark-accent/25 border border-onedark-accent/35 text-onedark-accent text-xs font-sans font-medium transition-all group cursor-pointer shadow-xs active:scale-[0.99]"
+            title="Open architectural plan in Web & Docs"
           >
-            {linkText}
-          </a>
-          <a
-            href={linkUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="opacity-0 group-hover/link:opacity-100 text-onedark-muted hover:text-onedark-accent transition-all p-0.5"
-            title="Open in external browser tab"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <ExternalLink className="w-2.5 h-2.5 inline" />
-          </a>
-        </span>
+            <Compass className="w-3.5 h-3.5 text-onedark-accent shrink-0 animate-pulse" />
+            <span className="font-semibold">{linkText.replace(/^[👉📄\s]+/, '')}</span>
+            <ArrowRight className="w-3 h-3 text-onedark-accent group-hover:translate-x-0.5 transition-transform" />
+          </button>
+        );
+      }
+
+      return (
+        <a
+          key={i}
+          href={linkUrl}
+          onClick={(e) => {
+            if (linkUrl.startsWith('#')) {
+              e.preventDefault();
+              const targetId = linkUrl.slice(1);
+              const targetEl = document.getElementById(targetId);
+              if (targetEl) {
+                targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }
+              return;
+            }
+            if (e.metaKey || e.ctrlKey || !onLinkClick) {
+              return;
+            }
+            e.preventDefault();
+            onLinkClick(linkUrl, linkText);
+          }}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-onedark-accent underline underline-offset-2 hover:text-onedark-accent/80 transition-colors font-medium cursor-pointer inline"
+          title={`Preview ${linkText} in sidebar (Cmd/Ctrl + click for new tab)`}
+        >
+          {linkText}
+        </a>
       );
     }
 
@@ -1068,34 +1134,22 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
 
       return (
         <React.Fragment key={i}>
-          <span className="inline-flex items-center space-x-0.5 group/link align-baseline">
-            <a
-              href={cleanUrl}
-              onClick={(e) => {
-                if (e.metaKey || e.ctrlKey || !onLinkClick) {
-                  return;
-                }
-                e.preventDefault();
-                onLinkClick(cleanUrl, displayText);
-              }}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-onedark-accent underline underline-offset-2 hover:text-onedark-accent/80 transition-colors font-mono text-[12.5px] cursor-pointer break-all"
-              title={`Preview ${cleanUrl} in sidebar`}
-            >
-              {displayText}
-            </a>
-            <a
-              href={cleanUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="opacity-0 group-hover/link:opacity-100 text-onedark-muted hover:text-onedark-accent transition-all p-0.5"
-              title="Open in external browser tab"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <ExternalLink className="w-2.5 h-2.5 inline" />
-            </a>
-          </span>
+          <a
+            href={cleanUrl}
+            onClick={(e) => {
+              if (e.metaKey || e.ctrlKey || !onLinkClick) {
+                return;
+              }
+              e.preventDefault();
+              onLinkClick(cleanUrl, displayText);
+            }}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-onedark-accent underline underline-offset-2 hover:text-onedark-accent/80 transition-colors font-mono text-[12.5px] cursor-pointer break-all inline"
+            title={`Preview ${cleanUrl} in sidebar`}
+          >
+            {displayText}
+          </a>
           {trailingPunct}
         </React.Fragment>
       );

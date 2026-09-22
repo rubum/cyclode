@@ -29,12 +29,15 @@ import {
   MessageSquarePlus,
   Sparkles,
   Bot,
-  Radio
+  Radio,
+  Compass,
+  Play
 } from 'lucide-react';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { PRReviewAgentPopover, LineContext } from './PRReviewAgentPopover';
 import { LinearIssueDetailView } from './LinearIssueDetailView';
 import { RepoListenerConfigModal } from './RepoListenerConfigModal';
+import { useWebSocket } from '../../contexts/WebSocketContext';
 import { Task } from '../../types';
 
 export interface DocNavItem {
@@ -116,6 +119,7 @@ interface DocsViewerTabProps {
   onClear?: () => void;
   onAskAboutRepo?: (repoName: string) => void;
   onCloneToSession?: (repoUrl: string, repoName: string) => void;
+  onAskAgent?: (prompt: string) => void;
   task?: Task | null;
   repositories?: any[];
 }
@@ -819,9 +823,11 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
   onClear,
   onAskAboutRepo,
   onCloneToSession,
+  onAskAgent,
   task,
   repositories = [],
 }) => {
+  const { subscribe } = useWebSocket();
   const [data, setData] = useState<ReaderResponse | null>(null);
   const [currentUrl, setCurrentUrl] = useState<string | null>(url);
   const [history, setHistory] = useState<string[]>(url ? [url] : []);
@@ -836,8 +842,11 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
   const [isReviewPopoverOpen, setIsReviewPopoverOpen] = useState<boolean>(false);
   const [activeLineComment, setActiveLineComment] = useState<LineContext | null>(null);
   const [isRepoSentinelModalOpen, setIsRepoSentinelModalOpen] = useState<boolean>(false);
+  const [isExecutingPlan, setIsExecutingPlan] = useState<boolean>(false);
 
-  const [isOutlineOpen, setIsOutlineOpen] = useState<boolean>(false);
+  const [isOutlineOpen, setIsOutlineOpen] = useState<boolean>(true);
+  const [outlineFilterQuery, setOutlineFilterQuery] = useState<string>('');
+  const [activeHeadingId, setActiveHeadingId] = useState<string>('');
   const [isSiteTreeOpen, setIsSiteTreeOpen] = useState<boolean>(false);
   const [treeSearchQuery, setTreeSearchQuery] = useState<string>('');
   const [searchMode, setSearchMode] = useState<'tree' | 'full'>('tree');
@@ -845,7 +854,8 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
   const [isSearching, setIsSearching] = useState<boolean>(false);
 
   const contentScrollRef = useRef<HTMLDivElement>(null);
-  const outlinePopoverRef = useRef<HTMLDivElement>(null);
+
+  const isPlanDoc = Boolean((currentUrl && currentUrl.startsWith('plan://')) || (data?.url && data.url.startsWith('plan://')));
 
   const isAlreadyCloned = useMemo(() => {
     if (!data?.repo_name && !data?.clone_url) return false;
@@ -879,6 +889,38 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
     setIsLoading(true);
     setError(null);
     setPrTab('overview');
+
+    if (targetUrl.startsWith('plan://')) {
+      const planTaskId = targetUrl.replace('plan://', '').split('/')[0] || task?.id;
+      if (!planTaskId) {
+        setError('No active session task specified for this plan.');
+        setIsLoading(false);
+        return;
+      }
+      try {
+        const apiBase = import.meta.env.VITE_API_URL || '';
+        const res = await fetch(`${apiBase}/api/tasks/${planTaskId}/plan`);
+        if (!res.ok) {
+          throw new Error(`Failed to load plan document (HTTP ${res.status})`);
+        }
+        const planData = await res.json();
+        const planMarkdown = planData.markdown || planData.plan?.markdown || '# Implementation Plan\n\nNo detailed plan generated yet.';
+        setData({
+          type: 'web',
+          url: targetUrl,
+          title: planData.title ? `Plan: ${planData.title}` : (initialTitle || 'Implementation Plan'),
+          description: planData.plan?.objective || 'Active Execution Plan',
+          content_markdown: planMarkdown,
+        });
+      } catch (err: any) {
+        console.error('Error fetching plan document:', err);
+        setError(err.message || 'Failed to fetch plan document');
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
     try {
       const apiBase = import.meta.env.VITE_API_URL || '';
       const res = await fetch(`${apiBase}/api/reader?url=${encodeURIComponent(targetUrl)}`);
@@ -899,6 +941,18 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
       setIsLoading(false);
     }
   };
+
+  // Real-time synchronization for active plan updates
+  useEffect(() => {
+    if (!currentUrl?.startsWith('plan://')) return;
+    const unsub = subscribe('TASK_PLAN_UPDATED', (payload: any) => {
+      const planTaskId = currentUrl.replace('plan://', '').split('/')[0] || task?.id;
+      if (!payload?.task_id || payload.task_id === planTaskId) {
+        fetchDoc(currentUrl);
+      }
+    });
+    return () => unsub();
+  }, [currentUrl, subscribe, task?.id]);
 
   useEffect(() => {
     if (currentUrl) {
@@ -1015,27 +1069,51 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
     return items;
   }, [data?.content_markdown]);
 
+  const filteredHeadings = useMemo(() => {
+    if (!outlineFilterQuery.trim()) return headings;
+    const q = outlineFilterQuery.toLowerCase();
+    return headings.filter(h => h.title.toLowerCase().includes(q));
+  }, [headings, outlineFilterQuery]);
+
   const scrollToHeading = (id: string) => {
     if (!contentScrollRef.current) return;
     const target = contentScrollRef.current.querySelector(`[id="${id}"]`);
     if (target) {
       target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      setIsOutlineOpen(false);
+      setActiveHeadingId(id);
     }
   };
 
-  // Close outline popover when clicking outside
+  // Track active heading as user scrolls
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (outlinePopoverRef.current && !outlinePopoverRef.current.contains(e.target as Node)) {
-        setIsOutlineOpen(false);
+    const scrollContainer = contentScrollRef.current;
+    if (!scrollContainer || headings.length === 0) return;
+
+    const handleScroll = () => {
+      const headingElements = headings
+        .map(h => ({ id: h.id, el: scrollContainer.querySelector(`[id="${h.id}"]`) }))
+        .filter((item): item is { id: string; el: Element } => item.el !== null);
+
+      let currentActive = headingElements[0]?.id || '';
+      const containerTop = scrollContainer.getBoundingClientRect().top;
+
+      for (const item of headingElements) {
+        const rect = item.el.getBoundingClientRect();
+        if (rect.top - containerTop <= 140) {
+          currentActive = item.id;
+        } else {
+          break;
+        }
+      }
+
+      if (currentActive) {
+        setActiveHeadingId(currentActive);
       }
     };
-    if (isOutlineOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [isOutlineOpen]);
+
+    scrollContainer.addEventListener('scroll', handleScroll, { passive: true });
+    return () => scrollContainer.removeEventListener('scroll', handleScroll);
+  }, [headings]);
 
   // Filter site navigation items
   const filteredNav = useMemo(() => {
@@ -1109,7 +1187,9 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
             </button>
           </div>
 
-          {isGitHub ? (
+          {isPlanDoc ? (
+            <Compass className="w-4 h-4 text-onedark-accent flex-shrink-0" />
+          ) : isGitHub ? (
             <FolderGit2 className="w-4 h-4 text-onedark-folder flex-shrink-0" />
           ) : (
             <Globe className="w-4 h-4 text-onedark-accent flex-shrink-0" />
@@ -1125,7 +1205,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
         {/* Right: Actions */}
         <div className="flex items-center space-x-1 flex-shrink-0">
           {/* Site Tree & Search Drawer Toggle */}
-          {((data?.navigation && data.navigation.length > 0) || (data && !isGitHub)) && (
+          {((data?.navigation && data.navigation.length > 0) || (data && !isGitHub && !isPlanDoc)) && (
             <button
               onClick={() => setIsSiteTreeOpen(!isSiteTreeOpen)}
               className={`flex items-center space-x-1 px-2 py-1 rounded text-xs transition-all border cursor-pointer ${
@@ -1140,82 +1220,52 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
             </button>
           )}
 
-          {/* Table of Contents / Outline Popover */}
-          {headings.length > 1 && (
-            <div className="relative" ref={outlinePopoverRef}>
-              <button
-                onClick={() => setIsOutlineOpen(!isOutlineOpen)}
-                className={`flex items-center space-x-1 px-2 py-1 rounded text-xs transition-all border ${
-                  isOutlineOpen
-                    ? 'bg-onedark-accent/20 border-onedark-accent/40 text-onedark-accent font-semibold'
-                    : 'bg-onedark-surface/60 border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fg'
-                }`}
-                title="Table of Contents (Jump to section)"
-              >
-                <List className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline text-[11px]">Outline</span>
-                <span className="px-1 py-0.2 rounded-full bg-onedark-surface text-[10px] text-onedark-muted font-mono">
-                  {headings.length}
-                </span>
-              </button>
-
-              {isOutlineOpen && (
-                <div className="absolute right-0 mt-1.5 w-64 max-h-80 overflow-y-auto rounded-xl border border-onedark-border bg-onedark-bg shadow-xl z-50 p-2 space-y-0.5">
-                  <div className="flex items-center justify-between px-2 py-1 border-b border-onedark-borderSubtle mb-1 text-[11px] font-semibold text-onedark-fgBright">
-                    <span>Table of Contents</span>
-                    <button
-                      onClick={() => setIsOutlineOpen(false)}
-                      className="text-onedark-muted hover:text-onedark-fg p-0.5 rounded"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                  {headings.map((h, idx) => (
-                    <button
-                      key={`${h.id}-${idx}`}
-                      onClick={() => scrollToHeading(h.id)}
-                      className={`w-full text-left truncate py-1 px-2 rounded hover:bg-onedark-surface transition-colors text-xs ${
-                        h.level === 1
-                          ? 'font-bold text-onedark-fgBright'
-                          : h.level === 2
-                          ? 'pl-3.5 font-medium text-onedark-fg'
-                          : 'pl-6 text-onedark-muted text-[11px]'
-                      }`}
-                      title={h.title}
-                    >
-                      {h.title}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+          {/* Document Outline Left Sidebar Toggle */}
+          {headings.length > 0 && (
+            <button
+              onClick={() => setIsOutlineOpen(!isOutlineOpen)}
+              className={`flex items-center space-x-1.5 px-2.5 py-1 rounded text-xs transition-all border cursor-pointer ${
+                isOutlineOpen
+                  ? 'bg-onedark-accent/20 border-onedark-accent/40 text-onedark-accent font-semibold shadow-xs'
+                  : 'bg-onedark-surface/60 border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fg hover:border-onedark-border'
+              }`}
+              title={isOutlineOpen ? "Hide Document Outline" : "Show Document Outline (Left Sidebar)"}
+            >
+              <List className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline text-[11px]">Outline</span>
+              <span className="px-1.5 py-0.2 rounded-full bg-onedark-surface text-[10px] text-onedark-muted font-mono">
+                {headings.length}
+              </span>
+            </button>
           )}
 
-          {/* Mode Switcher */}
-          <div className="flex items-center bg-onedark-surface/80 rounded border border-onedark-borderSubtle p-0.5 text-[11px] font-medium mr-0.5">
-            <button
-              onClick={() => setViewMode('reader')}
-              className={`px-2 py-0.5 rounded transition-all ${
-                viewMode === 'reader'
-                  ? 'bg-onedark-accent text-white shadow-xs font-semibold'
-                  : 'text-onedark-muted hover:text-onedark-fg'
-              }`}
-              title="Clean Reader Mode"
-            >
-              Reader
-            </button>
-            <button
-              onClick={() => setViewMode('webview')}
-              className={`px-2 py-0.5 rounded transition-all ${
-                viewMode === 'webview'
-                  ? 'bg-onedark-accent text-white shadow-xs font-semibold'
-                  : 'text-onedark-muted hover:text-onedark-fg'
-              }`}
-              title="Live Embedded Webview"
-            >
-              Webview
-            </button>
-          </div>
+          {/* Mode Switcher (Hide in Plan Mode) */}
+          {!isPlanDoc && (
+            <div className="flex items-center bg-onedark-surface/80 rounded border border-onedark-borderSubtle p-0.5 text-[11px] font-medium mr-0.5">
+              <button
+                onClick={() => setViewMode('reader')}
+                className={`px-2 py-0.5 rounded transition-all ${
+                  viewMode === 'reader'
+                    ? 'bg-onedark-accent text-white shadow-xs font-semibold'
+                    : 'text-onedark-muted hover:text-onedark-fg'
+                }`}
+                title="Clean Reader Mode"
+              >
+                Reader
+              </button>
+              <button
+                onClick={() => setViewMode('webview')}
+                className={`px-2 py-0.5 rounded transition-all ${
+                  viewMode === 'webview'
+                    ? 'bg-onedark-accent text-white shadow-xs font-semibold'
+                    : 'text-onedark-muted hover:text-onedark-fg'
+                }`}
+                title="Live Embedded Webview"
+              >
+                Webview
+              </button>
+            </div>
+          )}
 
           <button
             onClick={() => fetchDoc(currentUrl || url)}
@@ -1233,15 +1283,17 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
             {isCopied ? <Check className="w-3.5 h-3.5 text-onedark-green" /> : <Copy className="w-3.5 h-3.5" />}
           </button>
 
-          <a
-            href={activeUrl || url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="p-1.5 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-accent transition-colors"
-            title="Open in new browser tab"
-          >
-            <ExternalLink className="w-3.5 h-3.5" />
-          </a>
+          {!isPlanDoc && (
+            <a
+              href={activeUrl || url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-1.5 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-accent transition-colors"
+              title="Open in new browser tab"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          )}
 
           {onClear && (
             <button
@@ -1267,6 +1319,57 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
         </div>
       ) : (
         <>
+          {/* Plan Mode Specific Hero Banner */}
+          {isPlanDoc && (
+            <div className="bg-onedark-surface/30 border-b border-onedark-borderSubtle px-3 py-2.5 flex flex-wrap items-center justify-between gap-2.5 text-xs flex-shrink-0 select-none">
+              <div className="flex items-center space-x-2.5 min-w-0">
+                <span className="px-2 py-0.5 rounded-full font-mono text-[10px] font-bold uppercase bg-onedark-accent/15 text-onedark-accent border border-onedark-accent/30 flex items-center space-x-1.5 shrink-0">
+                  <span className="w-1.5 h-1.5 rounded-full bg-onedark-accent animate-pulse" />
+                  <span>Plan Mode Active</span>
+                </span>
+                <span className="text-xs font-semibold text-onedark-fgBright truncate">
+                  {data?.description || data?.title || 'Execution Plan Specification'}
+                </span>
+              </div>
+
+              <div className="flex items-center space-x-2 shrink-0">
+                {onAskAgent && (
+                  <>
+                    <button
+                      onClick={() => onAskAgent("I have reviewed the plan. Please make the following modifications: ")}
+                      className="px-2.5 py-1 rounded-lg bg-onedark-surface hover:bg-onedark-surface/80 border border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fg text-[11px] font-medium transition-colors cursor-pointer"
+                      title="Request revisions to the implementation plan in chat"
+                    >
+                      Request Revisions
+                    </button>
+                    <button
+                      disabled={isExecutingPlan}
+                      onClick={async () => {
+                        setIsExecutingPlan(true);
+                        const planTaskId = (currentUrl || '').replace('plan://', '').split('/')[0] || task?.id;
+                        if (planTaskId) {
+                          try {
+                            const apiBase = import.meta.env.VITE_API_URL || '';
+                            await fetch(`${apiBase}/api/tasks/${planTaskId}/plan/execute`, { method: 'POST' });
+                          } catch (e) {
+                            console.error('Execute plan notice:', e);
+                          }
+                        }
+                        onAskAgent("Proceed with the execution plan.");
+                        setTimeout(() => setIsExecutingPlan(false), 2000);
+                      }}
+                      className="px-3 py-1 rounded-lg bg-onedark-green/20 hover:bg-onedark-green/30 border border-onedark-green/40 text-onedark-green text-[11px] font-semibold transition-all cursor-pointer shadow-xs active:scale-95 flex items-center space-x-1.5 disabled:opacity-50"
+                      title="Approve plan and trigger agent execution"
+                    >
+                      <Play className={`w-3 h-3 ${isExecutingPlan ? 'animate-spin' : ''}`} />
+                      <span>{isExecutingPlan ? 'Initiating...' : 'Proceed & Execute Plan'}</span>
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* GitHub PR Specific Hero Header & Sub-Tab Bar */}
           {data?.type === 'github' && data.is_pr && (
         <div className="bg-onedark-surface/30 border-b border-onedark-borderSubtle select-none flex-shrink-0">
@@ -1448,8 +1551,92 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
         </div>
       )}
 
-      {/* Main Content Area with Optional Collapsible Site Tree */}
+      {/* Main Content Area with Optional Collapsible Site Tree & Outline Sidebar */}
       <div className="flex-1 flex overflow-hidden relative">
+        {/* Collapsible Document Outline Left Sidebar */}
+        {isOutlineOpen && headings.length > 0 && (
+          <aside className="w-64 sm:w-72 border-r border-onedark-borderSubtle bg-onedark-bg/95 flex flex-col flex-shrink-0 z-10 select-none transition-all shadow-md sm:shadow-none">
+            {/* Outline Header */}
+            <div className="p-2.5 px-3 border-b border-onedark-borderSubtle flex items-center justify-between bg-onedark-surface/20">
+              <div className="flex items-center space-x-2">
+                <List className="w-3.5 h-3.5 text-onedark-accent" />
+                <span className="text-xs font-semibold text-onedark-fgBright">Outline</span>
+                <span className="px-1.5 py-0.2 rounded-full bg-onedark-surface border border-onedark-borderSubtle text-[10px] text-onedark-muted font-mono">
+                  {headings.length}
+                </span>
+              </div>
+              <button
+                onClick={() => setIsOutlineOpen(false)}
+                className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-colors cursor-pointer"
+                title="Hide Outline Sidebar"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Quick Filter (when > 4 headings) */}
+            {headings.length > 4 && (
+              <div className="p-2 border-b border-onedark-borderSubtle/60">
+                <div className="flex items-center space-x-1.5 bg-onedark-surface/60 rounded px-2 py-1 border border-onedark-borderSubtle">
+                  <Search className="w-3 h-3 text-onedark-muted shrink-0" />
+                  <input
+                    type="text"
+                    value={outlineFilterQuery}
+                    onChange={(e) => setOutlineFilterQuery(e.target.value)}
+                    placeholder="Filter sections..."
+                    className="w-full bg-transparent border-none text-[11px] text-onedark-fg focus:outline-none placeholder:text-onedark-muted/60"
+                  />
+                  {outlineFilterQuery && (
+                    <button onClick={() => setOutlineFilterQuery('')} className="text-onedark-muted hover:text-onedark-fg cursor-pointer">
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Headings List */}
+            <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">
+              {filteredHeadings.length === 0 ? (
+                <div className="p-3 text-center text-xs text-onedark-muted">
+                  No matching sections
+                </div>
+              ) : (
+                filteredHeadings.map((h, idx) => {
+                  const isActive = activeHeadingId === h.id;
+                  return (
+                    <button
+                      key={`${h.id}-${idx}`}
+                      onClick={() => scrollToHeading(h.id)}
+                      className={`w-full text-left py-1.5 px-2 rounded-md hover:bg-onedark-surface transition-colors cursor-pointer text-xs flex items-center space-x-2 group ${
+                        isActive
+                          ? 'bg-onedark-accent/15 text-onedark-accent font-semibold border-l-2 border-onedark-accent'
+                          : h.level === 1
+                          ? 'font-bold text-onedark-fgBright'
+                          : h.level === 2
+                          ? 'pl-3 font-medium text-onedark-fg'
+                          : 'pl-5 text-onedark-muted text-[11px]'
+                      }`}
+                      title={h.title}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                        isActive
+                          ? 'bg-onedark-accent'
+                          : h.level === 1
+                          ? 'bg-onedark-accent/60'
+                          : h.level === 2
+                          ? 'bg-onedark-fg/30'
+                          : 'bg-onedark-muted/30'
+                      }`} />
+                      <span className="truncate">{h.title}</span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </aside>
+        )}
+
         {/* Collapsible Site Tree & Full Doc Search Drawer */}
         {isSiteTreeOpen && (
           <div className="w-64 border-r border-onedark-borderSubtle bg-onedark-bg/95 flex flex-col flex-shrink-0 z-10 shadow-lg sm:shadow-none">

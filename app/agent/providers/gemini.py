@@ -38,6 +38,10 @@ class GeminiProvider(BaseLLMProvider):
             )
 
         clean_model = model_name.replace("google:", "").replace("gemini:", "").strip() if model_name else "gemini-3.7-flash"
+        if any(clean_model.startswith(p) for p in ["gemini-1.", "gemini-2.", "1.", "2."]) or "1.5" in clean_model or "2.0" in clean_model or "2.5" in clean_model:
+            clean_model = "gemini-3.7-flash"
+        elif not clean_model.startswith("gemini-3."):
+            clean_model = "gemini-3.7-flash"
         api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent?key={api_key}"
         
         # Tools structure for Gemini
@@ -172,10 +176,18 @@ class GeminiProvider(BaseLLMProvider):
             }
 
         clean_initial = model_name.replace("google:", "").replace("gemini:", "").strip() if model_name else "gemini-3.7-flash"
-        initial_candidates = [clean_initial, "gemini-3.7-flash", "gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash"]
-        candidate_models = list(dict.fromkeys([m for m in initial_candidates if m and m != "gemini-1.5-pro"]))
+        if any(clean_initial.startswith(p) for p in ["gemini-1.", "gemini-2.", "1.", "2."]) or "1.5" in clean_initial or "2.0" in clean_initial or "2.5" in clean_initial:
+            clean_initial = "gemini-3.7-flash"
+        elif not clean_initial.startswith("gemini-3."):
+            clean_initial = "gemini-3.7-flash"
+
+        initial_candidates = [clean_initial, "gemini-3.7-flash", "gemini-3.8-flash"]
+        candidate_models = list(dict.fromkeys([
+            m for m in initial_candidates 
+            if m and not any(m.startswith(p) for p in ["gemini-1.", "gemini-2."]) and "1.5" not in m and "2.0" not in m and "2.5" not in m
+        ]))
         if not candidate_models:
-            candidate_models = ["gemini-3.7-flash", "gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash"]
+            candidate_models = ["gemini-3.7-flash", "gemini-3.8-flash"]
         should_close = False
         if client is None:
             client = httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0, read=15.0))

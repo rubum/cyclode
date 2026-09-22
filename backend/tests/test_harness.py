@@ -138,3 +138,161 @@ def test_guardrail_intent_triggers_on_clean_workspace(tmp_path):
     assert v["status"] in ["missing_entry_point", "missing_workspace", "empty_ui"]
 
 
+def test_generate_plan_markdown():
+    from app.agent.harness import generate_plan_markdown
+
+    sample_plan = {
+        "intent_category": "code_modification",
+        "objective": "Build user authentication with JWT",
+        "steps": [
+            {"id": "step-1", "title": "Scaffold auth router and schemas", "status": "completed"},
+            {"id": "step-2", "title": "Implement password hashing with bcrypt", "status": "in_progress"},
+            {"id": "step-3", "title": "Add JWT token refresh endpoint", "status": "pending"},
+        ],
+        "evaluation": {
+            "status": "in_progress",
+            "summary": "Step 1 complete"
+        }
+    }
+
+    md = generate_plan_markdown(sample_plan, title="JWT Auth Implementation")
+    assert "# Implementation Plan: JWT Auth Implementation" in md
+    assert "```mermaid" in md
+    assert "flowchart LR" in md
+    assert "Scaffold auth router and schemas" in md
+    assert "*(Done)*" in md
+    assert "*(In Progress)*" in md
+    assert "*(Pending)*" in md
+    assert "Invariant Verification" in md
+
+
+def test_generate_plan_markdown_plan_mode():
+    from app.agent.harness import generate_plan_markdown
+
+    sample_plan = {
+        "intent_category": "planning",
+        "objective": "Architecture plan for real-time WebSocket telemetry",
+        "steps": [
+            {"id": "step-1", "title": "Analyze existing WebSocket hub and event protocols", "status": "completed"},
+            {"id": "step-2", "title": "Design broadcast streaming contract", "status": "in_progress"},
+            {"id": "step-3", "title": "Define invariant verification test suite", "status": "pending"},
+        ],
+        "evaluation": {
+            "status": "in_progress",
+            "summary": "Analyzing protocols"
+        }
+    }
+
+    md = generate_plan_markdown(sample_plan, title="So what's the plan")
+    assert "# Implementation Plan: So what's the plan" in md
+    assert "> [!IMPORTANT]" in md
+    assert "**Plan Mode Active**" in md
+    assert "`planning`" in md
+    assert "```mermaid" in md
+    assert "Analyze existing WebSocket hub" in md
+    assert "*(Done)*" in md
+    assert "Invariant Verification" in md
+
+
+def test_plan_mode_trigger_classification():
+    planning_queries = [
+        "So what's the plan",
+        "what's the plan",
+        "What is the plan?",
+        "Plan this out for me",
+        "Can you create a plan for migration?",
+        "give me a plan"
+    ]
+
+    for q in planning_queries:
+        cleaned = q.strip().lower()
+        planning_phrases = [
+            "what's the plan", "whats the plan", "what is the plan",
+            "so what's the plan", "so whats the plan",
+            "plan this", "plan this out", "create a plan", "make a plan",
+            "show me the plan", "give me a plan", "draft a plan", "propose a plan",
+            "plan mode", "execution plan"
+        ]
+        matched = any(phrase in cleaned for phrase in planning_phrases) or cleaned.startswith("plan ") or cleaned == "plan"
+        assert matched, f"Failed to match planning intent on query: '{q}'"
+
+
+def test_generate_plan_markdown_rich_phases():
+    from app.agent.harness import generate_plan_markdown
+
+    rich_plan = {
+        "intent_category": "planning",
+        "title": "Cyclode Architecture Hardening & Stabilization",
+        "overview": "This plan outlines a phased remediation strategy to eliminate codebase duplication, resolve critical security and event loop bottlenecks, stabilize concurrency, and refactor the monolithic agent dispatcher.",
+        "phases": [
+            {
+                "phase_number": 1,
+                "title": "Repository Hygiene & Test Suite Consolidation",
+                "objective": "Eliminate split-brain code drift between root directories and backend/ / frontend/ , and ensure test runners run cleanly without namespace collisions.",
+                "file_touchpoints": [
+                    "Delete redundant root mirrors: app/ , cyclode/ , src/ , tests/",
+                    "Update pyproject.toml: point testpaths = ['backend/tests']"
+                ],
+                "verification_criteria": [
+                    "Running pytest from the root executes all 166+ test suites without import file mismatch collection errors.",
+                    "Running npm run build in frontend/ compiles cleanly with zero missing component imports."
+                ]
+            },
+            {
+                "phase_number": 2,
+                "title": "Security & Authentication Hardening",
+                "objective": "Mitigate SSRF vectors in the live preview proxy, eliminate insecure cryptographic fallbacks, and tighten CORS and webhook verification.",
+                "file_touchpoints": [
+                    "backend/app/api/preview.py: Implement an ephemeral port allowlist",
+                    "backend/app/core/security.py: Disallow startup without SECRET_KEY"
+                ],
+                "verification_criteria": [
+                    "Unit tests validating that requests to proxy ports <3000 return 403 Forbidden."
+                ]
+            }
+        ],
+        "steps": [
+            {"id": "step-1", "title": "Repository Hygiene & Test Suite Consolidation", "status": "pending"},
+            {"id": "step-2", "title": "Security & Authentication Hardening", "status": "pending"}
+        ]
+    }
+
+    md = generate_plan_markdown(rich_plan)
+    assert "# Implementation Plan: Cyclode Architecture Hardening & Stabilization" in md
+    assert "This plan outlines a phased remediation strategy" in md
+    assert "### Phase 1: Repository Hygiene & Test Suite Consolidation" in md
+    assert "**Objective**: Eliminate split-brain code drift" in md
+    assert "- **File Touchpoints**:" in md
+    assert "Delete redundant root mirrors" in md
+    assert "- **Verification Criteria**:" in md
+    assert "Running pytest from the root" in md
+    assert "### Phase 2: Security & Authentication Hardening" in md
+
+
+def test_format_plan_chat_summary():
+    from app.agent.harness import format_plan_chat_summary
+
+    plan_data = {
+        "title": "Cyclode Architecture Hardening and Reliability Remediation",
+        "overview": "This plan outlines a phased architectural remediation for the Cyclode platform.",
+        "phases": [
+            {
+                "phase_number": 1,
+                "title": "Repository Hygiene & Tooling",
+                "objective": "Eliminate stale root duplicate directories and configure pytest."
+            },
+            {
+                "phase_number": 2,
+                "title": "Security Hardening",
+                "objective": "Close SSRF vectors in dev-server preview proxy."
+            }
+        ]
+    }
+
+    summary = format_plan_chat_summary(plan_data, task_id="task-test-summary-1")
+    assert "I have formulated an implementation plan for **Cyclode Architecture Hardening and Reliability Remediation**." in summary
+    assert "This plan outlines a phased architectural remediation" in summary
+    assert "### Key Execution Phases" in summary
+    assert "- **Phase 1: Repository Hygiene & Tooling**: Eliminate stale root duplicate directories" in summary
+    assert "- **Phase 2: Security Hardening**: Close SSRF vectors" in summary
+    assert "[👉 Inspect Full Plan in Web & Docs](plan://task-test-summary-1)" in summary

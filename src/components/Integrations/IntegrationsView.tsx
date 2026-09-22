@@ -617,7 +617,6 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                     <option value="claude-fable-5-1">Claude Fable 5.1 (Mythos Frontier)</option>
                     <option value="gpt-6-astra">GPT-6 Astra (Frontier Autonomous)</option>
                     <option value="claude-3-7-sonnet">Claude 3.7 Sonnet (Hybrid Thinking)</option>
-                    <option value="gemini-2.0-pro">Gemini 2.0 Pro (Deep Reasoning)</option>
                     <option value="gpt-4o">GPT-4o (Multimodal)</option>
                   </select>
                   <div className="text-[10.5px] font-mono text-onedark-muted/80 truncate">
@@ -628,18 +627,18 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
 
               {/* Minor Model Tier */}
               <div className="p-4 rounded-xl bg-onedark-surface/40 border border-onedark-borderSubtle space-y-3 flex flex-col justify-between">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-mono font-bold text-cyan-400 uppercase tracking-wider flex items-center space-x-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-                      <span>Minor Tier (Fast Agentic)</span>
-                    </label>
+                <div className="space-y-1">
+                  <div className="flex items-center space-x-2">
+                    <Zap className="w-3.5 h-3.5 text-onedark-accent" />
+                    <span className="text-xs font-semibold text-onedark-fgBright font-sans">
+                      Minor Model (Fast Routing)
+                    </span>
                   </div>
                   <p className="text-[11.5px] text-onedark-muted leading-relaxed">
-                    Conversational Q&A, research, session titles, and dynamic task sub-plans.
+                    Lightweight model for conceptual Q&A, greetings, and dynamic intent classification.
                   </p>
                 </div>
-                <div className="space-y-1.5">
+                <div className="space-y-1.5 pt-1">
                   <select
                     value={minorModel}
                     onChange={(e) => setMinorModel(e.target.value)}
@@ -650,7 +649,6 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                     <option value="claude-3-5-haiku">Claude 3.5 Haiku (Fast Sub-agent)</option>
                     <option value="gpt-4o-mini">GPT-4o Mini (Lightweight)</option>
                     <option value="o3-mini">o3-mini (STEM Reasoning)</option>
-                    <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
                   </select>
                   <div className="text-[10.5px] font-mono text-onedark-muted/80 truncate">
                     Allocated for qa_research, titles, greetings
@@ -679,7 +677,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
               {filteredIntegrations.map((item) => (
                 <div
                   key={item.id}
-                  className="p-5 rounded-xl bg-onedark-darker/90 hover:bg-onedark-surface/30 border border-onedark-border hover:border-onedark-borderSubtle/80 space-y-4 shadow-sm transition-all flex flex-col justify-between"
+                  className="p-5 rounded-xl bg-onedark-darker/90 hover:bg-onedark-surface/30 border border-onedark-border hover:border-onedark-borderSubtle space-y-4 shadow-sm transition-all flex flex-col justify-between"
                 >
                   <div className="space-y-2.5">
                     <div className="flex items-start justify-between gap-3">
@@ -754,7 +752,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                 return (
                   <div
                     key={skill.id}
-                    className="p-5 rounded-xl bg-onedark-darker/90 hover:bg-onedark-surface/30 border border-onedark-border hover:border-onedark-borderSubtle/80 transition-all flex flex-col justify-between space-y-3 shadow-sm"
+                    className="p-5 rounded-xl bg-onedark-darker/90 hover:bg-onedark-surface/30 border border-onedark-border hover:border-onedark-borderSubtle transition-all flex flex-col justify-between space-y-3 shadow-sm"
                   >
                     <div className="space-y-2">
                       <div className="flex items-start justify-between gap-3">
@@ -813,7 +811,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                 return (
                   <div
                     key={ep.id}
-                    className="p-5 rounded-xl bg-onedark-darker/90 hover:bg-onedark-surface/30 border border-onedark-border hover:border-onedark-borderSubtle/80 space-y-3.5 flex flex-col justify-between shadow-sm transition-all"
+                    className="p-5 rounded-xl bg-onedark-darker/90 hover:bg-onedark-surface/30 border border-onedark-border hover:border-onedark-borderSubtle space-y-3.5 flex flex-col justify-between shadow-sm transition-all"
                   >
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
@@ -963,8 +961,6 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                     >
                       <option value="gemini-3.7-flash">Gemini 3.7 Flash (Default / Agentic Workhorse)</option>
                       <option value="gemini-3.8-flash">Gemini 3.8 Flash (Sub-second Agentic)</option>
-                      <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
-                      <option value="gemini-2.0-pro">Gemini 2.0 Pro (Deep Reasoning)</option>
                     </select>
                   )}
                   {selectedIntegration.id === 'anthropic' && (

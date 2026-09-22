@@ -39,9 +39,9 @@ def test_save_and_load_user_config():
     with tempfile.TemporaryDirectory() as tmpdir:
         with patch.dict(os.environ, {"CYCLODE_HOME": tmpdir}):
             ensure_cyclode_home()
-            save_user_config({"model": "gemini-2.5-pro", "gemini_api_key": "AIzaSyTest123"})
+            save_user_config({"model": "gemini-3.7-flash", "gemini_api_key": "AIzaSyTest123"})
             cfg = load_user_config()
-            assert cfg["model"] == "gemini-2.5-pro"
+            assert cfg["model"] == "gemini-3.7-flash"
             assert cfg["gemini_api_key"] == "AIzaSyTest123"
 
 

@@ -10,7 +10,7 @@ export type TaskStatus =
   | 'CANCELLED';
 export type LayoutPreset = 'split' | 'preview' | 'wide' | 'fullscreen' | 'standard';
 export type PlanStepStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
-export type PlanEvaluationStatus = 'pending' | 'evaluating' | 'accomplished' | 'needs_revision';
+export type PlanEvaluationStatus = 'pending' | 'evaluating' | 'accomplished' | 'needs_revision' | 'ready_for_review';
 
 export interface PlanStep {
   id: string;
@@ -31,10 +31,24 @@ export interface PlanEvaluation {
   checks?: PlanCheck[];
 }
 
+export interface PlanPhase {
+  phase_number?: number;
+  title: string;
+  objective?: string;
+  file_touchpoints?: string[];
+  verification_criteria?: string[];
+}
+
 export interface TaskPlan {
+  title?: string;
   objective: string;
+  overview?: string;
+  phases?: PlanPhase[];
   steps: PlanStep[];
   evaluation?: PlanEvaluation;
+  intent_category?: string;
+  markdown?: string;
+  document_markdown?: string;
 }
 
 export interface TaskMessage {

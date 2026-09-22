@@ -107,7 +107,7 @@ async def test_dynamic_plan_llm_synthesis(monkeypatch):
         plan = await harness._generate_dynamic_plan(
             client=client,
             api_key="AIzaSyTestKey",
-            model_name="gemini-2.5-flash",
+            model_name="gemini-3.7-flash",
             title="What is Redis LangCache",
             prompt="Explain Redis LangCache architecture",
             persona_name="SoftwareEngineer"
@@ -130,6 +130,7 @@ async def test_dynamic_plan_model_cascade_on_404(monkeypatch):
         def __init__(self, status_code, data_text=""):
             self.status_code = status_code
             self._text = data_text
+            self.text = data_text
 
         def json(self):
             return {
@@ -144,7 +145,7 @@ async def test_dynamic_plan_model_cascade_on_404(monkeypatch):
 
     import httpx
     async def mock_post(self, url, **kwargs):
-        if "unsupported-model-404" in url:
+        if "unsupported-model-404" in str(url):
             return MockCascadeResponse(404, "")
         return MockCascadeResponse(
             200,
@@ -190,7 +191,7 @@ async def test_dynamic_plan_error_surfacing_without_fallback(monkeypatch):
         plan = await harness._generate_dynamic_plan(
             client=client,
             api_key="AIzaSyTestKey",
-            model_name="gemini-2.5-flash",
+            model_name="gemini-3.7-flash",
             title="What is Redis LangCache",
             prompt="Explain Redis LangCache architecture",
             persona_name="SoftwareEngineer"
@@ -213,7 +214,7 @@ async def test_dynamic_plan_conversational_greeting():
         plan = await harness._generate_dynamic_plan(
             client=client,
             api_key="",
-            model_name="gemini-2.5-flash",
+            model_name="gemini-3.7-flash",
             title="hey",
             prompt="hey",
             persona_name="SoftwareEngineer"
@@ -233,7 +234,7 @@ async def test_dynamic_plan_missing_api_key():
         plan = await harness._generate_dynamic_plan(
             client=client,
             api_key="",
-            model_name="gemini-2.5-flash",
+            model_name="gemini-3.7-flash",
             title="Build App",
             prompt="Build a React app",
             persona_name="AppBuilder"
@@ -481,3 +482,175 @@ async def test_qa_task_evaluation_accomplished_without_preview(monkeypatch, tmp_
     assert all(s["status"] == "completed" for s in final_plan["steps"])
     assert any(c["name"] == "Analytical Synthesis" and c["passed"] for c in final_plan["evaluation"]["checks"])
     assert not any(c["name"] == "Live Application Preview" for c in final_plan["evaluation"]["checks"])
+
+
+def test_extract_plan_from_markdown():
+    from app.agent.harness import extract_plan_from_markdown
+
+    sample_md = """# Implementation Plan: Cyclode Architecture Hardening & Codebase Remediation
+
+This plan hardens the dynamic plan generation cascade and establishes bidirectional plan synchronization.
+
+### Phase 1: Hardened Multi-Candidate Dynamic Plan Generation
+**Objective**: Guarantee that dynamic plan synthesis cascades through valid models.
+- **File Touchpoints**:
+  - `backend/app/agent/providers/gemini.py`: Normalize models
+  - `backend/app/agent/harness.py`: Map model candidates
+- **Verification Criteria**:
+  - Run pytest tests/test_harness.py
+
+### Phase 2: Bi-Directional Plan Synchronization
+**Objective**: Synchronize agent response to the execution plan state.
+- **File Touchpoints**:
+  - `backend/app/agent/harness.py`: Assign markdown and parse steps
+- **Verification Criteria**:
+  - Verify on_plan receives updated markdown and pending steps
+"""
+
+    parsed = extract_plan_from_markdown(sample_md, default_title="Fallback Title")
+    assert parsed["intent_category"] == "planning"
+    assert "Cyclode Architecture Hardening" in parsed["title"]
+    assert len(parsed["phases"]) == 2
+    assert len(parsed["steps"]) == 2
+    assert "Hardened Multi-Candidate Dynamic Plan Generation" in parsed["steps"][0]["title"]
+    assert parsed["steps"][0]["status"] == "pending"
+    assert "Bi-Directional Plan Synchronization" in parsed["steps"][1]["title"]
+    assert parsed["steps"][1]["status"] == "pending"
+    assert parsed["evaluation"]["status"] == "ready_for_review"
+    assert parsed["markdown"] == sample_md
+
+
+@pytest.mark.asyncio
+async def test_plan_mode_promotes_agent_markdown(tmp_path, monkeypatch):
+    from app.agent.harness import AntigravityHarness
+    from app.db.session import init_db
+
+    await init_db()
+    harness = AntigravityHarness(model_name="gemini-3.7-flash")
+
+    emitted_plans = []
+    async def mock_on_plan(p):
+        emitted_plans.append(p)
+
+    agent_plan_text = """# Implementation Plan: Test Task Remediation
+
+Overview of the implementation plan.
+
+### Phase 1: Scaffolding Endpoints
+**Objective**: Set up basic routes.
+- **File Touchpoints**:
+  - `app/api/test.py`: Add route
+
+### Phase 2: Writing Test Suite
+**Objective**: Ensure 100% test coverage.
+"""
+
+    class MockGenericResponse:
+        def __init__(self, text):
+            self.status_code = 200
+            self._text = text
+
+        def json(self):
+            return {
+                "candidates": [{
+                    "content": {
+                        "parts": [{
+                            "text": self._text
+                        }]
+                    }
+                }]
+            }
+
+    import httpx
+    async def mock_post(self, url, **kwargs):
+        json_body = kwargs.get("json", {})
+        parts = json_body.get("contents", [{}])[0].get("parts", [{}])
+        first_text = parts[0].get("text", "") if parts else ""
+        if "Cyclode Master Execution Planner" in first_text:
+            # Simulate initial dynamic plan failing or returning fallback
+            return MockGenericResponse("")
+        return MockGenericResponse(agent_plan_text)
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    async def noop(*args, **kwargs):
+        pass
+
+    result = await harness.execute_task(
+        task_id="task-plan-mode-test",
+        workspace_path=tmp_path,
+        title="So what's the plan",
+        description="Plan out the remediation",
+        persona_name="SoftwareEngineer",
+        on_thought=noop,
+        on_tool_start=noop,
+        on_tool_end=noop,
+        on_message=noop,
+        on_approval_required=noop,
+        on_diff_updated=noop,
+        on_plan=mock_on_plan
+    )
+
+    assert result["status"] == "COMPLETED"
+    assert len(emitted_plans) >= 2
+    final_plan = emitted_plans[-1]
+    assert final_plan["markdown"] == agent_plan_text.strip()
+    assert len(final_plan["steps"]) == 2
+    assert "Scaffolding Endpoints" in final_plan["steps"][0]["title"]
+    assert final_plan["steps"][0]["status"] == "pending"
+    assert final_plan["evaluation"]["status"] == "ready_for_review"
+
+
+@pytest.mark.asyncio
+async def test_get_task_plan_document_self_heals_from_agent_message():
+    from app.db.session import async_session_factory, init_db
+    from app.db.models import TaskModel, TaskMessageModel
+    from app.api.tasks import get_task_plan_document
+
+    await init_db()
+
+    failed_plan = {
+        "intent_category": "planning",
+        "objective": "Architecture plan",
+        "steps": [
+            {"id": "step-1", "title": "Plan Generation Failed: Model legacy-model returned HTTP 404", "status": "failed"}
+        ],
+        "markdown": "# Plan Generation Failed: Model legacy-model returned HTTP 404"
+    }
+
+    async with async_session_factory() as session:
+        task = TaskModel(
+            id="task-heal-test-1",
+            title="Cyclode Architecture Hardening",
+            description="Remediation plan",
+            persona="SoftwareEngineer",
+            status="COMPLETED",
+            plan=failed_plan
+        )
+        session.add(task)
+
+        # Add agent message containing the actual architectural plan
+        agent_msg = TaskMessageModel(
+            task_id="task-heal-test-1",
+            sender="agent",
+            content=(
+                "# Implementation Plan: Cyclode Architecture Hardening\n\n"
+                "### Phase 1: Harden Gemini Model Cascades\n"
+                "**Objective**: Normalize models.\n\n"
+                "### Phase 2: Synchronize Agent Output to Plan\n"
+                "**Objective**: Promote markdown."
+            )
+        )
+        session.add(agent_msg)
+        await session.commit()
+
+    async with async_session_factory() as session:
+        doc = await get_task_plan_document("task-heal-test-1", db=session)
+        assert doc["task_id"] == "task-heal-test-1"
+        assert "Plan Generation Failed" not in doc["markdown"]
+        assert "# Implementation Plan: Cyclode Architecture Hardening" in doc["markdown"]
+        assert len(doc["plan"]["steps"]) == 2
+        assert "Harden Gemini Model Cascades" in doc["plan"]["steps"][0]["title"]
+        assert doc["plan"]["evaluation"]["status"] == "ready_for_review"
+
+

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Copy, Check, Info, AlertTriangle, AlertCircle, Sparkles, Flame, ChevronRight } from 'lucide-react';
+import { Copy, Check, Info, AlertTriangle, AlertCircle, Sparkles, Flame, ChevronRight, Compass, ArrowRight } from 'lucide-react';
 import katex from 'katex';
 import { highlightCode, resolveLanguage, escapeHtml } from '../../utils/syntaxHighlighter';
 
@@ -1065,6 +1065,30 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
     if (linkMatch) {
       const linkText = linkMatch[1];
       const linkUrl = linkMatch[2];
+
+      const isPlanAction = linkUrl.startsWith('plan://') || linkUrl === '#open-plan-doc' || linkUrl === 'action://open-plan-doc';
+      if (isPlanAction) {
+        return (
+          <button
+            key={i}
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (onLinkClick) {
+                onLinkClick(linkUrl, linkText);
+              }
+            }}
+            className="inline-flex items-center space-x-2 my-2 px-3.5 py-2 rounded-lg bg-onedark-accent/15 hover:bg-onedark-accent/25 border border-onedark-accent/35 text-onedark-accent text-xs font-sans font-medium transition-all group cursor-pointer shadow-xs active:scale-[0.99]"
+            title="Open architectural plan in Web & Docs"
+          >
+            <Compass className="w-3.5 h-3.5 text-onedark-accent shrink-0 animate-pulse" />
+            <span className="font-semibold">{linkText.replace(/^[👉📄\s]+/, '')}</span>
+            <ArrowRight className="w-3 h-3 text-onedark-accent group-hover:translate-x-0.5 transition-transform" />
+          </button>
+        );
+      }
+
       return (
         <a
           key={i}

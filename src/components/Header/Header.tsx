@@ -10,7 +10,6 @@ import {
 } from 'lucide-react';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { Task, WorkspacePreviewInfo, LayoutPreset } from '../../types';
-import { ThemeColorPicker } from '../Theme/ThemeColorPicker';
 import { CyclodeIcon } from '../Common/CyclodeIcon';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -243,8 +242,6 @@ export const Header: React.FC<HeaderProps> = ({
           />
           <span>{isConnected ? 'connected' : 'connecting'}</span>
         </div>
-
-        <ThemeColorPicker />
 
         <button
           onClick={onOpenSettings}

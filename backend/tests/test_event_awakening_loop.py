@@ -133,7 +133,7 @@ def test_trajectory_collector():
     collector = TrajectoryCollector(
         task_id=task_id,
         persona="SoftwareEngineer",
-        model_name="gemini-2.5-flash"
+        model_name="gemini-3.7-flash"
     )
 
     # Turn 1

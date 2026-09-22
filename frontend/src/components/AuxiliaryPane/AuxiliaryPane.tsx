@@ -176,6 +176,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
               onClear={onClearPreview}
               onAskAboutRepo={onAskAboutRepo}
               onCloneToSession={onCloneToSession}
+              onAskAgent={onAskAboutComment}
               task={task}
               repositories={repositories}
             />

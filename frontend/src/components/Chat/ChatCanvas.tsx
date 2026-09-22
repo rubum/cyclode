@@ -48,6 +48,7 @@ import {
   Cpu,
   Undo2,
   ShieldCheck,
+  Compass,
   Plus
 } from 'lucide-react';
 import { Task, TaskMessage, TaskLog, RepositoryConfig, TaskPR, WorkspacePreviewInfo, TaskPlan, LayoutPreset } from '../../types';
@@ -56,6 +57,29 @@ import { FormattedLogView } from '../Common/FormattedLogView';
 import { SandboxInspectorModal } from '../Sandbox/SandboxInspectorModal';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
+
+export function extractPlanHighlightsFromMarkdown(text: string): { title: string; overview: string; phases: string[] } {
+  const lines = text.split('\n').map(l => l.trim());
+  let title = 'Implementation Plan';
+  let overview = '';
+  const phases: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.startsWith('# Implementation Plan:') || line.startsWith('# Plan:') || line.startsWith('# ')) {
+      title = line.replace(/^#+\s*(?:Implementation Plan:\s*)?/, '').trim();
+    } else if (line.startsWith('Phase ') || line.startsWith('### Phase ') || /^\*{0,2}Phase\s+\d+/i.test(line)) {
+      const cleanPhase = line.replace(/^###\s*/, '').replace(/\*+/g, '').replace(/:\s*$/, '').trim();
+      if (!phases.includes(cleanPhase)) {
+        phases.push(cleanPhase);
+      }
+    } else if (!overview && line && !line.startsWith('#') && !line.startsWith('-') && !line.startsWith('*') && !line.startsWith('Objective:')) {
+      overview = line;
+    }
+  }
+
+  return { title, overview, phases: phases.slice(0, 6) };
+}
 
 export const getToolActionInfo = (
   toolName: string,
@@ -200,6 +224,7 @@ interface ChatCanvasProps {
   onOpenSandboxModal?: () => void;
   onSelectAuxTab?: (tab: 'docs' | 'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'preview') => void;
   onOpenPreview?: (url: string, title?: string) => void;
+  onOpenPlan?: (taskId?: string, plan?: TaskPlan | null) => void;
   onNavigateToRepos?: () => void;
 }
 
@@ -516,6 +541,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   onOpenSandboxModal,
   onSelectAuxTab,
   onOpenPreview,
+  onOpenPlan,
   onNavigateToRepos,
 }) => {
   const [inputValue, setInputValue] = useState('');
@@ -532,6 +558,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState('');
+  const [expandedRawPlanMsgIds, setExpandedRawPlanMsgIds] = useState<Record<string, boolean>>({});
 
   const [localRepos, setLocalRepos] = useState<RepositoryConfig[]>([]);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
@@ -1267,10 +1294,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     {
       group: 'Google Gemini',
       models: [
-        { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash' },
-        { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash' },
-        { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
-        { id: 'gemini-2.0-pro', label: 'Gemini 2.0 Pro' },
+        { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash (Agentic Workhorse)' },
+        { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash (Sub-second Agentic)' },
       ],
     },
     {
@@ -2458,6 +2483,28 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 {/* 5. Agent Messages (with Token Output Metric) */}
                 {turn.agentMessages.map((m) => {
                   const outTokens = m.tokens || estimateTokens(m.content);
+                  const isFullPlanDoc = Boolean(
+                    m.content && 
+                    (m.content.trim().startsWith('# Implementation Plan') || 
+                     (m.content.includes('# Implementation Plan') && m.content.length > 400))
+                  );
+                  const isRawPlanExpanded = !!expandedRawPlanMsgIds[m.id];
+                  const planInfo = isFullPlanDoc ? extractPlanHighlightsFromMarkdown(m.content) : null;
+
+                  const handleMessageLinkClick = (url: string, text: string) => {
+                    if (url.startsWith('plan://') || url === '#open-plan-doc' || url === 'action://open-plan-doc') {
+                      if (onOpenPlan) {
+                        onOpenPlan(task?.id, turn.plan);
+                      } else if (onOpenPreview && task?.id) {
+                        onOpenPreview(`plan://${task.id}`, 'Implementation Plan');
+                      }
+                      return;
+                    }
+                    if (onOpenPreview) {
+                      onOpenPreview(url, text);
+                    }
+                  };
+
                   return (
                     <div
                       key={m.id}
@@ -2467,7 +2514,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                     >
                       {m.sender === 'system' ? (
                         <div className="my-2 px-4 py-2.5 rounded-xl bg-onedark-surface/40 border border-onedark-border text-xs text-onedark-fg font-mono leading-relaxed max-w-2xl text-center">
-                          <MarkdownRenderer content={maskSecretsInText(m.content)} isStreaming={m.isStreaming} onLinkClick={onOpenPreview} />
+                          <MarkdownRenderer content={maskSecretsInText(m.content)} isStreaming={m.isStreaming} onLinkClick={handleMessageLinkClick} />
                         </div>
                       ) : (
                         <div className="w-full flex flex-col items-start space-y-1.5">
@@ -2478,8 +2525,89 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                             </span>
                           </div>
                           <div className="text-onedark-fg text-[13px] sm:text-[13.5px] leading-relaxed w-full">
-                            {m.content ? (
-                              <MarkdownRenderer content={maskSecretsInText(m.content)} isStreaming={m.isStreaming} onLinkClick={onOpenPreview} />
+                            {isFullPlanDoc && planInfo ? (
+                              <div className="w-full space-y-3 my-1">
+                                <div className="rounded-xl border border-onedark-accent/30 bg-gradient-to-r from-onedark-accent/10 via-onedark-surface/35 to-transparent p-4 space-y-3 shadow-xs">
+                                  <div className="flex items-start justify-between gap-3 flex-wrap sm:flex-nowrap">
+                                    <div className="space-y-1.5 min-w-0">
+                                      <div className="flex items-center space-x-2">
+                                        <span className="w-2 h-2 rounded-full bg-onedark-accent animate-pulse shrink-0" />
+                                        <span className="text-[11px] font-mono font-semibold uppercase tracking-wider text-onedark-accent">
+                                          Implementation Plan Formulated
+                                        </span>
+                                      </div>
+                                      <h3 className="text-sm font-semibold text-onedark-fgBright">
+                                        {planInfo.title}
+                                      </h3>
+                                      {planInfo.overview && (
+                                        <p className="text-xs text-onedark-fg/90 leading-relaxed line-clamp-3">
+                                          {planInfo.overview}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (onOpenPlan) {
+                                          onOpenPlan(task?.id, turn.plan);
+                                        } else if (onOpenPreview && task?.id) {
+                                          onOpenPreview(`plan://${task.id}`, 'Implementation Plan');
+                                        }
+                                      }}
+                                      className="shrink-0 px-3.5 py-2 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-bg font-semibold text-xs flex items-center space-x-1.5 transition-all cursor-pointer shadow-xs active:scale-[0.98]"
+                                      title="Open architectural plan in Web & Docs"
+                                    >
+                                      <Compass className="w-3.5 h-3.5" />
+                                      <span>Open Full Plan Doc</span>
+                                      <ArrowRight className="w-3 h-3 ml-0.5" />
+                                    </button>
+                                  </div>
+
+                                  {planInfo.phases.length > 0 && (
+                                    <div className="pt-2.5 border-t border-white/[0.06] space-y-2">
+                                      <span className="text-[10.5px] font-mono text-onedark-muted uppercase tracking-wider">
+                                        Key Execution Phases
+                                      </span>
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-0.5">
+                                        {planInfo.phases.map((ph, pIdx) => (
+                                          <div key={pIdx} className="flex items-center space-x-2 px-2.5 py-1.5 rounded-md bg-onedark-surface/40 border border-onedark-borderSubtle/60 text-xs text-onedark-fg font-mono">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-onedark-accent shrink-0" />
+                                            <span className="truncate">{ph}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  <div className="pt-1 flex items-center justify-between text-[11px] font-mono text-onedark-muted border-t border-white/[0.04]">
+                                    <button
+                                      type="button"
+                                      onClick={() => setExpandedRawPlanMsgIds(prev => ({ ...prev, [m.id]: !prev[m.id] }))}
+                                      className="hover:text-onedark-fg transition-colors flex items-center space-x-1 cursor-pointer"
+                                    >
+                                      <span>{isRawPlanExpanded ? 'Hide raw plan document' : 'View raw plan markdown'}</span>
+                                      <ChevronRight className={`w-3 h-3 transition-transform ${isRawPlanExpanded ? 'rotate-90' : ''}`} />
+                                    </button>
+                                    <span>Full spec rendered in Web & Docs</span>
+                                  </div>
+                                </div>
+
+                                {isRawPlanExpanded && (
+                                  <div className="pt-2 pl-2 border-l-2 border-onedark-accent/30 text-xs">
+                                    <MarkdownRenderer
+                                      content={maskSecretsInText(m.content)}
+                                      isStreaming={m.isStreaming}
+                                      onLinkClick={handleMessageLinkClick}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            ) : m.content ? (
+                              <MarkdownRenderer
+                                content={maskSecretsInText(m.content)}
+                                isStreaming={m.isStreaming}
+                                onLinkClick={handleMessageLinkClick}
+                              />
                             ) : m.isStreaming ? (
                               <div className="flex items-center min-h-[22px]">
                                 <span className="terminal-cursor" title="Generating..." />

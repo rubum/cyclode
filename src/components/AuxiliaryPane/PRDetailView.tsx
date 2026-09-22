@@ -42,11 +42,13 @@ import {
   Zap,
   ArrowRight,
   ShieldAlert,
-  Tag
+  Tag,
+  Radio
 } from 'lucide-react';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { PRReviewAgentPopover, LineContext } from './PRReviewAgentPopover';
 import { LinearIssueDetailView } from './LinearIssueDetailView';
+import { PRListenerConfigModal } from './PRListenerConfigModal';
 import { Task, TaskPR, PRCommentItem } from '../../types';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 
@@ -289,12 +291,12 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, o
           return (
             <div
               key={`${f.filename}-${idx}`}
-              className="rounded-xl border border-onedark-border overflow-hidden bg-onedark-darker transition-colors"
+              className="rounded-xl border border-onedark-borderSubtle overflow-hidden bg-onedark-darker transition-colors shadow-xs"
             >
               {/* File Header */}
               <div
                 onClick={() => toggleFile(f.filename)}
-                className="px-3 py-2 bg-onedark-surface/40 hover:bg-onedark-surface/60 border-b border-onedark-borderSubtle/60 flex items-center justify-between cursor-pointer select-none gap-2"
+                className="px-3 py-2 bg-onedark-surface/40 hover:bg-onedark-surface/60 border-b border-onedark-borderSubtle flex items-center justify-between cursor-pointer select-none gap-2"
               >
                 <div className="flex items-center space-x-2 min-w-0 flex-1">
                   <ChevronDown
@@ -341,16 +343,16 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, o
                           key={lineIdx}
                           className={`group/line flex items-center px-1 py-0.5 rounded-xs transition-colors relative ${
                             isAddition
-                              ? 'bg-onedark-green/10 text-[#98C379] hover:bg-onedark-green/15'
+                              ? 'bg-onedark-green/10 text-onedark-green hover:bg-onedark-green/15'
                               : isDeletion
-                              ? 'bg-onedark-red/10 text-[#E06C75] hover:bg-onedark-red/15'
+                              ? 'bg-onedark-red/10 text-onedark-red hover:bg-onedark-red/15'
                               : isHeader
                               ? 'text-onedark-purple bg-onedark-surface/40 font-semibold'
                               : 'text-onedark-fg/90 hover:bg-onedark-surface/30'
                           }`}
                         >
                           {!isHeader ? (
-                            <div className="flex items-center flex-shrink-0 w-20 text-[11px] font-mono text-onedark-muted/40 select-none mr-2 border-r border-onedark-borderSubtle/40 pr-1.5 justify-between">
+                            <div className="flex items-center flex-shrink-0 w-20 text-[11px] font-mono text-onedark-muted/40 select-none mr-2 border-r border-onedark-borderSubtle pr-1.5 justify-between">
                               <span className="w-7 text-right">{lineObj.oldLine ?? ''}</span>
                               <span className="w-7 text-right">{lineObj.newLine ?? ''}</span>
                               {onLineComment && (
@@ -367,7 +369,7 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, o
                               )}
                             </div>
                           ) : (
-                            <div className="w-20 text-[11px] font-mono text-onedark-purple/60 select-none mr-2 border-r border-onedark-borderSubtle/40 pr-1.5 text-center flex-shrink-0">
+                            <div className="w-20 text-[11px] font-mono text-onedark-purple/60 select-none mr-2 border-r border-onedark-borderSubtle pr-1.5 text-center flex-shrink-0">
                               @@
                             </div>
                           )}
@@ -562,7 +564,7 @@ export const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ commits, rep
           return (
             <div
               key={`${c.sha}-${idx}`}
-              className="rounded-xl border border-onedark-border bg-onedark-darker overflow-hidden hover:border-onedark-borderSubtle transition-all shadow-xs"
+              className="rounded-xl border border-onedark-borderSubtle bg-onedark-darker overflow-hidden hover:border-onedark-border transition-all shadow-xs"
             >
               <div className="p-3.5 flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                 <div className="flex items-start space-x-3 min-w-0 flex-1">
@@ -597,11 +599,11 @@ export const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ commits, rep
 
                     {/* Commit Description Body Box */}
                     {(parsed.bodyProse || parsed.trailers.length > 0) && (
-                      <div className="mt-2.5 bg-onedark-bg/95 p-3.5 rounded-lg border border-onedark-borderSubtle/80 text-[12.5px] text-onedark-fg/90 font-sans leading-relaxed shadow-xs select-text">
+                      <div className="mt-2.5 bg-onedark-bg/95 p-3.5 rounded-lg border border-onedark-borderSubtle text-[12.5px] text-onedark-fg/90 font-sans leading-relaxed shadow-xs select-text">
                         {parsed.bodyProse && (
                           <div>
-                            <div className={`prose prose-invert max-w-none text-onedark-fg/95 text-[12.5px] leading-relaxed ${!isBodyExpanded && parsed.bodyProse.length > 220 ? 'line-clamp-3' : ''}`}>
-                              <MarkdownRenderer content={parsed.bodyProse} className="text-[12.5px] leading-relaxed text-onedark-fg/95" />
+                            <div className={`max-w-none text-onedark-fg text-[12.5px] leading-relaxed ${!isBodyExpanded && parsed.bodyProse.length > 220 ? 'line-clamp-3' : ''}`}>
+                              <MarkdownRenderer content={parsed.bodyProse} className="text-[12.5px] leading-relaxed text-onedark-fg" />
                             </div>
 
                             {parsed.bodyProse.length > 220 && (
@@ -618,7 +620,7 @@ export const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ commits, rep
 
                         {/* Git Trailers: Co-Authored-By, Signed-Off-By, Issue References */}
                         {parsed.trailers.length > 0 && (
-                          <div className={`flex flex-wrap items-center gap-1.5 ${parsed.bodyProse ? 'mt-3 pt-2.5 border-t border-onedark-borderSubtle/60' : ''}`}>
+                          <div className={`flex flex-wrap items-center gap-1.5 ${parsed.bodyProse ? 'mt-3 pt-2.5 border-t border-onedark-borderSubtle' : ''}`}>
                             {parsed.trailers.map((t, tIdx) => {
                               if (t.type === 'co-author') {
                                 const nameMatch = t.value.match(/^([^<]+)(?:<([^>]+)>)?$/);
@@ -792,7 +794,7 @@ export const MiniDiffHunkViewer: React.FC<{
         </div>
       )}
 
-      <div className="overflow-x-auto divide-y divide-onedark-borderSubtle/20 max-h-64 leading-tight">
+      <div className="overflow-x-auto divide-y divide-onedark-borderSubtle max-h-64 leading-tight">
         {parsedLines.map((line, idx) => {
           const isTarget = targetLine && (line.newLine === targetLine || line.oldLine === targetLine);
           if (line.type === 'header') {
@@ -823,7 +825,7 @@ export const MiniDiffHunkViewer: React.FC<{
               <span className="w-7 text-right select-none opacity-40 font-mono text-[10px] pr-1.5 flex-shrink-0">
                 {line.oldLine || ''}
               </span>
-              <span className="w-7 text-right select-none opacity-40 font-mono text-[10px] pr-2 flex-shrink-0 border-r border-onedark-borderSubtle/40">
+              <span className="w-7 text-right select-none opacity-40 font-mono text-[10px] pr-2 flex-shrink-0 border-r border-onedark-borderSubtle">
                 {line.newLine || ''}
               </span>
               <span className="w-4 text-center select-none font-bold text-xs flex-shrink-0">
@@ -1207,7 +1209,7 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
               }`}
             >
               {/* Comment Header */}
-              <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-onedark-borderSubtle/60 bg-onedark-surface/60 gap-2">
+              <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-onedark-borderSubtle bg-onedark-surface/60 gap-2">
                 <div className="flex items-center space-x-2.5 min-w-0 flex-wrap gap-y-1">
                   {c.author_avatar ? (
                     <img
@@ -1289,7 +1291,7 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
 
               {/* Bot Metadata Chip Bar (Category, Severity, Effort) */}
               {(botMeta.category || botMeta.severity || botMeta.effort) && (
-                <div className="flex items-center gap-1.5 flex-wrap px-3.5 pt-2.5 pb-1 bg-onedark-surface/30 border-b border-onedark-borderSubtle/40">
+                <div className="flex items-center gap-1.5 flex-wrap px-3.5 pt-2.5 pb-1 bg-onedark-surface/30 border-b border-onedark-borderSubtle">
                   {botMeta.category && (
                     <span className={`px-2 py-0.5 rounded-md font-mono text-[10.5px] font-semibold border ${botMeta.category.colorClass}`}>
                       {botMeta.category.label}
@@ -1310,7 +1312,7 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
 
               {/* Code Comment Anchor & Diff Snippet Context */}
               {isCodeComment && (c.diff_hunk || c.path) && (
-                <div className="px-3.5 py-2 bg-onedark-darker/40 border-b border-onedark-borderSubtle/60">
+                <div className="px-3.5 py-2 bg-onedark-darker/40 border-b border-onedark-borderSubtle">
                   {c.diff_hunk ? (
                     <MiniDiffHunkViewer
                       diffHunk={c.diff_hunk}
@@ -1387,7 +1389,7 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
               </div>
 
               {/* Comment Footer: Reactions & Actions */}
-              <div className="px-3.5 py-2 border-t border-onedark-borderSubtle/40 bg-onedark-surface/20 rounded-b-xl flex items-center justify-between gap-2">
+              <div className="px-3.5 py-2 border-t border-onedark-borderSubtle bg-onedark-surface/20 rounded-b-xl flex items-center justify-between gap-2">
                 {/* Reaction Counters */}
                 <div className="flex items-center space-x-1.5 flex-wrap">
                   {c.reactions && Object.entries(c.reactions).map(([emojiKey, count]) => {
@@ -1449,7 +1451,7 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
 
       {/* Interactive Comment Composer */}
       {task?.id && prNumber && (
-        <div className="mt-6 p-3.5 rounded-xl border border-onedark-border bg-onedark-darker/90 shadow-sm space-y-2.5">
+        <div className="mt-6 p-3.5 rounded-xl border border-onedark-borderSubtle bg-onedark-darker/90 shadow-xs space-y-2.5">
           <div className="flex items-center justify-between">
             <span className="font-semibold text-onedark-fgBright text-xs flex items-center space-x-1.5">
               <MessageSquarePlus className="w-3.5 h-3.5 text-onedark-accent" />
@@ -1915,6 +1917,8 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
   const { subscribe } = useWebSocket();
 
   const [isReviewPopoverOpen, setIsReviewPopoverOpen] = useState<boolean>(false);
+  const [isListenerModalOpen, setIsListenerModalOpen] = useState<boolean>(false);
+  const [isListening, setIsListening] = useState<boolean>(prRecord?.is_listening || false);
   const [activeLineComment, setActiveLineComment] = useState<LineContext | null>(null);
   const [isOutlineOpen, setIsOutlineOpen] = useState<boolean>(false);
 
@@ -1975,7 +1979,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
     }
   };
 
-  // WebSocket live auto-sync listener for PR comments
+  // WebSocket live auto-sync listener for PR comments and listener state
   useEffect(() => {
     if (!task?.id || !effectivePrNum) return;
     const unsub = subscribe('PR_COMMENTS_UPDATED', (payload: any) => {
@@ -1983,7 +1987,17 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
         fetchCommentsOnly();
       }
     });
-    return () => unsub();
+
+    const unsubListener = subscribe('PR_LISTENER_UPDATED', (payload: any) => {
+      if (payload.task_id === task.id && Number(payload.pr_number) === Number(effectivePrNum)) {
+        setIsListening(payload.is_listening);
+      }
+    });
+
+    return () => {
+      unsub();
+      unsubListener();
+    };
   }, [subscribe, task?.id, effectivePrNum]);
 
   // Adaptive background polling: polls every 20s when comments tab is active and page is visible
@@ -2319,8 +2333,8 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
       </div>
 
       {/* GitHub PR Hero Header */}
-      <div className="bg-onedark-surface/30 border-b border-onedark-borderSubtle/60 select-none flex-shrink-0">
-        <div className="px-3 py-2 flex flex-wrap items-center justify-between gap-2 border-b border-onedark-borderSubtle/40 text-xs">
+      <div className="bg-onedark-surface/30 border-b border-onedark-borderSubtle select-none flex-shrink-0">
+        <div className="px-3 py-2 flex flex-wrap items-center justify-between gap-2 border-b border-onedark-borderSubtle text-xs">
           {/* Metadata Row */}
           <div className="flex flex-wrap items-center gap-2 min-w-0">
             {/* Status Badge */}
@@ -2418,6 +2432,27 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
             >
               <Bot className="w-3.5 h-3.5 text-onedark-accent" />
               <span>Review with Agent</span>
+            </button>
+
+            {/* Event Listener Sentinel Button */}
+            <button
+              onClick={() => setIsListenerModalOpen(true)}
+              className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer whitespace-nowrap flex-shrink-0 ${
+                isListening
+                  ? 'bg-onedark-green/20 text-onedark-green font-semibold border border-onedark-green/30'
+                  : 'bg-onedark-surface hover:bg-onedark-surface/80 text-onedark-fgBright'
+              }`}
+              title="Configure autonomous webhook event listener for this PR"
+            >
+              {isListening ? (
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-onedark-green opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-onedark-green" />
+                </span>
+              ) : (
+                <Radio className="w-3.5 h-3.5 text-onedark-accent" />
+              )}
+              <span>{isListening ? 'Listening' : 'Listen'}</span>
             </button>
 
             {/* PR Decision Actions (Only when not already merged/closed) */}
@@ -2602,7 +2637,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
 
         {!isLoading && !error && viewMode === 'reader' && (
           prTab === 'overview' ? (
-            <div className="prose prose-invert max-w-none text-onedark-fg text-[13.5px] leading-relaxed">
+            <div className="max-w-none text-onedark-fg text-[13.5px] leading-relaxed">
               <MarkdownRenderer
                 content={data?.overview_markdown || data?.content_markdown || prRecord?.body || 'No description provided for this pull request.'}
               />
@@ -2745,6 +2780,32 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
             />
           </div>
         </div>
+      )}
+
+      {/* PR Listener Config Modal */}
+      {isListenerModalOpen && task && (
+        <PRListenerConfigModal
+          task={task}
+          pr={
+            prRecord || {
+              task_id: task.id,
+              pr_number: Number(effectivePrNum) || 0,
+              title: data?.title || '',
+              author: data?.author || '',
+              head_branch: effectiveHeadBranch,
+              base_branch: effectiveBaseBranch,
+              html_url: targetUrl || '',
+              status: (effectiveState as any) || 'OPEN',
+              worktree_path: '',
+              is_listening: isListening
+            }
+          }
+          isOpen={isListenerModalOpen}
+          onClose={() => setIsListenerModalOpen(false)}
+          onSaved={(newListening) => {
+            setIsListening(newListening);
+          }}
+        />
       )}
     </div>
   );

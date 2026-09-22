@@ -20,7 +20,7 @@ from app.core.worktree import worktree_manager
 from app.api.websocket import ws_manager
 from app.config import settings
 from app.core.events.dispatcher import event_dispatcher
-from app.agent.harness import get_task_trajectory, get_task_evaluation
+from app.agent.harness import get_task_trajectory, get_task_evaluation, generate_plan_markdown, extract_plan_from_markdown
 from app.core.evals.runner import evaluation_runner
 from app.schemas.events import InboundEventSchema, OutboundEventSchema, EventTimelineItem
 from app.schemas.trajectory import AgentTrajectory, TrajectoryTurn, ToolInvocationRecord
@@ -2023,6 +2023,88 @@ async def replay_task_action(task_id: str, req: Optional[ReplayTaskRequest] = No
     turn_idx = req.turn_index if req else None
     res = await agent_pool.reset_task_turn(task_id, turn_index=turn_idx)
     return res
+
+
+@router.get("/{task_id}/plan")
+async def get_task_plan_document(task_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Returns the comprehensive architectural plan document for a task,
+    including structured milestones, invariant checks, and full Markdown representation
+    for rendering inside the 'Web & Docs' viewer.
+    """
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    res = await db.execute(stmt)
+    task = res.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    plan = dict(task.plan or {})
+    markdown = plan.get("markdown") or ""
+
+    is_failed_or_empty = (
+        not markdown
+        or "Plan Generation Failed" in markdown
+        or any(s.get("title", "").startswith("Plan Generation Failed") for s in plan.get("steps", []))
+    )
+
+    if is_failed_or_empty:
+        # Self-heal: inspect task messages for actual implementation plan formulated by the agent
+        msg_stmt = (
+            select(TaskMessageModel)
+            .where(TaskMessageModel.task_id == task_id, TaskMessageModel.sender == "agent")
+            .order_by(TaskMessageModel.created_at.desc())
+        )
+        msg_res = await db.execute(msg_stmt)
+        agent_msgs = msg_res.scalars().all()
+        for msg in agent_msgs:
+            content = msg.content or ""
+            if "Implementation Plan" in content or "Phase 1:" in content or "### Phase 1" in content:
+                healed_plan = extract_plan_from_markdown(content, default_title=task.title)
+                if healed_plan.get("steps"):
+                    task.plan = healed_plan
+                    await db.commit()
+                    plan = healed_plan
+                    markdown = content
+                    break
+
+    if not markdown:
+        markdown = generate_plan_markdown(plan, title=task.title, prompt=task.description or "")
+
+    return {
+        "task_id": task.id,
+        "title": task.title,
+        "persona": task.persona,
+        "status": task.status,
+        "plan": plan,
+        "markdown": markdown,
+    }
+
+
+@router.post("/{task_id}/plan/execute")
+async def execute_task_plan(task_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Approves the generated plan and triggers task execution.
+    """
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    res = await db.execute(stmt)
+    task = res.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    prompt = "Proceed with the execution plan."
+    try:
+        await agent_pool.submit_user_message(task_id, prompt)
+    except Exception as e:
+        logger.debug(f"Submit execution message notice: {e}")
+
+    await ws_manager.broadcast("TASK_PLAN_UPDATED", {
+        "task_id": task_id,
+        "status": "executing",
+        "action": "execute_approved"
+    })
+
+    return {"status": "ok", "message": "Plan execution initiated"}
+
 
 
 

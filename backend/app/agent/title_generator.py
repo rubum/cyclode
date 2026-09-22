@@ -132,7 +132,7 @@ async def generate_ai_title(
         elif provider.provider_id == "openai":
             cand_models = ["gpt-4o-mini", "gpt-4o"]
         else:
-            cand_models = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"]
+            cand_models = ["gemini-3.7-flash", "gemini-3.8-flash"]
 
         for model in cand_models:
             try:

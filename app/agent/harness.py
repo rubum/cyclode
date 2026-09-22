@@ -81,6 +81,390 @@ def rollback_workspace_to_commit(ws_path: Optional[Path], git_sha: str) -> bool:
         return False
 
 
+def generate_plan_markdown(plan: Dict[str, Any], title: str = "", prompt: str = "") -> str:
+    """
+    Synthesizes a clean, comprehensive engineering implementation plan in Markdown.
+    Includes Executive Summary, Mermaid Workflow, Milestone Stepper Checklist, and Invariant Verification.
+    """
+    obj = plan.get("objective") or title or "Autonomous Task Execution"
+    intent = plan.get("intent_category", "general")
+    steps = plan.get("steps", [])
+    eval_info = plan.get("evaluation") or {}
+    
+    # Format mermaid diagram
+    mermaid_steps = []
+    for idx, s in enumerate(steps):
+        s_title = s.get("title", f"Step {idx+1}").replace('"', "'")
+        step_id = f"S{idx+1}"
+        mermaid_steps.append(f'    {step_id}["{idx+1}. {s_title}"]')
+    
+    mermaid_flow = ""
+    if len(mermaid_steps) > 1:
+        arrows = " --> ".join([f"S{i+1}" for i in range(len(mermaid_steps))])
+        mermaid_flow = "```mermaid\nflowchart LR\n" + "\n".join(mermaid_steps) + f"\n    {arrows}\n```\n"
+    elif len(mermaid_steps) == 1:
+        mermaid_flow = "```mermaid\nflowchart LR\n" + mermaid_steps[0] + "\n```\n"
+
+    phases = plan.get("phases")
+    if phases and isinstance(phases, list) and len(phases) > 0:
+        raw_title = plan.get("title") or title or obj
+        clean_title = raw_title if raw_title.startswith("Implementation Plan:") else f"Implementation Plan: {raw_title}"
+        if not clean_title.startswith("#"):
+            clean_title = f"# {clean_title}"
+        
+        overview = plan.get("overview") or plan.get("objective") or "This plan outlines a phased remediation and implementation strategy."
+        
+        lines = [
+            clean_title,
+            "",
+            "> [!IMPORTANT]",
+            "> **Plan Mode Active**: Architectural implementation plan formulated. Review the phased milestones below before proceeding with execution.",
+            "",
+            overview,
+            "",
+        ]
+
+        for p in phases:
+            p_num = p.get("phase_number") or ""
+            p_title = p.get("title") or f"Phase {p_num}"
+            if not p_title.startswith("Phase") and not p_title.startswith("###"):
+                p_heading = f"### Phase {p_num}: {p_title}" if p_num else f"### {p_title}"
+            elif p_title.startswith("###"):
+                p_heading = p_title
+            else:
+                p_heading = f"### {p_title}"
+
+            lines.append(p_heading)
+            lines.append("")
+            p_obj = p.get("objective") or ""
+            if p_obj:
+                lines.append(f"**Objective**: {p_obj}")
+                lines.append("")
+
+            touchpoints = p.get("file_touchpoints") or p.get("touchpoints") or []
+            if touchpoints:
+                lines.append("- **File Touchpoints**:")
+                for tp in touchpoints:
+                    if isinstance(tp, dict):
+                        f_name = tp.get("file", "")
+                        f_actions = tp.get("actions", [])
+                        if f_name:
+                            lines.append(f"  - `{f_name}`:")
+                            for act in f_actions:
+                                lines.append(f"    - {act}")
+                        elif tp.get("description"):
+                            lines.append(f"  - {tp.get('description')}")
+                    else:
+                        lines.append(f"  - {tp}")
+                lines.append("")
+
+            criteria = p.get("verification_criteria") or []
+            if criteria:
+                lines.append("- **Verification Criteria**:")
+                for c in criteria:
+                    lines.append(f"  - {c}")
+                lines.append("")
+
+        lines.extend([
+            "---",
+            f"*Generated automatically by Cyclode Master Execution Planner • Session Key: `{title or 'task'}`*"
+        ])
+        return "\n".join(lines)
+
+    callout_tag = "IMPORTANT" if intent == "planning" else "NOTE"
+    callout_title = "> **Plan Mode Active**: Architectural implementation plan formulated. Review the phased milestones below before proceeding with execution.\n> \n" if intent == "planning" else ""
+    lines = [
+        f"# Implementation Plan: {title or obj}",
+        "",
+        f"> [!{callout_tag}]",
+        f"{callout_title}> **Objective**: {obj}  ",
+        f"> **Intent Category**: `{intent}` • **Evaluation Status**: `{eval_info.get('status', 'in_progress')}`",
+        "",
+    ]
+    if mermaid_flow:
+        lines.extend([
+            "## System Execution Flow",
+            "",
+            mermaid_flow,
+            "",
+        ])
+
+    # Proposed file changes table (if present)
+    proposed_changes = plan.get("proposed_changes", [])
+    if proposed_changes and isinstance(proposed_changes, list):
+        lines.extend([
+            "## Proposed Architecture & File Touchpoints",
+            "",
+            "| Target File | Action | Proposed Change |",
+            "| :--- | :--- | :--- |",
+        ])
+        for chg in proposed_changes:
+            f_path = chg.get("file", "unspecified")
+            f_act = chg.get("action", "MODIFY").upper()
+            f_desc = chg.get("description", "").replace("|", "\\|")
+            lines.append(f"| `{f_path}` | `{f_act}` | {f_desc} |")
+        lines.append("")
+
+    lines.extend([
+        "## Phased Implementation Milestones",
+        "",
+    ])
+
+    for idx, s in enumerate(steps):
+        status = s.get("status", "pending")
+        box = "[x]" if status == "completed" else "[-]" if status == "in_progress" else "[ ]"
+        if intent == "planning":
+            badge = "*(Done)*" if status == "completed" else "*(In Progress)*" if status == "in_progress" else "*(Pending Approval)*"
+        else:
+            badge = "*(In Progress)*" if status == "in_progress" else "*(Done)*" if status == "completed" else "*(Pending)*"
+        lines.append(f"- {box} **Phase {idx+1}**: {s.get('title', '')} {badge}")
+        if s.get("description"):
+            lines.append(f"  > {s.get('description')}")
+        if s.get("files"):
+            file_tags = ", ".join([f"`{f}`" for f in s.get("files", [])])
+            lines.append(f"  > **Touchpoints**: {file_tags}")
+        lines.append("")
+
+    lines.extend([
+        "## Invariant Verification & Acceptance Criteria",
+        "",
+    ])
+
+    verification_items = plan.get("verification_criteria")
+    if verification_items and isinstance(verification_items, list) and len(verification_items) > 0:
+        for v in verification_items:
+            lines.append(f"- [ ] {v}")
+        lines.append("- [ ] Code changes adhere to zero-regression policies and existing test suites.")
+    else:
+        lines.extend([
+            "- [ ] Code changes adhere to zero-regression policies and existing test suites.",
+            "- [ ] Verification checks execute cleanly without unhandled runtime exceptions.",
+            "- [ ] Build artifacts compile with 0 TypeScript and styling errors.",
+        ])
+
+    lines.extend([
+        "",
+        "---",
+        f"*Generated automatically by Cyclode Master Execution Planner • Session Key: `{title or 'task'}`*"
+    ])
+
+    return "\n".join(lines)
+
+
+def extract_plan_from_markdown(markdown_text: str, default_title: str = "Implementation Plan") -> Dict[str, Any]:
+    """
+    Parses an implementation plan Markdown document (formulated by the LLM agent)
+    into structured phases, milestones, objectives, and steps for the First-Class Execution Plan.
+    """
+    if not markdown_text or not markdown_text.strip():
+        return {}
+
+    lines = markdown_text.strip().splitlines()
+    title = default_title
+    overview = ""
+    phases: List[Dict[str, Any]] = []
+    steps: List[Dict[str, Any]] = []
+
+    # 1. Extract Title
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            t_match = re.search(r"^#+\s*(?:Implementation Plan:?\s*)?(.*)$", stripped)
+            if t_match and t_match.group(1).strip():
+                cand = t_match.group(1).strip()
+                if not cand.startswith("[") and not cand.startswith("!"):
+                    title = cand
+                    break
+
+    # 2. Extract Overview / Objective
+    overview_lines = []
+    in_overview = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            if not in_overview:
+                in_overview = True
+                continue
+            else:
+                break
+        if in_overview:
+            if stripped.startswith(">") or stripped.startswith("```"):
+                continue
+            if stripped:
+                overview_lines.append(stripped)
+            elif overview_lines:
+                break
+    if overview_lines:
+        overview = " ".join(overview_lines)
+
+    # 3. Extract Phases (e.g. "### Phase 1: ...", "## Phase 1: ...", "### Phase 1 - ...")
+    current_phase: Optional[Dict[str, Any]] = None
+    phase_counter = 0
+
+    for line in lines:
+        stripped = line.strip()
+        phase_header_match = re.match(r"^#{2,4}\s+(Phase\s+\d+[:\-]?\s*.*|Step\s+\d+[:\-]?\s*.*)$", stripped, re.IGNORECASE)
+        if phase_header_match:
+            if current_phase:
+                phases.append(current_phase)
+            phase_counter += 1
+            full_header = phase_header_match.group(1).strip()
+            current_phase = {
+                "phase_number": phase_counter,
+                "title": full_header,
+                "objective": "",
+                "file_touchpoints": [],
+                "verification_criteria": []
+            }
+            continue
+
+        if current_phase:
+            # Check objective
+            obj_match = re.match(r"^\*{0,2}Objective\*{0,2}:\s*(.*)$", stripped, re.IGNORECASE)
+            if obj_match:
+                current_phase["objective"] = obj_match.group(1).strip()
+                continue
+
+            # Check touchpoints or criteria bullets
+            if stripped.startswith("- ") or stripped.startswith("* "):
+                bullet_content = stripped[2:].strip()
+                if "touchpoint" not in bullet_content.lower() and "verification" not in bullet_content.lower():
+                    if "criteria" in line.lower() or "verify" in line.lower() or "pytest" in bullet_content.lower():
+                        current_phase["verification_criteria"].append(bullet_content)
+                    else:
+                        current_phase["file_touchpoints"].append(bullet_content)
+
+    if current_phase:
+        phases.append(current_phase)
+
+    # If no "### Phase N" headers were found, check for numbered milestone lists (e.g. "1. **...**")
+    if not phases:
+        for line in lines:
+            stripped = line.strip()
+            num_match = re.match(r"^\d+\.\s+\*{0,2}(.*?)\*{0,2}(?::|\s+-|\s*$)", stripped)
+            if num_match:
+                s_title = num_match.group(1).strip()
+                if s_title and len(s_title) > 3 and not s_title.lower().startswith("objective"):
+                    steps.append({
+                        "id": f"step-{len(steps)+1}",
+                        "title": s_title,
+                        "status": "pending"
+                    })
+    else:
+        for idx, p in enumerate(phases):
+            p_title = p.get("title", f"Phase {idx+1}")
+            clean_p_title = re.sub(r"^Phase\s+\d+[:\-]?\s*", "", p_title, flags=re.IGNORECASE).strip() or p_title
+            steps.append({
+                "id": f"step-{idx+1}",
+                "title": f"Phase {idx+1}: {clean_p_title}",
+                "status": "pending",
+                "objective": p.get("objective", "")
+            })
+
+    if not steps:
+        steps = [
+            {"id": "step-1", "title": f"Review Architectural Plan: {title}", "status": "pending"},
+            {"id": "step-2", "title": "Execute Implementation Milestones", "status": "pending"},
+            {"id": "step-3", "title": "Verify Acceptance Criteria and Test Suite", "status": "pending"}
+        ]
+
+    return {
+        "intent_category": "planning",
+        "title": f"Implementation Plan: {title}" if not title.startswith("Implementation Plan") else title,
+        "objective": overview or title,
+        "overview": overview or f"Architectural implementation plan for {title}.",
+        "phases": phases,
+        "steps": steps,
+        "markdown": markdown_text,
+        "evaluation": {
+            "status": "ready_for_review",
+            "summary": "Implementation plan formulated. Awaiting user review or approval to proceed.",
+            "checks": [
+                {"name": "Implementation Plan Formulated", "passed": True, "message": "Architectural implementation plan ready for review"}
+            ]
+        }
+    }
+
+
+def format_plan_chat_summary(
+    plan_data: Dict[str, Any],
+    full_markdown: str = "",
+    task_id: Optional[str] = None
+) -> str:
+    """
+    Formats a concise, high-level summary message for the chat interface when a plan is formulated.
+    The comprehensive architectural specification is stored in docs/Web & Docs.
+    """
+    raw_title = plan_data.get("title") or "Implementation Plan"
+    clean_title = re.sub(r"^#+\s*", "", raw_title).strip()
+    clean_title = re.sub(r"^Implementation Plan:\s*", "", clean_title, flags=re.IGNORECASE).strip() or clean_title
+
+    overview = plan_data.get("overview") or ""
+    if not overview and full_markdown:
+        lines = [line.strip() for line in full_markdown.splitlines()]
+        body_lines = []
+        started = False
+        for line in lines:
+            if line.startswith("#"):
+                if started:
+                    break
+                started = True
+                continue
+            if started:
+                if line.startswith("-") or line.startswith("*") or line.lower().startswith("phase") or line.startswith("###"):
+                    break
+                if line:
+                    body_lines.append(line)
+        if body_lines:
+            overview = " ".join(body_lines)
+
+    phases = plan_data.get("phases") or []
+    steps = plan_data.get("steps") or []
+
+    summary_lines = [
+        f"I have formulated an implementation plan for **{clean_title}**."
+    ]
+
+    if overview:
+        clean_ov = overview.strip()
+        if len(clean_ov) > 280:
+            clean_ov = clean_ov[:277] + "..."
+        summary_lines.append(clean_ov)
+
+    highlights = []
+    if phases:
+        for idx, p in enumerate(phases[:5], 1):
+            p_num = p.get("phase_number", idx)
+            p_title = p.get("title") or f"Phase {p_num}"
+            p_title = re.sub(r"^Phase\s+\d+[:\-]?\s*", "", p_title, flags=re.IGNORECASE).strip() or p_title
+            p_obj = p.get("objective") or ""
+            if p_obj and len(p_obj) > 130:
+                p_obj = p_obj[:127] + "..."
+            if p_obj:
+                highlights.append(f"- **Phase {p_num}: {p_title}**: {p_obj}")
+            else:
+                highlights.append(f"- **Phase {p_num}: {p_title}**")
+    elif steps:
+        for idx, s in enumerate(steps[:5], 1):
+            s_title = s.get("title") or f"Step {idx}"
+            s_title = re.sub(r"^Phase\s+\d+[:\-]?\s*", "", s_title, flags=re.IGNORECASE).strip() or s_title
+            s_obj = s.get("objective") or ""
+            if s_obj and len(s_obj) > 130:
+                s_obj = s_obj[:127] + "..."
+            if s_obj:
+                highlights.append(f"- **Phase {idx}: {s_title}**: {s_obj}")
+            else:
+                highlights.append(f"- **Phase {idx}: {s_title}**")
+
+    if highlights:
+        summary_lines.append("### Key Execution Phases\n" + "\n".join(highlights))
+
+    link_target = f"plan://{task_id}" if task_id else "#open-plan-doc"
+    summary_lines.append(f"[👉 Inspect Full Plan in Web & Docs]({link_target})")
+
+    return "\n\n".join(summary_lines)
+
+
 class AntigravityHarness:
     """
     Antigravity Agent Harness: Universal LLM-native execution engine.
@@ -100,7 +484,7 @@ class AntigravityHarness:
         Resolves the concrete execution model based on task requirements, routing mode,
         and Task-Adaptive Major vs. Minor tier allocation.
         """
-        known_intents = {"qa_research", "app_building", "code_modification", "debugging", "review_audit", "devops", "greetings"}
+        known_intents = {"planning", "qa_research", "app_building", "code_modification", "debugging", "review_audit", "devops", "greetings"}
         task_model = task_model_name
         intent = intent_category
 
@@ -112,16 +496,21 @@ class AntigravityHarness:
         
         # If user explicitly requested a specific model (and not auto/adaptive)
         if requested and requested.lower() not in ["auto", "adaptive", "task-adaptive"]:
+            if any(requested.startswith(p) for p in ["gemini-1.", "gemini-2.", "google:gemini-1.", "google:gemini-2."]) or "1.5" in requested or "2.0" in requested or "2.5" in requested:
+                return "gemini-3.7-flash"
             return requested
 
         # If Task-Adaptive routing is active
         if getattr(settings, "ANTIGRAVITY_ROUTING_MODE", "adaptive") == "adaptive":
             if intent in ["qa_research", "greetings"]:
-                return getattr(settings, "ANTIGRAVITY_MINOR_MODEL", "gemini-3.7-flash") or "gemini-3.7-flash"
+                minor = getattr(settings, "ANTIGRAVITY_MINOR_MODEL", "gemini-3.7-flash") or "gemini-3.7-flash"
+                return "gemini-3.7-flash" if any(p in minor for p in ["1.5", "2.0", "2.5"]) else minor
             elif intent in ["app_building", "code_modification", "debugging", "review_audit", "devops"] or (intent is None and (not requested or requested.lower() in ["auto", "adaptive"])):
-                return getattr(settings, "ANTIGRAVITY_MAJOR_MODEL", "gemini-3.8-flash") or "gemini-3.8-flash"
+                major = getattr(settings, "ANTIGRAVITY_MAJOR_MODEL", "gemini-3.8-flash") or "gemini-3.8-flash"
+                return "gemini-3.8-flash" if any(p in major for p in ["1.5", "2.0", "2.5"]) else major
 
-        return getattr(settings, "ANTIGRAVITY_MODEL", "gemini-3.7-flash") or "gemini-3.7-flash"
+        default_m = getattr(settings, "ANTIGRAVITY_MODEL", "gemini-3.7-flash") or "gemini-3.7-flash"
+        return "gemini-3.7-flash" if any(p in default_m for p in ["1.5", "2.0", "2.5"]) else default_m
 
     async def _emit_streamed_thought(
         self,
@@ -163,9 +552,15 @@ class AntigravityHarness:
                 logger.debug(f"Streaming thought notice: {e}")
 
         if inspect.iscoroutinefunction(on_thought):
-            await on_thought(thought_text)
+            try:
+                await on_thought(thought_text, s_id)
+            except TypeError:
+                await on_thought(thought_text)
         else:
-            on_thought(thought_text)
+            try:
+                on_thought(thought_text, s_id)
+            except TypeError:
+                on_thought(thought_text)
 
     async def _emit_streamed_message(
         self,
@@ -217,9 +612,15 @@ class AntigravityHarness:
                 logger.debug(f"Streaming message notice: {e}")
 
         if inspect.iscoroutinefunction(on_message):
-            await on_message(sender, content)
+            try:
+                await on_message(sender, content, s_id)
+            except TypeError:
+                await on_message(sender, content)
         else:
-            on_message(sender, content)
+            try:
+                on_message(sender, content, s_id)
+            except TypeError:
+                on_message(sender, content)
 
     async def _upsert_task_prs(
         self,
@@ -331,7 +732,7 @@ class AntigravityHarness:
         """
         objective = title or prompt[:100]
         intent = "app_building" if persona_name == "AppBuilder" else "qa_research"
-        return {
+        plan_data = {
             "intent_category": intent,
             "objective": objective,
             "steps": [
@@ -342,6 +743,8 @@ class AntigravityHarness:
                 "summary": "Formulating execution plan with AI model..."
             }
         }
+        plan_data["markdown"] = generate_plan_markdown(plan_data, title, prompt)
+        return plan_data
 
     async def _generate_dynamic_plan(
         self,
@@ -350,7 +753,8 @@ class AntigravityHarness:
         model_name: str,
         title: str,
         prompt: str,
-        persona_name: str
+        persona_name: str,
+        history: Optional[List[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         """
         Dynamically synthesizes a bespoke execution plan and classifies task intent
@@ -378,6 +782,38 @@ class AntigravityHarness:
                 }
             }
 
+        # Fast path: Detect Plan Mode activation triggers
+        planning_phrases = [
+            "what's the plan", "whats the plan", "what is the plan",
+            "so what's the plan", "so whats the plan",
+            "plan this", "plan this out", "create a plan", "make a plan",
+            "show me the plan", "give me a plan", "draft a plan", "propose a plan",
+            "plan mode", "execution plan"
+        ]
+        is_planning_query = (
+            any(phrase in cleaned_prompt for phrase in planning_phrases)
+            or any(phrase in cleaned_title for phrase in planning_phrases)
+            or cleaned_prompt.startswith("plan ")
+            or cleaned_title.startswith("plan ")
+            or cleaned_prompt == "plan"
+            or cleaned_title == "plan"
+        )
+
+        # Extract recent conversation history for rich planning context
+        conversation_context = ""
+        if history:
+            history_snippets = []
+            for m in history[-5:]:
+                sender = m.get("sender") or m.get("role") or "user"
+                content = m.get("content") or ""
+                if content and not m.get("thought"):
+                    clean_content = content.strip()
+                    if len(clean_content) > 1800:
+                        clean_content = clean_content[:1800] + "\n...[truncated]..."
+                    history_snippets.append(f"[{sender}]: {clean_content}")
+            if history_snippets:
+                conversation_context = "Preceding Conversation Context:\n" + "\n\n".join(history_snippets) + "\n\n"
+
         # Check API key presence for the specific provider
         if api_key is not None and api_key != "":
             prov_key = api_key
@@ -392,7 +828,7 @@ class AntigravityHarness:
         if not prov_key:
             provider_label = "Anthropic Claude" if provider.provider_id == "anthropic" else ("OpenAI / Codex" if provider.provider_id == "openai" else "Google Gemini")
             return {
-                "intent_category": "app_building" if persona_name == "AppBuilder" else "qa_research",
+                "intent_category": "planning" if is_planning_query else ("app_building" if persona_name == "AppBuilder" else "qa_research"),
                 "objective": objective,
                 "steps": [
                     {"id": "step-1", "title": f"Plan Generation Failed: {provider_label} API Key is missing or unconfigured", "status": "failed"}
@@ -407,12 +843,19 @@ class AntigravityHarness:
             }
 
         plan_prompt = (
-            f"You are the Cyclode Master Execution Planner. Formulate a crisp, bespoke 3-step execution plan for the following task.\n\n"
+            f"You are the Cyclode Master Execution Planner. Formulate an in-depth, rigorous, actionable architectural implementation plan for the following task.\n\n"
             f"Task Title: {title}\n"
             f"Persona: {persona_name}\n"
             f"Prompt: {prompt}\n\n"
-            f"Allowed intent_category values: ['qa_research', 'app_building', 'code_modification', 'review_audit', 'debugging', 'devops']\n"
+            f"{conversation_context}"
+            f"Allowed intent_category values: ['planning', 'qa_research', 'app_building', 'code_modification', 'review_audit', 'debugging', 'devops']\n"
             f"Guidelines:\n"
+            f"- If the prompt asks for a plan, roadmap, proposal, architecture proposal, or says 'what\\'s the plan', 'so what\\'s the plan', 'plan this', set intent_category='planning'.\n"
+            f"- CRITICAL FOR PLANNING INTENT: Ground your plan directly in the specific technical decisions, proposals, files, and code samples discussed in the preceding conversation context! Do NOT generate generic abstract placeholders (e.g. NEVER just say 'Establish core requirements' or 'Decompose development phases'). Name exact files (e.g. backend/app/agent/tools.py, backend/app/main.py), exact function/class names, and concrete verification commands!\n"
+            f"- For each phase, provide:\n"
+            f"  1. A descriptive title and a 1-sentence objective.\n"
+            f"  2. Specific file touchpoints with bulleted action items under each file.\n"
+            f"  3. Concrete verification criteria (e.g. exact pytest or build commands).\n"
             f"- If the prompt is asking a question, conceptual explanation, or research (e.g. 'What is Redis LangCache', 'Explain grafana alert rules'), set intent_category='qa_research'. Do NOT scaffold web apps for Q&A queries.\n"
             f"- If the prompt asks to build an interactive web app, frontend, UI, dashboard, game, or calculator, set intent_category='app_building'.\n"
             f"- If the prompt asks to review PR, diff, or code audit, set intent_category='review_audit'.\n"
@@ -421,12 +864,26 @@ class AntigravityHarness:
             f"- Otherwise, set intent_category='code_modification'.\n\n"
             f"Respond ONLY with a valid JSON object matching this schema:\n"
             f"{{\n"
-            f'  "intent_category": "qa_research | app_building | code_modification | review_audit | debugging | devops",\n'
-            f'  "objective": "Crisp 1-sentence goal",\n'
+            f'  "intent_category": "planning | qa_research | app_building | code_modification | review_audit | debugging | devops",\n'
+            f'  "title": "Implementation Plan: [Crisp Descriptive Title]",\n'
+            f'  "overview": "1-2 sentence executive summary outlining the phased remediation or development strategy",\n'
+            f'  "phases": [\n'
+            f'    {{\n'
+            f'      "phase_number": 1,\n'
+            f'      "title": "Phase 1: [Specific Milestone Title]",\n'
+            f'      "objective": "Clear 1-sentence objective",\n'
+            f'      "file_touchpoints": [\n'
+            f'        "path/to/file.py: Specific change details or action item"\n'
+            f'      ],\n'
+            f'      "verification_criteria": [\n'
+            f'        "Concrete verification command and condition (e.g. pytest tests/test_tools.py passes)"\n'
+            f'      ]\n'
+            f'    }}\n'
+            f'  ],\n'
             f'  "steps": [\n'
-            f'    {{"id": "step-1", "title": "Step 1 description", "status": "in_progress"}},\n'
-            f'    {{"id": "step-2", "title": "Step 2 description", "status": "pending"}},\n'
-            f'    {{"id": "step-3", "title": "Step 3 description", "status": "pending"}}\n'
+            f'    {{"id": "step-1", "title": "Specific step description", "status": "pending"}},\n'
+            f'    {{"id": "step-2", "title": "Specific step description", "status": "pending"}},\n'
+            f'    {{"id": "step-3", "title": "Specific step description", "status": "pending"}}\n'
             f'  ]\n'
             f"}}"
         )
@@ -440,32 +897,48 @@ class AntigravityHarness:
 
         if plan_res.get("result"):
             parsed = plan_res["result"]
-            intent_cat = parsed.get("intent_category", "qa_research")
-            if intent_cat not in ["qa_research", "app_building", "code_modification", "review_audit", "debugging", "devops"]:
+            intent_cat = parsed.get("intent_category", "planning" if is_planning_query else "qa_research")
+            if is_planning_query:
+                intent_cat = "planning"
+            elif intent_cat not in ["planning", "qa_research", "app_building", "code_modification", "review_audit", "debugging", "devops"]:
                 intent_cat = "qa_research"
 
             obj = parsed.get("objective") or objective
+            phases = parsed.get("phases", [])
+            overview = parsed.get("overview") or obj
+            plan_title = parsed.get("title") or title
             raw_steps = parsed.get("steps", [])
+            if not raw_steps and phases:
+                raw_steps = [
+                    {"title": p.get("title") or f"Phase {i+1}", "status": "pending"}
+                    for i, p in enumerate(phases)
+                ]
+
             if isinstance(raw_steps, list) and len(raw_steps) >= 1:
                 steps = []
                 for idx, s in enumerate(raw_steps):
                     s_title = s.get("title", f"Step {idx+1}") if isinstance(s, dict) else str(s)
                     s_id = f"step-{idx+1}"
-                    s_status = "in_progress" if idx == 0 else "pending"
+                    s_status = "pending" if intent_cat == "planning" else ("in_progress" if idx == 0 else "pending")
                     steps.append({"id": s_id, "title": s_title, "status": s_status})
-                return {
+                plan_dict = {
                     "intent_category": intent_cat,
+                    "title": plan_title,
                     "objective": obj,
+                    "overview": overview,
+                    "phases": phases,
                     "steps": steps,
                     "evaluation": {
-                        "status": "pending",
-                        "summary": "Dynamic plan formulated. Execution in progress."
+                        "status": "ready_for_review" if intent_cat == "planning" else "pending",
+                        "summary": "Implementation plan formulated. Awaiting user review or approval to proceed." if intent_cat == "planning" else "Dynamic plan formulated. Execution in progress."
                     }
                 }
+                plan_dict["markdown"] = generate_plan_markdown(plan_dict, title, prompt)
+                return plan_dict
 
         last_error = plan_res.get("error") or "Plan generation failed across candidate models."
-        return {
-            "intent_category": "app_building" if persona_name == "AppBuilder" else "qa_research",
+        fallback_plan = {
+            "intent_category": "planning" if is_planning_query else ("app_building" if persona_name == "AppBuilder" else "qa_research"),
             "objective": objective,
             "steps": [
                 {"id": "step-1", "title": f"Plan Generation Failed: {last_error}", "status": "failed"}
@@ -478,6 +951,8 @@ class AntigravityHarness:
                 ]
             }
         }
+        fallback_plan["markdown"] = generate_plan_markdown(fallback_plan, title, prompt)
+        return fallback_plan
 
 
     def _generate_initial_plan(self, title: str, prompt: str, persona_name: str = "") -> Dict[str, Any]:
@@ -992,10 +1467,12 @@ class AntigravityHarness:
             provider_label = "OpenAI / Codex"
         else:
             clean_gemini = effective_model.replace("google:", "").replace("gemini:", "").strip()
-            initial_gemini = [clean_gemini, "gemini-3.7-flash", "gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-pro"]
-            model_candidates = [m for m in initial_gemini if m and m != "gemini-1.5-pro"]
+            if any(clean_gemini.startswith(p) for p in ["gemini-1.", "gemini-2."]) or "1.5" in clean_gemini or "2.0" in clean_gemini or "2.5" in clean_gemini:
+                clean_gemini = "gemini-3.7-flash"
+            initial_gemini = [clean_gemini, "gemini-3.7-flash", "gemini-3.8-flash"]
+            model_candidates = [m for m in initial_gemini if m and not any(m.startswith(p) for p in ["gemini-1.", "gemini-2."]) and "1.5" not in m and "2.0" not in m and "2.5" not in m]
             if not model_candidates:
-                model_candidates = ["gemini-3.7-flash", "gemini-3.8-flash", "gemini-2.5-flash"]
+                model_candidates = ["gemini-3.7-flash", "gemini-3.8-flash"]
             provider_label = "Google Gemini"
         unique_models = list(dict.fromkeys(m for m in model_candidates if m))
 
@@ -1096,7 +1573,8 @@ class AntigravityHarness:
                 model_name=primary_model,
                 title=title,
                 prompt=prompt,
-                persona_name=persona_name
+                persona_name=persona_name,
+                history=history
             )
             current_plan = dynamic_plan
             await self._emit_plan(current_plan, on_plan)
@@ -1215,13 +1693,41 @@ class AntigravityHarness:
                                     new_parts.append(p)
                             optimized_contents.append({"role": entry.get("role", "user"), "parts": new_parts})
 
-                        # Tier 2: Intent-Driven Tool Schema Pruning
+                        # Tier 2: Intent-Driven Tool Schema Pruning & Plan Mode Directive
                         intent_cat = current_plan.get("intent_category", "qa_research")
+                        effective_system_instruction = system_instruction
                         if intent_cat == "qa_research":
                             active_tools_def = [
                                 t for t in (tools_def or [])
                                 if any(d.get("name") in ["search_web", "fetch_url", "search_doc_pages"] for d in t.get("function_declarations", []))
                             ] if tools_def else None
+                        elif intent_cat == "planning":
+                            mutation_tool_names = {"edit_file", "replace_file_content", "batch_replace_content", "apply_unified_patch", "revert_file", "speculative_branch_test"}
+                            active_tools_def = [
+                                t for t in (tools_def or [])
+                                if not any(d.get("name") in mutation_tool_names for d in t.get("function_declarations", []))
+                            ] if tools_def else None
+                            effective_system_instruction = (
+                                system_instruction
+                                + "\n\n4. PLAN MODE ACTIVE (ARCHITECTURAL IMPLEMENTATION PLAN MANDATE):\n"
+                                + "   - The user has requested an architectural execution plan. Your responsibility is comprehensive technical planning.\n"
+                                + "   - DO NOT perform file edits, replacements, or code mutations. All mutation tools are disabled for this turn.\n"
+                                + "   - You may use inspection tools (`read_file`, `search_code`, `find_symbols`, `list_dir`, `get_file_outline`) to examine existing code and architecture.\n"
+                                + "   - CRITICAL ARCHITECTURAL REQUIREMENT: Ground your plan directly in the specific technical decisions, proposals, and code discussed in the conversation.\n"
+                                + "   - Format your implementation plan using this exact Markdown structure:\n"
+                                + "     # Implementation Plan: [Crisp Descriptive Focus Title]\n\n"
+                                + "     [Executive Summary paragraph outlining the phased remediation/architecture strategy]\n\n"
+                                + "     ### Phase 1: [Milestone Title]\n"
+                                + "     **Objective**: [Clear 1-sentence objective]\n\n"
+                                + "     - **File Touchpoints**:\n"
+                                + "       - `path/to/target/file`:\n"
+                                + "         - [Specific functions, classes, or code hunks to modify or delete]\n"
+                                + "         - [Detailed implementation details and parameters]\n\n"
+                                + "     - **Verification Criteria**:\n"
+                                + "       - [Exact pytest commands, build checks, and runtime behavior expected]\n\n"
+                                + "     ### Phase 2: [Next Milestone Title] ...\n\n"
+                                + "   - Conclude by stating that the complete interactive specification is published in 'Web & Docs', and invite the user to review it and reply 'Proceed' when ready to execute."
+                            )
                         else:
                             active_tools_def = tools_def
 
@@ -1232,7 +1738,7 @@ class AntigravityHarness:
                                 provider_resp = await active_provider.generate_response(
                                     messages=optimized_contents,
                                     tools=active_tools_def,
-                                    system_instruction=system_instruction,
+                                    system_instruction=effective_system_instruction,
                                     model_name=active_model,
                                     client=client
                                 )
@@ -1414,6 +1920,21 @@ class AntigravityHarness:
                                         "name": "Tool Execution",
                                         "passed": True
                                     })
+                            elif intent_category == "planning":
+                                has_synthesis = bool(combined_text and len(combined_text.strip()) > 30)
+                                checks.append({
+                                    "name": "Plan Formulation",
+                                    "passed": has_synthesis
+                                })
+                                checks.append({
+                                    "name": "Specification Available in Web & Docs",
+                                    "passed": True
+                                })
+                                if tool_call_count > 0:
+                                    checks.append({
+                                        "name": "Workspace Inspection",
+                                        "passed": True
+                                    })
                             else:
                                 checks.append({
                                     "name": "Tool Execution",
@@ -1453,7 +1974,6 @@ class AntigravityHarness:
                                         heal_model_parts.append({"thought": provider_resp.thought})
                                     if combined_text:
                                         heal_model_parts.append({"text": combined_text})
-
                                 contents.append({
                                     "role": "model",
                                     "parts": heal_model_parts if heal_model_parts else [{"text": combined_text or "Inspecting workspace."}]
@@ -1464,24 +1984,72 @@ class AntigravityHarness:
                                 })
                                 continue
 
-                            for s in current_plan.get("steps", []):
-                                if s.get("status") != "failed":
-                                    s["status"] = "completed"
-
-                            eval_status = "accomplished" if all_checks_passed else "needs_revision"
-                            eval_summary = "All execution plan steps verified successfully against workspace state." if all_checks_passed else "Plan execution requires revision."
-
-                            current_plan["evaluation"] = {
-                                "status": eval_status,
-                                "summary": eval_summary,
-                                "checks": checks
-                            }
-                            await self._emit_plan(current_plan, on_plan)
-
                             final_agent_text = combined_text or "Task execution completed."
-                            await self._emit_streamed_message(
-                                "agent", final_agent_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
+
+                            is_plan_response = (
+                                intent_category == "planning"
+                                or "# Implementation Plan" in final_agent_text
+                                or "## Implementation Plan" in final_agent_text
+                                or "### Phase 1" in final_agent_text
+                                or "Phase 1:" in final_agent_text
                             )
+
+                            if is_plan_response:
+                                # In Plan Mode or when the model outputs an architectural plan:
+                                # Promote the model's actual structured plan to the First-Class Execution Plan!
+                                extracted_plan = extract_plan_from_markdown(final_agent_text, default_title=title)
+                                if extracted_plan.get("steps") and len(extracted_plan["steps"]) >= 1:
+                                    current_plan["steps"] = extracted_plan["steps"]
+                                    if extracted_plan.get("phases"):
+                                        current_plan["phases"] = extracted_plan["phases"]
+                                    if extracted_plan.get("title"):
+                                        current_plan["title"] = extracted_plan["title"]
+                                    if extracted_plan.get("overview"):
+                                        current_plan["overview"] = extracted_plan["overview"]
+                                else:
+                                    for s in current_plan.get("steps", []):
+                                        if s.get("status") != "failed":
+                                            s["status"] = "pending"
+
+                                current_plan["intent_category"] = "planning"
+                                current_plan["markdown"] = final_agent_text
+                                eval_status = "ready_for_review"
+                                eval_summary = "Implementation plan formulated. Awaiting user review or approval to proceed."
+                                checks = [
+                                    {"name": "Implementation Plan Formulated", "passed": True, "message": "Architectural implementation plan ready for review"}
+                                ]
+                                current_plan["evaluation"] = {
+                                    "status": eval_status,
+                                    "summary": eval_summary,
+                                    "checks": checks
+                                }
+                                await self._emit_plan(current_plan, on_plan)
+
+                                chat_agent_text = format_plan_chat_summary(current_plan, full_markdown=final_agent_text, task_id=task_id)
+
+                                await self._emit_streamed_message(
+                                    "agent", chat_agent_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
+                                )
+
+                                return {"status": "COMPLETED", "summary": chat_agent_text[:120]}
+                            else:
+                                for s in current_plan.get("steps", []):
+                                    if s.get("status") != "failed":
+                                        s["status"] = "completed"
+                                eval_status = "accomplished" if all_checks_passed else "needs_revision"
+                                eval_summary = "All execution plan steps verified successfully against workspace state." if all_checks_passed else "Plan execution requires revision."
+                                current_plan["markdown"] = generate_plan_markdown(current_plan, title, prompt)
+
+                                current_plan["evaluation"] = {
+                                    "status": eval_status,
+                                    "summary": eval_summary,
+                                    "checks": checks
+                                }
+                                await self._emit_plan(current_plan, on_plan)
+
+                                await self._emit_streamed_message(
+                                    "agent", final_agent_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
+                                )
 
                             if intent_category == "qa_research" and final_agent_text and len(final_agent_text.strip()) > 30:
                                 try:

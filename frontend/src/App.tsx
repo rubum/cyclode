@@ -1186,6 +1186,7 @@ const MainApp: React.FC = () => {
             onOpenSandboxModal={() => setIsSandboxModalOpen(true)}
             onSelectAuxTab={handleSelectAuxTab}
             onOpenPreview={handleOpenPreview}
+            onOpenPlan={handleOpenPlanDocument}
             onNavigateToRepos={() => setActiveView('repositories')}
           />
         );
@@ -1303,12 +1304,37 @@ const MainApp: React.FC = () => {
   };
 
   const handleOpenPreview = (url: string, title?: string) => {
+    if (url.startsWith('plan://') || url === '#open-plan-doc' || url === 'action://open-plan-doc') {
+      const planTaskId = url.startsWith('plan://') ? url.replace('plan://', '').split('/')[0] : activeTaskId;
+      handleOpenPlanDocument(planTaskId || activeTaskId);
+      return;
+    }
     if (activeTaskId) {
       setSessionPreviews((prev) => ({
         ...prev,
         [activeTaskId]: { url, title },
       }));
     }
+    if (currentPreset === 'fullscreen') {
+      handleSetPreset('split');
+    }
+  };
+
+  const handleOpenPlanDocument = (taskId?: string, plan?: any) => {
+    const targetTaskId = taskId || activeTaskId;
+    if (!targetTaskId) return;
+    const planTitle = plan?.objective 
+      ? `Plan: ${plan.objective.length > 35 ? plan.objective.slice(0, 35) + '...' : plan.objective}`
+      : 'Implementation Plan';
+
+    setSessionPreviews((prev) => ({
+      ...prev,
+      [targetTaskId]: {
+        url: `plan://${targetTaskId}`,
+        title: planTitle
+      }
+    }));
+    setActiveAuxTab('docs');
     if (currentPreset === 'fullscreen') {
       handleSetPreset('split');
     }

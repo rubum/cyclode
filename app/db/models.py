@@ -41,7 +41,7 @@ class TaskModel(Base):
     custom_title: Mapped[bool] = mapped_column(Boolean, default=False)
     description: Mapped[str] = mapped_column(Text, default="")
     persona: Mapped[str] = mapped_column(String(50), default="IssueResolver")
-    model_name: Mapped[str] = mapped_column(String(50), default="gemini-2.5-flash")
+    model_name: Mapped[str] = mapped_column(String(50), default="gemini-3.7-flash")
     status: Mapped[str] = mapped_column(String(30), default="QUEUED")
     # QUEUED, INITIALIZING, RUNNING, AWAITING_APPROVAL, AWAITING_INPUT, IDLE, COMPLETED, FAILED, CANCELLED
     

@@ -166,9 +166,9 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
       prevBuildTimestampRef.current = null;
       inspectPreview(false);
     } else {
-      // If task transitioned from RUNNING -> COMPLETED, auto-reload preview to reflect new build
-      if (prevStatus === 'RUNNING' && task?.status === 'COMPLETED') {
-        inspectPreview(true);
+      // If task transitioned to COMPLETED, PAUSED, or CANCELLED, reload preview to reflect workspace changes
+      if (prevStatus !== task?.status) {
+        inspectPreview(false);
         setIframeKey((prev) => prev + 1);
       } else {
         inspectPreview(true);
@@ -186,7 +186,7 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
     return () => {
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
     };
-  }, [task?.id, task?.status, inspectPreview]);
+  }, [task?.id, task?.status, task?.updated_at, inspectPreview]);
 
   // Listen to message events from iframe
   useEffect(() => {
@@ -639,7 +639,8 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
             ref={iframeRef}
             src={previewUrl}
             title={previewInfo.title || 'App Preview'}
-            sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals allow-downloads"
+            sandbox="allow-scripts allow-forms allow-same-origin allow-popups allow-modals allow-downloads allow-pointer-lock"
+            allow="accelerometer; camera; encrypted-media; display-capture; geolocation; gyroscope; microphone; midi; clipboard-read; clipboard-write; web-share; serial; xr-spatial-tracking; autoplay; fullscreen; pointer-lock"
             className="w-full flex-1 border-none bg-white"
           />
         </div>
@@ -873,7 +874,7 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
                           <table className="w-full text-[11px] font-mono">
                             <tbody>
                               {(diagnosticsData?.assets_found || []).map((asset) => (
-                                <tr key={asset.name} className="border-b border-onedark-borderSubtle/50 hover:bg-onedark-surface/40">
+                                <tr key={asset.name} className="border-b border-onedark-borderSubtle hover:bg-onedark-surface/40">
                                   <td className="px-2 py-1 text-onedark-fg flex items-center space-x-1.5">
                                     <FileCode className="w-3 h-3 text-onedark-accent flex-shrink-0" />
                                     <span className="truncate">{asset.name}</span>

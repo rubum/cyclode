@@ -10,7 +10,7 @@ export type TaskStatus =
   | 'CANCELLED';
 export type LayoutPreset = 'split' | 'preview' | 'wide' | 'fullscreen' | 'standard';
 export type PlanStepStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
-export type PlanEvaluationStatus = 'pending' | 'evaluating' | 'accomplished' | 'needs_revision';
+export type PlanEvaluationStatus = 'pending' | 'evaluating' | 'accomplished' | 'needs_revision' | 'ready_for_review';
 
 export interface PlanStep {
   id: string;
@@ -31,10 +31,24 @@ export interface PlanEvaluation {
   checks?: PlanCheck[];
 }
 
+export interface PlanPhase {
+  phase_number?: number;
+  title: string;
+  objective?: string;
+  file_touchpoints?: string[];
+  verification_criteria?: string[];
+}
+
 export interface TaskPlan {
+  title?: string;
   objective: string;
+  overview?: string;
+  phases?: PlanPhase[];
   steps: PlanStep[];
   evaluation?: PlanEvaluation;
+  intent_category?: string;
+  markdown?: string;
+  document_markdown?: string;
 }
 
 export interface TaskMessage {
@@ -129,8 +143,39 @@ export interface TaskPR {
   test_output?: string;
   body?: string;
   is_session_scoped?: boolean;
+  is_listening?: boolean;
+  listening_events?: string[];
+  listener_persona?: string;
+  auto_commit_fixes?: boolean;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface PRListenerConfig {
+  task_id: string;
+  pr_number: number;
+  is_listening: boolean;
+  listening_events: string[];
+  listener_persona: string;
+  auto_commit_fixes: boolean;
+}
+
+export interface RepoListenerConfig {
+  repo_id: string;
+  repo_full_name: string;
+  is_listening: boolean;
+  subscribed_events: string[];
+  default_persona: string;
+}
+
+export interface ListeningEventOption {
+  id: string;
+  name: string;
+  description: string;
+  source: string;
+  event_type: string;
+  category: 'ci' | 'review' | 'code' | 'issue' | 'release';
+  sample_payload?: Record<string, any>;
 }
 
 export interface Task {
@@ -143,6 +188,10 @@ export interface Task {
   persona: string;
   model_name: string;
   status: TaskStatus;
+  is_listening?: boolean;
+  listening_events?: string[];
+  listener_persona?: string;
+  auto_commit_fixes?: boolean;
   repo_name?: string;
   repo_url?: string;
   target_branch?: string;
@@ -236,6 +285,9 @@ export interface RepositoryConfig {
   test_command: string;
   manifest_cache?: Record<string, any>;
   status: 'CONNECTED' | 'AUTH_REQUIRED' | 'UNREACHABLE';
+  is_listening?: boolean;
+  subscribed_events?: string[];
+  default_persona?: string;
   last_synced_at?: string;
   created_at?: string;
   updated_at?: string;
@@ -368,4 +420,106 @@ export interface ModelSettings {
     openai?: { model: string; base_url?: string; configured: boolean };
   };
 }
+
+export interface InboundEvent {
+  id?: string;
+  source: string;
+  event_type: string;
+  payload: Record<string, any>;
+  signature_valid: boolean;
+  session_key?: string | null;
+  matched_rule_id?: string | null;
+  status: string;
+  created_at: string;
+}
+
+export interface OutboundEvent {
+  id: string;
+  task_id: string;
+  event_id?: string | null;
+  action_type: string;
+  target: string;
+  payload: Record<string, any>;
+  status_code?: number;
+  delivered: boolean;
+  delivered_at: string;
+  error?: string | null;
+}
+
+export interface EventTimelineItem {
+  id: string;
+  kind: 'inbound' | 'outbound';
+  source: string;
+  event_type: string;
+  title: string;
+  summary?: string;
+  session_key?: string | null;
+  task_id?: string | null;
+  signature_valid: boolean;
+  status: string;
+  status_code?: number | null;
+  payload: Record<string, any>;
+  timestamp: string;
+}
+
+export interface ToolInvocationRecord {
+  id?: string;
+  tool_name: string;
+  input_args: Record<string, any>;
+  output_data?: string | null;
+  error?: string | null;
+  duration_ms?: number;
+  exit_code?: number;
+  created_at: string;
+}
+
+export interface TrajectoryTurn {
+  turn_index: number;
+  timestamp: string;
+  thoughts: string[];
+  user_prompt?: string | null;
+  agent_response?: string | null;
+  tool_calls: ToolInvocationRecord[];
+  diff_snapshot_sha?: string | null;
+  tokens_consumed: number;
+}
+
+export interface AgentTrajectory {
+  task_id: string;
+  session_key?: string | null;
+  persona: string;
+  model_name: string;
+  status: string;
+  turns: TrajectoryTurn[];
+  total_tokens: number;
+  total_latency_ms: number;
+  estimated_cost_usd: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type EvaluationCategory = 
+  | 'workspace_state'
+  | 'unit_tests'
+  | 'preview_bundle'
+  | 'security_jail'
+  | 'synthesis'
+  | 'pr_quality';
+
+export interface EvaluationCheck {
+  name: string;
+  category: EvaluationCategory;
+  passed: boolean;
+  diagnostics?: string | null;
+  duration_ms?: number | null;
+}
+
+export interface EvaluationScorecard {
+  status: 'accomplished' | 'needs_revision' | 'in_progress';
+  summary: string;
+  score: number;
+  checks: EvaluationCheck[];
+  evaluated_at: string;
+}
+
 
