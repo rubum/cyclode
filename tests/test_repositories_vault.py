@@ -158,3 +158,49 @@ async def test_clear_all_repositories():
         assert disc_res.status_code == 200
         assert disc_res.json()["count"] >= 1
 
+
+@pytest.mark.asyncio
+async def test_generic_stopword_prompts_do_not_trigger_repo_resolution():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Seed a repo named 'repo' or 'app' to test stopword collision protection
+        await client.post("/api/repositories", json={
+            "name": "repo",
+            "full_name": "demo-org/repo",
+            "clone_url": "https://github.com/demo-org/repo",
+            "default_branch": "main"
+        })
+
+        # 1. "Can you init a git repo" must NOT bind to demo-org/repo
+        task_id = await agent_pool.spawn_task(
+            title="Can you init a git repo",
+            description="Can you init a git repo"
+        )
+        task_res = await client.get(f"/api/tasks/{task_id}")
+        assert task_res.status_code == 200
+        t_data = task_res.json()
+        assert t_data.get("repo_url") is None
+        assert t_data.get("repo_name") is None
+
+        # 2. "What is a monorepo vs polyrepo" must NOT bind to demo-org/repo
+        task_id_qa = await agent_pool.spawn_task(
+            title="What is a monorepo",
+            description="Explain difference between monorepo and polyrepo architecture"
+        )
+        task_res_qa = await client.get(f"/api/tasks/{task_id_qa}")
+        assert task_res_qa.status_code == 200
+        t_qa = task_res_qa.json()
+        assert t_qa.get("repo_url") is None
+        assert t_qa.get("repo_name") is None
+
+        # 3. Explicit handle "@demo-org/repo" DOES bind
+        task_id_explicit = await agent_pool.spawn_task(
+            title="Inspect @demo-org/repo",
+            description="Run review on @demo-org/repo"
+        )
+        task_res_exp = await client.get(f"/api/tasks/{task_id_explicit}")
+        assert task_res_exp.status_code == 200
+        t_exp = task_res_exp.json()
+        assert t_exp.get("repo_url") == "https://github.com/demo-org/repo"
+        assert t_exp.get("repo_name") == "demo-org/repo"
+

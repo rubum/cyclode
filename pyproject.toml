@@ -62,3 +62,10 @@ include = ["app*", "cyclode*"]
 [tool.setuptools.package-data]
 "cyclode" = ["static/**/*", "skills/**/*", "templates/**/*"]
 "app" = ["static/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["backend/tests"]
+pythonpath = ["backend", "."]
+asyncio_mode = "auto"
+norecursedirs = [".git", "node_modules", "dist", "build", "tests"]
+
