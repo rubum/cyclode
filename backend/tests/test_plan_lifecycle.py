@@ -654,3 +654,45 @@ async def test_get_task_plan_document_self_heals_from_agent_message():
         assert doc["plan"]["evaluation"]["status"] == "ready_for_review"
 
 
+@pytest.mark.asyncio
+async def test_get_task_diff_endpoint(tmp_path):
+    from app.api.tasks import get_task_diff
+    from app.db.models import TaskModel, TaskDiffModel
+    from app.db.session import async_session_factory, init_db
+
+    await init_db()
+    task_id = "task-diff-test-endpoint"
+
+    async with async_session_factory() as session:
+        task = TaskModel(
+            id=task_id,
+            title="Task with Diffs",
+            description="Testing diff endpoint",
+            workspace_path=str(tmp_path),
+            git_branch="cyclode/feature-test-diff",
+            status="RUNNING"
+        )
+        session.add(task)
+
+        diff1 = TaskDiffModel(
+            task_id=task_id,
+            file_path="src/components/App.tsx",
+            diff_content="@@ -1,2 +1,3 @@\n+import React from 'react';\n",
+            additions=1,
+            deletions=0
+        )
+        session.add(diff1)
+        await session.commit()
+
+    async with async_session_factory() as session:
+        res = await get_task_diff(task_id, db=session)
+        assert res["ok"] is True
+        assert res["task_id"] == task_id
+        assert res["branch"] == "cyclode/feature-test-diff"
+        assert res["total_files"] == 1
+        assert res["total_additions"] == 1
+        assert res["total_deletions"] == 0
+        assert res["diffs"][0]["file_path"] == "src/components/App.tsx"
+
+
+

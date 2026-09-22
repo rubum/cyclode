@@ -6,7 +6,11 @@ import {
   Box, 
   RotateCcw, 
   Settings,
-  Play
+  Play,
+  GitBranch,
+  GitCompare,
+  Copy,
+  Check
 } from 'lucide-react';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { Task, WorkspacePreviewInfo, LayoutPreset } from '../../types';
@@ -21,6 +25,7 @@ interface HeaderProps {
   onSetPreset?: (preset: LayoutPreset) => void;
   onOpenSandboxModal?: () => void;
   onOpenPreview?: () => void;
+  onOpenChanges?: () => void;
   onRetryTask?: () => void;
   isSidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
@@ -34,6 +39,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSetPreset,
   onOpenSandboxModal,
   onOpenPreview,
+  onOpenChanges,
   onRetryTask,
   isSidebarCollapsed = false,
   onToggleSidebar,
@@ -43,6 +49,10 @@ export const Header: React.FC<HeaderProps> = ({
   const isRunning = activeTask?.status === 'RUNNING' || activeTask?.status === 'INITIALIZING';
 
   const [previewInfo, setPreviewInfo] = useState<WorkspacePreviewInfo | null>(null);
+  const [copiedBranch, setCopiedBranch] = useState(false);
+
+  const diffAdds = (activeTask?.diffs || []).reduce((acc, d) => acc + (d.additions || 0), 0);
+  const diffDels = (activeTask?.diffs || []).reduce((acc, d) => acc + (d.deletions || 0), 0);
 
   const checkPreviewStatus = useCallback(async () => {
     if (!activeTask?.id) {
@@ -99,6 +109,39 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="hidden md:inline-block px-2 py-0.5 rounded-md bg-onedark-accent/10 text-onedark-accent border border-onedark-accent/25 text-[10.5px] font-semibold font-mono truncate">
             {activeTask.session_key}
           </span>
+        )}
+
+        {activeTask?.git_branch && (
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(activeTask.git_branch || '');
+              setCopiedBranch(true);
+              setTimeout(() => setCopiedBranch(false), 2000);
+            }}
+            className="flex items-center space-x-1.5 px-2 py-0.5 rounded-md bg-onedark-surface/40 hover:bg-onedark-surface border border-onedark-borderSubtle text-onedark-fgBright font-mono text-[11px] truncate transition-colors cursor-pointer group"
+            title={`Active Git Branch: ${activeTask.git_branch} (Click to copy)`}
+          >
+            <GitBranch className="w-3 h-3 text-onedark-purple flex-shrink-0" />
+            <span className="truncate max-w-[130px] sm:max-w-[180px]">{activeTask.git_branch}</span>
+            {copiedBranch ? (
+              <Check className="w-2.5 h-2.5 text-onedark-green flex-shrink-0" />
+            ) : (
+              <Copy className="w-2.5 h-2.5 text-onedark-muted opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+            )}
+          </button>
+        )}
+
+        {activeTask?.diffs && activeTask.diffs.length > 0 && onOpenChanges && (
+          <button
+            onClick={onOpenChanges}
+            className="flex items-center space-x-1 px-2 py-0.5 rounded-md bg-onedark-surface/60 hover:bg-onedark-surface border border-onedark-borderSubtle text-[11px] font-mono transition-all cursor-pointer shadow-xs active:scale-95"
+            title={`${activeTask.diffs.length} modified file${activeTask.diffs.length > 1 ? 's' : ''}: +${diffAdds} -${diffDels}. Click to inspect changes`}
+          >
+            <GitCompare className="w-3 h-3 text-onedark-accent flex-shrink-0" />
+            <span className="text-onedark-fgBright font-medium">{activeTask.diffs.length} file{activeTask.diffs.length > 1 ? 's' : ''}</span>
+            <span className="text-onedark-green font-bold">+{diffAdds}</span>
+            <span className="text-onedark-red font-bold">-{diffDels}</span>
+          </button>
         )}
       </div>
 

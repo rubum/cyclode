@@ -113,13 +113,14 @@ export interface TaskApproval {
 }
 
 export interface TaskDiff {
-  id: string;
-  task_id: string;
+  id?: string;
+  task_id?: string;
   file_path: string;
+  status?: string;
   diff_content: string;
   additions: number;
   deletions: number;
-  created_at: string;
+  created_at?: string;
 }
 
 export interface TaskPR {

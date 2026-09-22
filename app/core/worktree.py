@@ -77,15 +77,55 @@ class WorktreeManager:
             subprocess.run(["git", "commit", "-m", "initial commit"], cwd=path, capture_output=True, env=git_env)
             subprocess.run(["git", "branch", "-M", "main"], cwd=path, capture_output=True, env=git_env)
 
+    def get_git_branch(self, workspace_path: Path) -> Optional[str]:
+        """
+        Determines current git branch or HEAD reference for a workspace path.
+        """
+        if not (workspace_path / ".git").exists():
+            return None
+        git_env = self._get_git_env()
+        try:
+            res = subprocess.run(
+                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                cwd=workspace_path,
+                capture_output=True,
+                text=True,
+                env=git_env,
+                timeout=5
+            )
+            branch = res.stdout.strip()
+            if branch and branch != "HEAD":
+                return branch
+            res_sha = subprocess.run(
+                ["git", "rev-parse", "--short", "HEAD"],
+                cwd=workspace_path,
+                capture_output=True,
+                text=True,
+                env=git_env,
+                timeout=5
+            )
+            return res_sha.stdout.strip() or None
+        except Exception:
+            return None
+
     def get_git_diff(self, workspace_path: Path) -> List[Dict[str, Any]]:
         """
-        Extracts current git diff from the workspace path.
+        Extracts current git diff from the workspace path, including untracked added files.
         """
         if not (workspace_path / ".git").exists():
             return []
 
         git_env = self._get_git_env()
         try:
+            # Stage intent-to-add for untracked files so new files appear in git diff
+            subprocess.run(
+                ["git", "add", "-N", "."],
+                cwd=workspace_path,
+                capture_output=True,
+                env=git_env,
+                timeout=5
+            )
+
             # Check unstaged and staged diff
             diff_proc = subprocess.run(
                 ["git", "diff", "HEAD"],
@@ -105,7 +145,8 @@ class WorktreeManager:
                     cwd=workspace_path,
                     capture_output=True,
                     text=True,
-                    env=git_env
+                    env=git_env,
+                    timeout=5
                 )
                 for line in files_proc.stdout.strip().splitlines():
                     if not line:
@@ -113,14 +154,28 @@ class WorktreeManager:
                     parts = line.split(maxsplit=1)
                     status = parts[0]
                     file_name = parts[1] if len(parts) > 1 else ""
+                    if not file_name:
+                        continue
                     
+                    # Extract file-specific patch snippet
+                    file_diff_proc = subprocess.run(
+                        ["git", "diff", "HEAD", "--", file_name],
+                        cwd=workspace_path,
+                        capture_output=True,
+                        text=True,
+                        env=git_env,
+                        timeout=5
+                    )
+                    file_diff = file_diff_proc.stdout if file_diff_proc.stdout else raw_diff
+
                     # Estimate additions/deletions
                     numstat = subprocess.run(
                         ["git", "diff", "--numstat", "HEAD", "--", file_name],
                         cwd=workspace_path,
                         capture_output=True,
                         text=True,
-                        env=git_env
+                        env=git_env,
+                        timeout=5
                     )
                     adds, dels = 0, 0
                     if numstat.stdout.strip():
@@ -132,7 +187,7 @@ class WorktreeManager:
                     diffs.append({
                         "file_path": file_name,
                         "status": status,
-                        "diff_content": raw_diff,
+                        "diff_content": file_diff,
                         "additions": adds,
                         "deletions": dels
                     })

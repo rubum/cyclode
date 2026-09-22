@@ -42,7 +42,7 @@ const MainApp: React.FC = () => {
     }
     return 'split';
   });
-  const [activeAuxTab, setActiveAuxTab] = useState<'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'docs' | 'preview'>('activity');
+  const [activeAuxTab, setActiveAuxTab] = useState<'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'docs' | 'preview' | 'changes'>('activity');
   const [sessionPreviews, setSessionPreviews] = useState<Record<string, { url: string; title?: string } | null>>({});
   const activePreviewTarget = activeTaskId ? (sessionPreviews[activeTaskId] || null) : null;
   const [isClearingAll, setIsClearingAll] = useState<boolean>(false);
@@ -1277,7 +1277,7 @@ const MainApp: React.FC = () => {
 
   const activeTask = tasks.find((t) => t.id === activeTaskId);
 
-  const handleSelectAuxTab = (tab: 'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'docs' | 'preview') => {
+  const handleSelectAuxTab = (tab: 'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'docs' | 'preview' | 'changes') => {
     setActiveAuxTab(tab);
     if (currentPreset === 'fullscreen') {
       handleSetPreset('split');

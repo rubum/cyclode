@@ -49,7 +49,8 @@ import {
   Undo2,
   ShieldCheck,
   Compass,
-  Plus
+  Plus,
+  GitCompare
 } from 'lucide-react';
 import { Task, TaskMessage, TaskLog, RepositoryConfig, TaskPR, WorkspacePreviewInfo, TaskPlan, LayoutPreset } from '../../types';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
@@ -228,7 +229,7 @@ interface ChatCanvasProps {
   currentPreset?: LayoutPreset;
   onSetPreset?: (preset: LayoutPreset) => void;
   onOpenSandboxModal?: () => void;
-  onSelectAuxTab?: (tab: 'docs' | 'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'preview') => void;
+  onSelectAuxTab?: (tab: 'docs' | 'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'preview' | 'changes') => void;
   onOpenPreview?: (url: string, title?: string) => void;
   onOpenPlan?: (taskId?: string, plan?: TaskPlan | null) => void;
   onNavigateToRepos?: () => void;
@@ -564,6 +565,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState('');
+  const [copiedBranch, setCopiedBranch] = useState(false);
   const [expandedRawPlanMsgIds, setExpandedRawPlanMsgIds] = useState<Record<string, boolean>>({});
 
   const [localRepos, setLocalRepos] = useState<RepositoryConfig[]>([]);
@@ -1669,6 +1671,42 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
             </div>
           )}
 
+          {task.git_branch && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                navigator.clipboard.writeText(task.git_branch || '');
+                setCopiedBranch(true);
+                setTimeout(() => setCopiedBranch(false), 2000);
+              }}
+              className="flex items-center space-x-1 px-2 py-0.5 rounded-md bg-onedark-surface/60 hover:bg-onedark-surface text-[11px] font-mono text-onedark-purple flex-shrink-0 max-w-[130px] sm:max-w-[170px] truncate transition-colors cursor-pointer group"
+              title={`Active Git Branch: ${task.git_branch} (Click to copy)`}
+            >
+              <GitBranch className="w-3 h-3 text-onedark-purple flex-shrink-0" />
+              <span className="truncate">{task.git_branch}</span>
+              {copiedBranch ? (
+                <Check className="w-2.5 h-2.5 text-onedark-green flex-shrink-0" />
+              ) : (
+                <Copy className="w-2.5 h-2.5 text-onedark-muted opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+              )}
+            </button>
+          )}
+
+          {task.diffs && task.diffs.length > 0 && onSelectAuxTab && (
+            <button
+              type="button"
+              onClick={() => onSelectAuxTab('changes')}
+              className="flex items-center space-x-1 px-2 py-0.5 rounded-md bg-onedark-surface/60 hover:bg-onedark-surface border border-onedark-borderSubtle text-[10.5px] font-mono transition-all cursor-pointer shadow-xs active:scale-95 flex-shrink-0"
+              title={`${task.diffs.length} modified file${task.diffs.length > 1 ? 's' : ''}. Click to inspect changes`}
+            >
+              <GitCompare className="w-3 h-3 text-onedark-accent flex-shrink-0" />
+              <span className="text-onedark-fgBright font-medium">{task.diffs.length} diff{task.diffs.length > 1 ? 's' : ''}</span>
+              <span className="text-onedark-green font-bold">+{task.diffs.reduce((acc, d) => acc + (d.additions || 0), 0)}</span>
+              <span className="text-onedark-red font-bold">-{task.diffs.reduce((acc, d) => acc + (d.deletions || 0), 0)}</span>
+            </button>
+          )}
+
           {isEditingTitle ? (
             <div className="flex items-center space-x-1.5 flex-1 max-w-sm">
               <input
@@ -2555,22 +2593,35 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                                         </p>
                                       )}
                                     </div>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        if (onOpenPlan) {
-                                          onOpenPlan(task?.id, turn.plan);
-                                        } else if (onOpenPreview && task?.id) {
-                                          onOpenPreview(`plan://${task.id}`, 'Implementation Plan');
-                                        }
-                                      }}
-                                      className="shrink-0 px-3.5 py-2 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-bg font-semibold text-xs flex items-center space-x-1.5 transition-all cursor-pointer shadow-xs active:scale-[0.98]"
-                                      title="Open architectural plan in Web & Docs"
-                                    >
-                                      <Compass className="w-3.5 h-3.5" />
-                                      <span>Open Full Plan Doc</span>
-                                      <ArrowRight className="w-3 h-3 ml-0.5" />
-                                    </button>
+                                    <div className="flex items-center space-x-2 shrink-0">
+                                      {task?.diffs && task.diffs.length > 0 && onSelectAuxTab && (
+                                        <button
+                                          type="button"
+                                          onClick={() => onSelectAuxTab('changes')}
+                                          className="px-3 py-2 rounded-lg bg-onedark-surface/80 hover:bg-onedark-surface text-onedark-fgBright border border-onedark-borderSubtle font-semibold text-xs flex items-center space-x-1.5 transition-all cursor-pointer shadow-xs active:scale-[0.98]"
+                                          title="Inspect live working tree changes and git diffs"
+                                        >
+                                          <GitCompare className="w-3.5 h-3.5 text-onedark-accent" />
+                                          <span>Changes ({task.diffs.length})</span>
+                                        </button>
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          if (onOpenPlan) {
+                                            onOpenPlan(task?.id, turn.plan);
+                                          } else if (onOpenPreview && task?.id) {
+                                            onOpenPreview(`plan://${task.id}`, 'Implementation Plan');
+                                          }
+                                        }}
+                                        className="shrink-0 px-3.5 py-2 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-bg font-semibold text-xs flex items-center space-x-1.5 transition-all cursor-pointer shadow-xs active:scale-[0.98]"
+                                        title="Open architectural plan in Web & Docs"
+                                      >
+                                        <Compass className="w-3.5 h-3.5" />
+                                        <span>Open Full Plan Doc</span>
+                                        <ArrowRight className="w-3 h-3 ml-0.5" />
+                                      </button>
+                                    </div>
                                   </div>
 
                                   {planInfo.phases.length > 0 && (

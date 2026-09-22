@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { GitPullRequest, Activity, Cpu, Inbox, Folder, Compass, Play } from 'lucide-react';
+import { GitPullRequest, Activity, Cpu, Inbox, Folder, Compass, Play, GitCompare } from 'lucide-react';
 import { Task, WorkspacePreviewInfo } from '../../types';
 import { PullRequestsTab } from './PullRequestsTab';
 import { TerminalTab } from './TerminalTab';
@@ -8,11 +8,12 @@ import { EventInspectorTab } from './EventInspectorTab';
 import { FilesExplorerTab } from './FilesExplorerTab';
 import { DocsViewerTab } from './DocsViewerTab';
 import { AppPreviewTab } from './AppPreviewTab';
+import { ChangesDiffTab } from './ChangesDiffTab';
 import { ErrorBoundary } from '../Common/ErrorBoundary';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
-export type AuxTabType = 'docs' | 'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'preview';
+export type AuxTabType = 'docs' | 'files' | 'preview' | 'changes' | 'prs' | 'activity' | 'subagents' | 'event';
 
 interface AuxiliaryPaneProps {
   task: Task | null;
@@ -128,6 +129,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
     { id: 'docs', label: 'Web & Docs', icon: Compass, badge: (previewTarget?.url && !isPrForTask(previewTarget.url, task)) ? '●' : undefined },
     { id: 'files', label: 'Files', icon: Folder, iconClass: 'text-onedark-folder' },
     { id: 'preview', label: 'Preview', icon: Play, iconClass: previewInfo?.has_preview ? 'text-onedark-green' : '', badge: previewInfo?.has_preview ? '●' : undefined },
+    { id: 'changes', label: 'Changes', icon: GitCompare, count: task?.diffs?.length || 0, iconClass: (task?.diffs?.length || 0) > 0 ? 'text-onedark-accent' : '' },
     { id: 'prs', label: 'PRs', icon: GitPullRequest, count: task?.prs?.length || 0, badge: (previewTarget?.url && isPrForTask(previewTarget.url, task)) ? '●' : undefined },
     { id: 'activity', label: 'Tool Activity', icon: Activity, count: task?.logs?.length || 0 },
     { id: 'subagents', label: 'Subagents', icon: Cpu },
@@ -193,6 +195,9 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
               onSelectAuxTab={handleTabClick}
               onAskAgent={onAskAboutComment}
             />
+          )}
+          {activeTab === 'changes' && (
+            <ChangesDiffTab task={task} onSelectAuxTab={handleTabClick} />
           )}
           {activeTab === 'prs' && (
             <PullRequestsTab

@@ -1196,6 +1196,53 @@ async def search_sandbox_files(
         }
 
 
+@router.get("/{task_id}/diff")
+async def get_task_diff(task_id: str, db: AsyncSession = Depends(get_db)):
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    res = await db.execute(stmt)
+    task = res.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    workspace_path = Path(task.workspace_path)
+    branch = worktree_manager.get_git_branch(workspace_path) or task.git_branch or "main"
+
+    # 1. Attempt to read live git diff from workspace
+    diffs = worktree_manager.get_git_diff(workspace_path)
+
+    # 2. If workspace has no live diffs, fallback to recorded TaskDiffModel records
+    if not diffs:
+        stmt_diffs = select(TaskDiffModel).where(TaskDiffModel.task_id == task_id).order_by(TaskDiffModel.created_at.desc())
+        res_diffs = await db.execute(stmt_diffs)
+        persisted = res_diffs.scalars().all()
+        if persisted:
+            seen_files = set()
+            for p in persisted:
+                if p.file_path not in seen_files:
+                    seen_files.add(p.file_path)
+                    diffs.append({
+                        "file_path": p.file_path,
+                        "status": "M",
+                        "diff_content": p.diff_content,
+                        "additions": p.additions,
+                        "deletions": p.deletions
+                    })
+
+    total_adds = sum(d.get("additions", 0) for d in diffs)
+    total_dels = sum(d.get("deletions", 0) for d in diffs)
+
+    return {
+        "ok": True,
+        "task_id": task_id,
+        "branch": branch,
+        "workspace_path": str(workspace_path),
+        "diffs": diffs,
+        "total_files": len(diffs),
+        "total_additions": total_adds,
+        "total_deletions": total_dels
+    }
+
+
 @router.get("/{task_id}/prs/{pr_number}/diff")
 async def get_task_pr_diff(task_id: str, pr_number: int, db: AsyncSession = Depends(get_db)):
     stmt = select(TaskModel).where(TaskModel.id == task_id)
