@@ -904,11 +904,17 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
           throw new Error(`Failed to load plan document (HTTP ${res.status})`);
         }
         const planData = await res.json();
-        const planMarkdown = planData.markdown || planData.plan?.markdown || '# Implementation Plan\n\nNo detailed plan generated yet.';
+        let planMarkdown = planData.markdown || planData.plan?.markdown || '# Implementation Plan\n\nNo detailed plan generated yet.';
+        // Sanitize any self-referential chat summary links from inside the doc viewer
+        planMarkdown = planMarkdown.replace(/\[[👉\s]*Inspect Full Plan in Web & Docs\]\([^)]+\)/gi, '').trim();
+
+        const rawTitle = planData.title || initialTitle || 'Implementation Plan';
+        const displayTitle = rawTitle.startsWith('Plan:') ? rawTitle : `Plan: ${rawTitle.replace(/^#+\s*(?:Implementation Plan:\s*)?/, '')}`;
+
         setData({
           type: 'web',
           url: targetUrl,
-          title: planData.title ? `Plan: ${planData.title}` : (initialTitle || 'Implementation Plan'),
+          title: displayTitle,
           description: planData.plan?.objective || 'Active Execution Plan',
           content_markdown: planMarkdown,
         });

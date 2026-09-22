@@ -2041,34 +2041,54 @@ async def get_task_plan_document(task_id: str, db: AsyncSession = Depends(get_db
     plan = dict(task.plan or {})
     markdown = plan.get("markdown") or ""
 
+    is_chat_summary = (
+        "Inspect Full Plan in Web & Docs" in markdown
+        or "👉 Inspect Full Plan" in markdown
+        or markdown.strip().startswith("I have formulated an implementation plan")
+        or len(markdown.strip()) < 350
+        or not markdown.strip().startswith("#")
+    )
+
     is_failed_or_empty = (
         not markdown
         or "Plan Generation Failed" in markdown
         or any(s.get("title", "").startswith("Plan Generation Failed") for s in plan.get("steps", []))
+        or is_chat_summary
     )
 
     if is_failed_or_empty:
-        # Self-heal: inspect task messages for actual implementation plan formulated by the agent
-        msg_stmt = (
-            select(TaskMessageModel)
-            .where(TaskMessageModel.task_id == task_id, TaskMessageModel.sender == "agent")
-            .order_by(TaskMessageModel.created_at.desc())
-        )
-        msg_res = await db.execute(msg_stmt)
-        agent_msgs = msg_res.scalars().all()
-        for msg in agent_msgs:
-            content = msg.content or ""
-            if "Implementation Plan" in content or "Phase 1:" in content or "### Phase 1" in content:
-                healed_plan = extract_plan_from_markdown(content, default_title=task.title)
-                if healed_plan.get("steps"):
-                    task.plan = healed_plan
-                    await db.commit()
-                    plan = healed_plan
-                    markdown = content
-                    break
+        # 1. If plan already contains phases or steps, regenerate full markdown directly
+        if plan.get("phases") or (plan.get("steps") and len(plan["steps"]) >= 1 and not any(s.get("title", "").startswith("Plan Generation Failed") for s in plan["steps"])):
+            markdown = generate_plan_markdown(plan, title=task.title, prompt=task.description or "")
+            plan["markdown"] = markdown
+            task.plan = plan
+            await db.commit()
+        else:
+            # 2. Self-heal: inspect task messages for actual implementation plan formulated by the agent
+            msg_stmt = (
+                select(TaskMessageModel)
+                .where(TaskMessageModel.task_id == task_id, TaskMessageModel.sender == "agent")
+                .order_by(TaskMessageModel.created_at.desc())
+            )
+            msg_res = await db.execute(msg_stmt)
+            agent_msgs = msg_res.scalars().all()
+            for msg in agent_msgs:
+                content = msg.content or ""
+                if "Implementation Plan" in content or "Phase 1:" in content or "### Phase 1" in content:
+                    healed_plan = extract_plan_from_markdown(content, default_title=task.title)
+                    if healed_plan.get("steps") or healed_plan.get("phases"):
+                        markdown = generate_plan_markdown(healed_plan, title=task.title, prompt=task.description or "")
+                        healed_plan["markdown"] = markdown
+                        task.plan = healed_plan
+                        await db.commit()
+                        plan = healed_plan
+                        break
 
-    if not markdown:
+    if not markdown or is_chat_summary:
         markdown = generate_plan_markdown(plan, title=task.title, prompt=task.description or "")
+        plan["markdown"] = markdown
+        task.plan = plan
+        await db.commit()
 
     return {
         "task_id": task.id,

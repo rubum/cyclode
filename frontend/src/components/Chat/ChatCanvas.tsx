@@ -68,12 +68,18 @@ export function extractPlanHighlightsFromMarkdown(text: string): { title: string
     const line = lines[i];
     if (line.startsWith('# Implementation Plan:') || line.startsWith('# Plan:') || line.startsWith('# ')) {
       title = line.replace(/^#+\s*(?:Implementation Plan:\s*)?/, '').trim();
-    } else if (line.startsWith('Phase ') || line.startsWith('### Phase ') || /^\*{0,2}Phase\s+\d+/i.test(line)) {
-      const cleanPhase = line.replace(/^###\s*/, '').replace(/\*+/g, '').replace(/:\s*$/, '').trim();
-      if (!phases.includes(cleanPhase)) {
-        phases.push(cleanPhase);
+    } else if (line.includes('I have formulated an implementation plan for **')) {
+      const match = line.match(/\*\*([^*]+)\*\*/);
+      if (match) title = match[1].trim();
+    } else if (/^\s*(?:[-*]|\#{1,4})?\s*\*{0,2}(Phase\s+\d+[:\-]?\s*[^*]+?)(?:\*\*|:|\n|$)/i.test(line)) {
+      const match = line.match(/^\s*(?:[-*]|\#{1,4})?\s*\*{0,2}(Phase\s+\d+[:\-]?\s*[^*]+?)(?:\*\*|:|\n|$)/i);
+      if (match) {
+        const cleanPhase = match[1].replace(/^[-*#\s]+/, '').replace(/\*+/g, '').replace(/:\s*$/, '').trim();
+        if (cleanPhase && !phases.includes(cleanPhase)) {
+          phases.push(cleanPhase);
+        }
       }
-    } else if (!overview && line && !line.startsWith('#') && !line.startsWith('-') && !line.startsWith('*') && !line.startsWith('Objective:')) {
+    } else if (!overview && line && !line.startsWith('#') && !line.startsWith('-') && !line.startsWith('*') && !line.startsWith('Objective:') && !line.includes('I have formulated') && !line.includes('Inspect Full Plan')) {
       overview = line;
     }
   }
@@ -2486,7 +2492,11 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   const isFullPlanDoc = Boolean(
                     m.content && 
                     (m.content.trim().startsWith('# Implementation Plan') || 
-                     (m.content.includes('# Implementation Plan') && m.content.length > 400))
+                     (m.content.includes('# Implementation Plan') && m.content.length > 250) ||
+                     m.content.includes('I have formulated an implementation plan') ||
+                     m.content.includes('Implementation Plan Formulated') ||
+                     (m.content.includes('Key Execution Phases') && m.content.includes('Phase 1'))
+                    )
                   );
                   const isRawPlanExpanded = !!expandedRawPlanMsgIds[m.id];
                   const planInfo = isFullPlanDoc ? extractPlanHighlightsFromMarkdown(m.content) : null;

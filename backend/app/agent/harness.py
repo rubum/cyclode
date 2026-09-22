@@ -118,11 +118,26 @@ def generate_plan_markdown(plan: Dict[str, Any], title: str = "", prompt: str = 
             clean_title,
             "",
             "> [!IMPORTANT]",
-            "> **Plan Mode Active**: Architectural implementation plan formulated. Review the phased milestones below before proceeding with execution.",
+            "> **Plan Mode Active**: Architectural implementation plan formulated. Review the phased milestones, file touchpoints, and verification criteria below before proceeding with execution.",
+            "",
+            "## Executive Summary",
             "",
             overview,
             "",
         ]
+
+        if mermaid_flow:
+            lines.extend([
+                "## System Execution Flow",
+                "",
+                mermaid_flow,
+                "",
+            ])
+
+        lines.extend([
+            "## Key Execution Phases",
+            "",
+        ])
 
         for p in phases:
             p_num = p.get("phase_number") or ""
@@ -165,7 +180,26 @@ def generate_plan_markdown(plan: Dict[str, Any], title: str = "", prompt: str = 
                     lines.append(f"  - {c}")
                 lines.append("")
 
+        # Include Milestone Stepper Checklist
+        if steps:
+            lines.extend([
+                "## Milestone Stepper Checklist",
+                "",
+            ])
+            for idx, s in enumerate(steps):
+                status = s.get("status", "pending")
+                box = "[x]" if status == "completed" else "[-]" if status == "in_progress" else "[ ]"
+                badge = "*(Done)*" if status == "completed" else "*(In Progress)*" if status == "in_progress" else "*(Pending Approval)*"
+                lines.append(f"- {box} **Phase {idx+1}**: {s.get('title', '')} {badge}")
+            lines.append("")
+
         lines.extend([
+            "## Invariant Verification & System Policies",
+            "",
+            "- [ ] Code modifications adhere to zero-regression architectural policies.",
+            "- [ ] Automated unit test suites execute cleanly with zero runtime failures.",
+            "- [ ] Changes preserve backward compatibility and public interface contracts.",
+            "",
             "---",
             f"*Generated automatically by Cyclode Master Execution Planner • Session Key: `{title or 'task'}`*"
         ])
@@ -2012,7 +2046,18 @@ class AntigravityHarness:
                                             s["status"] = "pending"
 
                                 current_plan["intent_category"] = "planning"
-                                current_plan["markdown"] = final_agent_text
+                                is_complete_doc = (
+                                    (final_agent_text.strip().startswith("# Implementation Plan") or final_agent_text.strip().startswith("## Implementation Plan"))
+                                    and "Inspect Full Plan in Web & Docs" not in final_agent_text
+                                )
+                                if is_complete_doc:
+                                    current_plan["markdown"] = final_agent_text
+                                else:
+                                    current_plan["markdown"] = generate_plan_markdown(
+                                        current_plan,
+                                        title=current_plan.get("title") or title,
+                                        prompt=prompt
+                                    )
                                 eval_status = "ready_for_review"
                                 eval_summary = "Implementation plan formulated. Awaiting user review or approval to proceed."
                                 checks = [
