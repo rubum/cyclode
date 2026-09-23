@@ -73,21 +73,28 @@ export const SymbolSearchResultsSidebar: React.FC<SymbolSearchResultsSidebarProp
 
     try {
       const modeParam = mode === 'ast' ? 'ast' : 'text';
-      const url = new URL(`${API_BASE}/api/tasks/${taskId}/files/search`, window.location.origin);
-      url.searchParams.set('query', searchQuery);
-      url.searchParams.set('mode', modeParam);
-      url.searchParams.set('is_regex', String(isRegex));
-      url.searchParams.set('case_sensitive', String(caseSensitive));
-      url.searchParams.set('max_results', '100');
+      const params = new URLSearchParams({
+        query: searchQuery.trim(),
+        mode: modeParam,
+        is_regex: String(isRegex),
+        case_sensitive: String(caseSensitive),
+        max_results: '100',
+      });
       if (currentFile) {
-        url.searchParams.set('current_file', currentFile);
+        params.set('current_file', currentFile);
       }
 
-      const res = await fetch(url.pathname + url.search);
+      const url = `${API_BASE}/api/tasks/${taskId}/files/search?${params.toString()}`;
+      const res = await fetch(url);
       if (!res.ok) {
         throw new Error(`Search failed (${res.status})`);
       }
-      const data: SearchResponse = await res.json();
+      const data: SearchResponse & { error?: string } = await res.json();
+      if (data.error && (!data.matches || data.matches.length === 0)) {
+        setSearchError(data.error);
+        setSearchResults(null);
+        return;
+      }
       setSearchResults(data);
 
       // Auto-expand current file, and auto-expand others if small number of files (<4)
@@ -221,7 +228,11 @@ export const SymbolSearchResultsSidebar: React.FC<SymbolSearchResultsSidebarProp
         {/* Mode Toggle Tabs */}
         <div className="flex bg-onedark-bg/90 p-0.5 rounded-lg border border-onedark-borderSubtle font-mono text-[11px]">
           <button
-            onClick={() => setSearchMode('ast')}
+            type="button"
+            onClick={() => {
+              setSearchMode('ast');
+              if (query.trim()) performSearch(query, 'ast');
+            }}
             className={`flex-1 py-1 px-2 rounded-md text-center transition-all cursor-pointer font-medium flex items-center justify-center space-x-1.5 ${
               searchMode === 'ast'
                 ? 'bg-onedark-surface text-onedark-purple font-semibold shadow-xs'
@@ -233,7 +244,11 @@ export const SymbolSearchResultsSidebar: React.FC<SymbolSearchResultsSidebarProp
             <span>AST (tgrep)</span>
           </button>
           <button
-            onClick={() => setSearchMode('grep')}
+            type="button"
+            onClick={() => {
+              setSearchMode('grep');
+              if (query.trim()) performSearch(query, 'grep');
+            }}
             className={`flex-1 py-1 px-2 rounded-md text-center transition-all cursor-pointer font-medium flex items-center justify-center space-x-1.5 ${
               searchMode === 'grep'
                 ? 'bg-onedark-surface text-onedark-accent font-semibold shadow-xs'

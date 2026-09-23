@@ -1329,40 +1329,51 @@ async def search_sandbox_files(
 
     from app.agent.tools import WorkspaceTools
 
-    if mode == "ast":
-        res = WorkspaceTools.tgrep_ast(ws_path, query, max_results=max_results, current_file=current_file)
-        matches = res.get("matches", [])
-        return {
-            "query": query,
-            "mode": "ast",
-            "total_matches": len(matches),
-            "capped": len(matches) >= max_results,
-            "matches": matches
-        }
-    else:
-        res = WorkspaceTools.search_code(
-            ws_path,
-            query,
-            is_regex=is_regex,
-            case_sensitive=case_sensitive,
-            max_results=max_results,
-            current_file=current_file
-        )
-        if "error" in res and res.get("error") and not res.get("matches"):
+    try:
+        if mode == "ast":
+            res = WorkspaceTools.tgrep_ast(ws_path, query, max_results=max_results, current_file=current_file)
+            matches = res.get("matches", [])
+            return {
+                "query": query,
+                "mode": "ast",
+                "total_matches": len(matches),
+                "capped": len(matches) >= max_results,
+                "matches": matches
+            }
+        else:
+            res = WorkspaceTools.search_code(
+                ws_path,
+                query,
+                is_regex=is_regex,
+                case_sensitive=case_sensitive,
+                max_results=max_results,
+                current_file=current_file
+            )
+            if "error" in res and res.get("error") and not res.get("matches"):
+                return {
+                    "query": query,
+                    "mode": "text",
+                    "total_matches": 0,
+                    "capped": False,
+                    "matches": [],
+                    "error": res.get("error")
+                }
             return {
                 "query": query,
                 "mode": "text",
-                "total_matches": 0,
-                "capped": False,
-                "matches": [],
-                "error": res.get("error")
+                "total_matches": res.get("total_matches", len(res.get("matches", []))),
+                "capped": res.get("capped", False),
+                "matches": res.get("matches", [])
             }
+    except Exception as e:
+        logger.exception(f"Error executing file search for task {task_id}: {e}")
         return {
             "query": query,
-            "mode": "text",
-            "total_matches": res.get("total_matches", len(res.get("matches", []))),
-            "capped": res.get("capped", False),
-            "matches": res.get("matches", [])
+            "mode": mode,
+            "total_matches": 0,
+            "capped": False,
+            "matches": [],
+            "error": str(e)
         }
 
 

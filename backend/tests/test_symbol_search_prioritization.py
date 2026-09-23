@@ -77,7 +77,7 @@ async def test_search_api_endpoint_with_current_file():
         assert create_res.status_code == 200
         task_id = create_res.json()["task_id"]
 
-        # Call search with current_file
+        # Call search with current_file in text mode
         search_res = await client.get(
             f"/api/tasks/{task_id}/files/search?query=def&mode=text&current_file=test.py"
         )
@@ -85,3 +85,76 @@ async def test_search_api_endpoint_with_current_file():
         data = search_res.json()
         assert "matches" in data
         assert "total_matches" in data
+
+        # Call search in ast mode
+        ast_res = await client.get(
+            f"/api/tasks/{task_id}/files/search?query=test&mode=ast&current_file=test.py"
+        )
+        assert ast_res.status_code == 200
+        ast_data = ast_res.json()
+        assert "matches" in ast_data
+        assert "total_matches" in ast_data
+
+
+def test_multi_language_symbol_extraction(tmp_path):
+    ws = tmp_path / "polyglot_ws"
+    ws.mkdir()
+
+    # Elixir file
+    ex_file = ws / "cluster.ex"
+    ex_file.write_text(
+        "defmodule Horde.Cluster do\n"
+        "  def set_members(cluster, members) do\n"
+        "    :ok\n"
+        "  end\n"
+        "  defp internal_sync() do\n"
+        "    :ok\n"
+        "  end\n"
+        "end\n",
+        encoding="utf-8"
+    )
+
+    # Go file
+    go_file = ws / "server.go"
+    go_file.write_text(
+        "package main\n"
+        "func StartServer(port int) error {\n"
+        "  return nil\n"
+        "}\n"
+        "type Config struct {\n"
+        "  Port int\n"
+        "}\n",
+        encoding="utf-8"
+    )
+
+    # Rust file
+    rs_file = ws / "lib.rs"
+    rs_file.write_text(
+        "pub struct Engine;\n"
+        "pub async fn init_engine() -> Engine {\n"
+        "  Engine\n"
+        "}\n",
+        encoding="utf-8"
+    )
+
+    # 1. Test AST search on Elixir symbols
+    elixir_res = WorkspaceTools.tgrep_ast(ws, "set_members", current_file="cluster.ex")
+    assert elixir_res["total_matches"] >= 1
+    assert elixir_res["matches"][0]["symbol"] == "set_members"
+    assert elixir_res["matches"][0]["file_path"] == "cluster.ex"
+
+    # 2. Test AST search on Go symbols
+    go_res = WorkspaceTools.tgrep_ast(ws, "StartServer")
+    assert go_res["total_matches"] >= 1
+    assert go_res["matches"][0]["symbol"] == "StartServer"
+
+    # 3. Test AST search on Rust symbols
+    rs_res = WorkspaceTools.tgrep_ast(ws, "init_engine")
+    assert rs_res["total_matches"] >= 1
+    assert rs_res["matches"][0]["symbol"] == "init_engine"
+
+    # 4. Test fallback on non-AST invocation term
+    fallback_res = WorkspaceTools.tgrep_ast(ws, "internal_sync")
+    assert fallback_res["total_matches"] >= 1
+    assert fallback_res["matches"][0]["file_path"] == "cluster.ex"
+

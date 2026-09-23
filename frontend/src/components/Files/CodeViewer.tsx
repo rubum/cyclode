@@ -553,13 +553,22 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
           </span>
 
           {onSearchSymbol && (
-            <button
-              onClick={() => onSearchSymbol('', 'ast')}
-              className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-purple transition-colors cursor-pointer"
-              title="Search Symbol / AST (tgrep)"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-onedark-purple" />
-            </button>
+            <div className="flex items-center space-x-0.5">
+              <button
+                onClick={() => onSearchSymbol('', 'ast')}
+                className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-purple transition-colors cursor-pointer"
+                title="Search Symbol / AST (tgrep)"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-onedark-purple" />
+              </button>
+              <button
+                onClick={() => onSearchSymbol('', 'grep')}
+                className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-accent transition-colors cursor-pointer"
+                title="Search Workspace (Grep)"
+              >
+                <Search className="w-3.5 h-3.5 text-onedark-accent" />
+              </button>
+            </div>
           )}
 
           {viewMode === 'code' ? (
@@ -619,19 +628,34 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
           </div>
 
           {onSearchSymbol && (
-            <button
-              onClick={() => {
-                if (selectionRange?.text) {
-                  onSearchSymbol(selectionRange.text.trim(), 'ast');
-                  setSelectionRange(null);
-                }
-              }}
-              className="flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-semibold text-onedark-purple bg-onedark-purple/15 hover:bg-onedark-purple/25 border border-onedark-purple/30 transition-all cursor-pointer shadow-xs"
-              title="Find AST definitions and references across workspace (tgrep)"
-            >
-              <Sparkles className="w-3 h-3 text-onedark-purple" />
-              <span>tgrep</span>
-            </button>
+            <>
+              <button
+                onClick={() => {
+                  if (selectionRange?.text) {
+                    onSearchSymbol(selectionRange.text.trim(), 'ast');
+                    setSelectionRange(null);
+                  }
+                }}
+                className="flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-semibold text-onedark-purple bg-onedark-purple/15 hover:bg-onedark-purple/25 border border-onedark-purple/30 transition-all cursor-pointer shadow-xs"
+                title="Find AST definitions and references across workspace (tgrep)"
+              >
+                <Sparkles className="w-3 h-3 text-onedark-purple" />
+                <span>tgrep</span>
+              </button>
+              <button
+                onClick={() => {
+                  if (selectionRange?.text) {
+                    onSearchSymbol(selectionRange.text.trim(), 'grep');
+                    setSelectionRange(null);
+                  }
+                }}
+                className="flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-semibold text-onedark-accent bg-onedark-accent/15 hover:bg-onedark-accent/25 border border-onedark-accent/30 transition-all cursor-pointer shadow-xs"
+                title="Find occurrences in workspace (Grep)"
+              >
+                <Search className="w-3 h-3 text-onedark-accent" />
+                <span>grep</span>
+              </button>
+            </>
           )}
 
           <button

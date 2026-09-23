@@ -564,6 +564,155 @@ class WorkspaceTools:
             return {"error": f"Error applying unified patch: {str(e)}"}
 
     @staticmethod
+    def _extract_symbols_for_file(code: str, file_path: str, ext: str) -> List[Dict[str, Any]]:
+        """Unified AST and structural symbol extractor across Python, JS/TS, Elixir, Go, Rust, Ruby, Java, Kotlin, PHP, C/C++."""
+        if ext == ".py":
+            return WorkspaceTools._extract_python_symbols(code, file_path)
+        if ext in {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}:
+            return WorkspaceTools._extract_ts_js_symbols(code, file_path)
+
+        symbols: List[Dict[str, Any]] = []
+        lines = code.split("\n")
+
+        if ext in {".ex", ".exs"}:
+            for idx, line in enumerate(lines, start=1):
+                m_mod = re.match(r'^\s*defmodule\s+([A-Za-z0-9_.]+)', line)
+                if m_mod:
+                    symbols.append({
+                        "name": m_mod.group(1),
+                        "type": "module",
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip(),
+                        "docstring": ""
+                    })
+                    continue
+                m_fn = re.match(r'^\s*(def|defp|defmacro|defguard)\s+([A-Za-z0-9_?!]+)(?:\(([^)]*)\))?', line)
+                if m_fn:
+                    kind, name, args = m_fn.group(1), m_fn.group(2), m_fn.group(3) or ""
+                    symbols.append({
+                        "name": name,
+                        "type": "function" if kind in ("def", "defp") else "macro",
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": f"{kind} {name}({args})" if args else f"{kind} {name}",
+                        "docstring": ""
+                    })
+                    continue
+        elif ext == ".go":
+            for idx, line in enumerate(lines, start=1):
+                m_fn = re.match(r'^\s*func\s+(?:\([^)]+\)\s+)?([A-Za-z0-9_]+)\s*\(([^)]*)\)', line)
+                if m_fn:
+                    symbols.append({
+                        "name": m_fn.group(1),
+                        "type": "function",
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip(),
+                        "docstring": ""
+                    })
+                m_type = re.match(r'^\s*type\s+([A-Za-z0-9_]+)\s+(struct|interface)', line)
+                if m_type:
+                    symbols.append({
+                        "name": m_type.group(1),
+                        "type": m_type.group(2),
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip(),
+                        "docstring": ""
+                    })
+        elif ext == ".rs":
+            for idx, line in enumerate(lines, start=1):
+                m_fn = re.match(r'^\s*(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z0-9_]+)\s*\(', line)
+                if m_fn:
+                    symbols.append({
+                        "name": m_fn.group(1),
+                        "type": "function",
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip(),
+                        "docstring": ""
+                    })
+                m_type = re.match(r'^\s*(?:pub\s+)?(struct|enum|trait|impl)\s+([A-Za-z0-9_]+)', line)
+                if m_type:
+                    symbols.append({
+                        "name": m_type.group(2),
+                        "type": m_type.group(1),
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip(),
+                        "docstring": ""
+                    })
+        elif ext == ".rb":
+            for idx, line in enumerate(lines, start=1):
+                m_class = re.match(r'^\s*(class|module)\s+([A-Za-z0-9_:]+)', line)
+                if m_class:
+                    symbols.append({
+                        "name": m_class.group(2),
+                        "type": m_class.group(1),
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip(),
+                        "docstring": ""
+                    })
+                m_def = re.match(r'^\s*def\s+([A-Za-z0-9_?!.]+)', line)
+                if m_def:
+                    symbols.append({
+                        "name": m_def.group(1),
+                        "type": "function",
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip(),
+                        "docstring": ""
+                    })
+        elif ext in {".java", ".kt"}:
+            for idx, line in enumerate(lines, start=1):
+                m_cls = re.match(r'^\s*(?:public\s+|private\s+|protected\s+)?(?:abstract\s+|data\s+)?(class|interface|enum)\s+([A-Za-z0-9_]+)', line)
+                if m_cls:
+                    symbols.append({
+                        "name": m_cls.group(2),
+                        "type": m_cls.group(1),
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip(),
+                        "docstring": ""
+                    })
+                m_fun = re.match(r'^\s*(?:public\s+|private\s+|protected\s+)?(?:suspend\s+)?fun\s+([A-Za-z0-9_]+)', line)
+                if m_fun:
+                    symbols.append({
+                        "name": m_fun.group(1),
+                        "type": "function",
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip(),
+                        "docstring": ""
+                    })
+        elif ext in {".php"}:
+            for idx, line in enumerate(lines, start=1):
+                m_cls = re.match(r'^\s*(?:abstract\s+|final\s+)?(class|interface|trait)\s+([A-Za-z0-9_]+)', line)
+                if m_cls:
+                    symbols.append({
+                        "name": m_cls.group(2),
+                        "type": m_cls.group(1),
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip(),
+                        "docstring": ""
+                    })
+                m_fn = re.match(r'^\s*(?:public\s+|private\s+|protected\s+|static\s+)*function\s+([A-Za-z0-9_]+)', line)
+                if m_fn:
+                    symbols.append({
+                        "name": m_fn.group(1),
+                        "type": "function",
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip(),
+                        "docstring": ""
+                    })
+
+        return symbols
+
+    @staticmethod
     def get_file_outline(workspace_path: Path, file_path: str) -> Dict[str, Any]:
         """Extracts AST symbols, function signatures, classes, and types without function bodies for token-efficient repo exploration."""
         ws_root = workspace_path.resolve()
@@ -577,27 +726,7 @@ class WorkspaceTools:
             code = target.read_text(encoding="utf-8", errors="ignore")
             ext = target.suffix.lower()
 
-            symbols = []
-            if ext == ".py":
-                symbols = WorkspaceTools._extract_python_symbols(code, file_path)
-            elif ext in {".ts", ".tsx", ".js", ".jsx"}:
-                symbols = WorkspaceTools._extract_ts_js_symbols(code, file_path)
-            elif ext == ".go":
-                for idx, line in enumerate(code.splitlines(), start=1):
-                    m_fn = re.match(r'^\s*func\s+(?:\([^)]+\)\s+)?([A-Za-z0-9_]+)\s*\(([^)]*)\)', line)
-                    if m_fn:
-                        symbols.append({"name": m_fn.group(1), "type": "function", "line_number": idx, "signature": line.strip()})
-                    m_type = re.match(r'^\s*type\s+([A-Za-z0-9_]+)\s+(struct|interface)', line)
-                    if m_type:
-                        symbols.append({"name": m_type.group(1), "type": m_type.group(2), "line_number": idx, "signature": line.strip()})
-            elif ext == ".rs":
-                for idx, line in enumerate(code.splitlines(), start=1):
-                    m_fn = re.match(r'^\s*(?:pub\s+)?(?:async\s+)?fn\s+([A-Za-z0-9_]+)\s*\(', line)
-                    if m_fn:
-                        symbols.append({"name": m_fn.group(1), "type": "function", "line_number": idx, "signature": line.strip()})
-                    m_type = re.match(r'^\s*(?:pub\s+)?(struct|enum|trait)\s+([A-Za-z0-9_]+)', line)
-                    if m_type:
-                        symbols.append({"name": m_type.group(2), "type": m_type.group(1), "line_number": idx, "signature": line.strip()})
+            symbols = WorkspaceTools._extract_symbols_for_file(code, file_path, ext)
 
             if not symbols:
                 head_lines = code.splitlines()[:40]
@@ -820,7 +949,10 @@ class WorkspaceTools:
         # Now scan the rest of the workspace
         for root, dirs, files in os.walk(workspace_path):
             dirs[:] = [d for d in dirs if d not in ignored_dirs and not d.startswith(".")]
-            rel_root = Path(root).relative_to(workspace_path)
+            try:
+                rel_root = Path(root).relative_to(workspace_path)
+            except ValueError:
+                rel_root = Path(root).resolve().relative_to(workspace_path.resolve())
 
             for f in files:
                 p = Path(f)
@@ -1007,7 +1139,7 @@ class WorkspaceTools:
         max_results: int = 60
     ) -> Dict[str, Any]:
         """
-        Extract and query code symbols (functions, classes, routes, interfaces) across the workspace using AST indexing.
+        Extract and query code symbols across multi-language projects using AST & structural indexing.
         Cached on-demand per workspace to avoid re-parsing unchanged files.
         """
         cache_file = workspace_path / ".cyclode_symbols_cache.json"
@@ -1020,9 +1152,12 @@ class WorkspaceTools:
 
         ignored_dirs = {
             ".git", "node_modules", "venv", ".venv", "__pycache__",
-            "dist", "build", ".next", ".cache", ".pytest_cache", ".gemini", "assets"
+            "dist", "build", ".next", ".cache", ".pytest_cache", ".gemini", "assets", "_build", "deps"
         }
-        supported_exts = {".py", ".ts", ".tsx", ".js", ".jsx"}
+        supported_exts = {
+            ".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+            ".ex", ".exs", ".go", ".rs", ".rb", ".java", ".kt", ".php", ".c", ".cpp", ".h", ".hpp"
+        }
         MAX_AST_FILE_SIZE = 500 * 1024
 
         updated_cache = False
@@ -1030,7 +1165,10 @@ class WorkspaceTools:
 
         for root, dirs, files in os.walk(workspace_path):
             dirs[:] = [d for d in dirs if d not in ignored_dirs and not d.startswith(".")]
-            rel_root = Path(root).relative_to(workspace_path)
+            try:
+                rel_root = Path(root).relative_to(workspace_path)
+            except ValueError:
+                rel_root = Path(root).resolve().relative_to(workspace_path.resolve())
 
             for f in files:
                 p = Path(f)
@@ -1060,10 +1198,8 @@ class WorkspaceTools:
                         first_lines = content.splitlines()[:5]
                         if any(len(line) > 2000 for line in first_lines):
                             continue
-                        if ext == ".py":
-                            file_symbols = WorkspaceTools._extract_python_symbols(content, rel_file_path)
-                        else:
-                            file_symbols = WorkspaceTools._extract_ts_js_symbols(content, rel_file_path)
+
+                        file_symbols = WorkspaceTools._extract_symbols_for_file(content, rel_file_path, ext)
 
                         if "files" not in cache_data:
                             cache_data["files"] = {}
@@ -1115,7 +1251,7 @@ class WorkspaceTools:
     ) -> Dict[str, Any]:
         """
         Structural AST search for language patterns (e.g. decorators @app.post, class inheritance, function calls),
-        prioritizing current_file matches at the top.
+        prioritizing current_file matches at the top and gracefully falling back to references.
         """
         if not pattern or not pattern.strip():
             return {"error": "AST search pattern cannot be empty", "matches": []}
@@ -1145,14 +1281,14 @@ class WorkspaceTools:
         elif pattern_clean.startswith("class:") or pattern_clean.startswith("extends:"):
             base_query = pattern_clean.split(":", 1)[1].strip().lower()
             for s in symbols:
-                if s["type"] == "class":
+                if s["type"] in ("class", "module", "struct", "interface"):
                     bases = [b.lower() for b in s.get("bases", [])]
                     if any(base_query in b for b in bases):
                         matches.append({
                             "file_path": s["file_path"],
                             "line_number": s["line_number"],
                             "symbol": s["name"],
-                            "type": "class",
+                            "type": s["type"],
                             "signature": s["signature"],
                             "bases": s.get("bases", [])
                         })
@@ -1161,7 +1297,7 @@ class WorkspaceTools:
 
         if not matches:
             for s in symbols:
-                if pattern_clean.lower() in s["name"].lower() or pattern_clean.lower() in s["signature"].lower():
+                if pattern_clean.lower() in s["name"].lower() or pattern_clean.lower() in s.get("signature", "").lower():
                     matches.append({
                         "file_path": s["file_path"],
                         "line_number": s["line_number"],
@@ -1171,6 +1307,25 @@ class WorkspaceTools:
                     })
                     if len(matches) >= max_results * 2:
                         break
+
+        # Fallback to code references if AST index has 0 matches for this identifier
+        if not matches:
+            grep_res = WorkspaceTools.search_code(
+                workspace_path,
+                pattern_clean,
+                is_regex=False,
+                case_sensitive=False,
+                max_results=max_results,
+                current_file=current_file
+            )
+            for gm in grep_res.get("matches", []):
+                matches.append({
+                    "file_path": gm["file_path"],
+                    "line_number": gm["line_number"],
+                    "symbol": pattern_clean,
+                    "type": "reference",
+                    "signature": gm.get("line_content", "")
+                })
 
         # Prioritize current_file matches if provided
         if current_file:
