@@ -19,9 +19,22 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
-  Search
+  Search,
+  Eye,
+  Table,
+  Braces,
+  Image as ImageIcon,
+  Film,
+  Music,
+  FileText
 } from 'lucide-react';
 import { highlightCode, resolveLanguage, escapeHtml } from '../../utils/syntaxHighlighter';
+import { MarkdownRenderer } from '../Common/MarkdownRenderer';
+import { ImageViewer } from './Viewers/ImageViewer';
+import { DataTableView } from './Viewers/DataTableView';
+import { StructuredDataViewer } from './Viewers/StructuredDataViewer';
+import { MediaViewer } from './Viewers/MediaViewer';
+import { DocumentViewer } from './Viewers/DocumentViewer';
 
 export interface LineContext {
   filename: string;
@@ -59,7 +72,10 @@ interface FileContentResponse {
   end_line?: number;
   is_truncated?: boolean;
   is_binary?: boolean;
+  raw_url?: string;
 }
+
+export type ViewerMode = 'code' | 'preview' | 'table' | 'tree' | 'image' | 'media' | 'pdf';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -84,9 +100,46 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [wrapLines, setWrapLines] = useState(false);
-  const [viewMode, setViewMode] = useState<'code' | 'preview'>('code');
+  const [viewMode, setViewMode] = useState<ViewerMode>('code');
   const [previewReloadKey, setPreviewReloadKey] = useState<number>(0);
   const [activeHighlightLine, setActiveHighlightLine] = useState<number | null>(null);
+
+  // Auto-detect default viewer mode on file change
+  useEffect(() => {
+    if (!filePath) return;
+    const lower = filePath.toLowerCase();
+    if (lower.endsWith('.md') || lower.endsWith('.markdown') || lower.endsWith('.mdx')) {
+      setViewMode('preview');
+    } else if (lower.endsWith('.csv') || lower.endsWith('.tsv')) {
+      setViewMode('table');
+    } else if (
+      lower.endsWith('.png') ||
+      lower.endsWith('.jpg') ||
+      lower.endsWith('.jpeg') ||
+      lower.endsWith('.gif') ||
+      lower.endsWith('.webp') ||
+      lower.endsWith('.svg') ||
+      lower.endsWith('.ico') ||
+      lower.endsWith('.bmp') ||
+      lower.endsWith('.avif')
+    ) {
+      setViewMode('image');
+    } else if (
+      lower.endsWith('.mp4') ||
+      lower.endsWith('.webm') ||
+      lower.endsWith('.mov') ||
+      lower.endsWith('.mp3') ||
+      lower.endsWith('.wav') ||
+      lower.endsWith('.ogg') ||
+      lower.endsWith('.m4a')
+    ) {
+      setViewMode('media');
+    } else if (lower.endsWith('.pdf')) {
+      setViewMode('pdf');
+    } else {
+      setViewMode('code');
+    }
+  }, [filePath]);
 
   // Virtualized Viewport State (20px fixed row height)
   const ROW_HEIGHT = 20;
@@ -437,7 +490,18 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
   if (!data) return null;
 
   const isHtml = data?.name.toLowerCase().endsWith('.html') || data?.name.toLowerCase().endsWith('.htm');
+  const lowerPath = (filePath || '').toLowerCase();
+  const isMarkdown = lowerPath.endsWith('.md') || lowerPath.endsWith('.markdown') || lowerPath.endsWith('.mdx');
+  const isTable = lowerPath.endsWith('.csv') || lowerPath.endsWith('.tsv');
+  const isStructured = lowerPath.endsWith('.json') || lowerPath.endsWith('.jsonc') || lowerPath.endsWith('.yaml') || lowerPath.endsWith('.yml') || lowerPath.endsWith('.toml');
+  const isImage = lowerPath.endsWith('.png') || lowerPath.endsWith('.jpg') || lowerPath.endsWith('.jpeg') || lowerPath.endsWith('.gif') || lowerPath.endsWith('.webp') || lowerPath.endsWith('.svg') || lowerPath.endsWith('.ico') || lowerPath.endsWith('.bmp') || lowerPath.endsWith('.avif');
+  const isMedia = lowerPath.endsWith('.mp4') || lowerPath.endsWith('.webm') || lowerPath.endsWith('.mov') || lowerPath.endsWith('.mp3') || lowerPath.endsWith('.wav') || lowerPath.endsWith('.ogg') || lowerPath.endsWith('.m4a');
+  const isPdf = lowerPath.endsWith('.pdf');
+
   const previewUrl = taskId && filePath ? `${API_BASE}/api/tasks/${taskId}/preview/${filePath}` : '';
+  const rawFileUrl = data?.raw_url 
+    ? `${API_BASE}${data.raw_url}` 
+    : `${API_BASE}/api/tasks/${taskId}/files/raw?path=${encodeURIComponent(filePath || '')}`;
 
   return (
     <div 
@@ -470,7 +534,20 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
             </div>
           )}
 
-          <FileCode className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
+          {isImage ? (
+            <ImageIcon className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
+          ) : isTable ? (
+            <Table className="w-3.5 h-3.5 text-onedark-green flex-shrink-0" />
+          ) : isStructured ? (
+            <Braces className="w-3.5 h-3.5 text-onedark-blue flex-shrink-0" />
+          ) : isMedia ? (
+            <Film className="w-3.5 h-3.5 text-onedark-purple flex-shrink-0" />
+          ) : isPdf ? (
+            <FileText className="w-3.5 h-3.5 text-onedark-red flex-shrink-0" />
+          ) : (
+            <FileCode className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
+          )}
+
           <span className="font-semibold text-onedark-fgBright truncate text-[12.5px]">
             {data.name}
           </span>
@@ -479,8 +556,33 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
           </span>
         </div>
 
-        {/* Mode Toggle (when viewing HTML) */}
-        {isHtml && (
+        {/* Mode Toggle Tabs for Specialized Formats */}
+        {isMarkdown ? (
+          <div className="flex items-center space-x-0.5 bg-onedark-surface p-0.5 rounded-lg border border-onedark-borderSubtle font-mono text-[11px] flex-shrink-0">
+            <button
+              onClick={() => setViewMode('preview')}
+              className={`px-2 py-0.5 rounded-md transition-all cursor-pointer flex items-center space-x-1 ${
+                viewMode === 'preview'
+                  ? 'bg-onedark-darker text-onedark-accent font-semibold shadow-xs'
+                  : 'text-onedark-muted hover:text-onedark-fg'
+              }`}
+            >
+              <Eye className="w-3 h-3" />
+              <span>Preview</span>
+            </button>
+            <button
+              onClick={() => setViewMode('code')}
+              className={`px-2 py-0.5 rounded-md transition-all cursor-pointer flex items-center space-x-1 ${
+                viewMode === 'code'
+                  ? 'bg-onedark-darker text-onedark-fgBright font-semibold shadow-xs'
+                  : 'text-onedark-muted hover:text-onedark-fg'
+              }`}
+            >
+              <Code2 className="w-3 h-3" />
+              <span>Code</span>
+            </button>
+          </div>
+        ) : isHtml ? (
           <div className="flex items-center space-x-0.5 bg-onedark-surface p-0.5 rounded-lg border border-onedark-borderSubtle font-mono text-[11px] flex-shrink-0">
             <button
               onClick={() => setViewMode('code')}
@@ -504,7 +606,57 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
               <span>Live Preview</span>
             </button>
           </div>
-        )}
+        ) : isTable ? (
+          <div className="flex items-center space-x-0.5 bg-onedark-surface p-0.5 rounded-lg border border-onedark-borderSubtle font-mono text-[11px] flex-shrink-0">
+            <button
+              onClick={() => setViewMode('table')}
+              className={`px-2 py-0.5 rounded-md transition-all cursor-pointer flex items-center space-x-1 ${
+                viewMode === 'table'
+                  ? 'bg-onedark-darker text-onedark-green font-semibold shadow-xs'
+                  : 'text-onedark-muted hover:text-onedark-fg'
+              }`}
+            >
+              <Table className="w-3 h-3" />
+              <span>Grid</span>
+            </button>
+            <button
+              onClick={() => setViewMode('code')}
+              className={`px-2 py-0.5 rounded-md transition-all cursor-pointer flex items-center space-x-1 ${
+                viewMode === 'code'
+                  ? 'bg-onedark-darker text-onedark-fgBright font-semibold shadow-xs'
+                  : 'text-onedark-muted hover:text-onedark-fg'
+              }`}
+            >
+              <Code2 className="w-3 h-3" />
+              <span>Raw CSV</span>
+            </button>
+          </div>
+        ) : isStructured && !data.is_binary ? (
+          <div className="flex items-center space-x-0.5 bg-onedark-surface p-0.5 rounded-lg border border-onedark-borderSubtle font-mono text-[11px] flex-shrink-0">
+            <button
+              onClick={() => setViewMode('code')}
+              className={`px-2 py-0.5 rounded-md transition-all cursor-pointer flex items-center space-x-1 ${
+                viewMode === 'code'
+                  ? 'bg-onedark-darker text-onedark-fgBright font-semibold shadow-xs'
+                  : 'text-onedark-muted hover:text-onedark-fg'
+              }`}
+            >
+              <Code2 className="w-3 h-3" />
+              <span>Code</span>
+            </button>
+            <button
+              onClick={() => setViewMode('tree')}
+              className={`px-2 py-0.5 rounded-md transition-all cursor-pointer flex items-center space-x-1 ${
+                viewMode === 'tree'
+                  ? 'bg-onedark-darker text-onedark-blue font-semibold shadow-xs'
+                  : 'text-onedark-muted hover:text-onedark-fg'
+              }`}
+            >
+              <Braces className="w-3 h-3" />
+              <span>Tree</span>
+            </button>
+          </div>
+        ) : null}
 
         <div className="flex items-center space-x-2 flex-shrink-0">
           {/* Ask Agent for whole file button */}
@@ -515,7 +667,7 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
                 const totalFileLines = data.total_lines || lineCount;
                 if (lineCount <= 200 && !data.is_truncated) {
                   const wholeFileContext: LineContext = {
-                    filename: filePath,
+                    filename: filePath || '',
                     startLine: baseLine,
                     endLine: baseLine + lineCount - 1,
                     content: data.content,
@@ -527,7 +679,7 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
                     `// Initial 80 lines displayed below. To read specific sections, call read_file(file_path="${filePath}", start_line=..., end_line=...)\n\n` +
                     headSlice;
                   const outlineContext: LineContext = {
-                    filename: filePath,
+                    filename: filePath || '',
                     startLine: baseLine,
                     endLine: Math.min(baseLine + 79, baseLine + lineCount - 1),
                     content: summaryMsg,
@@ -552,7 +704,7 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
               : `${lineCount} lines`} · {formatBytes(data.size)}
           </span>
 
-          {onSearchSymbol && (
+          {onSearchSymbol && viewMode === 'code' && (
             <div className="flex items-center space-x-0.5">
               <button
                 onClick={() => onSearchSymbol('', 'ast')}
@@ -596,7 +748,7 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
                 )}
               </button>
             </>
-          ) : (
+          ) : viewMode === 'preview' && isHtml ? (
             <>
               <button
                 onClick={() => setPreviewReloadKey((k) => k + 1)}
@@ -613,12 +765,12 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
                 <ExternalLink className="w-3.5 h-3.5" />
               </button>
             </>
-          )}
+          ) : null}
         </div>
       </div>
 
-      {/* Floating Selection Action Toolbar */}
-      {selectionRange && (
+      {/* Floating Selection Action Toolbar (when in code view) */}
+      {selectionRange && viewMode === 'code' && (
         <div
           style={{ top: `${selectionRange.top}px`, left: `${selectionRange.left}px` }}
           className="absolute z-40 flex items-center space-x-1 p-1 bg-onedark-darker border border-onedark-accent/60 rounded-xl shadow-2xl backdrop-blur-md animate-in fade-in zoom-in-95 select-none"
@@ -639,7 +791,7 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
                 className="flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-semibold text-onedark-purple bg-onedark-purple/15 hover:bg-onedark-purple/25 border border-onedark-purple/30 transition-all cursor-pointer shadow-xs"
                 title="Find AST definitions and references across workspace (tgrep)"
               >
-                <Sparkles className="w-3 h-3 text-onedark-purple" />
+                <Sparkles className="w-3.5 h-3.5 text-onedark-purple" />
                 <span>tgrep</span>
               </button>
               <button
@@ -652,7 +804,7 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
                 className="flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-semibold text-onedark-accent bg-onedark-accent/15 hover:bg-onedark-accent/25 border border-onedark-accent/30 transition-all cursor-pointer shadow-xs"
                 title="Find occurrences in workspace (Grep)"
               >
-                <Search className="w-3 h-3 text-onedark-accent" />
+                <Search className="w-3.5 h-3.5 text-onedark-accent" />
                 <span>grep</span>
               </button>
             </>
@@ -715,14 +867,61 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
         </div>
       )}
 
-      {/* Main Body: Binary, Live Preview, or Virtualized Code Table */}
-      {data.is_binary ? (
-        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-onedark-muted font-mono select-none">
-          <FileCode className="w-12 h-12 text-onedark-accent/50 mb-3" />
-          <div className="text-sm font-semibold text-onedark-fg">Binary File ({formatBytes(data.size)})</div>
-          <p className="text-xs text-onedark-muted mt-1 max-w-sm">
-            Cyclode does not render binary files in the code viewer to prevent memory corruption.
-          </p>
+      {/* Main Body: Specialized Viewers Dispatcher */}
+      {viewMode === 'image' || (data.is_binary && isImage) ? (
+        <ImageViewer
+          taskId={taskId}
+          filePath={filePath || ''}
+          fileSize={data.size}
+          rawUrl={rawFileUrl}
+          svgContent={data.content}
+        />
+      ) : viewMode === 'table' ? (
+        <DataTableView
+          content={data.content}
+          filePath={filePath || ''}
+          rawUrl={rawFileUrl}
+        />
+      ) : viewMode === 'tree' ? (
+        <StructuredDataViewer
+          content={data.content}
+          filePath={filePath || ''}
+          language={resolvedLang}
+        />
+      ) : viewMode === 'media' || (data.is_binary && isMedia) ? (
+        <MediaViewer
+          filePath={filePath || ''}
+          fileSize={data.size}
+          rawUrl={rawFileUrl}
+        />
+      ) : viewMode === 'pdf' || (data.is_binary && isPdf) ? (
+        <DocumentViewer
+          filePath={filePath || ''}
+          fileSize={data.size}
+          rawUrl={rawFileUrl}
+        />
+      ) : data.is_binary ? (
+        <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-onedark-muted font-mono select-none space-y-3">
+          <FileCode className="w-12 h-12 text-onedark-accent/50 stroke-[1.2]" />
+          <div>
+            <div className="text-sm font-semibold text-onedark-fg">Binary File ({formatBytes(data.size)})</div>
+            <p className="text-xs text-onedark-muted mt-1 max-w-sm">
+              Binary asset cannot be displayed in text editor mode.
+            </p>
+          </div>
+          <a
+            href={`${rawFileUrl}&download=true`}
+            download={data.name}
+            className="px-3.5 py-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fg text-xs font-semibold transition-colors border border-onedark-borderSubtle shadow-xs"
+          >
+            Download Binary Asset
+          </a>
+        </div>
+      ) : viewMode === 'preview' && isMarkdown ? (
+        <div className="flex-1 overflow-auto p-6 md:p-8 bg-onedark-bg select-text">
+          <div className="max-w-4xl mx-auto">
+            <MarkdownRenderer content={data.content} />
+          </div>
         </div>
       ) : viewMode === 'preview' && isHtml ? (
         <div className="flex-1 overflow-hidden bg-white relative">

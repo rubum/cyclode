@@ -3,7 +3,9 @@ import re
 import shutil
 import subprocess
 import logging
+import mimetypes
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 from pydantic import BaseModel
@@ -1189,6 +1191,8 @@ async def get_sandbox_file_content(
     except Exception:
         pass
 
+    raw_url = f"/api/tasks/{task_id}/files/raw?path={clean_rel}"
+
     if is_binary:
         return {
             "path": clean_rel,
@@ -1201,7 +1205,8 @@ async def get_sandbox_file_content(
             "is_binary": True,
             "is_truncated": False,
             "start_line": 1,
-            "end_line": 0
+            "end_line": 0,
+            "raw_url": raw_url
         }
 
     # Determine syntax language
@@ -1221,10 +1226,17 @@ async def get_sandbox_file_content(
         ".bash": "bash",
         ".zsh": "bash",
         ".json": "json",
+        ".jsonc": "json",
         ".toml": "toml",
         ".yaml": "yaml",
         ".yml": "yaml",
         ".md": "markdown",
+        ".markdown": "markdown",
+        ".mdx": "markdown",
+        ".csv": "csv",
+        ".tsv": "tsv",
+        ".svg": "xml",
+        ".xml": "xml",
         ".css": "css",
         ".scss": "scss",
         ".html": "html",
@@ -1287,8 +1299,101 @@ async def get_sandbox_file_content(
         "start_line": returned_start,
         "end_line": returned_end,
         "is_truncated": is_truncated,
-        "is_binary": False
+        "is_binary": False,
+        "raw_url": raw_url
     }
+
+
+@router.get("/{task_id}/files/raw")
+async def get_sandbox_file_raw(
+    task_id: str,
+    path: str = Query(..., description="Relative path of file in sandbox"),
+    download: bool = Query(False, description="Whether to set Content-Disposition to attachment"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Directly streams a raw file (images, audio, video, PDFs, documents, text) from the task sandbox workspace.
+    Enforces strict path containment, handles proper MIME types, and supports byte ranges.
+    """
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    result = await db.execute(stmt)
+    task = result.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    ws_path = Path(task.workspace_path).resolve() if task.workspace_path else None
+    if ws_path and ws_path.name != f"sandbox-{task.id}":
+        specific_sb = Path(settings.WORKSPACE_ROOT) / f"sandbox-{task.id}"
+        if specific_sb.exists() and specific_sb.is_dir():
+            ws_path = specific_sb
+
+    if not ws_path or not ws_path.exists() or not ws_path.is_dir():
+        raise HTTPException(status_code=404, detail="Sandbox workspace does not exist on disk")
+
+    clean_rel = path.lstrip("/\\")
+    if clean_rel.startswith(ws_path.name + "/"):
+        clean_rel = clean_rel[len(ws_path.name) + 1:]
+    elif clean_rel.startswith(ws_path.name + "\\"):
+        clean_rel = clean_rel[len(ws_path.name) + 1:]
+    elif clean_rel.startswith("sandbox-"):
+        parts = re.split(r"[/\\]", clean_rel, 1)
+        if len(parts) > 1 and parts[0].startswith("sandbox-"):
+            clean_rel = parts[1]
+
+    target_file = (ws_path / clean_rel).resolve()
+
+    try:
+        target_file.relative_to(ws_path)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied: Path outside sandbox workspace")
+
+    if not target_file.exists() or not target_file.is_file():
+        raise HTTPException(status_code=404, detail=f"File '{clean_rel}' not found")
+
+    # Determine MIME type
+    mime_type, _ = mimetypes.guess_type(target_file.name)
+    ext = target_file.suffix.lower()
+    custom_mimes = {
+        ".svg": "image/svg+xml",
+        ".webp": "image/webp",
+        ".avif": "image/avif",
+        ".ico": "image/x-icon",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".bmp": "image/bmp",
+        ".pdf": "application/pdf",
+        ".mp3": "audio/mpeg",
+        ".wav": "audio/wav",
+        ".ogg": "audio/ogg",
+        ".mp4": "video/mp4",
+        ".webm": "video/webm",
+        ".mov": "video/quicktime",
+        ".csv": "text/csv; charset=utf-8",
+        ".tsv": "text/tab-separated-values; charset=utf-8",
+        ".json": "application/json",
+        ".jsonc": "application/json",
+        ".yaml": "text/yaml; charset=utf-8",
+        ".yml": "text/yaml; charset=utf-8",
+        ".toml": "text/plain; charset=utf-8",
+        ".md": "text/markdown; charset=utf-8",
+        ".markdown": "text/markdown; charset=utf-8",
+        ".mdx": "text/markdown; charset=utf-8",
+    }
+    content_type = custom_mimes.get(ext, mime_type or "application/octet-stream")
+
+    headers = {}
+    if download:
+        headers["Content-Disposition"] = f'attachment; filename="{target_file.name}"'
+    else:
+        headers["Content-Disposition"] = f'inline; filename="{target_file.name}"'
+
+    return FileResponse(
+        path=str(target_file),
+        media_type=content_type,
+        headers=headers
+    )
 
 
 @router.get("/{task_id}/files/search")
