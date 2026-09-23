@@ -146,7 +146,7 @@ export const DataTableView: React.FC<DataTableViewProps> = ({
       part.toLowerCase() === query.toLowerCase() ? (
         <mark
           key={i}
-          className="bg-amber-200 text-amber-950 border border-amber-400/80 dark:bg-amber-400/30 dark:text-amber-200 dark:border-amber-400/30 px-1 py-0.2 rounded font-semibold"
+          className="search-highlight bg-onedark-yellow/20 text-onedark-yellow font-semibold rounded px-1 py-0.2 border border-onedark-yellow/30"
         >
           {part}
         </mark>

@@ -12,7 +12,8 @@ import {
   Sparkles,
   Layers,
   Terminal,
-  FileText
+  FileText,
+  Target
 } from 'lucide-react';
 
 export interface FileNode {
@@ -46,11 +47,18 @@ export interface SearchResponse {
 
 export type SearchMode = 'files' | 'grep' | 'ast';
 
+export interface ExternalSearchRequest {
+  query: string;
+  mode?: 'grep' | 'ast';
+  timestamp?: number;
+}
+
 interface FileTreeExplorerProps {
   taskId?: string;
   tree: FileNode[];
   selectedFile: string | null;
   onSelectFile: (path: string, line?: number) => void;
+  externalSearch?: ExternalSearchRequest | null;
   title?: string;
   subtitle?: string;
 }
@@ -62,6 +70,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
   tree,
   selectedFile,
   onSelectFile,
+  externalSearch,
   title = 'Sandbox Files',
   subtitle
 }) => {
@@ -72,34 +81,21 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResponse | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [scopeFilter, setScopeFilter] = useState<'all' | 'current' | 'workspace'>('all');
   const [collapsedSearchFiles, setCollapsedSearchFiles] = useState<Record<string, boolean>>({});
 
   const debounceTimerRef = useRef<any>(null);
-  const prevSelectedFileRef = useRef<string | null>(selectedFile);
+  const lastExternalSearchRef = useRef<number | undefined>(undefined);
 
-  // Clear grep results and return to files view when selecting or switching files
-  const handleSelectFile = (path: string, line?: number) => {
-    if (searchMode === 'grep' || searchMode === 'ast' || searchResults !== null) {
-      setFilter('');
-      setSearchResults(null);
-      setSearchError(null);
-      setSearchMode('files');
-    }
-    onSelectFile(path, line);
-  };
-
-  // When selectedFile changes externally (e.g. back/forward navigation or symbol jumps), clear grep results
+  // Sync external search trigger (e.g. symbol / keyword clicked in CodeViewer)
   useEffect(() => {
-    if (prevSelectedFileRef.current !== selectedFile) {
-      prevSelectedFileRef.current = selectedFile;
-      if (searchMode === 'grep' || searchMode === 'ast' || searchResults !== null) {
-        setFilter('');
-        setSearchResults(null);
-        setSearchError(null);
-        setSearchMode('files');
-      }
+    if (externalSearch && externalSearch.query && externalSearch.timestamp !== lastExternalSearchRef.current) {
+      lastExternalSearchRef.current = externalSearch.timestamp;
+      setSearchMode(externalSearch.mode === 'grep' ? 'grep' : 'ast');
+      setFilter(externalSearch.query);
+      setScopeFilter('all');
     }
-  }, [selectedFile, searchMode, searchResults]);
+  }, [externalSearch]);
 
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>(() => {
     // Auto-expand root level directories
@@ -200,44 +196,116 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
       setSearchError(null);
       try {
         const modeParam = searchMode === 'ast' ? 'ast' : 'text';
-        const url = `${API_BASE}/api/tasks/${taskId}/files/search?query=${encodeURIComponent(
-          filter.trim()
-        )}&mode=${modeParam}&is_regex=${isRegex}&case_sensitive=${caseSensitive}&max_results=80`;
+        const params = new URLSearchParams({
+          query: filter.trim(),
+          mode: modeParam,
+          is_regex: String(isRegex),
+          case_sensitive: String(caseSensitive),
+          max_results: '100',
+        });
+        if (selectedFile) {
+          params.set('current_file', selectedFile);
+        }
+
+        const url = `${API_BASE}/api/tasks/${taskId}/files/search?${params.toString()}`;
 
         const res = await fetch(url);
         if (!res.ok) {
           throw new Error(`Search failed (${res.status})`);
         }
-        const data: SearchResponse = await res.json();
+        const data: SearchResponse & { error?: string } = await res.json();
+        if (data.error && (!data.matches || data.matches.length === 0)) {
+          setSearchError(data.error);
+          setSearchResults(null);
+          return;
+        }
         setSearchResults(data);
+
+        // Auto-expand current file, and auto-expand others if <= 4 files
+        const initialCollapsed: Record<string, boolean> = {};
+        const uniqueFiles = Array.from(new Set((data.matches || []).map((m) => m.file_path)));
+        if (uniqueFiles.length > 4) {
+          uniqueFiles.forEach((f) => {
+            const isCur = selectedFile && (f === selectedFile || f.endsWith(`/${selectedFile}`) || selectedFile.endsWith(`/${f}`));
+            if (!isCur) {
+              initialCollapsed[f] = true;
+            }
+          });
+        }
+        setCollapsedSearchFiles(initialCollapsed);
       } catch (err: any) {
         setSearchError(err.message || 'Error searching files');
       } finally {
         setIsSearching(false);
       }
-    }, 280);
+    }, 250);
 
     return () => {
       if (debounceTimerRef.current) {
         clearTimeout(debounceTimerRef.current);
       }
     };
-  }, [filter, searchMode, isRegex, caseSensitive, taskId]);
+  }, [filter, searchMode, isRegex, caseSensitive, taskId, selectedFile]);
 
-  // Group search results by file path
-  const groupedResults = useMemo(() => {
-    if (!searchResults?.matches) return [];
-    const map = new Map<string, SearchMatch[]>();
-    for (const match of searchResults.matches) {
-      const list = map.get(match.file_path) || [];
-      list.push(match);
-      map.set(match.file_path, list);
+  // Group search results by file path, prioritizing active file
+  const { currentFileGroup, workspaceGroups, totalMatchesCount, currentFileMatchCount, workspaceMatchCount } = useMemo(() => {
+    if (!searchResults?.matches) {
+      return {
+        currentFileGroup: null,
+        workspaceGroups: [],
+        totalMatchesCount: 0,
+        currentFileMatchCount: 0,
+        workspaceMatchCount: 0,
+      };
     }
-    return Array.from(map.entries()).map(([filePath, matches]) => ({
-      filePath,
-      matches,
-    }));
-  }, [searchResults]);
+
+    const map = new Map<string, SearchMatch[]>();
+    searchResults.matches.forEach((m) => {
+      const list = map.get(m.file_path) || [];
+      list.push(m);
+      map.set(m.file_path, list);
+    });
+
+    let currentGrp: { filePath: string; matches: SearchMatch[] } | null = null;
+    const wsGrps: { filePath: string; matches: SearchMatch[] }[] = [];
+
+    Array.from(map.entries()).forEach(([filePath, matches]) => {
+      const isCurrent =
+        Boolean(selectedFile) &&
+        (filePath === selectedFile || filePath.endsWith(`/${selectedFile}`) || (selectedFile || '').endsWith(`/${filePath}`));
+
+      if (isCurrent && !currentGrp) {
+        currentGrp = { filePath, matches };
+      } else {
+        wsGrps.push({ filePath, matches });
+      }
+    });
+
+    // Sort workspace groups by match count descending
+    wsGrps.sort((a, b) => b.matches.length - a.matches.length);
+
+    const curCount = currentGrp ? currentGrp.matches.length : 0;
+    const totCount = searchResults.matches.length;
+
+    return {
+      currentFileGroup: currentGrp,
+      workspaceGroups: wsGrps,
+      totalMatchesCount: totCount,
+      currentFileMatchCount: curCount,
+      workspaceMatchCount: totCount - curCount,
+    };
+  }, [searchResults, selectedFile]);
+
+  // Filter groups according to scopeFilter
+  const displayedGroups = useMemo(() => {
+    if (scopeFilter === 'current') {
+      return currentFileGroup ? [currentFileGroup] : [];
+    }
+    if (scopeFilter === 'workspace') {
+      return workspaceGroups;
+    }
+    return currentFileGroup ? [currentFileGroup, ...workspaceGroups] : workspaceGroups;
+  }, [scopeFilter, currentFileGroup, workspaceGroups]);
 
   // Filter tree nodes for files mode
   const filteredTree = useMemo(() => {
@@ -266,125 +334,114 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
     return tree.map(filterNode).filter(Boolean) as FileNode[];
   }, [tree, filter, searchMode]);
 
+  const toggleSearchFileCollapse = (filePath: string) => {
+    setCollapsedSearchFiles((prev) => ({
+      ...prev,
+      [filePath]: !prev[filePath],
+    }));
+  };
+
   const highlightMatch = (text: string, query: string) => {
-    if (!query || !text) return text;
+    if (!query.trim()) return text;
     try {
-      const parts = text.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, caseSensitive ? 'g' : 'gi'));
-      return parts.map((part, i) =>
-        part.toLowerCase() === query.toLowerCase() ? (
-          <mark
-            key={i}
-            className="search-highlight bg-amber-200 text-amber-950 border border-amber-400/80 dark:bg-amber-400/30 dark:text-amber-200 dark:border-amber-400/30 px-1 py-0.2 rounded-xs font-semibold"
-          >
-            {part}
-          </mark>
-        ) : (
-          part
-        )
+      const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(`(${escaped})`, caseSensitive ? 'g' : 'gi');
+      const parts = text.split(regex);
+      return (
+        <span>
+          {parts.map((part, i) =>
+            regex.test(part) ? (
+              <mark
+                key={i}
+                className="bg-onedark-yellow/20 text-onedark-yellow font-semibold rounded px-1 py-0.2 border border-onedark-yellow/30"
+              >
+                {part}
+              </mark>
+            ) : (
+              part
+            )
+          )}
+        </span>
       );
     } catch {
       return text;
     }
   };
 
-  const toggleSearchFileCollapse = (filePath: string) => {
-    setCollapsedSearchFiles((prev) => ({ ...prev, [filePath]: !prev[filePath] }));
-  };
-
+  // Node renderer for Files mode
   const renderNodes = (nodes: FileNode[], depth = 0) => {
     return (
-      <div className="space-y-0.5 select-none">
+      <div className="space-y-0.5">
         {nodes.map((node) => {
-          const isExpanded = !!expandedFolders[node.path] || !!filter.trim();
           const isSelected = selectedFile === node.path;
-          const childCount = node.child_count !== undefined ? node.child_count : (node.children ? node.children.length : 0);
+          const isExpanded = expandedFolders[node.path];
+          const hasChildren = node.children && node.children.length > 0;
+          const dynamicList = dynamicChildren[node.path];
+          const isLoading = loadingFolders[node.path];
 
-          const effectiveChildren = (node.children && node.children.length > 0)
-            ? node.children
-            : (dynamicChildren[node.path] || []);
-          const isLoadingFolder = Boolean(loadingFolders[node.path]);
-
-          return (
-            <div key={node.path}>
-              {node.is_dir ? (
-                <div>
-                  <button
-                    type="button"
-                    onClick={() => toggleFolder(node)}
-                    style={{ paddingLeft: `${depth * 14 + 8}px` }}
-                    className="w-full flex items-center space-x-1.5 py-1 pr-2 rounded-md border border-transparent hover:bg-onedark-surface/60 hover:border-onedark-borderSubtle text-[12.5px] font-mono text-onedark-fg hover:text-onedark-fgBright transition-all text-left group cursor-pointer"
-                  >
-                    {isExpanded ? (
-                      <FolderOpen className="w-4 h-4 text-onedark-folder flex-shrink-0" />
-                    ) : (
-                      <Folder className="w-4 h-4 text-onedark-folder flex-shrink-0" />
-                    )}
-                    <span className="font-semibold text-onedark-fg group-hover:text-onedark-fgBright truncate">
-                      {node.name}
-                    </span>
-                    <span className="text-[10.5px] text-onedark-muted font-normal ml-1">
-                      ({childCount})
-                    </span>
-                  </button>
-
-                  {isExpanded && (
-                    isLoadingFolder ? (
-                      <div
-                        style={{ paddingLeft: `${(depth + 1) * 14 + 8}px` }}
-                        className="py-1 text-[11px] text-onedark-muted flex items-center space-x-1.5 select-none"
-                      >
+          if (node.is_dir) {
+            return (
+              <div key={node.path} className="select-none">
+                <div
+                  onClick={() => toggleFolder(node)}
+                  style={{ paddingLeft: `${depth * 14 + 6}px` }}
+                  className="flex items-center justify-between py-1 px-1.5 rounded-md hover:bg-onedark-surface/60 text-onedark-fg text-xs font-mono cursor-pointer transition-colors group"
+                >
+                  <div className="flex items-center space-x-1.5 min-w-0">
+                    <span className="text-onedark-muted hover:text-onedark-fg">
+                      {isLoading ? (
                         <Loader2 className="w-3 h-3 animate-spin text-onedark-accent" />
-                        <span>Loading directory...</span>
-                      </div>
-                    ) : effectiveChildren.length > 0 ? (
-                      <div className="mt-0.5">
-                        {renderNodes(effectiveChildren, depth + 1)}
-                      </div>
-                    ) : childCount > 0 ? (
-                      <div 
-                        style={{ paddingLeft: `${(depth + 1) * 14 + 8}px` }}
-                        className="py-1 text-[11px] text-onedark-muted select-none flex items-center space-x-2"
-                      >
-                        <span className="italic">Directory not loaded</span>
-                        <button
-                          type="button"
-                          onClick={() => toggleFolder(node)}
-                          className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-borderSubtle text-[10px] text-onedark-accent hover:underline cursor-pointer"
-                        >
-                          Fetch contents
-                        </button>
-                      </div>
+                      ) : isExpanded ? (
+                        <ChevronDown className="w-3 h-3 text-onedark-muted" />
+                      ) : (
+                        <ChevronRight className="w-3 h-3 text-onedark-muted" />
+                      )}
+                    </span>
+                    {isExpanded ? (
+                      <FolderOpen className="w-3.5 h-3.5 text-onedark-folder flex-shrink-0" />
                     ) : (
-                      <div 
-                        style={{ paddingLeft: `${(depth + 1) * 14 + 8}px` }}
-                        className="py-1 text-[11px] text-onedark-muted/60 italic select-none"
-                      >
-                        (Empty directory)
-                      </div>
-                    )
+                      <Folder className="w-3.5 h-3.5 text-onedark-folder flex-shrink-0" />
+                    )}
+                    <span className="truncate group-hover:text-onedark-fgBright">{node.name}</span>
+                  </div>
+                  {node.child_count !== undefined && (
+                    <span className="text-[10px] text-onedark-muted/60 opacity-0 group-hover:opacity-100 pr-1 font-mono">
+                      {node.child_count}
+                    </span>
                   )}
                 </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => handleSelectFile(node.path)}
-                  style={{ paddingLeft: `${depth * 14 + 8}px` }}
-                  className={`w-full flex items-center space-x-1.5 py-1 pr-2.5 rounded-md text-[12.5px] font-mono border transition-all text-left cursor-pointer ${
-                    isSelected
-                      ? 'bg-onedark-accent/20 text-onedark-accent font-semibold border-onedark-accent/40 shadow-xs'
-                      : 'border-transparent hover:bg-onedark-surface/60 hover:border-onedark-borderSubtle text-onedark-fg/90 hover:text-onedark-fgBright'
-                  }`}
-                >
-                  <FileCode className={`w-3.5 h-3.5 flex-shrink-0 ${
-                    isSelected ? 'text-onedark-accent' : 'text-onedark-fg/70'
-                  }`} />
-                  <span className="truncate flex-1 text-[12.5px]">{node.name}</span>
-                  {node.size !== undefined && (
-                    <span className="text-[10.5px] text-onedark-muted font-mono flex-shrink-0 ml-2">
-                      {formatBytes(node.size)}
-                    </span>
-                  )}
-                </button>
+
+                {isExpanded && (
+                  <div>
+                    {hasChildren && renderNodes(node.children!, depth + 1)}
+                    {dynamicList && renderNodes(dynamicList, depth + 1)}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          // File Item
+          return (
+            <div
+              key={node.path}
+              onClick={() => onSelectFile(node.path)}
+              style={{ paddingLeft: `${depth * 14 + 20}px` }}
+              className={`flex items-center justify-between py-1 px-1.5 rounded-md text-xs font-mono transition-all cursor-pointer group ${
+                isSelected
+                  ? 'bg-onedark-surface text-onedark-fgBright font-semibold shadow-xs border-l-2 border-onedark-accent'
+                  : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40 border-l-2 border-transparent'
+              }`}
+            >
+              <div className="flex items-center space-x-1.5 min-w-0">
+                <FileCode className={`w-3.5 h-3.5 flex-shrink-0 ${isSelected ? 'text-onedark-accent' : 'text-onedark-muted'}`} />
+                <span className="truncate">{node.name}</span>
+              </div>
+
+              {typeof node.size === 'number' && (
+                <span className="text-[10px] text-onedark-muted/50 group-hover:text-onedark-muted pr-1 font-mono flex-shrink-0">
+                  {formatBytes(node.size)}
+                </span>
               )}
             </div>
           );
@@ -394,42 +451,44 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
   };
 
   return (
-    <div className="h-full flex flex-col bg-onedark-darker/60 font-mono text-[12.5px] overflow-hidden">
-      {/* Explorer Header */}
-      <div className="p-2.5 border-b border-onedark-borderSubtle bg-onedark-darker flex-shrink-0 space-y-2">
+    <div className="flex flex-col h-full bg-onedark-darker select-none text-onedark-fg font-sans border-r border-onedark-borderSubtle">
+      {/* Header Panel */}
+      <div className="p-3 border-b border-onedark-borderSubtle flex-shrink-0 space-y-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <Folder className="w-4 h-4 text-onedark-folder flex-shrink-0" />
-            <span className="font-semibold text-onedark-fgBright text-[12.5px] truncate">
-              {title}
-            </span>
+            <Folder className="w-4 h-4 text-onedark-folder" />
+            <span className="font-semibold text-xs text-onedark-fgBright font-sans">{title}</span>
           </div>
 
           {searchMode === 'files' && (
             <div className="flex items-center space-x-1">
               <button
                 onClick={expandAll}
-                className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg text-[10.5px] cursor-pointer"
-                title="Expand all folders"
+                className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg text-[10px] font-mono cursor-pointer transition-colors"
+                title="Expand All Folders"
               >
-                Expand
+                + Expand
               </button>
-              <span className="text-onedark-border">·</span>
               <button
                 onClick={collapseAll}
-                className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg text-[10.5px] cursor-pointer"
-                title="Collapse all folders"
+                className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg text-[10px] font-mono cursor-pointer transition-colors"
+                title="Collapse All Folders"
               >
-                Collapse
+                - Collapse
               </button>
             </div>
           )}
         </div>
 
-        {/* Search Mode Toggle Tabs */}
-        <div className="flex items-center p-0.5 bg-onedark-darker/60 rounded-lg text-[11px] font-mono">
+        {/* Mode Selector Tabs: Files, Grep, AST */}
+        <div className="flex items-center bg-onedark-darker/90 p-0.5 rounded-lg border border-onedark-borderSubtle text-[11px]">
           <button
-            onClick={() => setSearchMode('files')}
+            onClick={() => {
+              setSearchMode('files');
+              setFilter('');
+              setSearchResults(null);
+              setSearchError(null);
+            }}
             className={`flex-1 py-1 px-1.5 rounded-md text-center transition-all cursor-pointer font-medium flex items-center justify-center space-x-1.5 whitespace-nowrap ${
               searchMode === 'files'
                 ? 'bg-onedark-surface text-onedark-fgBright font-semibold shadow-xs'
@@ -437,7 +496,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
             }`}
             title="Browse File Tree"
           >
-            <Folder className="w-3 h-3 flex-shrink-0" />
+            <Folder className="w-3 h-3 flex-shrink-0 text-onedark-folder" />
             <span>Files</span>
           </button>
           <button
@@ -524,6 +583,48 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
           </div>
         </div>
 
+        {/* Scope Filters (All / This File / Workspace) */}
+        {searchMode !== 'files' && searchResults && totalMatchesCount > 0 && (
+          <div className="flex items-center space-x-1 pt-0.5">
+            <button
+              onClick={() => setScopeFilter('all')}
+              className={`px-2 py-0.5 rounded-full text-[10px] font-mono transition-all cursor-pointer ${
+                scopeFilter === 'all'
+                  ? 'bg-onedark-accent/20 text-onedark-accent font-semibold border border-onedark-accent/40 shadow-xs'
+                  : 'text-onedark-muted hover:text-onedark-fg bg-onedark-surface/40 hover:bg-onedark-surface border border-transparent'
+              }`}
+            >
+              All ({totalMatchesCount})
+            </button>
+            {currentFileGroup && currentFileMatchCount > 0 && (
+              <button
+                onClick={() => setScopeFilter('current')}
+                className={`px-2 py-0.5 rounded-full text-[10px] font-mono transition-all cursor-pointer flex items-center space-x-1 ${
+                  scopeFilter === 'current'
+                    ? 'bg-onedark-purple/20 text-onedark-purple font-semibold border border-onedark-purple/40 shadow-xs'
+                    : 'text-onedark-muted hover:text-onedark-fg bg-onedark-surface/40 hover:bg-onedark-surface border border-transparent'
+                }`}
+                title="Only matches in the active file"
+              >
+                <Target className="w-2.5 h-2.5 flex-shrink-0" />
+                <span>This File ({currentFileMatchCount})</span>
+              </button>
+            )}
+            {workspaceMatchCount > 0 && (
+              <button
+                onClick={() => setScopeFilter('workspace')}
+                className={`px-2 py-0.5 rounded-full text-[10px] font-mono transition-all cursor-pointer ${
+                  scopeFilter === 'workspace'
+                    ? 'bg-onedark-blue/20 text-onedark-blue font-semibold border border-onedark-blue/40 shadow-xs'
+                    : 'text-onedark-muted hover:text-onedark-fg bg-onedark-surface/40 hover:bg-onedark-surface border border-transparent'
+                }`}
+              >
+                Workspace ({workspaceMatchCount})
+              </button>
+            )}
+          </div>
+        )}
+
         {/* AST Helper prompt hints */}
         {searchMode === 'ast' && !filter && (
           <div className="text-[10px] text-onedark-muted flex flex-wrap items-center gap-1.5 px-0.5">
@@ -585,37 +686,44 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
                 : 'Query endpoints, decorators, classes, and function declarations.'}
             </p>
           </div>
-        ) : groupedResults.length === 0 ? (
+        ) : displayedGroups.length === 0 ? (
           <div className="py-8 text-center text-onedark-muted text-[11.5px]">
-            No code matches found for &quot;{filter}&quot;.
+            No code matches found for &quot;{filter}&quot;
+            {scopeFilter === 'current' ? ' in this file.' : '.'}
           </div>
         ) : (
           /* Grouped Search Results */
-          <div className="space-y-2.5">
+          <div className="space-y-2">
             <div className="px-1 text-[10.5px] text-onedark-muted flex items-center justify-between">
               <span>
-                {searchResults?.total_matches} match
-                {searchResults?.total_matches === 1 ? '' : 'es'} in {groupedResults.length} file
-                {groupedResults.length === 1 ? '' : 's'}
+                {totalMatchesCount} match{totalMatchesCount === 1 ? '' : 'es'} in {displayedGroups.length} file{displayedGroups.length === 1 ? '' : 's'}
               </span>
               {searchResults?.capped && (
                 <span className="text-onedark-yellow font-semibold">(Results capped)</span>
               )}
             </div>
 
-            {groupedResults.map(({ filePath, matches }) => {
+            {displayedGroups.map(({ filePath, matches }) => {
               const isCollapsed = !!collapsedSearchFiles[filePath];
-              const isSelected = selectedFile === filePath;
+              const isCurrent = currentFileGroup?.filePath === filePath;
 
               return (
                 <div
                   key={filePath}
-                  className="rounded-lg border border-onedark-borderSubtle bg-onedark-surface/20 overflow-hidden text-xs shadow-xs"
+                  className={`rounded-lg border overflow-hidden text-xs shadow-xs transition-all ${
+                    isCurrent
+                      ? 'border-onedark-purple/40 bg-onedark-purple/5 ring-1 ring-onedark-purple/20'
+                      : 'border-onedark-borderSubtle bg-onedark-surface/20'
+                  }`}
                 >
                   {/* File Header */}
                   <div
                     onClick={() => toggleSearchFileCollapse(filePath)}
-                    className="flex items-center justify-between px-2.5 py-1.5 bg-onedark-surface/50 hover:bg-onedark-surface/80 border-b border-onedark-borderSubtle cursor-pointer select-none gap-2 transition-colors"
+                    className={`flex items-center justify-between px-2.5 py-1.5 border-b border-onedark-borderSubtle cursor-pointer select-none gap-2 transition-colors ${
+                      isCurrent
+                        ? 'bg-onedark-surface/70 hover:bg-onedark-surface/90 text-onedark-fgBright'
+                        : 'bg-onedark-surface/40 hover:bg-onedark-surface/80 text-onedark-fg'
+                    }`}
                   >
                     <div className="flex items-center space-x-1.5 min-w-0">
                       <ChevronDown
@@ -623,15 +731,22 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
                           isCollapsed ? '-rotate-90' : ''
                         }`}
                       />
-                      <FileCode className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
+                      <FileCode className={`w-3.5 h-3.5 flex-shrink-0 ${isCurrent ? 'text-onedark-purple' : 'text-onedark-accent'}`} />
                       <span className="font-semibold text-onedark-fgBright truncate text-[11.5px]">
                         {filePath}
                       </span>
                     </div>
 
-                    <span className="px-1.5 py-0.2 rounded-full bg-onedark-darker text-[10px] text-onedark-muted font-mono flex-shrink-0">
-                      {matches.length}
-                    </span>
+                    <div className="flex items-center space-x-1.5 flex-shrink-0">
+                      {isCurrent && (
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-onedark-purple/20 text-onedark-purple border border-onedark-purple/30">
+                          CURRENT FILE
+                        </span>
+                      )}
+                      <span className="px-1.5 py-0.2 rounded-full bg-onedark-darker text-[10px] text-onedark-muted font-mono">
+                        {matches.length}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Matching Lines */}
@@ -641,7 +756,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
                         <button
                           key={idx}
                           type="button"
-                          onClick={() => handleSelectFile(match.file_path, match.line_number)}
+                          onClick={() => onSelectFile(match.file_path, match.line_number)}
                           className="w-full text-left px-2 py-1.5 border border-transparent hover:bg-onedark-surface/60 hover:border-onedark-borderSubtle hover:text-onedark-fgBright transition-all flex items-start space-x-2 group cursor-pointer"
                         >
                           <span className="w-8 text-right font-mono text-onedark-muted/60 group-hover:text-onedark-accent flex-shrink-0 select-none">

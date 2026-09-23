@@ -932,7 +932,7 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
       return (
         <mark
           key={i}
-          className="search-highlight bg-amber-200 text-amber-950 border border-amber-400/80 dark:bg-amber-400/30 dark:text-amber-200 dark:border-amber-400/30 font-semibold px-1 py-0.5 rounded"
+          className="search-highlight bg-onedark-yellow/20 text-onedark-yellow font-semibold px-1 py-0.5 rounded border border-onedark-yellow/30"
         >
           {renderInline(markMatch[1], onLinkClick)}
         </mark>

@@ -9,10 +9,9 @@ import {
   Bot
 } from 'lucide-react';
 import { Task } from '../../types';
-import { FileTreeExplorer, FileNode } from '../Files/FileTreeExplorer';
+import { FileTreeExplorer, FileNode, ExternalSearchRequest } from '../Files/FileTreeExplorer';
 import { CodeViewer, LineContext } from '../Files/CodeViewer';
 import { FileAgentPopover } from '../Files/FileAgentPopover';
-import { SymbolSearchResultsSidebar } from '../Files/SymbolSearchResultsSidebar';
 import { useNavigationHistory } from '../../hooks/useNavigationHistory';
 
 interface FilesExplorerTabProps {
@@ -45,10 +44,8 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
   const [initialAgentPrompt, setInitialAgentPrompt] = useState<string | undefined>(undefined);
   const [isAgentPopoverOpen, setIsAgentPopoverOpen] = useState(false);
 
-  // Symbol Search Right Sidebar State
-  const [isSymbolSearchOpen, setIsSymbolSearchOpen] = useState(false);
-  const [symbolSearchQuery, setSymbolSearchQuery] = useState('');
-  const [symbolSearchMode, setSymbolSearchMode] = useState<'ast' | 'grep'>('ast');
+  // External Search Trigger State for FileTreeExplorer
+  const [externalSearch, setExternalSearch] = useState<ExternalSearchRequest | null>(null);
 
   // Navigation History Stack Hook
   const {
@@ -290,6 +287,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
             setSelectedFile(path);
             setTargetLine(line || null);
           }}
+          externalSearch={externalSearch}
           title="Sandbox Files"
         />
       </div>
@@ -307,9 +305,11 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
           previousFileTooltip={previousPoint?.filePath}
           nextFileTooltip={nextPoint?.filePath}
           onSearchSymbol={(symbol, mode) => {
-            setSymbolSearchQuery(symbol);
-            setSymbolSearchMode(mode || 'ast');
-            setIsSymbolSearchOpen(true);
+            setExternalSearch({
+              query: symbol,
+              mode: mode === 'grep' ? 'grep' : 'ast',
+              timestamp: Date.now(),
+            });
           }}
           onFileNotFound={() => {
             const fallback = findPreferredOrFirstFile(fileTree);
@@ -326,25 +326,6 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
           onOpenAgentChat={() => setIsAgentPopoverOpen(true)}
         />
       </div>
-
-      {/* Right Symbol Search Sidebar */}
-      {isSymbolSearchOpen && (
-        <SymbolSearchResultsSidebar
-          taskId={task.id}
-          initialQuery={symbolSearchQuery}
-          initialMode={symbolSearchMode}
-          currentFile={selectedFile}
-          isOpen={isSymbolSearchOpen}
-          onClose={() => setIsSymbolSearchOpen(false)}
-          onSelectMatch={(filePath, line, isSameFile) => {
-            pushPoint({ filePath, line });
-            if (!isSameFile) {
-              setSelectedFile(filePath);
-            }
-            setTargetLine(line);
-          }}
-        />
-      )}
 
       {/* Interactive File Agent Sub-Session Popover */}
       {isAgentPopoverOpen && (
