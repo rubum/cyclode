@@ -196,4 +196,36 @@ async def test_task_sandbox_resources_diagnostics():
         assert res["confinement"]["path_jail_enforced"] is True
 
 
+@pytest.mark.asyncio
+async def test_task_stop_and_cancel_endpoints():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Create a task
+        create_res = await client.post("/api/tasks", json={
+            "title": "Stop Task Test Session",
+            "description": "Task to be stopped via API",
+            "persona": "SoftwareEngineer"
+        })
+        assert create_res.status_code == 200
+        task_id = create_res.json()["task_id"]
+
+        # 1. Call POST /api/tasks/{task_id}/stop
+        stop_res = await client.post(f"/api/tasks/{task_id}/stop")
+        assert stop_res.status_code == 200
+        stop_data = stop_res.json()
+        assert stop_data["ok"] is True
+        assert stop_data["status"] == "CANCELLED"
+
+        # Verify task detail reflects CANCELLED status
+        detail_res = await client.get(f"/api/tasks/{task_id}")
+        assert detail_res.status_code == 200
+        assert detail_res.json()["status"] == "CANCELLED"
+
+        # 2. Call POST /api/tasks/{task_id}/cancel (idempotent stop)
+        cancel_res = await client.post(f"/api/tasks/{task_id}/cancel")
+        assert cancel_res.status_code == 200
+        assert cancel_res.json()["ok"] is True
+
+
+
 

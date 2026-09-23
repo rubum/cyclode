@@ -189,8 +189,10 @@ async def create_task(req: CreateTaskRequest):
     import re
     repo_url = req.repo_url
     repo_name = req.repo_name
+    title = (req.title or "").strip() or (req.description[:60].strip() if req.description else "New Session")
+    description = req.description or ""
     if not repo_url:
-        combined_text = f"{req.title} {req.description}"
+        combined_text = f"{title} {description}"
         repo_match = re.search(r"(https?://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?)", combined_text, re.IGNORECASE)
         if repo_match:
             raw_url = repo_match.group(1).rstrip("/")
@@ -201,8 +203,8 @@ async def create_task(req: CreateTaskRequest):
                 repo_name = repo_url.split("github.com/")[-1]
 
     task_id = await agent_pool.spawn_task(
-        title=req.title,
-        description=req.description,
+        title=title,
+        description=description,
         persona=req.persona,
         model_name=req.model_name,
         session_key=req.session_key,

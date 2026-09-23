@@ -747,6 +747,32 @@ const MainApp: React.FC = () => {
           );
           fetchTaskDetails(createdId);
         }
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        const errMsg = errJson.error || errJson.detail || `Server returned ${res.status}`;
+        console.error('Failed to create task:', res.status, errMsg);
+        setTasks((prev) =>
+          prev.map((t) =>
+            t.id === tempId
+              ? {
+                  ...t,
+                  status: 'FAILED',
+                  result_summary: errMsg,
+                  messages: [
+                    ...(t.messages || []),
+                    {
+                      id: `err-${Date.now()}`,
+                      task_id: tempId,
+                      sender: 'agent',
+                      content: `### ⚠️ Failed to initialize task\n\n${errMsg}`,
+                      tokens: 10,
+                      created_at: new Date().toISOString(),
+                    },
+                  ],
+                }
+              : t
+          )
+        );
       }
     } catch (err) {
       console.error('Error creating task:', err);

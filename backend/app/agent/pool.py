@@ -851,55 +851,71 @@ class AgentTaskPool:
             })
             return
 
+        except asyncio.CancelledError:
+            logger.info(f"Task worker {task_id} received cancellation request.")
+            return
+
         except Exception as e:
             logger.error(f"Error executing task {task_id}: {e}", exc_info=True)
             err_content = f"### ⚠️ Execution Error\n\nAn unexpected error occurred during execution:\n```text\n{e}\n```\n\nYou can click **Retry** to re-run the task."
-            async with async_session_factory() as session:
-                err_msg = TaskMessageModel(
-                    task_id=task_id,
-                    sender="agent",
-                    content=err_content,
-                    thought="Execution encountered an unhandled exception.",
-                    tokens=estimate_tokens(err_content)
-                )
-                session.add(err_msg)
-                await session.execute(
-                    update(TaskModel)
-                    .where(TaskModel.id == task_id)
-                    .values(status="FAILED", result_summary=str(e), completed_at=get_utc_now())
-                )
-                await session.commit()
+            try:
+                async with async_session_factory() as session:
+                    err_msg = TaskMessageModel(
+                        task_id=task_id,
+                        sender="agent",
+                        content=err_content,
+                        thought="Execution encountered an unhandled exception.",
+                        tokens=estimate_tokens(err_content)
+                    )
+                    session.add(err_msg)
+                    await session.execute(
+                        update(TaskModel)
+                        .where(TaskModel.id == task_id)
+                        .values(status="FAILED", result_summary=str(e), completed_at=get_utc_now())
+                    )
+                    await session.commit()
+            except Exception as dbe:
+                logger.debug(f"Error saving failure state for task {task_id}: {dbe}")
 
-            await ws_manager.broadcast("TASK_MESSAGE", {
-                "task_id": task_id,
-                "sender": "agent",
-                "content": err_content,
-                "tokens": estimate_tokens(err_content),
-                "timestamp": datetime.now(timezone.utc).isoformat()
-            })
+            try:
+                await ws_manager.broadcast("TASK_MESSAGE", {
+                    "task_id": task_id,
+                    "sender": "agent",
+                    "content": err_content,
+                    "tokens": estimate_tokens(err_content),
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                })
 
-            await ws_manager.broadcast("TASK_STATUS_CHANGE", {
-                "task_id": task_id,
-                "status": "FAILED",
-                "error": str(e)
-            })
+                await ws_manager.broadcast("TASK_STATUS_CHANGE", {
+                    "task_id": task_id,
+                    "status": "FAILED",
+                    "error": str(e)
+                })
+            except Exception:
+                pass
         finally:
             # We preserve the sandbox workspace on disk throughout the session lifetime.
             # Sandbox is only destroyed when the user explicitly deletes the task session (DELETE /api/tasks/{task_id})
             # or clears all sessions. This ensures continuous file/diff browsing and multi-turn context.
             if sandbox_ctx and sandbox_ctx.workspace_path.exists():
-                async with async_session_factory() as session:
-                    await session.execute(
-                        update(TaskModel)
-                        .where(TaskModel.id == task_id)
-                        .values(sandbox_status="ACTIVE")
-                    )
-                    await session.commit()
+                try:
+                    async with async_session_factory() as session:
+                        await session.execute(
+                            update(TaskModel)
+                            .where(TaskModel.id == task_id)
+                            .values(sandbox_status="ACTIVE")
+                        )
+                        await session.commit()
+                except Exception as e:
+                    logger.debug(f"Finally sandbox update notice for {task_id}: {e}")
 
-                await ws_manager.broadcast("TASK_STATUS_CHANGE", {
-                    "task_id": task_id,
-                    "sandbox_status": "ACTIVE"
-                })
+                try:
+                    await ws_manager.broadcast("TASK_STATUS_CHANGE", {
+                        "task_id": task_id,
+                        "sandbox_status": "ACTIVE"
+                    })
+                except Exception:
+                    pass
 
             self.active_tasks.pop(task_id, None)
 
@@ -1064,33 +1080,41 @@ class AgentTaskPool:
         """
         logger.info(f"Stopping task {task_id}, reason: {reason}")
         if task_id in self.active_tasks:
-            worker = self.active_tasks.pop(task_id)
-            if not worker.done():
-                worker.cancel()
+            worker = self.active_tasks.pop(task_id, None)
+            if worker and not worker.done():
+                try:
+                    worker.cancel()
+                except Exception as e:
+                    logger.warning(f"Notice cancelling worker task {task_id}: {e}")
 
-        async with async_session_factory() as session:
-            stmt = select(TaskModel).where(TaskModel.id == task_id)
-            res = await session.execute(stmt)
-            task = res.scalars().first()
-            if not task:
-                return {"ok": False, "error": "Task not found"}
+        try:
+            async with async_session_factory() as session:
+                stmt = select(TaskModel).where(TaskModel.id == task_id)
+                res = await session.execute(stmt)
+                task = res.scalars().first()
+                if task:
+                    task.status = "CANCELLED"
+                    task.completed_at = get_utc_now()
+                    task.result_summary = f"Execution stopped: {reason or 'Stopped by user'}"
 
-            task.status = "CANCELLED"
-            task.completed_at = get_utc_now()
-            task.result_summary = f"Execution stopped: {reason or 'Stopped by user'}"
+                    stop_msg = TaskMessageModel(
+                        task_id=task_id,
+                        sender="system",
+                        content=f"⏹ **Task stopped by user.** {reason or ''}".strip()
+                    )
+                    session.add(stop_msg)
+                    await session.commit()
+        except Exception as e:
+            logger.debug(f"Database stop state update notice for task {task_id}: {e}")
 
-            stop_msg = TaskMessageModel(
-                task_id=task_id,
-                sender="system",
-                content=f"⏹ **Task stopped by user.** {reason or ''}".strip()
-            )
-            session.add(stop_msg)
-            await session.commit()
+        try:
+            await ws_manager.broadcast("TASK_STATUS_CHANGE", {
+                "task_id": task_id,
+                "status": "CANCELLED"
+            })
+        except Exception:
+            pass
 
-        await ws_manager.broadcast("TASK_STATUS_CHANGE", {
-            "task_id": task_id,
-            "status": "CANCELLED"
-        })
         return {"ok": True, "task_id": task_id, "status": "CANCELLED"}
 
     async def execute_pr_action(

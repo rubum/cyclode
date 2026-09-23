@@ -46,10 +46,21 @@ elif "postgresql" in db_url:
     engine_kwargs["max_overflow"] = 10
     engine_kwargs["pool_pre_ping"] = True
 
+from sqlalchemy import event
+
 engine = create_async_engine(
     db_url,
     **engine_kwargs
 )
+
+@event.listens_for(engine.sync_engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    if "sqlite" in settings.DATABASE_URL:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL;")
+        cursor.execute("PRAGMA busy_timeout=60000;")
+        cursor.execute("PRAGMA synchronous=NORMAL;")
+        cursor.close()
 
 async_session_factory = async_sessionmaker(
     engine,
