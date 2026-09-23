@@ -83,6 +83,10 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
   };
 
   const fetchFilesystem = async (silent = false) => {
+    if (!task?.id || task.id.startsWith('temp-')) {
+      setLoading(false);
+      return;
+    }
     if (!silent) setLoading(true);
     setError(null);
     try {

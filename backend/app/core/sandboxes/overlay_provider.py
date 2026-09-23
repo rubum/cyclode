@@ -153,11 +153,13 @@ class OverlayFSSandboxProvider(SandboxProvider):
 
         git_env = dict(os.environ)
         git_env["GIT_TERMINAL_PROMPT"] = "0"
+        git_env["GIT_CONFIG_GLOBAL"] = "/dev/null"
+        git_env["GIT_CONFIG_NOSYSTEM"] = "1"
         proc = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True, timeout=300, env=git_env)
         if proc.returncode == 0:
             logger.info(f"Successfully cached base repository {repo_url} at {cached_repo_dir}")
             if commit_sha:
-                subprocess.run(["git", "checkout", commit_sha], cwd=cached_repo_dir, capture_output=True)
+                subprocess.run(["git", "checkout", commit_sha], cwd=cached_repo_dir, capture_output=True, env=git_env)
             return cached_repo_dir
 
         err_msg = proc.stderr or ""
@@ -176,29 +178,38 @@ class OverlayFSSandboxProvider(SandboxProvider):
                     import urllib.request
                     import io
                     import tarfile
-                    archive_url = f"https://codeload.github.com/{gh_owner}/{gh_repo}/tar.gz/{target_branch}"
-                    req = urllib.request.Request(archive_url, headers={"User-Agent": "Cyclode-Agent"})
-                    if active_token:
-                        req.add_header("Authorization", f"token {active_token}")
+                    candidate_branches = [branch] if branch else ["main", "master", "HEAD"]
+                    for cand_b in candidate_branches:
+                        if not cand_b:
+                            continue
+                        archive_url = f"https://codeload.github.com/{gh_owner}/{gh_repo}/tar.gz/{cand_b}"
+                        req = urllib.request.Request(archive_url, headers={"User-Agent": "Cyclode-Agent"})
+                        if active_token:
+                            req.add_header("Authorization", f"token {active_token}")
 
-                    def download_and_extract():
-                        cached_repo_dir.mkdir(parents=True, exist_ok=True)
-                        with urllib.request.urlopen(req, timeout=45) as resp:
-                            data = resp.read()
-                        with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
-                            for member in tar.getmembers():
-                                if "/" in member.name:
-                                    member.name = "/".join(member.name.split("/")[1:])
-                                    if member.name:
-                                        tar.extract(member, path=str(cached_repo_dir))
+                        def download_and_extract(url_req=req, b_name=cand_b):
+                            cached_repo_dir.mkdir(parents=True, exist_ok=True)
+                            with urllib.request.urlopen(url_req, timeout=45) as resp:
+                                data = resp.read()
+                            with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
+                                for member in tar.getmembers():
+                                    if "/" in member.name:
+                                        member.name = "/".join(member.name.split("/")[1:])
+                                        if member.name:
+                                            tar.extract(member, path=str(cached_repo_dir))
+                            return b_name
 
-                    await asyncio.to_thread(download_and_extract)
-                    subprocess.run(["git", "init", "-b", target_branch], cwd=cached_repo_dir, capture_output=True)
-                    subprocess.run(["git", "config", "user.name", "Cyclode Agent"], cwd=cached_repo_dir, capture_output=True)
-                    subprocess.run(["git", "config", "user.email", "agent@cyclode.ai"], cwd=cached_repo_dir, capture_output=True)
-                    subprocess.run(["git", "add", "."], cwd=cached_repo_dir, capture_output=True)
-                    subprocess.run(["git", "commit", "-m", "initial cache commit"], cwd=cached_repo_dir, capture_output=True)
-                    return cached_repo_dir
+                        try:
+                            extracted_branch = await asyncio.to_thread(download_and_extract)
+                            subprocess.run(["git", "init", "-b", extracted_branch or "main"], cwd=cached_repo_dir, capture_output=True, env=git_env)
+                            subprocess.run(["git", "config", "user.name", "Cyclode Agent"], cwd=cached_repo_dir, capture_output=True, env=git_env)
+                            subprocess.run(["git", "config", "user.email", "agent@cyclode.ai"], cwd=cached_repo_dir, capture_output=True, env=git_env)
+                            subprocess.run(["git", "add", "."], cwd=cached_repo_dir, capture_output=True, env=git_env)
+                            subprocess.run(["git", "commit", "-m", "initial cache commit"], cwd=cached_repo_dir, capture_output=True, env=git_env)
+                            return cached_repo_dir
+                        except Exception as dl_err:
+                            logger.debug(f"Branch archive download attempt for {cand_b} failed: {dl_err}")
+                            continue
             except Exception as e:
                 logger.warning(f"Archive fallback caching failed: {e}")
 

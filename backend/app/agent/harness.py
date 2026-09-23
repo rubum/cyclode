@@ -1384,15 +1384,26 @@ class AntigravityHarness:
                         intent_cat = current_plan.get("intent_category", "qa_research")
                         effective_system_instruction = system_instruction
                         if intent_cat == "qa_research":
+                            mutation_tool_names = {"edit_file", "replace_file_content", "batch_replace_content", "apply_unified_patch", "revert_file", "speculative_branch_test"}
                             active_tools_def = [
-                                t for t in (tools_def or [])
-                                if any(d.get("name") in ["search_web", "fetch_url", "search_doc_pages"] for d in t.get("function_declarations", []))
+                                {
+                                    "function_declarations": [
+                                        d for d in t.get("function_declarations", [])
+                                        if d.get("name") not in mutation_tool_names
+                                    ]
+                                }
+                                for t in (tools_def or [])
                             ] if tools_def else None
                         elif intent_cat == "planning":
                             mutation_tool_names = {"edit_file", "replace_file_content", "batch_replace_content", "apply_unified_patch", "revert_file", "speculative_branch_test"}
                             active_tools_def = [
-                                t for t in (tools_def or [])
-                                if not any(d.get("name") in mutation_tool_names for d in t.get("function_declarations", []))
+                                {
+                                    "function_declarations": [
+                                        d for d in t.get("function_declarations", [])
+                                        if d.get("name") not in mutation_tool_names
+                                    ]
+                                }
+                                for t in (tools_def or [])
                             ] if tools_def else None
                             effective_system_instruction = (
                                 system_instruction
@@ -1539,9 +1550,10 @@ class AntigravityHarness:
 
                         if not function_calls:
                             # Autonomous Pre-Completion Verification Guardrail
-                            intent_category = current_plan.get("intent_category", "app_building" if persona_name in ["AppBuilder", "SoftwareEngineer"] else "code_modification")
+                            intent_category = current_plan.get("intent_category", "app_building" if persona_name == "AppBuilder" else "code_modification")
                             prompt_title_lower = (prompt + " " + title).lower()
-                            is_app_keyword = any(k in prompt_title_lower for k in ["build a", "build an", "create a", "create an", "make a", "make an", "game", "minecraft", "voxel", "arcade", "canvas", "dashboard", "calculator", "storefront", "web app", "frontend", "ui component"])
+                            is_exploration = any(k in prompt_title_lower for k in ["explore", "analyze", "explain", "review", "audit", "summarize", "investigate", "read", "check"])
+                            is_app_keyword = not is_exploration and any(k in prompt_title_lower for k in ["build a", "build an", "create a", "create an", "make a", "make an", "game", "minecraft", "voxel", "arcade", "canvas", "dashboard", "calculator", "storefront", "web app", "frontend", "ui component"])
                             is_app_task = (intent_category == "app_building" or persona_name == "AppBuilder" or is_app_keyword)
                             
                             from app.api.preview import verify_workspace_preview

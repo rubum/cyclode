@@ -72,6 +72,7 @@ const MainApp: React.FC = () => {
 
   // Fetch active task details
   const fetchTaskDetails = useCallback(async (taskId: string) => {
+    if (!taskId || taskId.startsWith('temp-')) return;
     try {
       const res = await fetch(`${API_BASE}/api/tasks/${taskId}`);
       if (res.ok) {
@@ -226,7 +227,9 @@ const MainApp: React.FC = () => {
       // Only auto-focus newly created task if not a subsession AND (if no task is currently active or if user was waiting on a temp task)
       if (!data.is_subsession && (!activeTaskIdRef.current || activeTaskIdRef.current.startsWith('temp-'))) {
         setActiveTaskId(data.id);
+        activeTaskIdRef.current = data.id;
         setActiveView('chat');
+        fetchTaskDetails(data.id);
       }
     });
 
@@ -733,15 +736,17 @@ const MainApp: React.FC = () => {
       });
       if (res.ok) {
         const data = await res.json();
-        if (activeTaskIdRef.current === tempId) {
-          setActiveTaskId(data.id);
-          setActiveTaskDetails(data);
-          activeTaskIdRef.current = data.id;
+        const createdId = data.id || data.task_id;
+        if (createdId) {
+          if (activeTaskIdRef.current === tempId) {
+            setActiveTaskId(createdId);
+            activeTaskIdRef.current = createdId;
+          }
+          setTasks((prev) =>
+            prev.map((t) => (t.id === tempId ? { ...t, ...data, id: createdId } : t))
+          );
+          fetchTaskDetails(createdId);
         }
-        setTasks((prev) =>
-          prev.map((t) => (t.id === tempId ? { ...t, ...data } : t))
-        );
-        fetchTaskDetails(data.id);
       }
     } catch (err) {
       console.error('Error creating task:', err);
@@ -1014,7 +1019,7 @@ const MainApp: React.FC = () => {
   };
 
   const handleStopTask = async () => {
-    if (!activeTaskId) return;
+    if (!activeTaskId || activeTaskId.startsWith('temp-')) return;
     setActiveTaskDetails((prev) =>
       prev
         ? {

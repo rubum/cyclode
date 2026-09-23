@@ -62,7 +62,7 @@ export const EventInspectorTab: React.FC<EventInspectorTabProps> = ({ task }) =>
   const [showCustomModal, setShowCustomModal] = useState<boolean>(false);
 
   const fetchInspectorData = useCallback(async () => {
-    if (!task?.id) {
+    if (!task?.id || task.id.startsWith('temp-')) {
       setEvents([]);
       setTrajectory(null);
       setEvaluation(null);

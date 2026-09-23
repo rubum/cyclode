@@ -55,7 +55,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
   const [previewInfo, setPreviewInfo] = useState<WorkspacePreviewInfo | null>(null);
 
   const checkPreviewStatus = useCallback(async () => {
-    if (!task?.id) {
+    if (!task?.id || task.id.startsWith('temp-')) {
       setPreviewInfo(null);
       return;
     }

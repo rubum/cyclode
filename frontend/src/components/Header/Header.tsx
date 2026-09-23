@@ -55,7 +55,7 @@ export const Header: React.FC<HeaderProps> = ({
   const diffDels = (activeTask?.diffs || []).reduce((acc, d) => acc + (d.deletions || 0), 0);
 
   const checkPreviewStatus = useCallback(async () => {
-    if (!activeTask?.id) {
+    if (!activeTask?.id || activeTask.id.startsWith('temp-')) {
       setPreviewInfo(null);
       return;
     }

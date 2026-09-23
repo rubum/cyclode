@@ -94,7 +94,7 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
 
   // Fetch preview inspection from backend
   const inspectPreview = useCallback(async (silent = false) => {
-    if (!task?.id) {
+    if (!task?.id || task.id.startsWith('temp-')) {
       setPreviewInfo(null);
       setLoading(false);
       return;

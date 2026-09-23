@@ -211,7 +211,7 @@ async def create_task(req: CreateTaskRequest):
         is_subsession=req.is_subsession,
         parent_task_id=req.parent_task_id
     )
-    return {"ok": True, "task_id": task_id}
+    return {"ok": True, "task_id": task_id, "id": task_id, "status": "INITIALIZING"}
 
 
 @router.get("/{task_id}")

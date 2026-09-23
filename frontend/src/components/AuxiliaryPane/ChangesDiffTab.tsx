@@ -210,7 +210,7 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({ task, onSelectAu
 
   // Fetch commits on task load
   const fetchCommits = useCallback(async () => {
-    if (!task?.id) return;
+    if (!task?.id || task.id.startsWith('temp-')) return;
     try {
       const res = await fetch(`${API_BASE}/api/tasks/${task.id}/commits`);
       if (res.ok) {
@@ -229,7 +229,7 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({ task, onSelectAu
 
   // Fetch live diff according to selected mode
   const fetchLiveDiff = useCallback(async () => {
-    if (!task?.id) return;
+    if (!task?.id || task.id.startsWith('temp-')) return;
     setIsLoading(true);
     try {
       let url = `${API_BASE}/api/tasks/${task.id}/diff?mode=${selectedMode}`;

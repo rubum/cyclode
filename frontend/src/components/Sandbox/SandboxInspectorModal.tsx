@@ -157,6 +157,10 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
   const pollTimerRef = React.useRef<any>(null);
 
   const fetchSandboxData = async (silent = false) => {
+    if (!task?.id || task.id.startsWith('temp-')) {
+      setLoading(false);
+      return;
+    }
     if (!silent) setLoading(true);
     setError(null);
     try {

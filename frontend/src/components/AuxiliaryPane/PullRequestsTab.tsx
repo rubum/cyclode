@@ -141,7 +141,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
 
   // Load PRs for the active task
   const fetchPRs = useCallback(async () => {
-    if (!task?.id) {
+    if (!task?.id || task.id.startsWith('temp-')) {
       setPrs([]);
       return;
     }

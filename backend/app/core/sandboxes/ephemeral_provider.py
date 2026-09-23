@@ -95,6 +95,8 @@ class EphemeralSandboxProvider(SandboxProvider):
 
                 git_env = dict(os.environ)
                 git_env["GIT_TERMINAL_PROMPT"] = "0"
+                git_env["GIT_CONFIG_GLOBAL"] = "/dev/null"
+                git_env["GIT_CONFIG_NOSYSTEM"] = "1"
                 proc = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True, timeout=300, env=git_env)
                 if proc.returncode == 0:
                     logger.info(f"Successfully cloned {repo_url} into sandbox {task_id}")
