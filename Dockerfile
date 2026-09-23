@@ -8,7 +8,16 @@ RUN npm ci || npm install
 COPY frontend/ ./
 RUN npm run build
 
-# Stage 2: Production Python Backend with Built Frontend
+# Stage 2: Build Native Rust Search Service (cyclode-searchd)
+FROM rust:1.80-slim AS rust-builder
+WORKDIR /app/crates/cyclode-search
+COPY crates/cyclode-search/Cargo.toml crates/cyclode-search/Cargo.lock* ./
+# Pre-fetch and cache build layers
+RUN mkdir src && echo "fn main() {}" > src/main.rs && echo "" > src/lib.rs && cargo build --release || true
+COPY crates/cyclode-search/ ./
+RUN cargo build --release
+
+# Stage 3: Production Python Backend with Built Frontend & Native Rust Search Engine
 FROM python:3.11-slim
 
 # Install developer toolchains (Git, curl, build essentials, Node.js 20 & npm) for Antigravity agents
@@ -33,6 +42,9 @@ COPY backend/app ./app
 
 # Copy built frontend static assets into backend static directory
 COPY --from=frontend-builder /app/frontend/dist ./static
+
+# Copy compiled Native Rust search & AST daemon
+COPY --from=rust-builder /app/crates/cyclode-search/target/release/cyclode-searchd /usr/local/bin/cyclode-searchd
 
 # Ensure workspaces and data directories exist
 RUN mkdir -p /workspaces /data

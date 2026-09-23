@@ -36,6 +36,12 @@ wheels/
 .installed.cfg
 *.egg
 
+# Rust & Cargo
+target/
+crates/**/target/
+**/*.rs.bk
+Cargo.lock.bak
+
 # Testing & Coverage
 .pytest_cache/
 .coverage

@@ -211,8 +211,8 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
             Allocating isolated filesystem, preparing repository worktree, and synchronizing workspace structure...
           </div>
         </div>
-        <div className="flex items-center space-x-1.5 text-[10px] text-amber-400/80 bg-amber-500/10 px-2.5 py-1 rounded-full border border-amber-500/20">
-          <Sparkles className="w-3 h-3" />
+        <div className="flex items-center space-x-1.5 text-[10px] text-amber-900 bg-amber-100 border border-amber-300 dark:text-amber-400/90 dark:bg-amber-500/10 dark:border-amber-500/20 px-2.5 py-1 rounded-full font-medium">
+          <Sparkles className="w-3 h-3 text-amber-600 dark:text-amber-400" />
           <span>Files will appear automatically once ready</span>
         </div>
       </div>

@@ -230,7 +230,7 @@ export const CommitHistoryDropdown: React.FC<CommitHistoryDropdownProps> = ({
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center space-x-2">
                     <span className="text-xs font-bold leading-tight">Uncommitted Changes</span>
-                    <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                    <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-500/10 dark:text-amber-400 dark:border-amber-500/20 font-semibold">
                       Working Tree
                     </span>
                   </div>

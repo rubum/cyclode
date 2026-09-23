@@ -2080,8 +2080,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                             <span>Evaluating</span>
                           </span>
                         ) : evalStatus === 'needs_revision' ? (
-                          <span className="px-1.5 py-0.5 rounded bg-onedark-yellow/10 text-onedark-yellow text-[10px] font-mono flex items-center space-x-1">
-                            <AlertCircle className="w-2.5 h-2.5" />
+                          <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-950 border border-amber-300 dark:bg-onedark-yellow/10 dark:text-onedark-yellow dark:border-transparent text-[10px] font-mono flex items-center space-x-1 font-medium">
+                            <AlertCircle className="w-2.5 h-2.5 text-amber-700 dark:text-onedark-yellow" />
                             <span>Revision</span>
                           </span>
                         ) : null}
@@ -2089,8 +2089,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
                       <div className="flex items-center space-x-2 shrink-0">
                         {isTurnRunning && turn.isLatest ? (
-                          <span className="px-2 py-0.5 rounded-full bg-onedark-yellow/10 text-onedark-yellow text-[10.5px] font-mono flex items-center space-x-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-onedark-yellow animate-pulse" />
+                          <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-950 border border-amber-300 dark:bg-onedark-yellow/10 dark:text-onedark-yellow dark:border-transparent text-[10.5px] font-mono flex items-center space-x-1.5 font-semibold">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-600 dark:bg-onedark-yellow animate-pulse" />
                             <span>Executing...</span>
                           </span>
                         ) : (
@@ -2236,8 +2236,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
                       <div className="flex items-center space-x-2">
                         {isRunning && turn.isLatest ? (
-                          <span className="px-2 py-0.5 rounded-full bg-onedark-yellow/10 text-onedark-yellow text-[10.5px] font-mono flex items-center space-x-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-onedark-yellow animate-pulse" />
+                          <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-950 border border-amber-300 dark:bg-onedark-yellow/10 dark:text-onedark-yellow dark:border-transparent text-[10.5px] font-mono flex items-center space-x-1 font-semibold">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-600 dark:bg-onedark-yellow animate-pulse" />
                             <span>Thinking...</span>
                           </span>
                         ) : (
@@ -2323,8 +2323,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                                 </span>
                               )}
                               {runCount > 0 && (
-                                <span className="px-1.5 py-0.5 rounded bg-onedark-yellow/10 text-onedark-yellow text-[10px] font-mono flex items-center space-x-1">
-                                  <Terminal className="w-2.5 h-2.5" />
+                                <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-950 border border-amber-300 dark:bg-onedark-yellow/10 dark:text-onedark-yellow dark:border-transparent text-[10px] font-mono flex items-center space-x-1 font-medium">
+                                  <Terminal className="w-2.5 h-2.5 text-amber-700 dark:text-onedark-yellow" />
                                   <span>{runCount} run{runCount > 1 ? 's' : ''}</span>
                                 </span>
                               )}

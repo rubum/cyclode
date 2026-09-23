@@ -201,13 +201,13 @@ export const Header: React.FC<HeaderProps> = ({
         {activeTask?.sandbox_status && activeTask.sandbox_status !== 'NONE' && (
           <button
             onClick={onOpenSandboxModal}
-            className={`px-2 py-0.5 rounded-md text-[11px] font-mono border flex items-center space-x-1.5 transition-all shadow-xs active:scale-95 cursor-pointer ${
+            className={`px-2 py-0.5 rounded-md text-[11px] font-mono border flex items-center space-x-1.5 transition-all shadow-xs active:scale-95 cursor-pointer font-medium ${
               activeTask.sandbox_status === 'ACTIVE'
-                ? 'bg-onedark-green/15 text-onedark-green border-onedark-green/30 hover:bg-onedark-green/25'
+                ? 'bg-emerald-100 text-emerald-950 border-emerald-300 hover:bg-emerald-200 dark:bg-onedark-green/15 dark:text-onedark-green dark:border-onedark-green/30 dark:hover:bg-onedark-green/25'
                 : activeTask.sandbox_status === 'PROVISIONING'
-                ? 'bg-onedark-yellow/15 text-onedark-yellow border-onedark-yellow/30 hover:bg-onedark-yellow/25'
+                ? 'bg-amber-100 text-amber-950 border-amber-300 hover:bg-amber-200 dark:bg-onedark-yellow/15 dark:text-onedark-yellow dark:border-onedark-yellow/30 dark:hover:bg-onedark-yellow/25'
                 : activeTask.sandbox_status === 'AUTH_REQUIRED'
-                ? 'bg-onedark-accent/15 text-onedark-accent border-onedark-accent/30 hover:bg-onedark-accent/25'
+                ? 'bg-amber-100 text-amber-950 border-amber-300 hover:bg-amber-200 dark:bg-onedark-accent/15 dark:text-onedark-accent dark:border-onedark-accent/30 dark:hover:bg-onedark-accent/25'
                 : 'bg-onedark-surface text-onedark-muted border-onedark-borderSubtle hover:bg-onedark-surface/80 hover:text-onedark-fg'
             }`}
             title="Inspect Sandbox Environment & Filesystem"
@@ -231,19 +231,19 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Status Badge */}
         {activeTask && (
-          <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-mono border flex items-center space-x-1.5 shadow-xs font-medium ${
+          <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-mono border flex items-center space-x-1.5 shadow-xs font-semibold ${
             activeTask.status === 'RUNNING'
-              ? 'bg-onedark-yellow/15 border-onedark-yellow/30 text-onedark-yellow'
+              ? 'bg-amber-100 border-amber-300 text-amber-950 dark:bg-onedark-yellow/15 dark:border-onedark-yellow/30 dark:text-onedark-yellow'
               : activeTask.status === 'AWAITING_APPROVAL'
-              ? 'bg-onedark-accent/15 border-onedark-accent/30 text-onedark-accent'
+              ? 'bg-amber-100 border-amber-300 text-amber-950 dark:bg-onedark-accent/15 dark:border-onedark-accent/30 dark:text-onedark-accent'
               : activeTask.status === 'AWAITING_INPUT'
-              ? 'bg-onedark-accent/15 border-onedark-accent/30 text-onedark-accent'
+              ? 'bg-amber-100 border-amber-300 text-amber-950 dark:bg-onedark-accent/15 dark:border-onedark-accent/30 dark:text-onedark-accent'
               : activeTask.status === 'IDLE'
-              ? 'bg-onedark-purple/15 border-onedark-purple/30 text-onedark-purple'
+              ? 'bg-purple-100 border-purple-300 text-purple-950 dark:bg-onedark-purple/15 dark:border-onedark-purple/30 dark:text-onedark-purple'
               : activeTask.status === 'COMPLETED'
-              ? 'bg-onedark-green/15 border-onedark-green/30 text-onedark-green'
+              ? 'bg-emerald-100 border-emerald-300 text-emerald-950 dark:bg-onedark-green/15 dark:border-onedark-green/30 dark:text-onedark-green'
               : activeTask.status === 'CANCELLED'
-              ? 'bg-onedark-red/15 border-onedark-red/30 text-onedark-red'
+              ? 'bg-rose-100 border-rose-300 text-rose-950 dark:bg-onedark-red/15 dark:border-onedark-red/30 dark:text-onedark-red'
               : 'bg-onedark-surface border-onedark-border text-onedark-muted'
           }`}>
             <span

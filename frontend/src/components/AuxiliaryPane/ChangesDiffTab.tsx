@@ -320,7 +320,7 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({ task, onSelectAu
       );
     }
     return (
-      <span className="px-1.5 py-0.5 rounded text-[9.5px] uppercase font-mono font-bold bg-amber-500/15 text-amber-400 border border-amber-500/25">
+      <span className="px-1.5 py-0.5 rounded text-[9.5px] uppercase font-mono font-bold bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-500/15 dark:text-amber-400 dark:border-amber-500/25">
         ~ Modified
       </span>
     );

@@ -139,13 +139,13 @@ export const LinearIssueDetailView: React.FC<LinearIssueDetailViewProps> = ({
   const getPriorityBadge = (priority: number, label?: string) => {
     switch (priority) {
       case 1:
-        return { text: label || 'Urgent', color: 'text-rose-400 bg-rose-500/15 border-rose-500/30' };
+        return { text: label || 'Urgent', color: 'text-rose-900 bg-rose-100 border-rose-300 dark:text-rose-400 dark:bg-rose-500/15 dark:border-rose-500/30' };
       case 2:
-        return { text: label || 'High', color: 'text-amber-400 bg-amber-500/15 border-amber-500/30' };
+        return { text: label || 'High', color: 'text-amber-900 bg-amber-100 border-amber-300 dark:text-amber-400 dark:bg-amber-500/15 dark:border-amber-500/30' };
       case 3:
-        return { text: label || 'Medium', color: 'text-yellow-400 bg-yellow-500/15 border-yellow-500/30' };
+        return { text: label || 'Medium', color: 'text-yellow-950 bg-yellow-100 border-yellow-300 dark:text-yellow-400 dark:bg-yellow-500/15 dark:border-yellow-500/30' };
       case 4:
-        return { text: label || 'Low', color: 'text-blue-400 bg-blue-500/15 border-blue-500/30' };
+        return { text: label || 'Low', color: 'text-blue-900 bg-blue-100 border-blue-300 dark:text-blue-400 dark:bg-blue-500/15 dark:border-blue-500/30' };
       default:
         return { text: label || 'No priority', color: 'text-onedark-muted bg-onedark-surface border-onedark-border' };
     }

@@ -905,6 +905,37 @@ class WorkspaceTools:
     ) -> Dict[str, Any]:
         """
         Fast workspace code search ignoring build/vendor folders, prioritizing current_file matches.
+        Dispatches via SearchBridge 3-Tier Cascade (Rust cyclode-searchd -> Ripgrep -> Python fallback).
+        """
+        from app.core.search import SearchBridge
+        res = SearchBridge.search_text(
+            workspace_path,
+            query,
+            is_regex=is_regex,
+            case_sensitive=case_sensitive,
+            max_results=max_results,
+            current_file=current_file
+        )
+        if file_pattern and "matches" in res:
+            res["matches"] = [
+                m for m in res["matches"]
+                if fnmatch.fnmatch(m.get("file_path", ""), file_pattern) or fnmatch.fnmatch(Path(m.get("file_path", "")).name, file_pattern)
+            ]
+            res["total_matches"] = len(res["matches"])
+        return res
+
+    @staticmethod
+    def _search_code_pure_python(
+        workspace_path: Path,
+        query: str,
+        is_regex: bool = False,
+        case_sensitive: bool = False,
+        file_pattern: Optional[str] = None,
+        max_results: int = 50,
+        current_file: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Pure Python fallback code search implementation.
         """
         if not query or not query.strip():
             return {"error": "Query string cannot be empty", "matches": []}
@@ -1250,8 +1281,27 @@ class WorkspaceTools:
         current_file: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Structural AST search for language patterns (e.g. decorators @app.post, class inheritance, function calls),
-        prioritizing current_file matches at the top and gracefully falling back to references.
+        Structural AST search for language patterns, prioritizing current_file matches.
+        Dispatches via SearchBridge 3-Tier Cascade (Rust cyclode-searchd -> Python AST engine).
+        """
+        from app.core.search import SearchBridge
+        return SearchBridge.search_ast(
+            workspace_path,
+            pattern,
+            max_results=max_results,
+            current_file=current_file
+        )
+
+    @staticmethod
+    def _tgrep_ast_pure_python(
+        workspace_path: Path,
+        pattern: str,
+        language: Optional[str] = None,
+        max_results: int = 30,
+        current_file: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Pure Python fallback structural AST search.
         """
         if not pattern or not pattern.strip():
             return {"error": "AST search pattern cannot be empty", "matches": []}
@@ -1310,7 +1360,7 @@ class WorkspaceTools:
 
         # Fallback to code references if AST index has 0 matches for this identifier
         if not matches:
-            grep_res = WorkspaceTools.search_code(
+            grep_res = WorkspaceTools._search_code_pure_python(
                 workspace_path,
                 pattern_clean,
                 is_regex=False,

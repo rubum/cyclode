@@ -196,9 +196,12 @@ export const SymbolSearchResultsSidebar: React.FC<SymbolSearchResultsSidebarProp
     const regex = new RegExp(`(${escaped})`, caseSensitive ? 'g' : 'gi');
     return snippet.split(regex).map((part, i) =>
       regex.test(part) ? (
-        <span key={i} className="bg-amber-400/30 text-amber-200 px-0.5 rounded font-bold shadow-xs">
+        <mark
+          key={i}
+          className="search-highlight bg-amber-200 text-amber-950 border border-amber-400/80 dark:bg-amber-400/30 dark:text-amber-200 dark:border-amber-400/30 px-1 py-0.5 rounded font-semibold shadow-xs"
+        >
           {part}
-        </span>
+        </mark>
       ) : (
         part
       )

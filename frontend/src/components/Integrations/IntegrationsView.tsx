@@ -328,23 +328,23 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
   const getProviderBadgeTheme = (id: string) => {
     switch (id) {
       case 'gemini':
-        return 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400';
+        return 'bg-cyan-100 border-cyan-300 text-cyan-950 dark:bg-cyan-500/10 dark:border-cyan-500/30 dark:text-cyan-400';
       case 'anthropic':
-        return 'bg-amber-500/10 border-amber-500/30 text-amber-400';
+        return 'bg-amber-100 border-amber-300 text-amber-950 dark:bg-amber-500/10 dark:border-amber-500/30 dark:text-amber-400';
       case 'openai':
-        return 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400';
+        return 'bg-emerald-100 border-emerald-300 text-emerald-950 dark:bg-emerald-500/10 dark:border-emerald-500/30 dark:text-emerald-400';
       case 'github':
-        return 'bg-purple-500/10 border-purple-500/30 text-purple-400';
+        return 'bg-purple-100 border-purple-300 text-purple-950 dark:bg-purple-500/10 dark:border-purple-500/30 dark:text-purple-400';
       case 'linear':
-        return 'bg-indigo-500/10 border-indigo-500/30 text-indigo-400';
+        return 'bg-indigo-100 border-indigo-300 text-indigo-950 dark:bg-indigo-500/10 dark:border-indigo-500/30 dark:text-indigo-400';
       case 'slack':
-        return 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400';
+        return 'bg-emerald-100 border-emerald-300 text-emerald-950 dark:bg-emerald-500/10 dark:border-emerald-500/30 dark:text-emerald-400';
       case 'appsignal':
-        return 'bg-amber-500/10 border-amber-500/30 text-amber-400';
+        return 'bg-amber-100 border-amber-300 text-amber-950 dark:bg-amber-500/10 dark:border-amber-500/30 dark:text-amber-400';
       case 'sentry':
-        return 'bg-rose-500/10 border-rose-500/30 text-rose-400';
+        return 'bg-rose-100 border-rose-300 text-rose-950 dark:bg-rose-500/10 dark:border-rose-500/30 dark:text-rose-400';
       default:
-        return 'bg-onedark-accent/10 border-onedark-accent/30 text-onedark-accent';
+        return 'bg-amber-100 border-amber-300 text-amber-950 dark:bg-onedark-accent/10 dark:border-onedark-accent/30 dark:text-onedark-accent';
     }
   };
 
@@ -692,13 +692,13 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                       </div>
 
                       {item.configured ? (
-                        <span className="px-3 py-1 rounded-full text-xs font-mono bg-onedark-green/15 text-onedark-green border border-onedark-green/30 flex items-center space-x-1.5 font-bold shrink-0">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-onedark-green" />
+                        <span className="px-3 py-1 rounded-full text-xs font-mono bg-emerald-100 text-emerald-950 border border-emerald-300 dark:bg-onedark-green/15 dark:text-onedark-green dark:border-onedark-green/30 flex items-center space-x-1.5 font-bold shrink-0">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 dark:text-onedark-green" />
                           <span>Configured</span>
                         </span>
                       ) : (
-                        <span className="px-3 py-1 rounded-full text-xs font-mono bg-onedark-yellow/15 text-onedark-yellow border border-onedark-yellow/30 flex items-center space-x-1.5 font-bold shrink-0">
-                          <Key className="w-3.5 h-3.5 text-onedark-yellow" />
+                        <span className="px-3 py-1 rounded-full text-xs font-mono bg-amber-100 text-amber-950 border border-amber-300 dark:bg-onedark-yellow/15 dark:text-onedark-yellow dark:border-onedark-yellow/30 flex items-center space-x-1.5 font-bold shrink-0">
+                          <Key className="w-3.5 h-3.5 text-amber-700 dark:text-onedark-yellow" />
                           <span>Key Not Set</span>
                         </span>
                       )}

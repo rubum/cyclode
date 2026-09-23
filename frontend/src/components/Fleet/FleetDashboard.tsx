@@ -77,27 +77,27 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
       case 'RUNNING':
         return {
           label: 'Running',
-          className: 'bg-onedark-yellow/15 text-onedark-yellow border-onedark-yellow/30',
+          className: 'bg-amber-100 text-amber-950 border-amber-300 dark:bg-onedark-yellow/15 dark:text-onedark-yellow dark:border-onedark-yellow/30 font-semibold',
           icon: Activity
         };
       case 'COMPLETED':
         return {
           label: 'Completed',
-          className: 'bg-onedark-green/15 text-onedark-green border-onedark-green/30',
+          className: 'bg-emerald-100 text-emerald-950 border-emerald-300 dark:bg-onedark-green/15 dark:text-onedark-green dark:border-onedark-green/30 font-semibold',
           icon: CheckCircle2
         };
       case 'AWAITING_APPROVAL':
       case 'AWAITING_INPUT':
         return {
           label: 'Awaiting Review',
-          className: 'bg-onedark-purple/15 text-onedark-purple border-onedark-purple/30',
+          className: 'bg-purple-100 text-purple-950 border-purple-300 dark:bg-onedark-purple/15 dark:text-onedark-purple dark:border-onedark-purple/30 font-semibold',
           icon: Clock
         };
       case 'FAILED':
       case 'CANCELLED':
         return {
           label: status === 'CANCELLED' ? 'Stopped' : 'Failed',
-          className: 'bg-onedark-red/15 text-onedark-red border-onedark-red/30',
+          className: 'bg-rose-100 text-rose-950 border-rose-300 dark:bg-onedark-red/15 dark:text-onedark-red dark:border-onedark-red/30 font-semibold',
           icon: AlertCircle
         };
       default:
@@ -138,8 +138,8 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
                     {tasks.length} Sessions
                   </span>
                   {counts.running > 0 && (
-                    <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-onedark-yellow/15 text-onedark-yellow border border-onedark-yellow/30">
-                      <span className="w-1.5 h-1.5 rounded-full bg-onedark-yellow animate-pulse" />
+                    <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-mono font-semibold bg-amber-100 text-amber-950 border border-amber-300 dark:bg-onedark-yellow/15 dark:text-onedark-yellow dark:border-onedark-yellow/30">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-600 dark:bg-onedark-yellow animate-pulse" />
                       <span>{counts.running} RUNNING</span>
                     </span>
                   )}
@@ -225,7 +225,7 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
                 onClick={() => setStatusFilter('RUNNING')}
                 className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all whitespace-nowrap border flex items-center space-x-1 cursor-pointer ${
                   statusFilter === 'RUNNING'
-                    ? 'bg-onedark-yellow/15 text-onedark-yellow border-onedark-yellow/30 shadow-xs'
+                    ? 'bg-amber-100 text-amber-950 border-amber-300 dark:bg-onedark-yellow/15 dark:text-onedark-yellow dark:border-onedark-yellow/30 shadow-xs font-semibold'
                     : 'bg-onedark-darker/60 text-onedark-muted hover:text-onedark-yellow border-transparent'
                 }`}
               >

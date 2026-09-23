@@ -626,8 +626,8 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
                     </span>
                     <span className={`text-[10px] px-1.5 py-0.2 rounded border font-semibold ${
                       data.git_status?.is_clean
-                        ? 'text-onedark-green bg-onedark-green/10 border-onedark-green/20'
-                        : 'text-onedark-yellow bg-onedark-yellow/10 border-onedark-yellow/20'
+                        ? 'text-emerald-950 bg-emerald-100 border-emerald-300 dark:text-onedark-green dark:bg-onedark-green/10 dark:border-onedark-green/20'
+                        : 'text-amber-950 bg-amber-100 border-amber-300 dark:text-onedark-yellow dark:bg-onedark-yellow/10 dark:border-onedark-yellow/20'
                     }`}>
                       {data.git_status?.is_clean ? 'Clean' : 'Modified'}
                     </span>
@@ -881,10 +881,10 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
                   <div className="p-2.5 rounded-lg bg-onedark-darker/70 border border-onedark-borderSubtle space-y-1.5">
                     <div className="flex items-center justify-between text-[10px] text-onedark-muted uppercase font-bold tracking-wider">
                       <span className="flex items-center space-x-1">
-                        <Clock className="w-3 h-3 text-onedark-yellow" />
+                        <Clock className="w-3 h-3 text-amber-600 dark:text-onedark-yellow" />
                         <span>Watchdog Limits</span>
                       </span>
-                      <span className="text-[9px] text-onedark-yellow bg-onedark-yellow/10 px-1 py-0.2 rounded font-mono">
+                      <span className="text-[9px] text-amber-950 bg-amber-100 border border-amber-300 dark:text-onedark-yellow dark:bg-onedark-yellow/10 dark:border-transparent px-1 py-0.2 rounded font-mono font-semibold">
                         Guarded
                       </span>
                     </div>

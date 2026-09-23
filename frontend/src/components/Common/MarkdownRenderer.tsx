@@ -930,7 +930,10 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
     const markMatch = token.match(/^<mark\b[^>]*>([\s\S]*?)<\/mark>$/i);
     if (markMatch) {
       return (
-        <mark key={i} className="bg-onedark-yellow/20 text-onedark-yellow px-1 py-0.5 rounded">
+        <mark
+          key={i}
+          className="search-highlight bg-amber-200 text-amber-950 border border-amber-400/80 dark:bg-amber-400/30 dark:text-amber-200 dark:border-amber-400/30 font-semibold px-1 py-0.5 rounded"
+        >
           {renderInline(markMatch[1], onLinkClick)}
         </mark>
       );

@@ -209,7 +209,10 @@ const renderHighlightedSnippet = (snippet: string, query: string) => {
     <span>
       {parts.map((part, i) =>
         regex.test(part) ? (
-          <mark key={i} className="bg-onedark-accent/30 text-onedark-accent font-medium px-0.5 rounded">
+          <mark
+            key={i}
+            className="search-highlight bg-amber-200 text-amber-950 border border-amber-400/80 dark:bg-amber-400/30 dark:text-amber-200 dark:border-amber-400/30 font-semibold px-1 py-0.2 rounded"
+          >
             {part}
           </mark>
         ) : (

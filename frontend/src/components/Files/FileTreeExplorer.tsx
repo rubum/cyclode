@@ -75,6 +75,31 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
   const [collapsedSearchFiles, setCollapsedSearchFiles] = useState<Record<string, boolean>>({});
 
   const debounceTimerRef = useRef<any>(null);
+  const prevSelectedFileRef = useRef<string | null>(selectedFile);
+
+  // Clear grep results and return to files view when selecting or switching files
+  const handleSelectFile = (path: string, line?: number) => {
+    if (searchMode === 'grep' || searchMode === 'ast' || searchResults !== null) {
+      setFilter('');
+      setSearchResults(null);
+      setSearchError(null);
+      setSearchMode('files');
+    }
+    onSelectFile(path, line);
+  };
+
+  // When selectedFile changes externally (e.g. back/forward navigation or symbol jumps), clear grep results
+  useEffect(() => {
+    if (prevSelectedFileRef.current !== selectedFile) {
+      prevSelectedFileRef.current = selectedFile;
+      if (searchMode === 'grep' || searchMode === 'ast' || searchResults !== null) {
+        setFilter('');
+        setSearchResults(null);
+        setSearchError(null);
+        setSearchMode('files');
+      }
+    }
+  }, [selectedFile, searchMode, searchResults]);
 
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>(() => {
     // Auto-expand root level directories
@@ -86,6 +111,22 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
     });
     return initial;
   });
+
+  // Auto-expand ancestor directories of active selectedFile
+  useEffect(() => {
+    if (selectedFile) {
+      const parts = selectedFile.split('/');
+      if (parts.length > 1) {
+        const pathsToExpand: Record<string, boolean> = {};
+        let currentPath = '';
+        for (let i = 0; i < parts.length - 1; i++) {
+          currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
+          pathsToExpand[currentPath] = true;
+        }
+        setExpandedFolders((prev) => ({ ...prev, ...pathsToExpand }));
+      }
+    }
+  }, [selectedFile]);
 
   const [dynamicChildren, setDynamicChildren] = useState<Record<string, FileNode[]>>({});
   const [loadingFolders, setLoadingFolders] = useState<Record<string, boolean>>({});
@@ -231,7 +272,10 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
       const parts = text.split(new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, caseSensitive ? 'g' : 'gi'));
       return parts.map((part, i) =>
         part.toLowerCase() === query.toLowerCase() ? (
-          <mark key={i} className="bg-onedark-yellow/30 text-onedark-yellow px-0.5 rounded-xs font-bold">
+          <mark
+            key={i}
+            className="search-highlight bg-amber-200 text-amber-950 border border-amber-400/80 dark:bg-amber-400/30 dark:text-amber-200 dark:border-amber-400/30 px-1 py-0.2 rounded-xs font-semibold"
+          >
             {part}
           </mark>
         ) : (
@@ -323,7 +367,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
               ) : (
                 <button
                   type="button"
-                  onClick={() => onSelectFile(node.path)}
+                  onClick={() => handleSelectFile(node.path)}
                   style={{ paddingLeft: `${depth * 14 + 8}px` }}
                   className={`w-full flex items-center space-x-1.5 py-1 pr-2.5 rounded-md text-[12.5px] font-mono border transition-all text-left cursor-pointer ${
                     isSelected
@@ -597,7 +641,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
                         <button
                           key={idx}
                           type="button"
-                          onClick={() => onSelectFile(match.file_path, match.line_number)}
+                          onClick={() => handleSelectFile(match.file_path, match.line_number)}
                           className="w-full text-left px-2 py-1.5 border border-transparent hover:bg-onedark-surface/60 hover:border-onedark-borderSubtle hover:text-onedark-fgBright transition-all flex items-start space-x-2 group cursor-pointer"
                         >
                           <span className="w-8 text-right font-mono text-onedark-muted/60 group-hover:text-onedark-accent flex-shrink-0 select-none">
