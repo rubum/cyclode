@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from typing import List, Dict, Any, Set
+from typing import List, Dict, Any, Set, Optional
 from fastapi import WebSocket, WebSocketDisconnect
 
 logger = logging.getLogger("cyclode.websocket")

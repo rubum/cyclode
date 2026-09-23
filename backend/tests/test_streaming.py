@@ -113,3 +113,23 @@ async def test_emit_streamed_thought_propagates_stream_id():
     assert len(received_thought_ids) == 1
     assert received_thought_ids[0] == ("Analyzing repository structure...", "stream-thought-888")
 
+
+@pytest.mark.asyncio
+async def test_websocket_manager_broadcast_with_clients():
+    from app.api.websocket import ws_manager
+    from unittest.mock import AsyncMock
+
+    mock_ws = AsyncMock()
+    mock_ws.send_text = AsyncMock()
+
+    ws_manager.active_connections.add(mock_ws)
+    try:
+        await ws_manager.broadcast("TASK_CREATED", {"id": "test-task-123", "status": "INITIALIZING"})
+        assert mock_ws.send_text.called
+        sent_payload = mock_ws.send_text.call_args[0][0]
+        assert "TASK_CREATED" in sent_payload
+        assert "test-task-123" in sent_payload
+    finally:
+        ws_manager.active_connections.discard(mock_ws)
+
+
