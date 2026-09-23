@@ -1330,9 +1330,32 @@ const MainApp: React.FC = () => {
     }
   };
 
-  const handleToggleSidebar = () => {
+  const handleToggleSidebar = useCallback(() => {
     setIsSidebarCollapsed((prev) => !prev);
-  };
+  }, []);
+
+  // Global keyboard shortcuts (Cmd+B / Ctrl+B for Sidebar toggle, Cmd+N / Ctrl+N for New Session)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!e.metaKey && !e.ctrlKey) return;
+
+      const key = e.key.toLowerCase();
+      if (key === 'b') {
+        e.preventDefault();
+        handleToggleSidebar();
+      } else if (key === 'n' && !e.shiftKey && !e.altKey) {
+        const activeEl = document.activeElement;
+        const isInputActive = activeEl instanceof HTMLInputElement || activeEl instanceof HTMLTextAreaElement;
+        if (!isInputActive) {
+          e.preventDefault();
+          handleNewChat();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleToggleSidebar, handleNewChat]);
 
   const handleOpenPreview = (url: string, title?: string) => {
     if (url.startsWith('plan://') || url === '#open-plan-doc' || url === 'action://open-plan-doc') {
@@ -1404,6 +1427,7 @@ const MainApp: React.FC = () => {
             onOpenSettings={() => setActiveView('policies')}
             activeAgentsCount={tasks.filter((t) => t.status === 'RUNNING').length}
             onToggleSidebar={handleToggleSidebar}
+            isCollapsed={isSidebarCollapsed}
           />
         }
         center={renderCenterView()}

@@ -78,31 +78,13 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <header className="h-11 border-b border-onedark-borderSubtle bg-onedark-darker px-3.5 flex items-center justify-between select-none z-20 text-onedark-fg text-xs font-sans">
-      {/* Left: Brand & Sidebar Toggle & Repo Breadcrumb */}
+      {/* Left: Repo Breadcrumb & Session Context */}
       <div className="flex items-center space-x-2.5 min-w-0">
-        <div className="flex items-center space-x-2 flex-shrink-0">
-          <CyclodeIcon className="w-6 h-6 flex-shrink-0" />
-          <span className="font-bold text-[14px] tracking-tight text-onedark-fgBright font-sans">Cyclode</span>
-        </div>
-
-        {onToggleSidebar && (
-          <button
-            onClick={onToggleSidebar}
-            className="p-1 rounded-md hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright transition-colors"
-            title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-          >
-            {isSidebarCollapsed ? <PanelLeft className="w-3.5 h-3.5" /> : <PanelLeftClose className="w-3.5 h-3.5" />}
-          </button>
-        )}
-
         {activeTask?.repo_name && (
-          <>
-            <div className="h-3.5 w-px bg-onedark-border" />
-            <div className="flex items-center space-x-1.5 px-2 py-0.5 rounded-md bg-onedark-surface/40 border border-onedark-borderSubtle text-onedark-fgBright font-mono text-[11px] truncate">
-              <GitPullRequest className="w-3 h-3 text-onedark-accent flex-shrink-0" />
-              <span className="truncate">{activeTask.repo_name}</span>
-            </div>
-          </>
+          <div className="flex items-center space-x-1.5 px-2 py-0.5 rounded-md bg-onedark-surface/40 border border-onedark-borderSubtle text-onedark-fgBright font-mono text-[11px] truncate">
+            <GitPullRequest className="w-3 h-3 text-onedark-accent flex-shrink-0" />
+            <span className="truncate">{activeTask.repo_name}</span>
+          </div>
         )}
 
         {activeTask?.session_key && (

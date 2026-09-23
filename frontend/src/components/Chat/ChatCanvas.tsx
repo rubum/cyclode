@@ -22,8 +22,6 @@ import {
   Square, 
   Zap, 
   X,
-  PanelLeftClose,
-  PanelLeft,
   Box,
   Coins,
   FolderGit2,
@@ -1375,15 +1373,6 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
         {/* Top Control Bar in Empty State */}
         <div className="h-10 px-4 bg-onedark-darker/70 flex items-center justify-between text-xs text-onedark-muted select-none flex-shrink-0">
           <div className="flex items-center space-x-2">
-            {onToggleSidebar && (
-              <button
-                onClick={onToggleSidebar}
-                className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright transition-colors"
-                title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-              >
-                {isSidebarCollapsed ? <PanelLeft className="w-3.5 h-3.5" /> : <PanelLeftClose className="w-3.5 h-3.5" />}
-              </button>
-            )}
             <span className="font-mono text-[11px] text-onedark-fg">New Session</span>
           </div>
 
@@ -1649,18 +1638,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     <div className="flex flex-col h-full bg-onedark-bg relative font-sans text-onedark-fg">
       {/* Sleek Workstation Title & Control Bar */}
       <div className="h-10 px-3 bg-onedark-darker/95 backdrop-blur-sm flex items-center justify-between gap-2 z-10 select-none flex-shrink-0 min-w-0">
-        {/* Left: Sidebar Toggle, Repo Breadcrumb, Task Title */}
+        {/* Left: Repo Breadcrumb, Task Title */}
         <div className="flex items-center space-x-2 min-w-0 flex-1 overflow-hidden">
-          {onToggleSidebar && (
-            <button
-              onClick={onToggleSidebar}
-              className="p-1 rounded-md hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright transition-colors flex-shrink-0"
-              title={isSidebarCollapsed ? "Expand Sidebar" : "Collapse Sidebar"}
-            >
-              {isSidebarCollapsed ? <PanelLeft className="w-3.5 h-3.5" /> : <PanelLeftClose className="w-3.5 h-3.5" />}
-            </button>
-          )}
-
           {task.repo_name && (
             <div 
               className="flex items-center space-x-1 px-2 py-0.5 rounded-md bg-onedark-surface/60 text-[11px] font-mono text-onedark-fgBright flex-shrink-0 max-w-[120px] sm:max-w-[150px] truncate"

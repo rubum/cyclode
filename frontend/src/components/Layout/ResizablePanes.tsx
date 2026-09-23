@@ -166,13 +166,16 @@ export const ResizablePanes: React.FC<ResizablePanesProps> = ({
     <div ref={containerRef} className="flex h-full w-full overflow-hidden bg-onedark-bg">
       {/* Left Sidebar */}
       <div
-        style={{ width: isSidebarCollapsed ? '0px' : `${sidebarWidth}px` }}
-        className={`relative flex-shrink-0 transition-all duration-150 overflow-hidden bg-onedark-darker ${
-          isSidebarCollapsed ? 'w-0' : ''
-        }`}
+        style={{ width: isSidebarCollapsed ? '56px' : `${sidebarWidth}px` }}
+        className="relative flex-shrink-0 transition-all duration-150 overflow-visible z-30 bg-onedark-darker"
       >
-        <div style={{ width: `${sidebarWidth}px` }} className="h-full">
-          {sidebar}
+        <div style={{ width: isSidebarCollapsed ? '56px' : `${sidebarWidth}px` }} className="h-full overflow-visible">
+          {React.isValidElement(sidebar)
+            ? React.cloneElement(sidebar as React.ReactElement<any>, {
+                isCollapsed: isSidebarCollapsed,
+                onToggleSidebar: toggleSidebar,
+              })
+            : sidebar}
         </div>
       </div>
 

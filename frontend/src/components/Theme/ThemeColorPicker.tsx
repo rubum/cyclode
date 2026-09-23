@@ -101,11 +101,13 @@ export const initThemeColors = () => {
 interface ThemeColorPickerProps {
   direction?: 'up' | 'down' | 'auto';
   align?: 'left' | 'right' | 'auto';
+  compact?: boolean;
 }
 
 export const ThemeColorPicker: React.FC<ThemeColorPickerProps> = ({
   direction = 'auto',
-  align = 'right'
+  align = 'right',
+  compact = false
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [themeMode, setThemeMode] = useState<ThemeMode>('dark');
@@ -194,32 +196,55 @@ export const ThemeColorPicker: React.FC<ThemeColorPickerProps> = ({
     selectPreset(THEME_PRESETS[0]);
   };
 
-  const placementClasses = `${
-    calculatedPlacement.vertical === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'
-  } ${
-    calculatedPlacement.horizontal === 'left' ? 'left-0' : 'right-0'
-  }`;
+  const placementClasses = compact
+    ? 'left-full ml-3 bottom-0'
+    : `${calculatedPlacement.vertical === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'} ${
+        calculatedPlacement.horizontal === 'left' ? 'left-0' : 'right-0'
+      }`;
 
   return (
     <div className="relative inline-block" ref={popoverRef}>
-      <button
-        type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className="px-2 py-1 rounded-md border border-onedark-border bg-onedark-surface hover:bg-onedark-darker text-onedark-fg text-xs font-mono flex items-center space-x-1.5 transition-all shadow-xs active:scale-95 cursor-pointer"
-        title="Change Appearance & Theme Color"
-      >
-        <span
-          className="w-3 h-3 rounded-full border border-black/30 shadow-xs inline-block transition-transform hover:scale-110"
-          style={{ backgroundColor: currentAccent }}
-        />
-        {themeMode === 'light' ? (
-          <Sun className="w-3.5 h-3.5 text-onedark-accent" />
-        ) : themeMode === 'system' ? (
-          <Monitor className="w-3.5 h-3.5 text-onedark-muted" />
-        ) : (
-          <Moon className="w-3.5 h-3.5 text-onedark-muted" />
-        )}
-      </button>
+      {compact ? (
+        <button
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all shadow-xs active:scale-95 cursor-pointer relative group ${
+            isOpen
+              ? 'bg-onedark-surface text-onedark-fgBright border border-onedark-accent/60 shadow-xs'
+              : 'bg-onedark-surface/60 hover:bg-onedark-surface text-onedark-fg border border-onedark-borderSubtle hover:border-onedark-border'
+          }`}
+          title="Change Appearance & Theme Color"
+        >
+          <span
+            className="w-3.5 h-3.5 rounded-full border border-black/40 shadow-xs inline-block transition-transform group-hover:scale-110"
+            style={{ backgroundColor: currentAccent }}
+          />
+          {!isOpen && (
+            <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 px-2.5 py-1.5 bg-onedark-darker/95 backdrop-blur-md text-onedark-fgBright text-xs rounded-lg border border-onedark-borderSubtle shadow-2xl whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-150 z-50 flex items-center space-x-2">
+              <span>Appearance & Themes</span>
+            </div>
+          )}
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setIsOpen(!isOpen)}
+          className="px-2 py-1 rounded-md border border-onedark-border bg-onedark-surface hover:bg-onedark-darker text-onedark-fg text-xs font-mono flex items-center space-x-1.5 transition-all shadow-xs active:scale-95 cursor-pointer"
+          title="Change Appearance & Theme Color"
+        >
+          <span
+            className="w-3 h-3 rounded-full border border-black/30 shadow-xs inline-block transition-transform hover:scale-110"
+            style={{ backgroundColor: currentAccent }}
+          />
+          {themeMode === 'light' ? (
+            <Sun className="w-3.5 h-3.5 text-onedark-accent" />
+          ) : themeMode === 'system' ? (
+            <Monitor className="w-3.5 h-3.5 text-onedark-muted" />
+          ) : (
+            <Moon className="w-3.5 h-3.5 text-onedark-muted" />
+          )}
+        </button>
+      )}
 
       {isOpen && (
         <div className={`absolute ${placementClasses} w-[218px] bg-onedark-bg border border-onedark-border rounded-xl shadow-2xl p-3 z-50 animate-scaleIn font-sans max-h-[85vh] overflow-y-auto`}>

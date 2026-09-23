@@ -11,6 +11,7 @@ import {
   Clock,
   Trash2,
   Settings,
+  PanelLeft,
   PanelLeftClose,
   FolderGit2,
   Pencil,
@@ -46,6 +47,7 @@ interface SidebarProps {
   onOpenSettings?: () => void;
   activeAgentsCount?: number;
   onToggleSidebar?: () => void;
+  isCollapsed?: boolean;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -63,6 +65,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenSettings,
   activeAgentsCount = 0,
   onToggleSidebar,
+  isCollapsed = false,
 }) => {
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState<string>('');
@@ -156,8 +159,222 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
+  // Mini Sidebar Render Mode (when collapsed to 56px activity rail)
+  if (isCollapsed) {
+    return (
+      <div className="flex flex-col h-full w-[56px] bg-onedark-darker border-r border-onedark-borderSubtle select-none items-center py-2 space-y-2 z-30 font-sans text-onedark-fg">
+        {/* Top: Cyclode Logo / Expand Sidebar Toggle */}
+        <div className="relative group flex items-center justify-center flex-shrink-0">
+          <button
+            onClick={onToggleSidebar}
+            className="w-9 h-9 rounded-xl flex items-center justify-center bg-onedark-surface/40 hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright border border-transparent hover:border-onedark-borderSubtle transition-all cursor-pointer shadow-xs active:scale-95"
+            title="Expand Sidebar (⌘B)"
+          >
+            <CyclodeIcon className="w-5 h-5 flex-shrink-0 group-hover:scale-105 transition-transform" />
+          </button>
+          <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 px-2.5 py-1.5 bg-onedark-darker/95 backdrop-blur-md text-onedark-fgBright text-xs rounded-lg border border-onedark-borderSubtle shadow-2xl whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-150 z-50 flex items-center space-x-2">
+            <span className="font-semibold text-onedark-fgBright">Expand Sidebar</span>
+            <span className="text-[10px] font-mono text-onedark-muted bg-onedark-surface px-1.5 py-0.5 rounded">⌘B</span>
+          </div>
+        </div>
+
+        {/* Action: New Session Button */}
+        <div className="relative group flex items-center justify-center flex-shrink-0">
+          <button
+            onClick={() => {
+              onNewChat();
+              setActiveView('chat');
+            }}
+            className="w-9 h-9 rounded-xl flex items-center justify-center bg-onedark-yellow/15 hover:bg-onedark-yellow/25 text-onedark-yellow border border-onedark-yellow/30 hover:border-onedark-yellow/50 transition-all shadow-xs active:scale-95 cursor-pointer hover:scale-105"
+            title="New Session (⌘N)"
+          >
+            <Plus className="w-4 h-4 stroke-[2.5]" />
+          </button>
+          <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 px-2.5 py-1.5 bg-onedark-darker/95 backdrop-blur-md text-onedark-fgBright text-xs rounded-lg border border-onedark-borderSubtle shadow-2xl whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-150 z-50 flex items-center space-x-2">
+            <span className="font-semibold text-onedark-yellow">New Session</span>
+            <span className="text-[10px] font-mono text-onedark-muted bg-onedark-surface px-1.5 py-0.5 rounded">⌘N</span>
+          </div>
+        </div>
+
+        {/* Divider */}
+        <div className="w-6 h-px bg-onedark-borderSubtle my-0.5 flex-shrink-0" />
+
+        {/* Sessions Rail (Scrollable) */}
+        <div className="flex-1 w-full overflow-y-auto overflow-x-hidden flex flex-col items-center space-y-1.5 py-1 px-1 custom-scrollbar min-h-0">
+          {filteredTasks.length === 0 ? (
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center text-onedark-muted/40" title="No active sessions">
+              <Clock className="w-4 h-4" />
+            </div>
+          ) : (
+            filteredTasks.map((task) => {
+              const isSelected = activeTaskId === task.id && activeView === 'chat';
+              const isBeingDeleted = deletingTaskId === task.id;
+              return (
+                <div key={task.id} className="relative group flex items-center justify-center flex-shrink-0">
+                  <button
+                    onClick={() => {
+                      if (isBeingDeleted || isClearingAll) return;
+                      onSelectTask(task.id);
+                      setActiveView('chat');
+                    }}
+                    disabled={isBeingDeleted || isClearingAll}
+                    className={`w-9 h-9 rounded-xl relative flex items-center justify-center transition-all cursor-pointer ${
+                      isBeingDeleted ? 'opacity-40 pointer-events-none' : ''
+                    } ${
+                      isSelected
+                        ? 'bg-onedark-surface text-onedark-fgBright border border-onedark-accent shadow-xs ring-2 ring-onedark-accent/20'
+                        : 'bg-onedark-surface/30 hover:bg-onedark-surface/70 text-onedark-muted hover:text-onedark-fgBright border border-transparent hover:border-onedark-borderSubtle'
+                    }`}
+                  >
+                    <MessageSquare className={`w-4 h-4 ${isSelected ? 'text-onedark-accent' : 'text-onedark-muted'}`} />
+                    {/* Status Dot */}
+                    <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-onedark-darker ${getStatusDot(task.status)}`} />
+                  </button>
+
+                  {/* Rich Floating Hover Card Tooltip */}
+                  <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 w-64 p-3 bg-onedark-darker/95 backdrop-blur-md rounded-xl border border-onedark-borderSubtle shadow-2xl pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-150 z-50 flex flex-col space-y-2">
+                    <div className="flex items-start justify-between space-x-2">
+                      <span className="text-xs font-semibold text-onedark-fgBright line-clamp-2 leading-snug">
+                        {task.title || 'Untitled Session'}
+                      </span>
+                      <span className={`inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[9px] font-mono flex-shrink-0 ${getStatusColor(task.status)}`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${getStatusDot(task.status)}`} />
+                        <span>{formatStatus(task.status)}</span>
+                      </span>
+                    </div>
+
+                    <div className="flex items-center flex-wrap gap-1 text-[10px]">
+                      {task.persona && (
+                        <span className="px-1.5 py-0.5 rounded bg-onedark-surface text-onedark-muted font-mono">
+                          {task.persona}
+                        </span>
+                      )}
+                      {task.repo_name && (
+                        <span className="px-1.5 py-0.5 rounded bg-onedark-accent/10 text-onedark-accent font-mono truncate max-w-[140px]">
+                          {task.repo_name}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Divider */}
+        <div className="w-6 h-px bg-onedark-borderSubtle my-0.5 flex-shrink-0" />
+
+        {/* Workspace Tools Rail */}
+        <div className="flex flex-col items-center space-y-1.5 flex-shrink-0">
+          {toolNavItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeView === item.id;
+            return (
+              <div key={item.id} className="relative group flex items-center justify-center">
+                <button
+                  onClick={() => setActiveView(item.id)}
+                  className={`w-9 h-9 rounded-xl relative flex items-center justify-center transition-all cursor-pointer ${
+                    isActive
+                      ? 'bg-onedark-surface text-onedark-fgBright border border-onedark-borderSubtle shadow-xs'
+                      : 'text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface/60 border border-transparent'
+                  }`}
+                >
+                  <Icon className={`w-4 h-4 ${isActive ? 'text-onedark-fgBright' : (item.iconClass || 'text-onedark-muted')}`} />
+                  {typeof item.badge === 'number' && item.badge > 0 && (
+                    <span className="absolute -top-1 -right-1 px-1 min-w-[14px] h-3.5 rounded-full bg-onedark-accent text-white font-mono text-[9px] font-bold flex items-center justify-center leading-none">
+                      {item.badge}
+                    </span>
+                  )}
+                </button>
+
+                {/* Tooltip */}
+                <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 px-2.5 py-1.5 bg-onedark-darker/95 backdrop-blur-md text-onedark-fgBright text-xs rounded-lg border border-onedark-borderSubtle shadow-2xl whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-150 z-50 flex items-center space-x-2">
+                  <span>{item.label}</span>
+                  {typeof item.badge === 'number' && item.badge > 0 && (
+                    <span className="px-1.5 py-0.5 rounded-full bg-onedark-surface text-onedark-accent font-mono text-[10px] font-bold">
+                      {item.badge}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Divider */}
+        <div className="w-6 h-px bg-onedark-borderSubtle my-0.5 flex-shrink-0" />
+
+        {/* Bottom Utilities */}
+        <div className="flex flex-col items-center space-y-2 flex-shrink-0 pb-1">
+          {/* Connection Status Dot */}
+          <div className="relative group flex items-center justify-center">
+            <button
+              onClick={isConnected ? undefined : reconnect}
+              disabled={isConnected}
+              className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all ${
+                isConnected
+                  ? 'bg-onedark-green/10 text-onedark-green cursor-default'
+                  : isConnecting
+                  ? 'bg-onedark-yellow/10 text-onedark-yellow cursor-wait'
+                  : 'bg-onedark-red/10 text-onedark-red hover:bg-onedark-red/20 cursor-pointer active:scale-95'
+              }`}
+            >
+              <span className={`w-2 h-2 rounded-full ${
+                isConnected
+                  ? 'bg-onedark-green animate-pulse'
+                  : isConnecting
+                  ? 'bg-onedark-yellow animate-ping'
+                  : 'bg-onedark-red'
+              }`} />
+            </button>
+            <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 px-2.5 py-1.5 bg-onedark-darker/95 backdrop-blur-md text-onedark-fgBright text-xs rounded-lg border border-onedark-borderSubtle shadow-2xl whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-150 z-50">
+              <span>{isConnected ? 'Realtime Stream: Live' : isConnecting ? 'Connecting to WebSocket...' : 'WebSocket Offline (Click to reconnect)'}</span>
+            </div>
+          </div>
+
+          {/* Appearance & Theme Picker */}
+          <ThemeColorPicker compact direction="up" align="left" />
+
+          {/* Settings Button */}
+          {onOpenSettings && (
+            <div className="relative group flex items-center justify-center">
+              <button
+                onClick={onOpenSettings}
+                className="w-8 h-8 rounded-xl flex items-center justify-center text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface/60 transition-colors cursor-pointer"
+              >
+                <Settings className="w-4 h-4" />
+              </button>
+              <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 px-2.5 py-1.5 bg-onedark-darker/95 backdrop-blur-md text-onedark-fgBright text-xs rounded-lg border border-onedark-borderSubtle shadow-2xl whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-150 z-50">
+                <span>Policies & Global Settings</span>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full bg-onedark-darker select-none text-onedark-fg font-sans">
+      {/* Sidebar Header: Brand & Collapse Toggle */}
+      <div className="h-11 px-3 border-b border-onedark-borderSubtle flex items-center justify-between select-none flex-shrink-0">
+        <div className="flex items-center space-x-2">
+          <CyclodeIcon className="w-5 h-5 flex-shrink-0" />
+          <span className="font-bold text-[14px] tracking-tight text-onedark-fgBright font-sans">Cyclode</span>
+        </div>
+
+        {onToggleSidebar && (
+          <button
+            onClick={onToggleSidebar}
+            className="p-1 rounded-md hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright transition-colors cursor-pointer"
+            title="Collapse Sidebar (⌘B)"
+          >
+            <PanelLeftClose className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+
       {/* Top Action: New Session Button */}
       <div className="p-3 pb-2">
         <button
@@ -409,45 +626,38 @@ export const Sidebar: React.FC<SidebarProps> = ({
         })}
       </div>
 
-      {/* Sidebar Footer: Cyclode Brand, Settings, and Realtime Connection Badge */}
-      <div className="p-3 bg-onedark-darker/95 flex flex-col space-y-2 select-none flex-shrink-0">
+      {/* Sidebar Footer: Realtime Connection Badge, Theme Picker, Settings */}
+      <div className="p-3 bg-onedark-darker/95 flex flex-col space-y-2 select-none flex-shrink-0 border-t border-onedark-borderSubtle">
         <div className="flex items-center justify-between">
-          {/* Brand Logo & Name */}
-          <div className="flex items-center space-x-2">
-            <CyclodeIcon className="w-6 h-6 flex-shrink-0" />
-            <span className="font-bold text-[14px] tracking-tight text-onedark-fgBright font-sans">Cyclode</span>
-          </div>
+          <button 
+            onClick={isConnected ? undefined : reconnect}
+            disabled={isConnected}
+            className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-[10.5px] font-mono transition-all ${
+              isConnected 
+                ? 'bg-onedark-green/15 text-onedark-green cursor-default' 
+                : isConnecting
+                ? 'bg-onedark-yellow/15 text-onedark-yellow cursor-wait'
+                : 'bg-onedark-red/15 text-onedark-red hover:bg-onedark-red/25 cursor-pointer active:scale-95'
+            }`}
+            title={
+              isConnected 
+                ? "Realtime WebSocket stream connected" 
+                : isConnecting
+                ? "Connecting to backend WebSocket..."
+                : "WebSocket disconnected. Click to reconnect."
+            }
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${
+              isConnected 
+                ? 'bg-onedark-green animate-pulse' 
+                : isConnecting
+                ? 'bg-onedark-yellow animate-ping'
+                : 'bg-onedark-red'
+            }`} />
+            <span>{isConnected ? 'Live' : isConnecting ? 'Connecting' : 'Offline'}</span>
+          </button>
 
-          {/* Realtime Connection Badge & Settings */}
           <div className="flex items-center space-x-1.5">
-            <button 
-              onClick={isConnected ? undefined : reconnect}
-              disabled={isConnected}
-              className={`flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10.5px] font-mono transition-all ${
-                isConnected 
-                  ? 'bg-onedark-green/15 text-onedark-green cursor-default' 
-                  : isConnecting
-                  ? 'bg-onedark-yellow/15 text-onedark-yellow cursor-wait'
-                  : 'bg-onedark-red/15 text-onedark-red hover:bg-onedark-red/25 cursor-pointer active:scale-95'
-              }`}
-              title={
-                isConnected 
-                  ? "Realtime WebSocket stream connected" 
-                  : isConnecting
-                  ? "Connecting to backend WebSocket..."
-                  : "WebSocket disconnected. Click to reconnect."
-              }
-            >
-              <span className={`w-1.5 h-1.5 rounded-full ${
-                isConnected 
-                  ? 'bg-onedark-green animate-pulse' 
-                  : isConnecting
-                  ? 'bg-onedark-yellow animate-ping'
-                  : 'bg-onedark-red'
-              }`} />
-              <span>{isConnected ? 'Live' : isConnecting ? 'Connecting' : 'Offline'}</span>
-            </button>
-
             <ThemeColorPicker direction="up" align="right" />
 
             {onOpenSettings && (
@@ -463,7 +673,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {activeAgentsCount > 0 && (
-          <div className="flex items-center justify-between text-[10.5px] font-mono text-onedark-muted px-1 pt-1.5">
+          <div className="flex items-center justify-between text-[10.5px] font-mono text-onedark-muted px-1 pt-1 border-t border-onedark-borderSubtle/40">
             <span>Autonomous Fleet</span>
             <span className="text-onedark-yellow font-medium">{activeAgentsCount} Running</span>
           </div>
