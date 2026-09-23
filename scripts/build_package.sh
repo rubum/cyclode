@@ -38,7 +38,7 @@ if ! python3 -c "import build" &>/dev/null; then
     pip install build
 fi
 
-python3 -m build --wheel --sdist "${ROOT_DIR}"
+python3 -m build --no-isolation --wheel --sdist "${ROOT_DIR}"
 
 echo "\n=============================================="
 echo "🎉 Build Complete! Artifacts in dist/:"

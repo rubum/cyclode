@@ -212,6 +212,8 @@ cyclode/
 │   │   ├── core/              # Event router, worktrees, policies, and sandboxes (Jailer / CoW)
 │   │   ├── db/                # SQLAlchemy 2.0 async models, SQLite WAL & PostgreSQL asyncpg
 │   │   └── integrations/      # GitHub, Slack, Linear, AppSignal, and Vault Interceptor
+│   ├── Dockerfile.dev         # Backend dev container
+│   ├── requirements.txt       # Python dependencies
 │   └── tests/                 # Comprehensive pytest test suite (193 passing)
 ├── frontend/
 │   ├── public/                # Favicon suite (SVG, ICO, 16px, 32px, 180px, 512px)
@@ -220,11 +222,11 @@ cyclode/
 │   │   ├── contexts/          # WebSocket streaming and telemetry context
 │   │   ├── stores/            # Modular state stores (useTaskStore, useLayoutStore, useEventStore)
 │   │   └── types/             # TypeScript type definitions and LayoutPresets
+│   ├── Dockerfile.dev         # Frontend dev container
 │   └── package.json
 ├── pyproject.toml             # Python packaging and pytest canonical paths
 ├── docker-compose.yml         # Container orchestration
 ├── Dockerfile                 # Multi-stage production container specification
-├── Dockerfile.dev             # Local development container
 ├── run.sh                     # Automated workstation launch & healthcheck script
 ├── .env.example               # Configuration template
 └── README.md
