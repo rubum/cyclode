@@ -12,6 +12,8 @@ import { Task } from '../../types';
 import { FileTreeExplorer, FileNode } from '../Files/FileTreeExplorer';
 import { CodeViewer, LineContext } from '../Files/CodeViewer';
 import { FileAgentPopover } from '../Files/FileAgentPopover';
+import { SymbolSearchResultsSidebar } from '../Files/SymbolSearchResultsSidebar';
+import { useNavigationHistory } from '../../hooks/useNavigationHistory';
 
 interface FilesExplorerTabProps {
   task: Task;
@@ -42,6 +44,27 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
   const [activeSnippetContext, setActiveSnippetContext] = useState<LineContext | null>(null);
   const [initialAgentPrompt, setInitialAgentPrompt] = useState<string | undefined>(undefined);
   const [isAgentPopoverOpen, setIsAgentPopoverOpen] = useState(false);
+
+  // Symbol Search Right Sidebar State
+  const [isSymbolSearchOpen, setIsSymbolSearchOpen] = useState(false);
+  const [symbolSearchQuery, setSymbolSearchQuery] = useState('');
+  const [symbolSearchMode, setSymbolSearchMode] = useState<'ast' | 'grep'>('ast');
+
+  // Navigation History Stack Hook
+  const {
+    history,
+    currentIndex,
+    pushPoint,
+    goBack,
+    goForward,
+    canGoBack,
+    canGoForward,
+    previousPoint,
+    nextPoint,
+  } = useNavigationHistory((point) => {
+    setSelectedFile(point.filePath);
+    setTargetLine(point.line);
+  });
 
   const pollTimerRef = useRef<any>(null);
   const prevTaskIdRef = useRef<string | null>(null);
@@ -263,6 +286,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
           tree={fileTree}
           selectedFile={selectedFile}
           onSelectFile={(path, line) => {
+            pushPoint({ filePath: path, line: line || 1 });
             setSelectedFile(path);
             setTargetLine(line || null);
           }}
@@ -270,15 +294,29 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
         />
       </div>
 
-      {/* Right Code Viewer */}
-      <div className="flex-1 h-1/2 md:h-full overflow-hidden bg-onedark-bg">
+      {/* Center Code Viewer */}
+      <div className="flex-1 h-1/2 md:h-full overflow-hidden bg-onedark-bg flex flex-col min-w-0">
         <CodeViewer
           taskId={task.id}
           filePath={selectedFile}
           targetLine={targetLine}
+          canGoBack={canGoBack}
+          canGoForward={canGoForward}
+          onGoBack={goBack}
+          onGoForward={goForward}
+          previousFileTooltip={previousPoint?.filePath}
+          nextFileTooltip={nextPoint?.filePath}
+          onSearchSymbol={(symbol, mode) => {
+            setSymbolSearchQuery(symbol);
+            setSymbolSearchMode(mode || 'ast');
+            setIsSymbolSearchOpen(true);
+          }}
           onFileNotFound={() => {
             const fallback = findPreferredOrFirstFile(fileTree);
-            if (fallback) setSelectedFile(fallback);
+            if (fallback) {
+              pushPoint({ filePath: fallback, line: 1 });
+              setSelectedFile(fallback);
+            }
           }}
           onAskAboutLine={(context, prompt) => {
             setActiveSnippetContext(context);
@@ -288,6 +326,25 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
           onOpenAgentChat={() => setIsAgentPopoverOpen(true)}
         />
       </div>
+
+      {/* Right Symbol Search Sidebar */}
+      {isSymbolSearchOpen && (
+        <SymbolSearchResultsSidebar
+          taskId={task.id}
+          initialQuery={symbolSearchQuery}
+          initialMode={symbolSearchMode}
+          currentFile={selectedFile}
+          isOpen={isSymbolSearchOpen}
+          onClose={() => setIsSymbolSearchOpen(false)}
+          onSelectMatch={(filePath, line, isSameFile) => {
+            pushPoint({ filePath, line });
+            if (!isSameFile) {
+              setSelectedFile(filePath);
+            }
+            setTargetLine(line);
+          }}
+        />
+      )}
 
       {/* Interactive File Agent Sub-Session Popover */}
       {isAgentPopoverOpen && (
@@ -307,6 +364,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
             setInitialAgentPrompt(undefined);
           }}
           onNavigateToFileLine={(filename, line) => {
+            pushPoint({ filePath: filename, line: line || 1 });
             setSelectedFile(filename);
             setTargetLine(line || null);
           }}

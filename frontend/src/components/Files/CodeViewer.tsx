@@ -16,7 +16,10 @@ import {
   TestTube,
   ShieldCheck,
   Bug,
-  X
+  X,
+  ChevronLeft,
+  ChevronRight,
+  Search
 } from 'lucide-react';
 import { highlightCode, resolveLanguage, escapeHtml } from '../../utils/syntaxHighlighter';
 
@@ -35,6 +38,13 @@ interface CodeViewerProps {
   onClose?: () => void;
   onAskAboutLine?: (context: LineContext, initialPrompt?: string) => void;
   onOpenAgentChat?: () => void;
+  canGoBack?: boolean;
+  canGoForward?: boolean;
+  onGoBack?: () => void;
+  onGoForward?: () => void;
+  previousFileTooltip?: string;
+  nextFileTooltip?: string;
+  onSearchSymbol?: (symbol: string, mode?: 'ast' | 'grep') => void;
 }
 
 interface FileContentResponse {
@@ -59,7 +69,14 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
   targetLine,
   onFileNotFound,
   onAskAboutLine,
-  onOpenAgentChat
+  onOpenAgentChat,
+  canGoBack,
+  canGoForward,
+  onGoBack,
+  onGoForward,
+  previousFileTooltip,
+  nextFileTooltip,
+  onSearchSymbol
 }) => {
   const [data, setData] = useState<FileContentResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -346,6 +363,36 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
     setSelectionRange(null);
   };
 
+  const handleCodeCellClick = (e: React.MouseEvent<HTMLTableCellElement>) => {
+    if ((e.metaKey || e.ctrlKey) && onSearchSymbol) {
+      let word = '';
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed) {
+        word = sel.toString().trim();
+      }
+      if (!word) {
+        const doc = document;
+        if ((doc as any).caretRangeFromPoint) {
+          const range = (doc as any).caretRangeFromPoint(e.clientX, e.clientY);
+          if (range && range.startContainer && range.startContainer.nodeType === Node.TEXT_NODE) {
+            const text = range.startContainer.textContent || '';
+            const offset = range.startOffset;
+            const left = text.slice(0, offset).search(/[A-Za-z0-9_$]+$/);
+            const right = text.slice(offset).search(/[^A-Za-z0-9_$]/);
+            const start = left >= 0 ? left : offset;
+            const end = right >= 0 ? offset + right : text.length;
+            word = text.slice(start, end).trim();
+          }
+        }
+      }
+      if (word && word.length >= 2) {
+        e.preventDefault();
+        e.stopPropagation();
+        onSearchSymbol(word, 'ast');
+      }
+    }
+  };
+
   if (!filePath) {
     return (
       <div className="h-full flex flex-col items-center justify-center p-6 text-center text-onedark-muted font-mono select-none">
@@ -399,8 +446,30 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
       className="h-full flex flex-col bg-onedark-bg font-mono text-[12.5px] overflow-hidden relative"
     >
       {/* File Header Bar */}
-      <div className="px-3.5 py-2 bg-onedark-darker border-b border-onedark-borderSubtle flex items-center justify-between flex-shrink-0 select-none gap-2">
+      <div className="px-3 py-1.5 bg-onedark-darker border-b border-onedark-borderSubtle flex items-center justify-between flex-shrink-0 select-none gap-2">
+        {/* Navigation & File Path */}
         <div className="flex items-center space-x-2 truncate min-w-0">
+          {(onGoBack || onGoForward) && (
+            <div className="flex items-center space-x-0.5 bg-onedark-surface/60 p-0.5 rounded-md border border-onedark-borderSubtle flex-shrink-0">
+              <button
+                onClick={onGoBack}
+                disabled={!canGoBack}
+                className="p-1 rounded text-onedark-muted hover:text-onedark-fg disabled:opacity-30 disabled:hover:text-onedark-muted transition-colors cursor-pointer disabled:cursor-not-allowed"
+                title={previousFileTooltip ? `Back to ${previousFileTooltip} (Alt+← / Cmd+[)` : 'Back (Alt+← / Cmd+[)'}
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={onGoForward}
+                disabled={!canGoForward}
+                className="p-1 rounded text-onedark-muted hover:text-onedark-fg disabled:opacity-30 disabled:hover:text-onedark-muted transition-colors cursor-pointer disabled:cursor-not-allowed"
+                title={nextFileTooltip ? `Forward to ${nextFileTooltip} (Alt+→ / Cmd+])` : 'Forward (Alt+→ / Cmd+])'}
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
           <FileCode className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
           <span className="font-semibold text-onedark-fgBright truncate text-[12.5px]">
             {data.name}
@@ -483,6 +552,16 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
               : `${lineCount} lines`} · {formatBytes(data.size)}
           </span>
 
+          {onSearchSymbol && (
+            <button
+              onClick={() => onSearchSymbol('', 'ast')}
+              className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-purple transition-colors cursor-pointer"
+              title="Search Symbol / AST (tgrep)"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-onedark-purple" />
+            </button>
+          )}
+
           {viewMode === 'code' ? (
             <>
               <button
@@ -538,6 +617,22 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
           <div className="px-2 py-0.5 text-[10px] font-mono text-onedark-accent border-r border-onedark-borderSubtle mr-0.5 font-bold">
             L{selectionRange.startLine}-{selectionRange.endLine}
           </div>
+
+          {onSearchSymbol && (
+            <button
+              onClick={() => {
+                if (selectionRange?.text) {
+                  onSearchSymbol(selectionRange.text.trim(), 'ast');
+                  setSelectionRange(null);
+                }
+              }}
+              className="flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-semibold text-onedark-purple bg-onedark-purple/15 hover:bg-onedark-purple/25 border border-onedark-purple/30 transition-all cursor-pointer shadow-xs"
+              title="Find AST definitions and references across workspace (tgrep)"
+            >
+              <Sparkles className="w-3 h-3 text-onedark-purple" />
+              <span>tgrep</span>
+            </button>
+          )}
 
           <button
             onClick={() => handleSelectionAction()}
@@ -661,6 +756,7 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
                       </td>
 
                       <td
+                        onClick={handleCodeCellClick}
                         className={`pl-3.5 pr-4 font-mono text-[12.5px] leading-[20px] align-top text-onedark-fg ${
                           wrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'
                         }`}

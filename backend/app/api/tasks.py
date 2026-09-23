@@ -1299,10 +1299,12 @@ async def search_sandbox_files(
     is_regex: bool = Query(False, description="Whether query is regex"),
     case_sensitive: bool = Query(False, description="Case sensitive matching"),
     max_results: int = Query(80, description="Max matches to return"),
+    current_file: Optional[str] = Query(None, description="Optional relative path of active file to prioritize"),
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Searches files within the task sandbox workspace using either regex/text grep or AST structural search.
+    Searches files within the task sandbox workspace using either regex/text grep or AST structural search,
+    prioritizing matches from current_file at the top.
     """
     stmt = select(TaskModel).where(TaskModel.id == task_id)
     result = await db.execute(stmt)
@@ -1328,7 +1330,7 @@ async def search_sandbox_files(
     from app.agent.tools import WorkspaceTools
 
     if mode == "ast":
-        res = WorkspaceTools.tgrep_ast(ws_path, query, max_results=max_results)
+        res = WorkspaceTools.tgrep_ast(ws_path, query, max_results=max_results, current_file=current_file)
         matches = res.get("matches", [])
         return {
             "query": query,
@@ -1343,7 +1345,8 @@ async def search_sandbox_files(
             query,
             is_regex=is_regex,
             case_sensitive=case_sensitive,
-            max_results=max_results
+            max_results=max_results,
+            current_file=current_file
         )
         if "error" in res and res.get("error") and not res.get("matches"):
             return {

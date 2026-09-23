@@ -771,10 +771,11 @@ class WorkspaceTools:
         is_regex: bool = False,
         case_sensitive: bool = False,
         file_pattern: Optional[str] = None,
-        max_results: int = 50
+        max_results: int = 50,
+        current_file: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Fast workspace code search ignoring build/vendor folders.
+        Fast workspace code search ignoring build/vendor folders, prioritizing current_file matches.
         """
         if not query or not query.strip():
             return {"error": "Query string cannot be empty", "matches": []}
@@ -794,19 +795,43 @@ class WorkspaceTools:
             ".pdf", ".zip", ".tar", ".gz", ".pyc", ".db", ".sqlite", ".sqlite3", ".woff", ".woff2"
         }
 
-        matches = []
+        current_file_matches = []
+        workspace_matches = []
+        normalized_current = None
+        if current_file:
+            normalized_current = current_file.strip().lstrip("/")
+
+        # First scan current_file directly if specified
+        if normalized_current:
+            target_path = workspace_path / normalized_current
+            if target_path.exists() and target_path.is_file():
+                try:
+                    with open(target_path, "r", encoding="utf-8", errors="ignore") as file_obj:
+                        for line_idx, line in enumerate(file_obj, start=1):
+                            if pattern.search(line):
+                                current_file_matches.append({
+                                    "file_path": normalized_current,
+                                    "line_number": line_idx,
+                                    "line_content": line.rstrip("\r\n")
+                                })
+                except Exception:
+                    pass
+
+        # Now scan the rest of the workspace
         for root, dirs, files in os.walk(workspace_path):
             dirs[:] = [d for d in dirs if d not in ignored_dirs and not d.startswith(".")]
             rel_root = Path(root).relative_to(workspace_path)
 
             for f in files:
-                if len(matches) >= max_results:
-                    break
                 p = Path(f)
                 if p.suffix.lower() in ignored_extensions or f.startswith("."):
                     continue
 
                 rel_file_path = str(rel_root / f) if str(rel_root) != "." else f
+                if normalized_current and (rel_file_path == normalized_current or rel_file_path.endswith(normalized_current)):
+                    # Already scanned as current_file
+                    continue
+
                 if file_pattern:
                     if not fnmatch.fnmatch(rel_file_path, file_pattern) and not fnmatch.fnmatch(f, file_pattern):
                         continue
@@ -816,21 +841,26 @@ class WorkspaceTools:
                     with open(full_path, "r", encoding="utf-8", errors="ignore") as file_obj:
                         for line_idx, line in enumerate(file_obj, start=1):
                             if pattern.search(line):
-                                matches.append({
+                                workspace_matches.append({
                                     "file_path": rel_file_path,
                                     "line_number": line_idx,
                                     "line_content": line.rstrip("\r\n")
                                 })
-                                if len(matches) >= max_results:
+                                if len(current_file_matches) + len(workspace_matches) >= max_results:
                                     break
                 except Exception:
                     continue
+                if len(current_file_matches) + len(workspace_matches) >= max_results:
+                    break
+            if len(current_file_matches) + len(workspace_matches) >= max_results:
+                break
 
+        combined_matches = (current_file_matches + workspace_matches)[:max_results]
         return {
             "query": query,
-            "total_matches": len(matches),
-            "capped": len(matches) >= max_results,
-            "matches": matches
+            "total_matches": len(combined_matches),
+            "capped": len(combined_matches) >= max_results,
+            "matches": combined_matches
         }
 
     @staticmethod
@@ -1080,10 +1110,12 @@ class WorkspaceTools:
         workspace_path: Path,
         pattern: str,
         language: Optional[str] = None,
-        max_results: int = 30
+        max_results: int = 30,
+        current_file: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Structural AST search for language patterns (e.g. decorators @app.post, class inheritance, function calls).
+        Structural AST search for language patterns (e.g. decorators @app.post, class inheritance, function calls),
+        prioritizing current_file matches at the top.
         """
         if not pattern or not pattern.strip():
             return {"error": "AST search pattern cannot be empty", "matches": []}
@@ -1091,7 +1123,7 @@ class WorkspaceTools:
         pattern_clean = pattern.strip()
         matches = []
 
-        symbols_res = WorkspaceTools.find_symbols(workspace_path, max_results=200)
+        symbols_res = WorkspaceTools.find_symbols(workspace_path, max_results=250)
         symbols = symbols_res.get("symbols", [])
 
         if pattern_clean.startswith("@"):
@@ -1107,7 +1139,7 @@ class WorkspaceTools:
                         "signature": s["signature"],
                         "decorators": decs
                     })
-                    if len(matches) >= max_results:
+                    if len(matches) >= max_results * 2:
                         break
 
         elif pattern_clean.startswith("class:") or pattern_clean.startswith("extends:"):
@@ -1124,7 +1156,7 @@ class WorkspaceTools:
                             "signature": s["signature"],
                             "bases": s.get("bases", [])
                         })
-                        if len(matches) >= max_results:
+                        if len(matches) >= max_results * 2:
                             break
 
         if not matches:
@@ -1137,8 +1169,17 @@ class WorkspaceTools:
                         "type": s["type"],
                         "signature": s["signature"]
                     })
-                    if len(matches) >= max_results:
+                    if len(matches) >= max_results * 2:
                         break
+
+        # Prioritize current_file matches if provided
+        if current_file:
+            norm_curr = current_file.strip().lstrip("/")
+            curr_matches = [m for m in matches if m["file_path"] == norm_curr or m["file_path"].endswith(norm_curr)]
+            other_matches = [m for m in matches if m not in curr_matches]
+            matches = (curr_matches + other_matches)[:max_results]
+        else:
+            matches = matches[:max_results]
 
         return {
             "pattern": pattern,
