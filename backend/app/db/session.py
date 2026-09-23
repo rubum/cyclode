@@ -27,15 +27,28 @@ for prefix in ("sqlite+aiosqlite:////", "sqlite+aiosqlite:///"):
                         pass
         break
 
-connect_args = {}
-if "sqlite" in settings.DATABASE_URL:
-    connect_args = {"timeout": 60, "check_same_thread": False}
+# Normalize postgres database URLs if provided without asyncpg driver
+db_url = settings.DATABASE_URL
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
+elif db_url.startswith("postgresql://") and not db_url.startswith("postgresql+asyncpg://"):
+    db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+engine_kwargs: dict = {
+    "echo": settings.DEBUG,
+    "future": True,
+}
+
+if "sqlite" in db_url:
+    engine_kwargs["connect_args"] = {"timeout": 60, "check_same_thread": False}
+elif "postgresql" in db_url:
+    engine_kwargs["pool_size"] = 20
+    engine_kwargs["max_overflow"] = 10
+    engine_kwargs["pool_pre_ping"] = True
 
 engine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=settings.DEBUG,
-    connect_args=connect_args,
-    future=True
+    db_url,
+    **engine_kwargs
 )
 
 async_session_factory = async_sessionmaker(
@@ -56,14 +69,19 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 
 
 def _migrate_db(connection):
-    # Enable WAL mode and busy timeout on SQLite to prevent locking
-    try:
-        connection.exec_driver_sql("PRAGMA journal_mode=WAL;")
-        connection.exec_driver_sql("PRAGMA busy_timeout=60000;")
-    except Exception:
-        pass
+    is_sqlite = "sqlite" in connection.dialect.name.lower()
+    if is_sqlite:
+        # Enable WAL mode and busy timeout on SQLite to prevent locking
+        try:
+            connection.exec_driver_sql("PRAGMA journal_mode=WAL;")
+            connection.exec_driver_sql("PRAGMA busy_timeout=60000;")
+        except Exception:
+            pass
 
     Base.metadata.create_all(connection)
+    
+    if not is_sqlite:
+        return
     
     # Check tasks table columns
     tasks_cols = [row[1] for row in connection.exec_driver_sql("PRAGMA table_info(tasks)").fetchall()]

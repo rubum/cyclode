@@ -64,9 +64,10 @@ include = ["app*", "cyclode*"]
 "app" = ["static/**/*"]
 
 [tool.pytest.ini_options]
-pythonpath = ["backend", "."]
 testpaths = ["backend/tests"]
-asyncio_mode = "strict"
+pythonpath = ["backend", "."]
+asyncio_mode = "auto"
+norecursedirs = [".git", "node_modules", "dist", "build"]
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]

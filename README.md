@@ -140,7 +140,7 @@ docker compose up --build
 
 - **Frontend Workstation**: [http://localhost:5174](http://localhost:5174) (or [http://localhost:5173](http://localhost:5173))
 - **Backend API & Swagger Docs**: [http://localhost:8000/docs](http://localhost:8000/docs)
-- **WebSocket Streaming**: `ws://localhost:8000/ws`
+- **WebSocket Gateway**: `ws://localhost:8000/ws/live`
 
 ---
 
@@ -170,24 +170,29 @@ npm run dev
 
 ### Backend Test Suite (Pytest)
 
-```bash
-# In Docker
-docker exec -e PYTHONPATH=. cyclode-backend pytest -v
+Cyclode includes **193 automated unit, integration, provider, and sandbox tests**:
 
-# Locally
+```bash
+# From repository root (recommended)
+pytest -v
+
+# Inside backend/
 cd backend
-PYTHONPATH=. pytest -v
+pytest -v
+
+# In Docker container
+docker exec cyclode-backend pytest -v
 ```
 
 ### Frontend Typecheck & Build
 
 ```bash
-# In Docker
-docker exec cyclode-frontend npm run build
-
 # Locally
 cd frontend
 npm run build
+
+# In Docker container
+docker exec cyclode-frontend npm run build
 ```
 
 ---
@@ -202,20 +207,24 @@ cyclode/
 ├── backend/
 │   ├── app/
 │   │   ├── agent/             # Agent pool, harness, dynamic planning, and personas
-│   │   ├── api/               # FastAPI REST endpoints, WebSockets, preview, and tasks
-│   │   ├── core/              # Event router, worktrees, policies, and sandboxes
-│   │   ├── db/                # SQLAlchemy async models, migrations, and session
-│   │   └── integrations/      # GitHub, Slack, AppSignal, and Vault Interceptor
-│   └── tests/                 # Comprehensive pytest test suite (92 passing)
+│   │   │   └── engine/        # Modular snapshots, git worktrees, and plan synthesis
+│   │   ├── api/               # FastAPI REST endpoints, WebSockets (/ws/live), preview, tasks
+│   │   ├── core/              # Event router, worktrees, policies, and sandboxes (Jailer / CoW)
+│   │   ├── db/                # SQLAlchemy 2.0 async models, SQLite WAL & PostgreSQL asyncpg
+│   │   └── integrations/      # GitHub, Slack, Linear, AppSignal, and Vault Interceptor
+│   └── tests/                 # Comprehensive pytest test suite (193 passing)
 ├── frontend/
 │   ├── public/                # Favicon suite (SVG, ICO, 16px, 32px, 180px, 512px)
 │   ├── src/
 │   │   ├── components/        # Chat, ExecutionPlan, AuxiliaryPane, Layout, Header, Sidebar
-│   │   ├── contexts/          # WebSocket streaming and application state
+│   │   ├── contexts/          # WebSocket streaming and telemetry context
+│   │   ├── stores/            # Modular state stores (useTaskStore, useLayoutStore, useEventStore)
 │   │   └── types/             # TypeScript type definitions and LayoutPresets
 │   └── package.json
+├── pyproject.toml             # Python packaging and pytest canonical paths
 ├── docker-compose.yml         # Container orchestration
-├── Dockerfile                 # Unified container specification
+├── Dockerfile                 # Multi-stage production container specification
+├── Dockerfile.dev             # Local development container
 ├── run.sh                     # Automated workstation launch & healthcheck script
 ├── .env.example               # Configuration template
 └── README.md
@@ -226,3 +235,4 @@ cyclode/
 ## License
 
 Proprietary / Internal — Cyclode
+

@@ -35,7 +35,7 @@ class WebSocketManager:
 
     async def broadcast(self, event_type: str, data: Dict[str, Any]):
         """
-        Broadcasts a typed event payload to all connected frontend clients.
+        Broadcasts a typed event payload to all connected frontend clients concurrently.
         """
         if not self.active_connections:
             return
@@ -45,16 +45,19 @@ class WebSocketManager:
             "data": data
         }
         message_str = json.dumps(payload, default=str)
-        dead_sockets = set()
+        connections = list(self.active_connections)
 
-        for connection in list(self.active_connections):
+        async def _safe_send(ws: WebSocket) -> Optional[WebSocket]:
             try:
-                await connection.send_text(message_str)
+                await ws.send_text(message_str)
+                return None
             except Exception:
-                dead_sockets.add(connection)
+                return ws
 
-        for dead in dead_sockets:
-            self.active_connections.discard(dead)
+        results = await asyncio.gather(*[_safe_send(c) for c in connections], return_exceptions=False)
+        for dead in results:
+            if dead is not None:
+                self.active_connections.discard(dead)
 
 
     async def broadcast_task_event(self, task_id: str, event_type: str, data: Dict[str, Any]):
