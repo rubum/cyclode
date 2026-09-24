@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Copy, Check, Info, AlertTriangle, AlertCircle, Sparkles, Flame, ChevronRight, Compass, ArrowRight } from 'lucide-react';
+import { Copy, Check, Info, AlertTriangle, AlertCircle, Sparkles, Flame, ChevronRight, ChevronDown, Compass, ArrowRight, Maximize2, Minimize2 } from 'lucide-react';
 import katex from 'katex';
 import { highlightCode, resolveLanguage, escapeHtml } from '../../utils/syntaxHighlighter';
 
@@ -141,9 +141,14 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
   };
 
   const [collapsedCodeBlocks, setCollapsedCodeBlocks] = useState<Record<number, boolean>>({});
+  const [fullHeightCodeBlocks, setFullHeightCodeBlocks] = useState<Record<number, boolean>>({});
 
   const toggleCodeBlock = (idx: number) => {
     setCollapsedCodeBlocks((prev) => ({ ...prev, [idx]: !prev[idx] }));
+  };
+
+  const toggleFullHeight = (idx: number) => {
+    setFullHeightCodeBlocks((prev) => ({ ...prev, [idx]: !prev[idx] }));
   };
 
   return (
@@ -158,20 +163,42 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
           const codeLines = hasLang ? lines.slice(1) : lines;
           const code = codeLines.join('\n');
           const isCollapsed = !!collapsedCodeBlocks[index];
+          const isFullHeight = !!fullHeightCodeBlocks[index];
+          const isLongCode = codeLines.length > 15;
 
           return (
-            <div key={index} className="my-3 rounded-xl bg-onedark-darker/80 overflow-hidden shadow-xs group/code">
-              <div className="flex items-center justify-between px-3.5 py-1.5 bg-onedark-surface/40 text-[11px] text-onedark-muted font-mono select-none">
+            <div key={index} className="my-3 rounded-xl bg-onedark-darker/90 border border-onedark-borderSubtle overflow-hidden shadow-xs group/code text-left">
+              <div className="flex items-center justify-between px-3.5 py-1.5 bg-onedark-surface/50 border-b border-onedark-borderSubtle/60 text-[11px] text-onedark-muted font-mono select-none flex-wrap gap-1">
                 <div className="flex items-center space-x-2">
                   <span className="text-onedark-accent font-semibold uppercase tracking-wider text-[10.5px]">{language || 'code'}</span>
                   <span className="text-[10px] text-onedark-muted/70">({codeLines.length} line{codeLines.length > 1 ? 's' : ''})</span>
                 </div>
                 <div className="flex items-center space-x-1.5">
-                  {codeLines.length > 8 && (
+                  {isLongCode && !isCollapsed && (
+                    <button
+                      type="button"
+                      onClick={() => toggleFullHeight(index)}
+                      className="flex items-center space-x-1 hover:text-onedark-fgBright transition-colors px-2 py-0.5 rounded hover:bg-onedark-surface text-[10.5px] text-onedark-muted cursor-pointer"
+                      title={isFullHeight ? 'Constrain height to scrollable window' : 'Expand to full height'}
+                    >
+                      {isFullHeight ? (
+                        <>
+                          <Minimize2 className="w-3 h-3" />
+                          <span>Scroll Window</span>
+                        </>
+                      ) : (
+                        <>
+                          <Maximize2 className="w-3 h-3" />
+                          <span>Full Height</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                  {codeLines.length > 6 && (
                     <button
                       type="button"
                       onClick={() => toggleCodeBlock(index)}
-                      className="flex items-center space-x-1 hover:text-onedark-fgBright transition-colors px-2 py-0.5 rounded hover:bg-onedark-surface/60 text-[11px] text-onedark-muted cursor-pointer"
+                      className="flex items-center space-x-1 hover:text-onedark-fgBright transition-colors px-2 py-0.5 rounded hover:bg-onedark-surface text-[10.5px] text-onedark-muted cursor-pointer"
                     >
                       <ChevronRight className={`w-3 h-3 transition-transform ${!isCollapsed ? 'rotate-90' : ''}`} />
                       <span>{isCollapsed ? 'Expand' : 'Collapse'}</span>
@@ -180,32 +207,34 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                   <button
                     type="button"
                     onClick={() => handleCopy(code, index)}
-                    className="flex items-center space-x-1 hover:text-onedark-fgBright transition-colors px-2 py-0.5 rounded hover:bg-onedark-surface/60 text-[11px] cursor-pointer"
+                    className="flex items-center space-x-1 hover:text-onedark-fgBright transition-colors px-2 py-0.5 rounded hover:bg-onedark-surface text-[10.5px] text-onedark-muted cursor-pointer"
                   >
                     {copiedIndex === index ? (
                       <>
                         <Check className="w-3.5 h-3.5 text-onedark-green" />
-                        <span className="text-[10.5px] text-onedark-green">Copied</span>
+                        <span className="text-[10px] text-onedark-green">Copied</span>
                       </>
                     ) : (
                       <>
                         <Copy className="w-3.5 h-3.5" />
-                        <span className="text-[10.5px]">Copy</span>
+                        <span className="text-[10px]">Copy</span>
                       </>
                     )}
                   </button>
                 </div>
               </div>
               {!isCollapsed && (
-                <div className="flex font-mono text-[12px] sm:text-[12.5px] leading-relaxed overflow-x-auto selection:bg-onedark-accent/30 p-3.5">
+                <div className={`flex font-mono text-[12px] sm:text-[12.5px] leading-relaxed overflow-x-auto selection:bg-onedark-accent/30 p-3.5 ${
+                  isLongCode && !isFullHeight ? 'max-h-72 overflow-y-auto [scrollbar-width:thin]' : ''
+                }`}>
                   {codeLines.length > 2 && (
-                    <div className="select-none text-onedark-muted/40 text-right pr-3 border-r border-transparent font-mono text-[11.5px] flex-shrink-0">
+                    <div className="select-none text-onedark-muted/40 text-right pr-3 border-r border-onedark-borderSubtle/40 font-mono text-[11.5px] flex-shrink-0">
                       {codeLines.map((_, i) => (
                         <div key={i}>{i + 1}</div>
                       ))}
                     </div>
                   )}
-                  <pre className={`text-onedark-fg font-mono ${codeLines.length > 2 ? 'pl-3' : ''} flex-1 overflow-x-auto`}>
+                  <pre className={`text-onedark-fg font-mono ${codeLines.length > 2 ? 'pl-3' : ''} flex-1 overflow-x-auto m-0`}>
                     <code
                       className={`language-${language || 'text'} font-mono leading-relaxed`}
                       dangerouslySetInnerHTML={{ __html: getHighlightedHtml(code, language) }}

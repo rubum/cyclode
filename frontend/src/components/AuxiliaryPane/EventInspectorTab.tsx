@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   Inbox, 
   Send, 
@@ -9,6 +9,8 @@ import {
   Activity, 
   ShieldCheck, 
   GitPullRequest, 
+  GitCommit,
+  GitBranch,
   AlertTriangle, 
   Terminal, 
   Layers, 
@@ -43,11 +45,34 @@ interface EventInspectorTabProps {
 
 type SubTab = 'timeline' | 'trajectory' | 'evals';
 type EventFilter = 'all' | 'inbound' | 'outbound';
+type ViewMode = 'grouped' | 'flat';
+
+interface EventCluster {
+  id: string;
+  title: string;
+  subtitle?: string;
+  targetType: 'pr' | 'commit' | 'branch' | 'batch';
+  targetIdentifier?: string;
+  repoName?: string;
+  timestamp?: string;
+  events: EventTimelineItem[];
+  stats: {
+    total: number;
+    passed: number;
+    failed: number;
+    skipped: number;
+    reviews: number;
+    inbound: number;
+    outbound: number;
+  };
+  hasFailure: boolean;
+}
 
 export const EventInspectorTab: React.FC<EventInspectorTabProps> = ({ task }) => {
   const { subscribe } = useWebSocket();
   const [activeSubTab, setActiveSubTab] = useState<SubTab>('timeline');
   const [eventFilter, setEventFilter] = useState<EventFilter>('all');
+  const [viewMode, setViewMode] = useState<ViewMode>('grouped');
   const [events, setEvents] = useState<EventTimelineItem[]>([]);
   const [trajectory, setTrajectory] = useState<AgentTrajectory | null>(null);
   const [evaluation, setEvaluation] = useState<EvaluationScorecard | null>(null);
@@ -57,6 +82,7 @@ export const EventInspectorTab: React.FC<EventInspectorTabProps> = ({ task }) =>
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [expandedTurns, setExpandedTurns] = useState<Record<number, boolean>>({});
   const [expandedEvents, setExpandedEvents] = useState<Record<string, boolean>>({});
+  const [expandedClusters, setExpandedClusters] = useState<Record<string, boolean>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [customPayload, setCustomPayload] = useState<string>('');
   const [showCustomModal, setShowCustomModal] = useState<boolean>(false);
@@ -227,12 +253,307 @@ export const EventInspectorTab: React.FC<EventInspectorTabProps> = ({ task }) =>
     setExpandedEvents(prev => ({ ...prev, [eventId]: !prev[eventId] }));
   };
 
+  const toggleCluster = (clusterId: string) => {
+    setExpandedClusters(prev => ({ ...prev, [clusterId]: !(prev[clusterId] ?? true) }));
+  };
+
   const filteredEvents = events.filter(e => {
     const kind = e.kind || (e as any).direction?.toLowerCase() || 'inbound';
     if (eventFilter === 'inbound') return kind === 'inbound';
     if (eventFilter === 'outbound') return kind === 'outbound';
     return true;
   });
+
+  const clusters: EventCluster[] = useMemo(() => {
+    if (filteredEvents.length === 0) return [];
+
+    const map = new Map<string, EventTimelineItem[]>();
+    const order: string[] = [];
+
+    for (const evt of filteredEvents) {
+      const payload = evt.payload || {};
+      const prNum =
+        payload.pull_request?.number ||
+        payload.number ||
+        payload.issue?.number ||
+        payload.workflow_run?.pull_requests?.[0]?.number ||
+        payload.check_run?.pull_requests?.[0]?.number ||
+        payload.check_suite?.pull_requests?.[0]?.number;
+
+      const headSha =
+        payload.head_commit?.id ||
+        payload.after ||
+        payload.check_run?.head_sha ||
+        payload.workflow_run?.head_sha ||
+        payload.sha;
+
+      const branch =
+        (payload.ref ? payload.ref.replace('refs/heads/', '') : null) ||
+        payload.workflow_run?.head_branch ||
+        payload.check_run?.check_suite?.head_branch;
+
+      const repo =
+        payload.repository?.full_name ||
+        payload.repository?.name ||
+        payload.repo?.full_name ||
+        '';
+
+      let clusterKey = '';
+      if (prNum) {
+        clusterKey = `pr:${repo}:${prNum}`;
+      } else if (headSha) {
+        clusterKey = `commit:${repo}:${headSha.slice(0, 8)}`;
+      } else if (branch) {
+        clusterKey = `branch:${repo}:${branch}`;
+      } else {
+        const timeBucket = Math.floor(
+          new Date(evt.timestamp || (evt as any).created_at || Date.now()).getTime() / (3 * 60 * 1000)
+        );
+        clusterKey = `batch:${evt.source}:${timeBucket}`;
+      }
+
+      if (!map.has(clusterKey)) {
+        map.set(clusterKey, []);
+        order.push(clusterKey);
+      }
+      map.get(clusterKey)!.push(evt);
+    }
+
+    return order.map((key) => {
+      const clusterEvents = map.get(key)!;
+      const firstEvt = clusterEvents[0];
+      const payload = firstEvt.payload || {};
+
+      let targetType: EventCluster['targetType'] = 'batch';
+      let targetIdentifier = '';
+      let title = '';
+      let subtitle = '';
+      let repoName = payload.repository?.full_name || payload.repository?.name || '';
+
+      if (key.startsWith('pr:')) {
+        targetType = 'pr';
+        const parts = key.split(':');
+        const prNum = parts[2];
+        targetIdentifier = `PR #${prNum}`;
+        const prTitle =
+          payload.pull_request?.title ||
+          payload.issue?.title ||
+          payload.workflow_run?.display_title ||
+          payload.check_run?.output?.title ||
+          'Pull Request Activity';
+        title = `PR #${prNum}: ${prTitle}`;
+        const headBranch = payload.pull_request?.head?.ref || payload.workflow_run?.head_branch;
+        subtitle = headBranch ? `${headBranch} → ${payload.pull_request?.base?.ref || 'main'}` : repoName;
+      } else if (key.startsWith('commit:')) {
+        targetType = 'commit';
+        const sha = key.split(':')[2] || 'HEAD';
+        targetIdentifier = sha.slice(0, 7);
+        const commitMsg = payload.head_commit?.message?.split('\n')[0] || payload.check_run?.output?.title || 'Push & CI Matrix';
+        title = `Commit ${sha.slice(0, 7)}: ${commitMsg}`;
+        subtitle = repoName || 'Repository Commit';
+      } else if (key.startsWith('branch:')) {
+        targetType = 'branch';
+        const branchName = key.split(':')[2];
+        targetIdentifier = branchName;
+        title = `Branch: ${branchName}`;
+        subtitle = repoName || 'Branch Events';
+      } else {
+        targetType = 'batch';
+        title = `${firstEvt.source.toUpperCase()} Event Batch`;
+        subtitle = `${clusterEvents.length} continuous events`;
+      }
+
+      let passed = 0;
+      let failed = 0;
+      let skipped = 0;
+      let reviews = 0;
+      let inbound = 0;
+      let outbound = 0;
+
+      for (const e of clusterEvents) {
+        if (e.kind === 'outbound') outbound++;
+        else inbound++;
+
+        const p = e.payload || {};
+        const conclusion =
+          p.check_run?.conclusion ||
+          p.workflow_run?.conclusion ||
+          p.check_suite?.conclusion ||
+          p.conclusion;
+        if (conclusion === 'success') passed++;
+        else if (
+          conclusion === 'failure' ||
+          conclusion === 'timed_out' ||
+          conclusion === 'action_required' ||
+          conclusion === 'cancelled'
+        )
+          failed++;
+        else if (conclusion === 'skipped' || conclusion === 'neutral') skipped++;
+
+        if (
+          e.event_type.includes('comment') ||
+          e.event_type.includes('review') ||
+          e.event_type.includes('pull_request')
+        ) {
+          reviews++;
+        }
+      }
+
+      return {
+        id: key,
+        title,
+        subtitle,
+        targetType,
+        targetIdentifier,
+        repoName,
+        timestamp: firstEvt.timestamp || (firstEvt as any).created_at,
+        events: clusterEvents,
+        stats: {
+          total: clusterEvents.length,
+          passed,
+          failed,
+          skipped,
+          reviews,
+          inbound,
+          outbound,
+        },
+        hasFailure: failed > 0,
+      };
+    });
+  }, [filteredEvents]);
+
+  const renderSingleEventCard = (evt: EventTimelineItem, isNested: boolean = false) => {
+    const isExpanded = !!expandedEvents[evt.id];
+    const isInbound = evt.kind === 'inbound';
+    return (
+      <div
+        key={evt.id}
+        className={`p-2.5 rounded-xl transition-colors shadow-xs ${
+          isNested
+            ? 'bg-onedark-darker/60 hover:bg-onedark-surface/40 border border-onedark-borderSubtle/60'
+            : 'bg-onedark-surface/30 hover:bg-onedark-surface/60 border border-onedark-borderSubtle hover:border-onedark-border'
+        } space-y-2`}
+      >
+        <div
+          className="flex items-center justify-between cursor-pointer"
+          onClick={() => toggleEvent(evt.id)}
+        >
+          <div className="flex items-center space-x-2 min-w-0">
+            {isInbound ? (
+              <span className="p-1 rounded bg-onedark-accent/15 text-onedark-accent shrink-0">
+                <Inbox className="w-3.5 h-3.5" />
+              </span>
+            ) : (
+              <span className="p-1 rounded bg-onedark-green/15 text-onedark-green shrink-0">
+                <Send className="w-3.5 h-3.5" />
+              </span>
+            )}
+            <div className="flex flex-col min-w-0">
+              <span className="text-xs font-semibold text-onedark-fgBright flex items-center space-x-1.5 flex-wrap gap-1">
+                <span className="truncate">{evt.title || `${evt.source}:${evt.event_type}`}</span>
+                <span
+                  className={`text-[9px] uppercase px-1.5 py-0.2 rounded font-bold ${
+                    isInbound ? 'bg-onedark-surface text-onedark-accent' : 'bg-onedark-green/20 text-onedark-green'
+                  }`}
+                >
+                  {evt.kind}
+                </span>
+                {(() => {
+                  const payload = evt.payload || {};
+                  const conclusion =
+                    payload.check_run?.conclusion ||
+                    payload.workflow_run?.conclusion ||
+                    payload.check_suite?.conclusion ||
+                    payload.conclusion;
+                  if (conclusion) {
+                    const isFail =
+                      conclusion === 'failure' ||
+                      conclusion === 'timed_out' ||
+                      conclusion === 'action_required' ||
+                      conclusion === 'cancelled';
+                    const isPass = conclusion === 'success';
+                    return (
+                      <span
+                        className={`text-[9px] uppercase px-1.5 py-0.2 rounded font-mono font-semibold border ${
+                          isFail
+                            ? 'bg-onedark-red/15 text-onedark-red border-onedark-red/30'
+                            : isPass
+                            ? 'bg-onedark-green/15 text-onedark-green border-onedark-green/30'
+                            : 'bg-onedark-surface text-onedark-muted border-onedark-borderSubtle'
+                        }`}
+                      >
+                        {conclusion}
+                      </span>
+                    );
+                  }
+                  if (payload.action) {
+                    return (
+                      <span className="text-[9px] uppercase px-1.5 py-0.2 rounded font-mono font-semibold bg-onedark-surface text-onedark-fg/80 border border-onedark-borderSubtle">
+                        {payload.action}
+                      </span>
+                    );
+                  }
+                  return null;
+                })()}
+              </span>
+              <span className="text-[10px] text-onedark-muted">
+                {evt.timestamp ? new Date(evt.timestamp).toLocaleTimeString() : 'Just now'} • {evt.source}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-2 shrink-0 ml-2">
+            {evt.signature_valid && (
+              <span className="text-[10px] text-onedark-green flex items-center space-x-0.5">
+                <CheckCircle2 className="w-3 h-3" />
+                <span>HMAC</span>
+              </span>
+            )}
+            {evt.status_code && (
+              <span
+                className={`text-[10px] font-mono ${
+                  evt.status_code < 300 ? 'text-onedark-green' : 'text-onedark-red'
+                }`}
+              >
+                HTTP {evt.status_code}
+              </span>
+            )}
+            {isExpanded ? (
+              <ChevronDown className="w-3.5 h-3.5 text-onedark-muted" />
+            ) : (
+              <ChevronRight className="w-3.5 h-3.5 text-onedark-muted" />
+            )}
+          </div>
+        </div>
+
+        {isExpanded && (
+          <div className="pt-2 border-t border-onedark-borderSubtle space-y-2 text-[11px]">
+            {evt.summary && (
+              <p className="text-onedark-fg text-xs bg-onedark-surface/40 p-2 rounded border border-onedark-borderSubtle">
+                {evt.summary}
+              </p>
+            )}
+            <div className="flex items-center justify-between text-onedark-muted text-[10px]">
+              <span>Event ID: {evt.id}</span>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleCopy(JSON.stringify(evt.payload, null, 2), evt.id);
+                }}
+                className="flex items-center space-x-1 hover:text-onedark-fg cursor-pointer"
+              >
+                {copiedId === evt.id ? <Check className="w-3 h-3 text-onedark-green" /> : <Copy className="w-3 h-3" />}
+                <span>Copy JSON</span>
+              </button>
+            </div>
+            <pre className="p-2 rounded bg-onedark-darker border border-onedark-borderSubtle text-[10px] text-onedark-fg overflow-x-auto whitespace-pre-wrap max-h-56">
+              {JSON.stringify(evt.payload, null, 2)}
+            </pre>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="flex flex-col h-full bg-onedark-darker font-mono text-xs text-onedark-fg select-text">
@@ -439,12 +760,35 @@ export const EventInspectorTab: React.FC<EventInspectorTabProps> = ({ task }) =>
               )}
             </div>
 
-            {/* Filter Bar */}
-            <div className="flex items-center justify-between pt-1">
+            {/* Filter & View Mode Bar */}
+            <div className="flex items-center justify-between pt-1 flex-wrap gap-2">
               <div className="flex items-center space-x-2">
-                <Filter className="w-3.5 h-3.5 text-onedark-muted" />
-                <span className="text-[11px] text-onedark-muted uppercase font-semibold">Timeline Stream</span>
+                <div className="flex items-center space-x-1 p-0.5 rounded-lg bg-onedark-surface/50 border border-onedark-borderSubtle">
+                  <button
+                    onClick={() => setViewMode('grouped')}
+                    className={`px-2 py-0.5 rounded-md text-[10.5px] font-semibold transition-colors cursor-pointer flex items-center space-x-1 ${
+                      viewMode === 'grouped'
+                        ? 'bg-onedark-accent/20 text-onedark-accent border border-onedark-accent/40 font-bold'
+                        : 'text-onedark-muted hover:text-onedark-fg'
+                    }`}
+                  >
+                    <Layers className="w-3 h-3" />
+                    <span>Grouped ({clusters.length})</span>
+                  </button>
+                  <button
+                    onClick={() => setViewMode('flat')}
+                    className={`px-2 py-0.5 rounded-md text-[10.5px] font-semibold transition-colors cursor-pointer flex items-center space-x-1 ${
+                      viewMode === 'flat'
+                        ? 'bg-onedark-accent/20 text-onedark-accent border border-onedark-accent/40 font-bold'
+                        : 'text-onedark-muted hover:text-onedark-fg'
+                    }`}
+                  >
+                    <Filter className="w-3 h-3" />
+                    <span>Flat ({filteredEvents.length})</span>
+                  </button>
+                </div>
               </div>
+
               <div className="flex items-center space-x-1">
                 {(['all', 'inbound', 'outbound'] as EventFilter[]).map((f) => (
                   <button
@@ -462,7 +806,7 @@ export const EventInspectorTab: React.FC<EventInspectorTabProps> = ({ task }) =>
               </div>
             </div>
 
-            {/* Events List */}
+            {/* Events List / Clustered View */}
             {filteredEvents.length === 0 ? (
               <div className="p-8 text-center text-onedark-muted text-xs space-y-2 rounded-xl bg-onedark-surface/20 border border-onedark-borderSubtle">
                 <Inbox className="w-6 h-6 mx-auto opacity-40 text-onedark-accent" />
@@ -471,122 +815,120 @@ export const EventInspectorTab: React.FC<EventInspectorTabProps> = ({ task }) =>
                   Use the quick simulation buttons above or send a GitHub webhook to awaken the agent.
                 </p>
               </div>
-            ) : (
-              <div className="space-y-2">
-                {filteredEvents.map((evt) => {
-                  const isExpanded = !!expandedEvents[evt.id];
-                  const isInbound = evt.kind === 'inbound';
+            ) : viewMode === 'grouped' ? (
+              <div className="space-y-3">
+                {clusters.map((cluster) => {
+                  const isExpanded = expandedClusters[cluster.id] ?? true;
                   return (
                     <div
-                      key={evt.id}
-                      className="p-2.5 rounded-xl bg-onedark-surface/30 hover:bg-onedark-surface/60 border border-onedark-borderSubtle hover:border-onedark-border space-y-2 transition-colors shadow-xs"
+                      key={cluster.id}
+                      className={`p-3 rounded-xl border transition-all shadow-xs space-y-2.5 ${
+                        cluster.hasFailure
+                          ? 'bg-onedark-red/5 border-onedark-red/40 hover:border-onedark-red/60'
+                          : 'bg-onedark-surface/30 hover:bg-onedark-surface/50 border-onedark-borderSubtle hover:border-onedark-border'
+                      }`}
                     >
-                      <div 
-                        className="flex items-center justify-between cursor-pointer"
-                        onClick={() => toggleEvent(evt.id)}
+                      {/* Cluster Header */}
+                      <div
+                        className="flex items-start justify-between cursor-pointer gap-2"
+                        onClick={() => toggleCluster(cluster.id)}
                       >
-                        <div className="flex items-center space-x-2">
-                          {isInbound ? (
-                            <span className="p-1 rounded bg-onedark-accent/15 text-onedark-accent">
-                              <Inbox className="w-3.5 h-3.5" />
+                        <div className="flex items-start space-x-2.5 min-w-0">
+                          <div
+                            className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 mt-0.5 border ${
+                              cluster.targetType === 'pr'
+                                ? 'bg-onedark-accent/15 text-onedark-accent border-onedark-accent/30'
+                                : cluster.targetType === 'commit'
+                                ? 'bg-onedark-yellow/15 text-onedark-yellow border-onedark-yellow/30'
+                                : cluster.targetType === 'branch'
+                                ? 'bg-onedark-purple/15 text-onedark-purple border-onedark-purple/30'
+                                : 'bg-onedark-surface text-onedark-muted border-onedark-borderSubtle'
+                            }`}
+                          >
+                            {cluster.targetType === 'pr' ? (
+                              <GitPullRequest className="w-3.5 h-3.5" />
+                            ) : cluster.targetType === 'commit' ? (
+                              <GitCommit className="w-3.5 h-3.5" />
+                            ) : cluster.targetType === 'branch' ? (
+                              <GitBranch className="w-3.5 h-3.5" />
+                            ) : (
+                              <Layers className="w-3.5 h-3.5" />
+                            )}
+                          </div>
+
+                          <div className="flex flex-col min-w-0">
+                            <span className="text-xs font-bold text-onedark-fgBright flex items-center space-x-1.5 flex-wrap gap-1">
+                              <span>{cluster.title}</span>
+                              {cluster.targetIdentifier && (
+                                <span className="text-[9.5px] px-1.5 py-0.2 rounded font-mono font-bold bg-onedark-surface text-onedark-fg border border-onedark-borderSubtle">
+                                  {cluster.targetIdentifier}
+                                </span>
+                              )}
                             </span>
-                          ) : (
-                            <span className="p-1 rounded bg-onedark-green/15 text-onedark-green">
-                              <Send className="w-3.5 h-3.5" />
-                            </span>
-                          )}
-                          <div className="flex flex-col">
-                            <span className="text-xs font-semibold text-onedark-fgBright flex items-center space-x-1.5 flex-wrap gap-1">
-                              <span>{evt.title || `${evt.source}:${evt.event_type}`}</span>
-                              <span className={`text-[9px] uppercase px-1.5 py-0.2 rounded font-bold ${
-                                isInbound ? 'bg-onedark-surface text-onedark-accent' : 'bg-onedark-green/20 text-onedark-green'
-                              }`}>
-                                {evt.kind}
+                            {cluster.subtitle && (
+                              <span className="text-[10.5px] text-onedark-muted truncate mt-0.5">
+                                {cluster.subtitle}
                               </span>
-                              {(() => {
-                                const payload = evt.payload || {};
-                                const conclusion = payload.check_run?.conclusion || payload.workflow_run?.conclusion || payload.check_suite?.conclusion || payload.conclusion;
-                                if (conclusion) {
-                                  const isFail = conclusion === 'failure' || conclusion === 'timed_out';
-                                  const isPass = conclusion === 'success';
-                                  return (
-                                    <span className={`text-[9px] uppercase px-1.5 py-0.2 rounded font-mono font-semibold border ${
-                                      isFail
-                                        ? 'bg-onedark-red/15 text-onedark-red border-onedark-red/30'
-                                        : isPass
-                                        ? 'bg-onedark-green/15 text-onedark-green border-onedark-green/30'
-                                        : 'bg-onedark-surface text-onedark-muted border-onedark-borderSubtle'
-                                    }`}>
-                                      {conclusion}
-                                    </span>
-                                  );
-                                }
-                                if (payload.action) {
-                                  return (
-                                    <span className="text-[9px] uppercase px-1.5 py-0.2 rounded font-mono font-semibold bg-onedark-surface text-onedark-fg/80 border border-onedark-borderSubtle">
-                                      {payload.action}
-                                    </span>
-                                  );
-                                }
-                                return null;
-                              })()}
-                            </span>
-                            <span className="text-[10px] text-onedark-muted">
-                              {evt.timestamp ? new Date(evt.timestamp).toLocaleTimeString() : 'Just now'} • {evt.source}
+                            )}
+                            <span className="text-[10px] text-onedark-muted/80 mt-0.5">
+                              {cluster.timestamp ? new Date(cluster.timestamp).toLocaleTimeString() : 'Just now'} • {cluster.events.length} continuous event{cluster.events.length > 1 ? 's' : ''}
                             </span>
                           </div>
                         </div>
 
-                        <div className="flex items-center space-x-2">
-                          {evt.signature_valid && (
-                            <span className="text-[10px] text-onedark-green flex items-center space-x-0.5">
+                        {/* Rollup Badges & Toggle */}
+                        <div className="flex items-center space-x-1.5 shrink-0 flex-wrap justify-end gap-1">
+                          {cluster.stats.failed > 0 && (
+                            <span className="px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold bg-onedark-red/20 text-onedark-red border border-onedark-red/40 flex items-center space-x-1">
+                              <XCircle className="w-3 h-3" />
+                              <span>{cluster.stats.failed} failed</span>
+                            </span>
+                          )}
+                          {cluster.stats.passed > 0 && (
+                            <span className="px-1.5 py-0.5 rounded text-[9.5px] font-mono font-semibold bg-onedark-green/15 text-onedark-green border border-onedark-green/30 flex items-center space-x-1">
                               <CheckCircle2 className="w-3 h-3" />
-                              <span>HMAC</span>
+                              <span>{cluster.stats.passed} passed</span>
                             </span>
                           )}
-                          {evt.status_code && (
-                            <span className={`text-[10px] font-mono ${
-                              evt.status_code < 300 ? 'text-onedark-green' : 'text-onedark-red'
-                            }`}>
-                              HTTP {evt.status_code}
+                          {cluster.stats.reviews > 0 && (
+                            <span className="px-1.5 py-0.5 rounded text-[9.5px] font-mono font-semibold bg-onedark-cyan/15 text-onedark-cyan border border-onedark-cyan/30">
+                              💬 {cluster.stats.reviews}
                             </span>
                           )}
-                          {isExpanded ? (
-                            <ChevronDown className="w-3.5 h-3.5 text-onedark-muted" />
-                          ) : (
-                            <ChevronRight className="w-3.5 h-3.5 text-onedark-muted" />
+                          {cluster.stats.skipped > 0 && (
+                            <span className="px-1.5 py-0.5 rounded text-[9.5px] font-mono font-semibold bg-onedark-surface text-onedark-muted border border-onedark-borderSubtle">
+                              ⊘ {cluster.stats.skipped}
+                            </span>
                           )}
+                          <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-onedark-surface text-onedark-muted border border-onedark-borderSubtle">
+                            {cluster.stats.total} total
+                          </span>
+                          <button
+                            type="button"
+                            className="p-1 rounded text-onedark-muted hover:text-onedark-fg"
+                          >
+                            {isExpanded ? (
+                              <ChevronDown className="w-4 h-4" />
+                            ) : (
+                              <ChevronRight className="w-4 h-4" />
+                            )}
+                          </button>
                         </div>
                       </div>
 
+                      {/* Cluster Child Events */}
                       {isExpanded && (
-                        <div className="pt-2 border-t border-onedark-borderSubtle space-y-2 text-[11px]">
-                          {evt.summary && (
-                            <p className="text-onedark-fg text-xs bg-onedark-surface/40 p-2 rounded border border-onedark-borderSubtle">
-                              {evt.summary}
-                            </p>
-                          )}
-                          <div className="flex items-center justify-between text-onedark-muted text-[10px]">
-                            <span>Event ID: {evt.id}</span>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleCopy(JSON.stringify(evt.payload, null, 2), evt.id);
-                              }}
-                              className="flex items-center space-x-1 hover:text-onedark-fg"
-                            >
-                              {copiedId === evt.id ? <Check className="w-3 h-3 text-onedark-green" /> : <Copy className="w-3 h-3" />}
-                              <span>Copy JSON</span>
-                            </button>
-                          </div>
-                          <pre className="p-2 rounded bg-onedark-darker border border-onedark-borderSubtle text-[10px] text-onedark-fg overflow-x-auto whitespace-pre-wrap max-h-56">
-                            {JSON.stringify(evt.payload, null, 2)}
-                          </pre>
+                        <div className="pt-2 border-t border-onedark-borderSubtle/60 pl-2.5 border-l-2 border-l-onedark-accent/40 ml-2 space-y-1.5">
+                          {cluster.events.map((evt) => renderSingleEventCard(evt, true))}
                         </div>
                       )}
                     </div>
                   );
                 })}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {filteredEvents.map((evt) => renderSingleEventCard(evt, false))}
               </div>
             )}
           </div>
