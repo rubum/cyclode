@@ -127,7 +127,9 @@ async def generate_ai_title(
 
     async with httpx.AsyncClient(timeout=8.0) as client:
         # Determine candidate models based on provider
-        if provider.provider_id == "anthropic":
+        if provider.provider_id == "deepseek":
+            cand_models = ["deepseek-flash", "deepseek-chat"]
+        elif provider.provider_id == "anthropic":
             cand_models = ["claude-3-5-haiku-20241022", "claude-3-5-sonnet-20241022"]
         elif provider.provider_id == "openai":
             cand_models = ["gpt-4o-mini", "gpt-4o"]

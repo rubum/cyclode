@@ -77,6 +77,16 @@ class IntegrationManager:
                     mod = credentials.get("model") or credentials.get("default_model")
                     settings.GEMINI_DEFAULT_MODEL = mod
                     settings.ANTIGRAVITY_MODEL = mod
+            elif provider == "deepseek":
+                if "api_key" in credentials:
+                    os.environ["DEEPSEEK_API_KEY"] = credentials["api_key"]
+                    settings.DEEPSEEK_API_KEY = credentials["api_key"]
+                if "base_url" in credentials:
+                    os.environ["DEEPSEEK_BASE_URL"] = credentials["base_url"]
+                    settings.DEEPSEEK_BASE_URL = credentials["base_url"]
+                if "model" in credentials or "default_model" in credentials:
+                    mod = credentials.get("model") or credentials.get("default_model")
+                    settings.DEEPSEEK_DEFAULT_MODEL = mod
             elif provider == "anthropic":
                 if "api_key" in credentials:
                     os.environ["ANTHROPIC_API_KEY"] = credentials["api_key"]
@@ -94,6 +104,39 @@ class IntegrationManager:
                 if "model" in credentials or "default_model" in credentials:
                     mod = credentials.get("model") or credentials.get("default_model")
                     settings.OPENAI_DEFAULT_MODEL = mod
+
+            # Persist credentials to ~/.cyclode/config.json
+            try:
+                from cyclode.config import save_user_config
+                cfg_updates = {}
+                if provider == "deepseek":
+                    if "api_key" in credentials:
+                        cfg_updates["deepseek_api_key"] = credentials["api_key"]
+                    if "base_url" in credentials:
+                        cfg_updates["deepseek_base_url"] = credentials["base_url"]
+                    if "model" in credentials or "default_model" in credentials:
+                        cfg_updates["deepseek_model"] = credentials.get("model") or credentials.get("default_model")
+                elif provider == "openai":
+                    if "api_key" in credentials:
+                        cfg_updates["openai_api_key"] = credentials["api_key"]
+                    if "base_url" in credentials:
+                        cfg_updates["openai_base_url"] = credentials["base_url"]
+                    if "model" in credentials or "default_model" in credentials:
+                        cfg_updates["openai_model"] = credentials.get("model") or credentials.get("default_model")
+                elif provider == "anthropic":
+                    if "api_key" in credentials:
+                        cfg_updates["anthropic_api_key"] = credentials["api_key"]
+                    if "model" in credentials or "default_model" in credentials:
+                        cfg_updates["anthropic_model"] = credentials.get("model") or credentials.get("default_model")
+                elif provider == "gemini":
+                    if "api_key" in credentials:
+                        cfg_updates["gemini_api_key"] = credentials["api_key"]
+                    if "model" in credentials or "default_model" in credentials:
+                        cfg_updates["gemini_model"] = credentials.get("model") or credentials.get("default_model")
+                if cfg_updates:
+                    save_user_config(cfg_updates)
+            except Exception as e:
+                logger.debug(f"User config persistence note: {e}")
 
         return {
             "provider": provider,
@@ -206,6 +249,31 @@ class IntegrationManager:
                     elif resp.status_code in [400, 429]:
                         return {"valid": True, "message": "Anthropic API key authenticated"}
                     return {"valid": False, "message": f"Anthropic API returned status {resp.status_code}"}
+
+            elif provider == "deepseek":
+                key = (credentials.get("api_key") or settings.get_deepseek_api_key() or "").strip()
+                base_url = (credentials.get("base_url") or settings.DEEPSEEK_BASE_URL or "https://api.deepseek.com").strip().rstrip("/")
+                if not key:
+                    return {"valid": False, "message": "DeepSeek API key is empty"}
+                
+                check_url = f"{base_url}/models"
+                if "api.deepseek.com" in base_url and base_url.endswith("/anthropic"):
+                    check_url = "https://api.deepseek.com/models"
+
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.get(
+                        check_url,
+                        headers={"Authorization": f"Bearer {key}"}
+                    )
+                    if resp.status_code == 200:
+                        return {"valid": True, "message": "DeepSeek API key verified successfully"}
+                    elif resp.status_code == 401:
+                        return {"valid": False, "message": "Invalid DeepSeek API key (401 Unauthorized)"}
+                    elif resp.status_code == 402:
+                        return {"valid": True, "message": "DeepSeek API key authenticated (Insufficient Balance)"}
+                    elif resp.status_code in [400, 429]:
+                        return {"valid": True, "message": "DeepSeek API key authenticated"}
+                    return {"valid": False, "message": f"DeepSeek API returned status {resp.status_code}"}
 
             elif provider == "openai":
                 key = credentials.get("api_key") or settings.get_openai_api_key()
@@ -482,6 +550,11 @@ class IntegrationManager:
                     "model": settings.GEMINI_DEFAULT_MODEL,
                     "configured": bool(settings.get_api_key()),
                 },
+                "deepseek": {
+                    "model": settings.DEEPSEEK_DEFAULT_MODEL,
+                    "base_url": settings.DEEPSEEK_BASE_URL,
+                    "configured": bool(settings.get_deepseek_api_key()),
+                },
                 "anthropic": {
                     "model": settings.ANTHROPIC_DEFAULT_MODEL,
                     "configured": bool(settings.get_anthropic_api_key()),
@@ -510,12 +583,45 @@ class IntegrationManager:
         # Provider overrides
         if "gemini_model" in updates and updates["gemini_model"]:
             settings.GEMINI_DEFAULT_MODEL = updates["gemini_model"]
+        if "deepseek_model" in updates and updates["deepseek_model"]:
+            settings.DEEPSEEK_DEFAULT_MODEL = updates["deepseek_model"]
+        if "deepseek_base_url" in updates:
+            settings.DEEPSEEK_BASE_URL = updates["deepseek_base_url"]
         if "anthropic_model" in updates and updates["anthropic_model"]:
             settings.ANTHROPIC_DEFAULT_MODEL = updates["anthropic_model"]
         if "openai_model" in updates and updates["openai_model"]:
             settings.OPENAI_DEFAULT_MODEL = updates["openai_model"]
         if "openai_base_url" in updates:
             settings.OPENAI_BASE_URL = updates["openai_base_url"]
+
+        # Persist model settings to ~/.cyclode/config.json
+        try:
+            from cyclode.config import save_user_config
+            cfg_updates: Dict[str, Any] = {}
+            if "routing_mode" in updates and updates["routing_mode"]:
+                cfg_updates["routing_mode"] = updates["routing_mode"]
+            if "major_model" in updates and updates["major_model"]:
+                cfg_updates["major_model"] = updates["major_model"]
+            if "minor_model" in updates and updates["minor_model"]:
+                cfg_updates["minor_model"] = updates["minor_model"]
+            if "default_model" in updates and updates["default_model"]:
+                cfg_updates["model"] = updates["default_model"]
+            if "gemini_model" in updates and updates["gemini_model"]:
+                cfg_updates["gemini_model"] = updates["gemini_model"]
+            if "deepseek_model" in updates and updates["deepseek_model"]:
+                cfg_updates["deepseek_model"] = updates["deepseek_model"]
+            if "deepseek_base_url" in updates:
+                cfg_updates["deepseek_base_url"] = updates["deepseek_base_url"]
+            if "anthropic_model" in updates and updates["anthropic_model"]:
+                cfg_updates["anthropic_model"] = updates["anthropic_model"]
+            if "openai_model" in updates and updates["openai_model"]:
+                cfg_updates["openai_model"] = updates["openai_model"]
+            if "openai_base_url" in updates:
+                cfg_updates["openai_base_url"] = updates["openai_base_url"]
+            if cfg_updates:
+                save_user_config(cfg_updates)
+        except Exception as e:
+            logger.debug(f"User config model settings persistence note: {e}")
 
         return self.get_model_settings()
 

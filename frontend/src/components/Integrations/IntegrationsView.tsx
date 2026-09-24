@@ -117,6 +117,9 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
     if (item.id === 'gemini') {
       setModelInput(modelSettings?.providers?.gemini?.model || 'gemini-3.7-flash');
       setBaseUrlInput('');
+    } else if (item.id === 'deepseek') {
+      setModelInput(modelSettings?.providers?.deepseek?.model || 'deepseek-flash');
+      setBaseUrlInput(modelSettings?.providers?.deepseek?.base_url || 'https://api.deepseek.com');
     } else if (item.id === 'anthropic') {
       setModelInput(modelSettings?.providers?.anthropic?.model || 'claude-fable-5-1');
       setBaseUrlInput('');
@@ -192,6 +195,10 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
     } else if (selectedIntegration.id === 'gemini') {
       payload.api_key = tokenInput.trim();
       if (modelInput.trim()) payload.model = modelInput.trim();
+    } else if (selectedIntegration.id === 'deepseek') {
+      payload.api_key = tokenInput.trim();
+      if (modelInput.trim()) payload.model = modelInput.trim();
+      if (baseUrlInput.trim()) payload.base_url = baseUrlInput.trim();
     } else if (selectedIntegration.id === 'anthropic') {
       payload.api_key = tokenInput.trim();
       if (modelInput.trim()) payload.model = modelInput.trim();
@@ -306,6 +313,8 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
     switch (id) {
       case 'gemini':
         return <Sparkles className="w-5 h-5 text-cyan-400" />;
+      case 'deepseek':
+        return <Zap className="w-5 h-5 text-blue-400" />;
       case 'anthropic':
         return <Bot className="w-5 h-5 text-amber-400" />;
       case 'openai':
@@ -329,6 +338,8 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
     switch (id) {
       case 'gemini':
         return 'bg-cyan-100 border-cyan-300 text-cyan-950 dark:bg-cyan-500/10 dark:border-cyan-500/30 dark:text-cyan-400';
+      case 'deepseek':
+        return 'bg-blue-100 border-blue-300 text-blue-950 dark:bg-blue-500/10 dark:border-blue-500/30 dark:text-blue-400';
       case 'anthropic':
         return 'bg-amber-100 border-amber-300 text-amber-950 dark:bg-amber-500/10 dark:border-amber-500/30 dark:text-amber-400';
       case 'openai':
@@ -612,12 +623,24 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                     onChange={(e) => setMajorModel(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg bg-onedark-darker border border-onedark-border text-xs text-onedark-fgBright font-mono focus:outline-none focus:border-onedark-accent cursor-pointer"
                   >
-                    <option value="gemini-3.8-flash">Gemini 3.8 Flash (High-Speed Reasoning)</option>
-                    <option value="gemini-3.7-flash">Gemini 3.7 Flash (Agentic Workhorse)</option>
-                    <option value="claude-fable-5-1">Claude Fable 5.1 (Mythos Frontier)</option>
-                    <option value="gpt-6-astra">GPT-6 Astra (Frontier Autonomous)</option>
-                    <option value="claude-3-7-sonnet">Claude 3.7 Sonnet (Hybrid Thinking)</option>
-                    <option value="gpt-4o">GPT-4o (Multimodal)</option>
+                    <optgroup label="DeepSeek AI">
+                      <option value="deepseek-reasoner">DeepSeek-R1 (Hybrid CoT / Frontier)</option>
+                      <option value="deepseek-v4-pro">DeepSeek-V4-Pro (High Capacity Frontier)</option>
+                      <option value="deepseek-flash">DeepSeek-V4.1-Flash (552B MoE / 1M Context)</option>
+                      <option value="deepseek-chat">DeepSeek-V3 (General Agentic)</option>
+                    </optgroup>
+                    <optgroup label="Google Gemini">
+                      <option value="gemini-3.8-flash">Gemini 3.8 Flash (High-Speed Reasoning)</option>
+                      <option value="gemini-3.7-flash">Gemini 3.7 Flash (Agentic Workhorse)</option>
+                    </optgroup>
+                    <optgroup label="Anthropic Claude">
+                      <option value="claude-fable-5-1">Claude Fable 5.1 (Mythos Frontier)</option>
+                      <option value="claude-3-7-sonnet">Claude 3.7 Sonnet (Hybrid Thinking)</option>
+                    </optgroup>
+                    <optgroup label="OpenAI / Codex">
+                      <option value="gpt-6-astra">GPT-6 Astra (Frontier Autonomous)</option>
+                      <option value="gpt-4o">GPT-4o (Multimodal)</option>
+                    </optgroup>
                   </select>
                   <div className="text-[10.5px] font-mono text-onedark-muted/80 truncate">
                     Allocated for app_building, review_audit, devops
@@ -644,11 +667,21 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                     onChange={(e) => setMinorModel(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg bg-onedark-darker border border-onedark-border text-xs text-onedark-fgBright font-mono focus:outline-none focus:border-onedark-accent cursor-pointer"
                   >
-                    <option value="gemini-3.7-flash">Gemini 3.7 Flash (Agentic Workhorse)</option>
-                    <option value="gemini-3.8-flash">Gemini 3.8 Flash (Sub-second Agentic)</option>
-                    <option value="claude-3-5-haiku">Claude 3.5 Haiku (Fast Sub-agent)</option>
-                    <option value="gpt-4o-mini">GPT-4o Mini (Lightweight)</option>
-                    <option value="o3-mini">o3-mini (STEM Reasoning)</option>
+                    <optgroup label="DeepSeek AI">
+                      <option value="deepseek-flash">DeepSeek-V4.1-Flash (Ultra-Fast Routing)</option>
+                      <option value="deepseek-chat">DeepSeek-V3 (Lightweight)</option>
+                    </optgroup>
+                    <optgroup label="Google Gemini">
+                      <option value="gemini-3.7-flash">Gemini 3.7 Flash (Agentic Workhorse)</option>
+                      <option value="gemini-3.8-flash">Gemini 3.8 Flash (Sub-second Agentic)</option>
+                    </optgroup>
+                    <optgroup label="Anthropic Claude">
+                      <option value="claude-3-5-haiku">Claude 3.5 Haiku (Fast Sub-agent)</option>
+                    </optgroup>
+                    <optgroup label="OpenAI / Codex">
+                      <option value="gpt-4o-mini">GPT-4o Mini (Lightweight)</option>
+                      <option value="o3-mini">o3-mini (STEM Reasoning)</option>
+                    </optgroup>
                   </select>
                   <div className="text-[10.5px] font-mono text-onedark-muted/80 truncate">
                     Allocated for qa_research, titles, greetings
@@ -921,6 +954,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                      selectedIntegration.id === 'slack' ? 'Slack Bot User OAuth Token (xoxb-)' :
                      selectedIntegration.id === 'appsignal' ? 'AppSignal Push API Key' :
                      selectedIntegration.id === 'gemini' ? 'Google AI Studio / Gemini API Key' :
+                     selectedIntegration.id === 'deepseek' ? 'DeepSeek API Key (sk-...)' :
                      selectedIntegration.id === 'anthropic' ? 'Anthropic API Key (sk-ant-...)' :
                      selectedIntegration.id === 'openai' ? 'OpenAI API Key (sk-...)' :
                      selectedIntegration.id === 'linear' ? 'Linear API Key / Personal API Key (lin_api_...)' :
@@ -936,6 +970,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                     selectedIntegration.id === 'github' ? 'ghp_xxxxxxxxxxxxxxxxxxxx' :
                     selectedIntegration.id === 'slack' ? 'xoxb-xxxxxxxxxxxxxxxxxxxx' :
                     selectedIntegration.id === 'gemini' ? 'AIzaSyxxxxxxxxxxxxxxxxxxxx' :
+                    selectedIntegration.id === 'deepseek' ? 'sk-xxxxxxxxxxxxxxxxxxxx' :
                     selectedIntegration.id === 'anthropic' ? 'sk-ant-xxxxxxxxxxxxxxxxxxxx' :
                     selectedIntegration.id === 'openai' ? 'sk-xxxxxxxxxxxxxxxxxxxx' :
                     selectedIntegration.id === 'linear' ? 'lin_api_xxxxxxxxxxxxxxxxxxxx' :
@@ -947,7 +982,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
               </div>
 
               {/* Optional Default Model Configuration for AI Providers */}
-              {(selectedIntegration.id === 'gemini' || selectedIntegration.id === 'anthropic' || selectedIntegration.id === 'openai') && (
+              {(selectedIntegration.id === 'gemini' || selectedIntegration.id === 'deepseek' || selectedIntegration.id === 'anthropic' || selectedIntegration.id === 'openai') && (
                 <div className="space-y-2 pt-2 border-t border-onedark-borderSubtle">
                   <label className="text-xs font-mono font-semibold text-onedark-fgBright flex items-center justify-between">
                     <span>Default Model</span>
@@ -961,6 +996,18 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                     >
                       <option value="gemini-3.7-flash">Gemini 3.7 Flash (Default / Agentic Workhorse)</option>
                       <option value="gemini-3.8-flash">Gemini 3.8 Flash (Sub-second Agentic)</option>
+                    </select>
+                  )}
+                  {selectedIntegration.id === 'deepseek' && (
+                    <select
+                      value={modelInput}
+                      onChange={(e) => setModelInput(e.target.value)}
+                      className="w-full px-3.5 py-2 rounded-lg bg-onedark-bg border border-onedark-border text-xs text-onedark-fgBright font-mono focus:outline-none focus:border-onedark-accent cursor-pointer"
+                    >
+                      <option value="deepseek-flash">DeepSeek-V4.1-Flash (Default / 552B MoE / 1M Context)</option>
+                      <option value="deepseek-v4-pro">DeepSeek-V4-Pro (High Capacity Frontier)</option>
+                      <option value="deepseek-chat">DeepSeek-V3 (General Agentic)</option>
+                      <option value="deepseek-reasoner">DeepSeek-R1 (Hybrid CoT)</option>
                     </select>
                   )}
                   {selectedIntegration.id === 'anthropic' && (
@@ -991,22 +1038,24 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                 </div>
               )}
 
-              {/* OpenAI Compatible Custom Base URL */}
-              {selectedIntegration.id === 'openai' && (
+              {/* Custom Base URL for OpenAI and DeepSeek */}
+              {(selectedIntegration.id === 'openai' || selectedIntegration.id === 'deepseek') && (
                 <div className="space-y-2 pt-1">
                   <label className="text-xs font-mono font-semibold text-onedark-fgBright flex items-center justify-between">
-                    <span>OpenAI API Base URL</span>
+                    <span>{selectedIntegration.id === 'deepseek' ? 'DeepSeek API Base URL' : 'OpenAI API Base URL'}</span>
                     <span className="text-[10.5px] font-mono text-onedark-muted">Custom Endpoint</span>
                   </label>
                   <input
                     type="text"
                     value={baseUrlInput}
                     onChange={(e) => setBaseUrlInput(e.target.value)}
-                    placeholder="https://api.openai.com/v1"
+                    placeholder={selectedIntegration.id === 'deepseek' ? 'https://api.deepseek.com' : 'https://api.openai.com/v1'}
                     className="w-full px-3.5 py-2 rounded-lg bg-onedark-bg border border-onedark-border text-xs text-onedark-fgBright font-mono focus:outline-none focus:border-onedark-accent shadow-xs"
                   />
                   <p className="text-[11px] text-onedark-muted">
-                    Supports custom LLM gateways, OpenRouter, Together AI, or local Ollama endpoints.
+                    {selectedIntegration.id === 'deepseek'
+                      ? 'Supports official DeepSeek endpoint, proxy gateways, or enterprise clusters.'
+                      : 'Supports custom LLM gateways, OpenRouter, Together AI, or local Ollama endpoints.'}
                   </p>
                 </div>
               )}

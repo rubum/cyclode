@@ -51,6 +51,8 @@ class ModelSettingsUpdateRequest(BaseModel):
     minor_model: Optional[str] = None
     default_model: Optional[str] = None
     gemini_model: Optional[str] = None
+    deepseek_model: Optional[str] = None
+    deepseek_base_url: Optional[str] = None
     anthropic_model: Optional[str] = None
     openai_model: Optional[str] = None
     openai_base_url: Optional[str] = None

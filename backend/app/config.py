@@ -81,6 +81,8 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: Optional[str] = Field(default_factory=lambda: _USER_CFG.get("anthropic_api_key") or os.environ.get("ANTHROPIC_API_KEY"))
     OPENAI_API_KEY: Optional[str] = Field(default_factory=lambda: _USER_CFG.get("openai_api_key") or os.environ.get("OPENAI_API_KEY"))
     OPENAI_BASE_URL: Optional[str] = Field(default_factory=lambda: _USER_CFG.get("openai_base_url") or os.environ.get("OPENAI_BASE_URL"))
+    DEEPSEEK_API_KEY: Optional[str] = Field(default_factory=lambda: _USER_CFG.get("deepseek_api_key") or os.environ.get("DEEPSEEK_API_KEY"))
+    DEEPSEEK_BASE_URL: Optional[str] = Field(default_factory=lambda: _USER_CFG.get("deepseek_base_url") or os.environ.get("DEEPSEEK_BASE_URL"))
 
     ANTIGRAVITY_MODEL: str = Field(default_factory=lambda: str(_USER_CFG.get("model", "gemini-3.7-flash")))
     ANTIGRAVITY_ROUTING_MODE: str = Field(default_factory=lambda: str(_USER_CFG.get("routing_mode", "adaptive")))  # "adaptive" vs "manual"
@@ -89,6 +91,7 @@ class Settings(BaseSettings):
     GEMINI_DEFAULT_MODEL: str = Field(default_factory=lambda: str(_USER_CFG.get("gemini_model", "gemini-3.7-flash")))
     ANTHROPIC_DEFAULT_MODEL: str = Field(default_factory=lambda: str(_USER_CFG.get("anthropic_model", "claude-fable-5-1")))
     OPENAI_DEFAULT_MODEL: str = Field(default_factory=lambda: str(_USER_CFG.get("openai_model", "gpt-6-astra")))
+    DEEPSEEK_DEFAULT_MODEL: str = Field(default_factory=lambda: str(_USER_CFG.get("deepseek_model", "deepseek-flash")))
     ANTIGRAVITY_ENABLE_THINKING: bool = True
     ANTIGRAVITY_MAX_PARALLEL_WORKERS: int = 5
     ANTIGRAVITY_EXECUTION_TIMEOUT_SECONDS: int = 600
@@ -130,6 +133,9 @@ class Settings(BaseSettings):
 
     def get_openai_api_key(self) -> Optional[str]:
         return self.OPENAI_API_KEY or os.environ.get("OPENAI_API_KEY")
+
+    def get_deepseek_api_key(self) -> Optional[str]:
+        return self.DEEPSEEK_API_KEY or os.environ.get("DEEPSEEK_API_KEY")
 
 
 settings = Settings()

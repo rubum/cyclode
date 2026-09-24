@@ -4,10 +4,17 @@ from app.agent.providers.base import BaseLLMProvider, ProviderResponse, ToolCall
 from app.agent.providers.gemini import GeminiProvider
 from app.agent.providers.claude import ClaudeProvider
 from app.agent.providers.openai import OpenAIProvider
+from app.agent.providers.deepseek import DeepSeekProvider
 from app.agent.providers.factory import get_provider_for_model, get_model_catalog
 
 
 def test_provider_factory_routing():
+    # DeepSeek models
+    assert isinstance(get_provider_for_model("deepseek-flash"), DeepSeekProvider)
+    assert isinstance(get_provider_for_model("deepseek-chat"), DeepSeekProvider)
+    assert isinstance(get_provider_for_model("deepseek-reasoner"), DeepSeekProvider)
+    assert isinstance(get_provider_for_model("deepseek:deepseek-flash"), DeepSeekProvider)
+
     # Claude & Fable frontier models
     assert isinstance(get_provider_for_model("claude-fable-5-1"), ClaudeProvider)
     assert isinstance(get_provider_for_model("fable"), ClaudeProvider)
@@ -37,11 +44,18 @@ def test_provider_factory_routing():
 
 def test_model_catalog_structure():
     catalog = get_model_catalog()
-    assert len(catalog) == 3
+    assert len(catalog) == 4
     providers = [c["provider"] for c in catalog]
     assert "google" in providers
+    assert "deepseek" in providers
     assert "anthropic" in providers
     assert "openai" in providers
+
+    deepseek_group = next(c for c in catalog if c["provider"] == "deepseek")
+    ds_ids = [m["id"] for m in deepseek_group["models"]]
+    assert "deepseek-flash" in ds_ids
+    assert "deepseek-chat" in ds_ids
+    assert "deepseek-reasoner" in ds_ids
 
     anthropic_group = next(c for c in catalog if c["provider"] == "anthropic")
     model_ids = [m["id"] for m in anthropic_group["models"]]
@@ -295,6 +309,165 @@ async def test_gemini_thought_signature_and_raw_parts_preservation():
     assert tc.raw_part is not None
     assert tc.raw_part.get("thoughtSignature") == "mock_crypto_token_xyz123"
     assert resp.raw_parts == mock_gemini_json["candidates"][0]["content"]["parts"]
+
+
+def test_deepseek_tool_and_message_conversion():
+    provider = DeepSeekProvider(api_key="mock-key")
+    sample_tools = [
+        {
+            "name": "replace_file_content",
+            "description": "Edits a file block",
+            "parameters": {
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"]
+            }
+        }
+    ]
+    converted_tools = provider._convert_tool_declarations(sample_tools)
+    assert len(converted_tools) == 1
+    assert converted_tools[0]["type"] == "function"
+    assert converted_tools[0]["function"]["name"] == "replace_file_content"
+
+    history = [
+        {"role": "user", "parts": [{"text": "Fix bug"}]},
+        {"role": "model", "parts": [
+            {"thought": "Checking logs"},
+            {"functionCall": {"name": "read_file", "args": {"path": "app.py"}, "id": "call_1"}}
+        ]},
+        {"role": "user", "parts": [
+            {"functionResponse": {"name": "read_file", "id": "call_1", "response": {"output": "print('hello')"}}}
+        ]}
+    ]
+    converted_msgs = provider._convert_messages(history, system_instruction="You are an autonomous AI.")
+    assert converted_msgs[0]["role"] == "system"
+    assert converted_msgs[1]["role"] == "user"
+    assert converted_msgs[2]["role"] == "assistant"
+    assert "tool_calls" in converted_msgs[2]
+    assert converted_msgs[3]["role"] == "tool"
+    assert converted_msgs[3]["tool_call_id"] == "call_1"
+
+
+@pytest.mark.asyncio
+async def test_deepseek_missing_api_key_diagnostics():
+    ds = DeepSeekProvider(api_key=None)
+    ds._api_key = None
+    resp = await ds.generate_response([], None, "", "deepseek-flash")
+    assert resp.status_code == 401
+    assert "DeepSeek API Key is missing or unconfigured" in resp.error_message
+
+
+@pytest.mark.asyncio
+async def test_deepseek_reasoning_and_tool_call_parsing():
+    from unittest.mock import AsyncMock, MagicMock
+
+    provider = DeepSeekProvider(api_key="mock-deepseek-key")
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+
+    mock_ds_json = {
+        "choices": [{
+            "message": {
+                "role": "assistant",
+                "content": "<think>Analyzing repository structure and dependencies</think>I will inspect the files.",
+                "reasoning_content": "DeepSeek R1 internal thought chain",
+                "tool_calls": [{
+                    "id": "call_inspect_1",
+                    "type": "function",
+                    "function": {
+                        "name": "grep_search",
+                        "arguments": '{"query": "def main"}'
+                    }
+                }]
+            },
+            "finish_reason": "tool_calls"
+        }],
+        "usage": {
+            "prompt_tokens": 120,
+            "completion_tokens": 80
+        }
+    }
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = mock_ds_json
+    mock_client.post.return_value = mock_resp
+
+    resp = await provider.generate_response(
+        messages=[{"role": "user", "parts": [{"text": "Search for main entrypoint"}]}],
+        tools=[{"name": "grep_search"}],
+        system_instruction="You are DeepSeek agent.",
+        model_name="deepseek-reasoner",
+        client=mock_client
+    )
+
+    assert resp.status_code == 200
+    assert "DeepSeek R1 internal thought chain" in resp.thought
+    assert "Analyzing repository structure" in resp.thought
+    assert "I will inspect the files." in resp.content
+    assert len(resp.tool_calls) == 1
+    assert resp.input_tokens == 120
+    assert resp.output_tokens == 80
+
+
+def test_deepseek_multi_round_tool_conversation():
+    provider = DeepSeekProvider(api_key="mock-key")
+    multi_round_history = [
+        {"role": "user", "parts": [{"text": "Hey"}]},
+        {"role": "model", "parts": [
+            {"thought": "Inspect workspace"},
+            {"functionCall": {"name": "list_dir", "args": {"subpath": "."}, "id": "call_1_list_dir"}},
+            {"functionCall": {"name": "run_command", "args": {"command": "git status"}, "id": "call_2_git"}}
+        ]},
+        {"role": "user", "parts": [
+            {"functionResponse": {"name": "list_dir", "id": "call_1_list_dir", "response": {"items": []}}},
+            {"functionResponse": {"name": "run_command", "id": "call_2_git", "response": {"stdout": "clean"}}}
+        ]}
+    ]
+
+    converted = provider._convert_messages(multi_round_history, system_instruction="System prompt")
+    assert len(converted) == 5
+    assert converted[0]["role"] == "system"
+    assert converted[1]["role"] == "user"
+    assert converted[1]["content"] == "Hey"
+    assert converted[2]["role"] == "assistant"
+    assert len(converted[2]["tool_calls"]) == 2
+    assert converted[2]["tool_calls"][0]["id"] == "call_1_list_dir"
+    assert converted[2]["tool_calls"][1]["id"] == "call_2_git"
+    assert converted[3]["role"] == "tool"
+    assert converted[3]["tool_call_id"] == "call_1_list_dir"
+    assert converted[4]["role"] == "tool"
+    assert converted[4]["tool_call_id"] == "call_2_git"
+
+
+def test_openai_multi_round_tool_conversation():
+    provider = OpenAIProvider(api_key="mock-key")
+    multi_round_history = [
+        {"role": "user", "parts": [{"text": "Hey"}]},
+        {"role": "model", "parts": [
+            {"thought": "Inspect workspace"},
+            {"functionCall": {"name": "list_dir", "args": {"subpath": "."}, "id": "call_1_list_dir"}},
+            {"functionCall": {"name": "run_command", "args": {"command": "git status"}, "id": "call_2_git"}}
+        ]},
+        {"role": "user", "parts": [
+            {"functionResponse": {"name": "list_dir", "id": "call_1_list_dir", "response": {"items": []}}},
+            {"functionResponse": {"name": "run_command", "id": "call_2_git", "response": {"stdout": "clean"}}}
+        ]}
+    ]
+
+    converted = provider._convert_messages(multi_round_history, system_instruction="System prompt")
+    assert len(converted) == 5
+    assert converted[0]["role"] == "system"
+    assert converted[1]["role"] == "user"
+    assert converted[1]["content"] == "Hey"
+    assert converted[2]["role"] == "assistant"
+    assert len(converted[2]["tool_calls"]) == 2
+    assert converted[2]["tool_calls"][0]["id"] == "call_1_list_dir"
+    assert converted[2]["tool_calls"][1]["id"] == "call_2_git"
+    assert converted[3]["role"] == "tool"
+    assert converted[3]["tool_call_id"] == "call_1_list_dir"
+    assert converted[4]["role"] == "tool"
+    assert converted[4]["tool_call_id"] == "call_2_git"
+
 
 
 

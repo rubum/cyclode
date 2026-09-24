@@ -7,25 +7,25 @@ import httpx
 from app.config import settings
 from app.agent.providers.base import BaseLLMProvider, ProviderResponse, ToolCallRequest, normalize_json_schema
 
-logger = logging.getLogger("cyclode.providers.openai")
+logger = logging.getLogger("cyclode.providers.deepseek")
 
 
-class OpenAIProvider(BaseLLMProvider):
-    provider_id: str = "openai"
+class DeepSeekProvider(BaseLLMProvider):
+    provider_id: str = "deepseek"
 
     def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
         self._api_key = api_key
         self._base_url = base_url
 
     def get_api_key(self) -> Optional[str]:
-        return self._api_key or settings.get_openai_api_key()
+        return self._api_key or settings.get_deepseek_api_key()
 
     def get_base_url(self) -> str:
-        return (self._base_url or settings.OPENAI_BASE_URL or "https://api.openai.com/v1").rstrip("/")
+        return (self._base_url or settings.DEEPSEEK_BASE_URL or "https://api.deepseek.com").rstrip("/")
 
     def _convert_tool_declarations(self, tools: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
         """
-        Translates standard function declarations into OpenAI format:
+        Translates standard function declarations into OpenAI/DeepSeek format:
         { "type": "function", "function": { "name": ..., "description": ..., "parameters": { ... } } }
         """
         if not tools:
@@ -55,13 +55,13 @@ class OpenAIProvider(BaseLLMProvider):
 
     def _convert_messages(self, messages: List[Dict[str, Any]], system_instruction: str) -> List[Dict[str, Any]]:
         """
-        Translates Cyclode/Gemini formatted parts into OpenAI chat completions messages.
-        Ensures strict compliance with OpenAI tool calling protocol:
+        Translates Cyclode/Gemini formatted parts into DeepSeek chat completions messages.
+        Ensures strict compliance with OpenAI/DeepSeek tool calling protocol:
         Assistant turn with tool_calls is immediately followed by role: 'tool' messages with matching tool_call_id.
         """
-        openai_msgs = []
+        converted_msgs = []
         if system_instruction:
-            openai_msgs.append({"role": "system", "content": system_instruction})
+            converted_msgs.append({"role": "system", "content": system_instruction})
 
         for m in messages:
             role = m.get("role", "user")
@@ -120,6 +120,7 @@ class OpenAIProvider(BaseLLMProvider):
                             "content": str(content_val)
                         })
                     elif "thought" in p and p["thought"]:
+                        # Chain-of-thought in assistant turns
                         pass
 
                 if role in ["model", "assistant"]:
@@ -131,14 +132,14 @@ class OpenAIProvider(BaseLLMProvider):
                     if tool_calls:
                         msg_obj["tool_calls"] = tool_calls
                     if msg_obj.get("content") is not None or "tool_calls" in msg_obj:
-                        openai_msgs.append(msg_obj)
+                        converted_msgs.append(msg_obj)
                 elif role == "user":
                     if tool_responses:
-                        openai_msgs.extend(tool_responses)
+                        converted_msgs.extend(tool_responses)
                     if text_parts:
-                        openai_msgs.append({"role": "user", "content": "\n".join(text_parts)})
+                        converted_msgs.append({"role": "user", "content": "\n".join(text_parts)})
             else:
-                openai_role = "assistant" if role in ["model", "assistant", "agent"] else "user"
+                agent_role = "assistant" if role in ["model", "assistant", "agent"] else "user"
                 content_str = m.get("content", "")
                 thought_str = m.get("thought", "")
                 full_text = ""
@@ -146,9 +147,9 @@ class OpenAIProvider(BaseLLMProvider):
                     full_text += f"<thought>{thought_str}</thought>\n"
                 full_text += content_str
                 if full_text.strip():
-                    openai_msgs.append({"role": openai_role, "content": full_text.strip()})
+                    converted_msgs.append({"role": agent_role, "content": full_text.strip()})
 
-        return openai_msgs
+        return converted_msgs
 
     async def generate_response(
         self,
@@ -165,27 +166,28 @@ class OpenAIProvider(BaseLLMProvider):
             return ProviderResponse(
                 status_code=401,
                 error_code=401,
-                error_message="OpenAI API Key is missing or unconfigured."
+                error_message="DeepSeek API Key is missing or unconfigured."
             )
 
         base_url = self.get_base_url()
-        openai_tools = self._convert_tool_declarations(tools)
-        openai_messages = self._convert_messages(messages, system_instruction)
+        ds_tools = self._convert_tool_declarations(tools)
+        ds_messages = self._convert_messages(messages, system_instruction)
 
-        # Normalize model
-        clean_model = model_name.replace("openai:", "").replace("custom:", "").strip() if model_name else "gpt-6-astra"
-        if clean_model in ["codex", "openai-codex"]:
-            clean_model = "gpt-4o"
+        # Normalize model identifier
+        clean_model = model_name.replace("deepseek:", "").strip() if model_name else "deepseek-flash"
+        if not clean_model:
+            clean_model = "deepseek-flash"
 
         payload: Dict[str, Any] = {
             "model": clean_model,
-            "messages": openai_messages,
+            "messages": ds_messages,
         }
-        if openai_tools:
-            payload["tools"] = openai_tools
+        if ds_tools:
+            payload["tools"] = ds_tools
             payload["tool_choice"] = "auto"
 
-        is_reasoning_model = any(sub in clean_model.lower() for sub in ["o1", "o3", "reasoning"])
+        # Reasoning models (e.g. DeepSeek-R1 / deepseek-reasoner) do not use custom temperature
+        is_reasoning_model = "reasoner" in clean_model.lower() or "r1" in clean_model.lower()
         if not is_reasoning_model:
             payload["temperature"] = temperature
 
@@ -224,7 +226,7 @@ class OpenAIProvider(BaseLLMProvider):
                 return ProviderResponse(
                     status_code=resp.status_code,
                     error_code=resp.status_code,
-                    error_message=f"OpenAI API Error: {err_msg}",
+                    error_message=f"DeepSeek API Error: {err_msg}",
                     raw_response=raw_resp
                 )
 
@@ -250,6 +252,11 @@ class OpenAIProvider(BaseLLMProvider):
                 th_match = content_text.split("<thought>")[1].split("</thought>")[0]
                 thoughts.append(th_match.strip())
                 content_text = content_text.replace(f"<thought>{th_match}</thought>", "").strip()
+
+            if "<think>" in content_text and "</think>" in content_text:
+                th_match = content_text.split("<think>")[1].split("</think>")[0]
+                thoughts.append(th_match.strip())
+                content_text = content_text.replace(f"<think>{th_match}</think>", "").strip()
 
             tool_calls = []
             for tc in msg.get("tool_calls", []):
@@ -287,7 +294,7 @@ class OpenAIProvider(BaseLLMProvider):
             return ProviderResponse(
                 status_code=500,
                 error_code=500,
-                error_message=f"OpenAI connection error: {str(e)}"
+                error_message=f"DeepSeek connection error: {str(e)}"
             )
         finally:
             if should_close:
@@ -303,16 +310,14 @@ class OpenAIProvider(BaseLLMProvider):
         api_key = self.get_api_key()
         if not api_key:
             return {
-                "error": "OpenAI API Key is missing or unconfigured.",
+                "error": "DeepSeek API Key is missing or unconfigured.",
                 "status_code": 401
             }
 
         candidate_models = list(dict.fromkeys([
             model_name,
-            "gpt-6-astra",
-            "gpt-4o",
-            "o3-mini",
-            "gpt-4o-mini"
+            "deepseek-flash",
+            "deepseek-chat"
         ]))
 
         base_url = self.get_base_url()
@@ -329,9 +334,7 @@ class OpenAIProvider(BaseLLMProvider):
         last_error = "Model response unavailable"
         try:
             for active_model in candidate_models:
-                clean_model = active_model.replace("openai:", "").replace("custom:", "").strip() if active_model else "gpt-6-astra"
-                if clean_model in ["codex", "openai-codex"]:
-                    clean_model = "gpt-4o-mini"
+                clean_model = active_model.replace("deepseek:", "").strip() if active_model else "deepseek-flash"
 
                 payload = {
                     "model": clean_model,
@@ -341,7 +344,7 @@ class OpenAIProvider(BaseLLMProvider):
                     ],
                     "response_format": {"type": "json_object"}
                 }
-                if not any(sub in clean_model for sub in ["o1", "o3"]):
+                if not ("reasoner" in clean_model.lower() or "r1" in clean_model.lower()):
                     payload["temperature"] = 0.2
 
                 try:

@@ -430,6 +430,7 @@ export interface ModelSettings {
   default_model: string;
   providers?: {
     gemini?: { model: string; configured: boolean };
+    deepseek?: { model: string; base_url?: string; configured: boolean };
     anthropic?: { model: string; configured: boolean };
     openai?: { model: string; base_url?: string; configured: boolean };
   };

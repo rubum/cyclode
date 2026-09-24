@@ -499,7 +499,7 @@ class AntigravityHarness:
             provider._api_key = prov_key
 
         if not prov_key:
-            provider_label = "Anthropic Claude" if provider.provider_id == "anthropic" else ("OpenAI / Codex" if provider.provider_id == "openai" else "Google Gemini")
+            provider_label = "DeepSeek AI" if provider.provider_id == "deepseek" else ("Anthropic Claude" if provider.provider_id == "anthropic" else ("OpenAI / Codex" if provider.provider_id == "openai" else "Google Gemini"))
             return {
                 "intent_category": "planning" if is_planning_query else ("app_building" if persona_name == "AppBuilder" else "qa_research"),
                 "objective": objective,
@@ -664,10 +664,11 @@ class AntigravityHarness:
         # 1. Pre-process secrets into Vault and mask them
         sanitized_prompt, extracted_creds = await VaultInterceptor.process_prompt(raw_prompt)
 
-        provider = get_provider_for_model(self.model_name)
+        effective_model = self.resolve_effective_model(self.model_name)
+        provider = get_provider_for_model(effective_model)
         provider_id = provider.provider_id
-        provider_label = "Anthropic Claude" if provider_id == "anthropic" else ("OpenAI / Codex" if provider_id == "openai" else "Google Gemini")
-        env_var_name = "ANTHROPIC_API_KEY" if provider_id == "anthropic" else ("OPENAI_API_KEY" if provider_id == "openai" else "GEMINI_API_KEY")
+        provider_label = "DeepSeek AI" if provider_id == "deepseek" else ("Anthropic Claude" if provider_id == "anthropic" else ("OpenAI / Codex" if provider_id == "openai" else "Google Gemini"))
+        env_var_name = "DEEPSEEK_API_KEY" if provider_id == "deepseek" else ("ANTHROPIC_API_KEY" if provider_id == "anthropic" else ("OPENAI_API_KEY" if provider_id == "openai" else "GEMINI_API_KEY"))
 
         custom_creds = integration_manager._custom_credentials.get(provider_id, {})
         api_key = (
@@ -1134,7 +1135,10 @@ class AntigravityHarness:
 
         effective_model = self.resolve_effective_model(self.model_name)
         provider = get_provider_for_model(effective_model)
-        if provider.provider_id == "anthropic":
+        if provider.provider_id == "deepseek":
+            model_candidates = [effective_model, "deepseek-flash", "deepseek-chat", "deepseek-reasoner"]
+            provider_label = "DeepSeek AI"
+        elif provider.provider_id == "anthropic":
             model_candidates = [effective_model, "claude-fable-5-1", "claude-3-7-sonnet", "claude-3-5-sonnet", "claude-3-5-haiku"]
             provider_label = "Anthropic Claude"
         elif provider.provider_id == "openai":
@@ -1779,19 +1783,19 @@ class AntigravityHarness:
                                     logger.debug(f"Semantic cache store notice: {cache_store_err}")
                             return {"status": "COMPLETED", "summary": final_agent_text[:120]}
 
-                        if provider_resp.raw_parts:
-                            model_parts = provider_resp.raw_parts
-                        else:
-                            model_parts = []
-                            if provider_resp.thought:
-                                model_parts.append({"thought": provider_resp.thought})
-                            if provider_resp.content:
-                                model_parts.append({"text": provider_resp.content})
-                            for tc in provider_resp.tool_calls:
-                                if tc.raw_part:
-                                    model_parts.append(tc.raw_part)
-                                else:
-                                    model_parts.append({"functionCall": {"name": tc.tool_name, "args": tc.tool_args, "id": tc.call_id}})
+                        model_parts = []
+                        if provider_resp.thought:
+                            model_parts.append({"thought": provider_resp.thought})
+                        if provider_resp.content:
+                            model_parts.append({"text": provider_resp.content})
+                        for tc in provider_resp.tool_calls:
+                            model_parts.append({
+                                "functionCall": {
+                                    "name": tc.tool_name,
+                                    "args": tc.tool_args,
+                                    "id": tc.call_id
+                                }
+                            })
 
                         contents.append({
                             "role": "model",
@@ -2278,7 +2282,8 @@ class AntigravityHarness:
                             response_parts.append({
                                 "functionResponse": {
                                     "name": fn_name,
-                                    "response": tool_result
+                                    "response": tool_result,
+                                    "id": call.get("id") or f"call_{fn_name}"
                                 }
                             })
 

@@ -33,6 +33,15 @@ class IntegrationRegistry:
                 "icon": "bot"
             },
             {
+                "id": "deepseek",
+                "name": "DeepSeek AI",
+                "description": "Powers deepseek-flash ultra-low latency agent loops and DeepSeek-R1 reasoning.",
+                "configured": bool(settings.get_deepseek_api_key()),
+                "auth_type": "API Key",
+                "skills": ["deepseek.chat_completions", "deepseek.reasoning_content"],
+                "icon": "zap"
+            },
+            {
                 "id": "openai",
                 "name": "OpenAI & Codex",
                 "description": "Powers GPT-4o, Codex coding workflows, and o1/o3-mini reasoning loops.",

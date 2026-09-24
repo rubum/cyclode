@@ -97,3 +97,38 @@ class BaseLLMProvider(ABC):
         words = len(text.split())
         chars = len(text)
         return max(1, int(max(words * 1.3, chars / 4)))
+
+
+def normalize_json_schema(schema: Any) -> Any:
+    """
+    Recursively converts Gemini-style uppercase types (STRING, OBJECT, ARRAY, INTEGER, BOOLEAN, NUMBER)
+    into standard RFC JSON Schema types (string, object, array, integer, boolean, number).
+    """
+    TYPE_MAP = {
+        "STRING": "string",
+        "OBJECT": "object",
+        "ARRAY": "array",
+        "INTEGER": "integer",
+        "BOOLEAN": "boolean",
+        "NUMBER": "number",
+    }
+    if isinstance(schema, dict):
+        normalized = {}
+        for k, v in schema.items():
+            if k == "type" and isinstance(v, str):
+                normalized[k] = TYPE_MAP.get(v.upper(), v.lower())
+            elif k == "properties" and isinstance(v, dict):
+                normalized[k] = {pk: normalize_json_schema(pv) for pk, pv in v.items()}
+            elif k == "items":
+                normalized[k] = normalize_json_schema(v)
+            elif isinstance(v, (dict, list)):
+                normalized[k] = normalize_json_schema(v)
+            else:
+                normalized[k] = v
+        # Standardize object properties
+        if normalized.get("type") == "object" and "properties" not in normalized:
+            normalized["properties"] = {}
+        return normalized
+    elif isinstance(schema, list):
+        return [normalize_json_schema(item) for item in schema]
+    return schema

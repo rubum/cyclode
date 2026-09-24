@@ -5,7 +5,7 @@ from typing import Dict, Any, List, Optional
 import httpx
 
 from app.config import settings
-from app.agent.providers.base import BaseLLMProvider, ProviderResponse, ToolCallRequest
+from app.agent.providers.base import BaseLLMProvider, ProviderResponse, ToolCallRequest, normalize_json_schema
 
 logger = logging.getLogger("cyclode.providers.claude")
 
@@ -40,11 +40,11 @@ class ClaudeProvider(BaseLLMProvider):
         for fn in raw_list:
             name = fn.get("name", "")
             desc = fn.get("description", "")
-            schema = fn.get("parameters") or fn.get("input_schema") or {"type": "object", "properties": {}}
+            raw_schema = fn.get("parameters") or fn.get("input_schema") or {"type": "object", "properties": {}}
             converted.append({
                 "name": name,
                 "description": desc,
-                "input_schema": schema
+                "input_schema": normalize_json_schema(raw_schema)
             })
         return converted
 

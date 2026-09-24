@@ -713,6 +713,13 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     }
   }, [task?.status]);
 
+  useEffect(() => {
+    if (task) {
+      if (task.persona) setSelectedPersona(task.persona);
+      if (task.model_name) setSelectedModel(task.model_name);
+    }
+  }, [task?.id, task?.persona, task?.model_name]);
+
   // Group task messages and logs into sequential conversational turns
   const turns = useMemo(() => {
     if (!task) return [];
@@ -1386,6 +1393,15 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
       models: [
         { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash (Agentic Workhorse)' },
         { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash (Sub-second Agentic)' },
+      ],
+    },
+    {
+      group: 'DeepSeek AI',
+      models: [
+        { id: 'deepseek-flash', label: 'DeepSeek-V4.1-Flash (552B MoE / 1M Context)' },
+        { id: 'deepseek-v4-pro', label: 'DeepSeek-V4-Pro (High Capacity Frontier)' },
+        { id: 'deepseek-chat', label: 'DeepSeek-V3 (General Agentic)' },
+        { id: 'deepseek-reasoner', label: 'DeepSeek-R1 (Hybrid CoT)' },
       ],
     },
     {
@@ -2861,6 +2877,47 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
           <form onSubmit={handleSubmit} className="flex flex-col space-y-2 relative z-20">
             {/* Repository Mention Autocomplete Menu */}
             {renderMentionMenu("bottom-full left-0 mb-2")}
+
+            {/* Active Task Selector Controls Bar: Persona & Model Pills */}
+            <div className="flex items-center justify-between gap-2 px-1 text-xs select-none">
+              <div className="flex items-center space-x-2 min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden py-0.5">
+                {/* Persona Selector Pill */}
+                <div className="flex items-center space-x-1.5 px-2 py-0.5 rounded-lg bg-onedark-surface/60 hover:bg-onedark-surface text-[11px] text-onedark-fg font-mono shadow-xs flex-shrink-0 transition-colors border border-onedark-borderSubtle">
+                  <Sparkles className="w-3 h-3 text-onedark-yellow flex-shrink-0" />
+                  <select
+                    value={selectedPersona}
+                    onChange={(e) => setSelectedPersona(e.target.value)}
+                    className="bg-transparent text-onedark-fg focus:outline-none cursor-pointer text-[11px] pr-1"
+                  >
+                    {personas.map((p) => (
+                      <option key={p.id} value={p.id} className="bg-onedark-darker text-onedark-fg">
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Model Selector Pill */}
+                <div className="flex items-center space-x-1.5 px-2 py-0.5 rounded-lg bg-onedark-surface/60 hover:bg-onedark-surface text-[11px] text-onedark-fg font-mono shadow-xs flex-shrink-0 transition-colors border border-onedark-borderSubtle">
+                  <Bot className="w-3 h-3 text-onedark-accent flex-shrink-0" />
+                  <select
+                    value={selectedModel}
+                    onChange={(e) => setSelectedModel(e.target.value)}
+                    className="bg-transparent text-onedark-fg focus:outline-none cursor-pointer text-[11px] pr-1"
+                  >
+                    {modelOptions.map((g) => (
+                      <optgroup key={g.group} label={g.group} className="bg-onedark-darker text-onedark-muted font-bold">
+                        {g.models.map((m) => (
+                          <option key={m.id} value={m.id} className="bg-onedark-darker text-onedark-fg">
+                            {m.label}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
 
             <div className="flex items-end space-x-2 bg-onedark-darker border border-onedark-border rounded-xl px-3.5 py-2 focus-within:border-onedark-accent/80 focus-within:ring-1 focus-within:ring-onedark-accent/20 transition-all shadow-inner min-h-[46px]">
               <div className="relative flex-1 min-h-[36px] max-h-[220px] flex items-center">

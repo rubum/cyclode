@@ -261,22 +261,26 @@ async def test_multi_turn_execution_openai(tmp_path):
 def test_adaptive_tiering_resolution():
     from app.config import settings
 
-    # 1. When model is explicitly requested by user (e.g. claude-3-7-sonnet)
+    # 1. When model is explicitly requested by user (e.g. claude-3-7-sonnet or deepseek-flash)
     harness_explicit = AntigravityHarness(model_name="claude-3-7-sonnet")
     assert harness_explicit.resolve_effective_model("qa_research") == "claude-3-7-sonnet"
     assert harness_explicit.resolve_effective_model("app_building") == "claude-3-7-sonnet"
 
-    # 2. When routing mode is adaptive and model is auto / empty
+    harness_ds = AntigravityHarness(model_name="deepseek-flash")
+    assert harness_ds.resolve_effective_model("qa_research") == "deepseek-flash"
+    assert harness_ds.resolve_effective_model("app_building") == "deepseek-flash"
+
+    # 2. When routing mode is adaptive with DeepSeek tiers
     harness_auto = AntigravityHarness(model_name="auto")
     settings.ANTIGRAVITY_ROUTING_MODE = "adaptive"
-    settings.ANTIGRAVITY_MINOR_MODEL = "gemini-3.7-flash"
-    settings.ANTIGRAVITY_MAJOR_MODEL = "gemini-3.8-flash"
+    settings.ANTIGRAVITY_MINOR_MODEL = "deepseek-flash"
+    settings.ANTIGRAVITY_MAJOR_MODEL = "deepseek-reasoner"
 
-    assert harness_auto.resolve_effective_model("qa_research") == "gemini-3.7-flash"
-    assert harness_auto.resolve_effective_model("app_building") == "gemini-3.8-flash"
-    assert harness_auto.resolve_effective_model("code_modification") == "gemini-3.8-flash"
-    assert harness_auto.resolve_effective_model("debugging") == "gemini-3.8-flash"
-    assert harness_auto.resolve_effective_model(None) == "gemini-3.8-flash"
+    assert harness_auto.resolve_effective_model("qa_research") == "deepseek-flash"
+    assert harness_auto.resolve_effective_model("app_building") == "deepseek-reasoner"
+    assert harness_auto.resolve_effective_model("code_modification") == "deepseek-reasoner"
+    assert harness_auto.resolve_effective_model("debugging") == "deepseek-reasoner"
+    assert harness_auto.resolve_effective_model(None) == "deepseek-reasoner"
 
     # 3. When routing mode is manual
     settings.ANTIGRAVITY_ROUTING_MODE = "manual"
@@ -288,4 +292,39 @@ def test_adaptive_tiering_resolution():
     settings.ANTIGRAVITY_MODEL = "gemini-3.7-flash"
     settings.ANTIGRAVITY_MAJOR_MODEL = "gemini-3.8-flash"
     settings.ANTIGRAVITY_MINOR_MODEL = "gemini-3.7-flash"
+
+
+@pytest.mark.asyncio
+async def test_dynamic_plan_generation_deepseek():
+    from app.agent.providers.deepseek import DeepSeekProvider
+
+    harness = AntigravityHarness(model_name="deepseek-flash")
+    mock_plan_json = {
+        "intent_category": "code_modification",
+        "objective": "Refactor async task worker pool",
+        "steps": [
+            {"id": "step-1", "title": "Inspect worker lifecycle", "status": "in_progress"},
+            {"id": "step-2", "title": "Implement task pool queue", "status": "pending"}
+        ]
+    }
+
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+
+    with patch.object(DeepSeekProvider, "get_api_key", return_value="mock-deepseek-key"), \
+         patch.object(DeepSeekProvider, "generate_structured_plan", new_callable=AsyncMock) as mock_gen_plan:
+        mock_gen_plan.return_value = {"result": mock_plan_json, "error": None}
+
+        plan = await harness._generate_dynamic_plan(
+            client=mock_client,
+            api_key="mock-key",
+            model_name="deepseek-flash",
+            title="Refactor Worker Pool",
+            prompt="Refactor async task worker pool with graceful shutdowns",
+            persona_name="SoftwareEngineer"
+        )
+
+        assert plan["intent_category"] == "code_modification"
+        assert "Refactor async task worker pool" in plan["objective"]
+        assert len(plan["steps"]) == 2
+
 
