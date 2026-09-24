@@ -2187,8 +2187,16 @@ async def inject_event_into_task(task_id: str, req: InjectEventRequest, db: Asyn
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
+    import json
     title = req.title or f"Injected {req.source.capitalize()} {req.event_type}"
-    desc = req.description or f"Manual event injection: `{req.event_type}`\n\nPayload: {req.payload}"
+    if req.description:
+        desc = req.description
+    else:
+        formatted_payload = json.dumps(req.payload, indent=2) if isinstance(req.payload, (dict, list)) else str(req.payload)
+        desc = (
+            f"**Event Trigger:** `{req.event_type}` (Source: `{req.source}`)\n\n"
+            f"```json\n{formatted_payload}\n```"
+        )
 
     # Save event in database
     ev = EventModel(

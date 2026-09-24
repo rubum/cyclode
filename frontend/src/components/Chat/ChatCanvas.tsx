@@ -321,6 +321,82 @@ const renderStyledMessageContent = (text?: string) => {
   });
 };
 
+interface SystemMessageCardProps {
+  content: string;
+  isStreaming?: boolean;
+  task?: Task | null;
+  onLinkClick?: (url: string, text: string) => void;
+}
+
+const SystemMessageCard: React.FC<SystemMessageCardProps> = ({
+  content,
+  isStreaming,
+  task,
+  onLinkClick,
+}) => {
+  const isAwakened =
+    content.includes('Session Awakened:') ||
+    content.includes('**Session Awakened:**') ||
+    content.includes('Event Trigger:') ||
+    content.includes('Inbound event');
+
+  if (!isAwakened) {
+    return (
+      <div className="my-2 px-3.5 py-2.5 rounded-xl bg-onedark-surface/40 border border-onedark-borderSubtle text-xs text-onedark-fg/90 flex items-start space-x-2.5 max-w-2xl shadow-xs">
+        <Sparkles className="w-4 h-4 text-onedark-accent shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0 text-left">
+          <MarkdownRenderer
+            content={maskSecretsInText(content)}
+            isStreaming={isStreaming}
+            onLinkClick={onLinkClick}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="my-3 w-full max-w-3xl rounded-xl border border-onedark-yellow/30 bg-onedark-darker/95 overflow-hidden shadow-xs text-left">
+      {/* Header Bar */}
+      <div className="px-3.5 py-2.5 bg-onedark-surface/60 border-b border-onedark-borderSubtle flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center space-x-2">
+          <div className="w-5 h-5 rounded-md bg-onedark-yellow/15 text-onedark-yellow border border-onedark-yellow/30 flex items-center justify-center shrink-0">
+            <Zap className="w-3 h-3 animate-pulse" />
+          </div>
+          <span className="text-[11px] font-mono font-bold tracking-wider uppercase text-onedark-yellow">
+            Session Awakened
+          </span>
+          <span className="w-1.5 h-1.5 rounded-full bg-onedark-yellow animate-ping shrink-0" />
+        </div>
+
+        <div className="flex items-center space-x-2 shrink-0">
+          {task?.repo_name && (
+            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10.5px] font-mono bg-onedark-surface text-onedark-fg border border-onedark-borderSubtle">
+              <FolderGit2 className="w-3 h-3 text-onedark-folder" />
+              <span>{task.repo_name}</span>
+            </span>
+          )}
+          {task?.commit_sha && (
+            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[10.5px] font-mono bg-onedark-surface text-onedark-muted border border-onedark-borderSubtle">
+              <GitCommit className="w-3 h-3 text-onedark-accent" />
+              <span>{task.commit_sha.slice(0, 7)}</span>
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Body */}
+      <div className="p-3.5 space-y-2.5 text-xs leading-relaxed text-onedark-fg">
+        <MarkdownRenderer
+          content={maskSecretsInText(content)}
+          isStreaming={isStreaming}
+          onLinkClick={onLinkClick}
+        />
+      </div>
+    </div>
+  );
+};
+
 interface InquiryCardProps {
   taskId: string;
   approval: any;
@@ -595,11 +671,19 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     return () => clearInterval(interval);
   }, [checkPreviewStatus]);
 
-  useEffect(() => {
-    if (task?.model_name) {
-      setSelectedModel(task.model_name);
+  const handleGlobalLinkClick = useCallback((url: string, text: string) => {
+    if (url.startsWith('plan://') || url === '#open-plan-doc' || url === 'action://open-plan-doc') {
+      if (onOpenPlan && task?.plan) {
+        onOpenPlan(task.id, task.plan);
+      } else if (onOpenPreview && task?.id) {
+        onOpenPreview(`plan://${task.id}`, 'Implementation Plan');
+      }
+      return;
     }
-  }, [task?.id, task?.model_name]);
+    if (onOpenPreview) {
+      onOpenPreview(url, text);
+    }
+  }, [onOpenPlan, onOpenPreview, task?.id, task?.plan]);
 
   const handleStartEditTitle = () => {
     if (!task) return;
@@ -1980,8 +2064,11 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                             </span>
                           )}
                         </div>
-                        <div className="px-4 py-2.5 rounded-2xl bg-onedark-surface/80 text-onedark-fgBright font-sans text-[13px] sm:text-[13.5px] leading-relaxed shadow-xs">
-                          <div className="whitespace-pre-wrap">{renderStyledMessageContent(turn.userMessage.content)}</div>
+                        <div className="px-4 py-2.5 rounded-2xl bg-onedark-surface/80 text-onedark-fgBright font-sans text-[13px] sm:text-[13.5px] leading-relaxed shadow-xs text-left max-w-full overflow-hidden">
+                          <MarkdownRenderer
+                            content={maskSecretsInText(turn.userMessage.content)}
+                            onLinkClick={handleGlobalLinkClick}
+                          />
                         </div>
                         {/* Hover Action Bar */}
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center space-x-1 pr-1">
@@ -2544,14 +2631,15 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   return (
                     <div
                       key={m.id}
-                      className={`flex items-start group ${
-                        m.sender === 'system' ? 'justify-center' : 'justify-start'
-                      }`}
+                      className="flex items-start group justify-start w-full"
                     >
                       {m.sender === 'system' ? (
-                        <div className="my-2 px-4 py-2.5 rounded-xl bg-onedark-surface/40 border border-onedark-border text-xs text-onedark-fg font-mono leading-relaxed max-w-2xl text-center">
-                          <MarkdownRenderer content={maskSecretsInText(m.content)} isStreaming={m.isStreaming} onLinkClick={handleMessageLinkClick} />
-                        </div>
+                        <SystemMessageCard
+                          content={m.content}
+                          isStreaming={m.isStreaming}
+                          task={task}
+                          onLinkClick={handleMessageLinkClick}
+                        />
                       ) : (
                         <div className="w-full flex flex-col items-start space-y-1.5">
                           <div className="flex items-center justify-between w-full px-0.5 text-[11px] font-mono text-onedark-muted">

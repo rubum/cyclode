@@ -46,6 +46,7 @@ class EventRouter:
         # 5. Check if an existing session/task or active PR listener exists
         existing_task_id = None
         custom_listener_persona = None
+        repo_listening_subscribed = False
 
         async with async_session_factory() as session:
             from app.db.models import TaskPRModel, RepositoryConfigModel
@@ -72,20 +73,26 @@ class EventRouter:
                         custom_listener_persona = pr_model.listener_persona
 
             # C. Check Repository-level Sentinel listener
-            if not existing_task_id and repo_name:
+            if repo_name:
                 stmt_repo = select(RepositoryConfigModel).where(
                     (RepositoryConfigModel.full_name == repo_name) | (RepositoryConfigModel.name == repo_name)
                 )
                 res_repo = await session.execute(stmt_repo)
                 repo_conf = res_repo.scalars().first()
                 if repo_conf and repo_conf.is_listening:
+                    sub_events = [e.strip() for e in (repo_conf.subscribed_events or "").split(",") if e.strip()]
+                    if not sub_events or event_type in sub_events or any(event_type.startswith(se.replace("*", "")) for se in sub_events):
+                        repo_listening_subscribed = True
                     if repo_conf.default_persona:
                         custom_listener_persona = repo_conf.default_persona
 
         if custom_listener_persona:
             persona = custom_listener_persona
 
-        # 6. Dispatch: Awaken existing task OR Spawn new task
+        # 6. Actionability Gate: Determine whether to dispatch an autonomous agent task
+        is_actionable = self._is_actionable_event(source, event_type, payload)
+        should_dispatch = bool(rule) or repo_listening_subscribed or (source in ["generic", "api", "sentry", "appsignal", "slack"]) or is_actionable
+
         is_awakening_event = (
             action == "awaken_session" or
             event_type in ["pull_request.synchronize", "issue_comment.created", "check_run.completed"] or
@@ -93,30 +100,37 @@ class EventRouter:
             event_type.startswith("pull_request_review_comment") or
             event_type in ["check_run", "check_run.completed"]
         )
-        if existing_task_id and is_awakening_event:
-            logger.info(f"Awakening existing task {existing_task_id} for session {session_key} (persona: {persona})")
-            task_id = await agent_pool.awaken_task(
-                task_id=existing_task_id,
-                event_id=event_id,
-                event_title=title,
-                event_description=description,
-                commit_sha=commit_sha
-            )
-            is_awakened = True
+
+        task_id = None
+        is_awakened = False
+
+        if should_dispatch and is_actionable:
+            if existing_task_id and is_awakening_event:
+                logger.info(f"Awakening existing task {existing_task_id} for session {session_key} (persona: {persona})")
+                task_id = await agent_pool.awaken_task(
+                    task_id=existing_task_id,
+                    event_id=event_id,
+                    event_title=title,
+                    event_description=description,
+                    commit_sha=commit_sha
+                )
+                is_awakened = True
+            else:
+                logger.info(f"Spawning new task for {source}:{event_type}, session: {session_key} (persona: {persona})")
+                task_id = await agent_pool.spawn_task(
+                    title=title,
+                    description=description,
+                    persona=persona,
+                    event_id=event_id,
+                    session_key=session_key,
+                    repo_name=repo_name,
+                    repo_url=repo_url,
+                    target_branch=branch,
+                    commit_sha=commit_sha
+                )
+                is_awakened = False
         else:
-            logger.info(f"Spawning new task for {source}:{event_type}, session: {session_key} (persona: {persona})")
-            task_id = await agent_pool.spawn_task(
-                title=title,
-                description=description,
-                persona=persona,
-                event_id=event_id,
-                session_key=session_key,
-                repo_name=repo_name,
-                repo_url=repo_url,
-                target_branch=branch,
-                commit_sha=commit_sha
-            )
-            is_awakened = False
+            logger.info(f"Recorded passive telemetry event for {source}:{event_type} (task spawning skipped)")
 
         # 7. Broadcast real-time event to connected frontend dashboards
         try:
@@ -250,6 +264,49 @@ class EventRouter:
 
         return session_key, repo_name, repo_url, branch, commit_sha
 
+    def _is_actionable_event(self, source: str, event_type: str, payload: Dict[str, Any]) -> bool:
+        """
+        Determines if an incoming event represents an actionable trigger requiring an autonomous agent task,
+        or passive telemetry (e.g. background CI sub-jobs, successful checks, status pings) that should only
+        be logged in the events table.
+        """
+        if source != "github":
+            return True
+
+        # Pure background noise events
+        if event_type in ["workflow_job", "status", "ping", "star", "fork", "watch", "deployment", "deployment_status"]:
+            return False
+
+        # CI Checks / Check Suites / Workflow Runs: Only actionable if failure or timeout occurred
+        if event_type in ["check_run", "check_run.completed", "check_suite", "check_suite.completed", "workflow_run", "workflow_run.completed"]:
+            check_obj = payload.get("check_run", {}) or payload.get("check_suite", {}) or payload.get("workflow_run", {}) or {}
+            conclusion = check_obj.get("conclusion") or payload.get("conclusion") or payload.get("state")
+            action = payload.get("action")
+            if action in ["requested", "in_progress", "queued"]:
+                return False
+            return conclusion in ["failure", "timed_out", "action_required"]
+
+        # PR Reviews: Only actionable if review requested changes or has actionable comments
+        if event_type.startswith("pull_request_review") and not event_type.startswith("pull_request_review_comment"):
+            action = payload.get("action")
+            review = payload.get("review", {})
+            state = review.get("state", "").lower()
+            return action == "submitted" and (state in ["changes_requested", "commented"] or bool(review.get("body")))
+
+        if event_type.startswith("pull_request"):
+            action = payload.get("action")
+            return action in ["opened", "reopened", "synchronize", None]
+
+        if event_type.startswith("issues"):
+            action = payload.get("action")
+            return action in ["opened", "reopened", None]
+
+        if event_type.startswith("issue_comment") or event_type.startswith("pull_request_review_comment"):
+            action = payload.get("action")
+            return action in ["created", None]
+
+        return True
+
     async def _find_matching_rule(
         self,
         source: str,
@@ -325,16 +382,18 @@ class EventRouter:
                 check_name = check_run.get("name") or workflow_run.get("name") or payload.get("context", "CI Test Suite")
                 conclusion = check_run.get("conclusion") or workflow_run.get("conclusion") or payload.get("state", "failure")
                 html_url = check_run.get("html_url") or workflow_run.get("html_url") or payload.get("target_url", "")
-                output_summary = check_run.get("output", {}).get("summary") or check_run.get("output", {}).get("text") or payload.get("description", "CI build failed.")
+                output_summary = check_run.get("output", {}).get("summary") or check_run.get("output", {}).get("text") or payload.get("description") or f"Check '{check_name}' finished with conclusion: {conclusion}."
                 
-                title = f"CI Failure: {check_name} ({conclusion})"
+                is_failure = conclusion in ["failure", "timed_out", "action_required"]
+                status_header = "GitHub CI/CD Failure Detected" if is_failure else f"GitHub CI/CD Status: {str(conclusion).capitalize()}"
+                title = f"CI {'Failure' if is_failure else 'Status'}: {check_name} ({conclusion})"
                 description = (
-                    f"**GitHub CI/CD Failure Detected**\n\n"
+                    f"**{status_header}**\n\n"
                     f"- **Check Name:** `{check_name}`\n"
                     f"- **Conclusion:** `{conclusion}`\n"
                     f"- **Details URL:** {html_url}\n\n"
-                    f"**Failure Summary:**\n```\n{output_summary}\n```\n\n"
-                    f"Investigate failure logs, reproduce in isolated sandbox, and draft fix."
+                    f"**Check Summary:**\n```\n{output_summary}\n```\n\n"
+                    f"{'Investigate failure logs, reproduce in isolated sandbox, and draft fix.' if is_failure else 'Automated CI status check recorded.'}"
                 )
                 persona = rule.persona if rule else "SoftwareEngineer"
                 action = "awaken_session"
@@ -370,8 +429,10 @@ class EventRouter:
             return title, description, persona, action
 
         # Default fallback
+        import json
         title = payload.get("title") or f"{source.capitalize()} Event: {event_type}"
-        description = payload.get("description") or str(payload)
+        formatted_payload = json.dumps(payload, indent=2) if isinstance(payload, (dict, list)) else str(payload)
+        description = payload.get("description") or f"Inbound `{source}` `{event_type}` event.\n\n```json\n{formatted_payload}\n```"
         persona = rule.persona if rule else (payload.get("persona") or "IssueResolver")
         return title, description, persona, action
 

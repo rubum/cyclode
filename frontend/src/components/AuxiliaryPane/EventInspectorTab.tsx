@@ -277,7 +277,7 @@ export const EventInspectorTab: React.FC<EventInspectorTabProps> = ({ task }) =>
           >
             <div className="flex items-center space-x-1.5">
               <ShieldCheck className="w-3.5 h-3.5 text-onedark-green" />
-              <span>Scorecard {evaluation ? `(${evaluation.score}%)` : ''}</span>
+              <span>Scorecard {typeof evaluation?.score === 'number' ? `(${evaluation.score}%)` : ''}</span>
             </div>
           </button>
         </div>
@@ -496,13 +496,40 @@ export const EventInspectorTab: React.FC<EventInspectorTabProps> = ({ task }) =>
                             </span>
                           )}
                           <div className="flex flex-col">
-                            <span className="text-xs font-semibold text-onedark-fgBright flex items-center space-x-1.5">
+                            <span className="text-xs font-semibold text-onedark-fgBright flex items-center space-x-1.5 flex-wrap gap-1">
                               <span>{evt.title || `${evt.source}:${evt.event_type}`}</span>
                               <span className={`text-[9px] uppercase px-1.5 py-0.2 rounded font-bold ${
                                 isInbound ? 'bg-onedark-surface text-onedark-accent' : 'bg-onedark-green/20 text-onedark-green'
                               }`}>
                                 {evt.kind}
                               </span>
+                              {(() => {
+                                const payload = evt.payload || {};
+                                const conclusion = payload.check_run?.conclusion || payload.workflow_run?.conclusion || payload.check_suite?.conclusion || payload.conclusion;
+                                if (conclusion) {
+                                  const isFail = conclusion === 'failure' || conclusion === 'timed_out';
+                                  const isPass = conclusion === 'success';
+                                  return (
+                                    <span className={`text-[9px] uppercase px-1.5 py-0.2 rounded font-mono font-semibold border ${
+                                      isFail
+                                        ? 'bg-onedark-red/15 text-onedark-red border-onedark-red/30'
+                                        : isPass
+                                        ? 'bg-onedark-green/15 text-onedark-green border-onedark-green/30'
+                                        : 'bg-onedark-surface text-onedark-muted border-onedark-borderSubtle'
+                                    }`}>
+                                      {conclusion}
+                                    </span>
+                                  );
+                                }
+                                if (payload.action) {
+                                  return (
+                                    <span className="text-[9px] uppercase px-1.5 py-0.2 rounded font-mono font-semibold bg-onedark-surface text-onedark-fg/80 border border-onedark-borderSubtle">
+                                      {payload.action}
+                                    </span>
+                                  );
+                                }
+                                return null;
+                              })()}
                             </span>
                             <span className="text-[10px] text-onedark-muted">
                               {evt.timestamp ? new Date(evt.timestamp).toLocaleTimeString() : 'Just now'} • {evt.source}
