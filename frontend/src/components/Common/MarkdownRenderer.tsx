@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Copy, Check, Info, AlertTriangle, AlertCircle, Sparkles, Flame, ChevronRight, ChevronDown, Compass, ArrowRight, Maximize2, Minimize2 } from 'lucide-react';
+import { Copy, Check, Info, AlertTriangle, AlertCircle, Sparkles, Flame, ChevronRight, ChevronDown, Compass, ArrowRight, Maximize2, Minimize2, ArrowLeftRight } from 'lucide-react';
 import katex from 'katex';
 import { highlightCode, resolveLanguage, escapeHtml } from '../../utils/syntaxHighlighter';
 
@@ -142,6 +142,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
   const [collapsedCodeBlocks, setCollapsedCodeBlocks] = useState<Record<number, boolean>>({});
   const [fullHeightCodeBlocks, setFullHeightCodeBlocks] = useState<Record<number, boolean>>({});
+  const [fullWidthCodeBlocks, setFullWidthCodeBlocks] = useState<Record<number, boolean>>({});
 
   const toggleCodeBlock = (idx: number) => {
     setCollapsedCodeBlocks((prev) => ({ ...prev, [idx]: !prev[idx] }));
@@ -149,6 +150,10 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
   const toggleFullHeight = (idx: number) => {
     setFullHeightCodeBlocks((prev) => ({ ...prev, [idx]: !prev[idx] }));
+  };
+
+  const toggleFullWidth = (idx: number) => {
+    setFullWidthCodeBlocks((prev) => ({ ...prev, [idx]: !prev[idx] }));
   };
 
   return (
@@ -164,21 +169,45 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
           const code = codeLines.join('\n');
           const isCollapsed = !!collapsedCodeBlocks[index];
           const isFullHeight = !!fullHeightCodeBlocks[index];
+          const isFullWidth = !!fullWidthCodeBlocks[index];
           const isLongCode = codeLines.length > 15;
 
           return (
-            <div key={index} className="my-3 rounded-xl bg-onedark-darker/90 border border-onedark-borderSubtle overflow-hidden shadow-xs group/code text-left">
+            <div
+              key={index}
+              className={`my-3 rounded-xl bg-onedark-darker/90 border border-onedark-borderSubtle overflow-hidden shadow-xs group/code text-left transition-all ${
+                isFullWidth ? 'w-full !max-w-none' : 'w-full'
+              }`}
+            >
               <div className="flex items-center justify-between px-3.5 py-1.5 bg-onedark-surface/50 border-b border-onedark-borderSubtle/60 text-[11px] text-onedark-muted font-mono select-none flex-wrap gap-1">
                 <div className="flex items-center space-x-2">
                   <span className="text-onedark-accent font-semibold uppercase tracking-wider text-[10.5px]">{language || 'code'}</span>
                   <span className="text-[10px] text-onedark-muted/70">({codeLines.length} line{codeLines.length > 1 ? 's' : ''})</span>
                 </div>
                 <div className="flex items-center space-x-1.5">
+                  <button
+                    type="button"
+                    onClick={() => toggleFullWidth(index)}
+                    className={`flex items-center space-x-1 transition-colors px-2 py-0.5 rounded text-[10.5px] cursor-pointer ${
+                      isFullWidth
+                        ? 'bg-onedark-accent/20 text-onedark-accent font-semibold'
+                        : 'hover:text-onedark-fgBright hover:bg-onedark-surface text-onedark-muted'
+                    }`}
+                    title={isFullWidth ? 'Restore standard width' : 'Expand to full width'}
+                  >
+                    <ArrowLeftRight className="w-3 h-3" />
+                    <span>{isFullWidth ? 'Standard Width' : 'Full Width'}</span>
+                  </button>
+
                   {isLongCode && !isCollapsed && (
                     <button
                       type="button"
                       onClick={() => toggleFullHeight(index)}
-                      className="flex items-center space-x-1 hover:text-onedark-fgBright transition-colors px-2 py-0.5 rounded hover:bg-onedark-surface text-[10.5px] text-onedark-muted cursor-pointer"
+                      className={`flex items-center space-x-1 transition-colors px-2 py-0.5 rounded text-[10.5px] cursor-pointer ${
+                        isFullHeight
+                          ? 'bg-onedark-accent/20 text-onedark-accent font-semibold'
+                          : 'hover:text-onedark-fgBright hover:bg-onedark-surface text-onedark-muted'
+                      }`}
                       title={isFullHeight ? 'Constrain height to scrollable window' : 'Expand to full height'}
                     >
                       {isFullHeight ? (

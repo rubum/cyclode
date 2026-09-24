@@ -2051,7 +2051,14 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                         </div>
                       </div>
                     ) : (
-                      <div className={`relative ${userMsgMaxWidth} flex flex-col items-end space-y-1`}>
+                      <div className={`relative ${
+                        (turn.userMessage.content.startsWith('Inbound') ||
+                         turn.userMessage.content.includes('```') ||
+                         turn.userMessage.content.includes('pull_request') ||
+                         turn.userMessage.content.includes('Event Trigger'))
+                          ? 'w-full max-w-full items-start'
+                          : `${userMsgMaxWidth} items-end`
+                      } flex flex-col space-y-1`}>
                         <div className="flex items-center space-x-2 mb-0.5 pr-1 text-[11px] font-mono text-onedark-muted">
                           {turn.userMessage.isOptimistic ? (
                             <span className="px-2 py-0.5 rounded-full bg-onedark-accent/10 text-onedark-accent flex items-center space-x-1">
@@ -2064,7 +2071,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                             </span>
                           )}
                         </div>
-                        <div className="px-4 py-2.5 rounded-2xl bg-onedark-surface/80 text-onedark-fgBright font-sans text-[13px] sm:text-[13.5px] leading-relaxed shadow-xs text-left max-w-full overflow-hidden">
+                        <div className="px-4 py-2.5 rounded-2xl bg-onedark-surface/80 text-onedark-fgBright font-sans text-[13px] sm:text-[13.5px] leading-relaxed shadow-xs text-left w-full max-w-full overflow-hidden">
                           <MarkdownRenderer
                             content={maskSecretsInText(turn.userMessage.content)}
                             onLinkClick={handleGlobalLinkClick}
