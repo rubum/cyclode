@@ -277,6 +277,63 @@ const maskSecretsInText = (text?: string): string => {
     .replace(/(appsignal_[A-Za-z0-9_-]{4})[A-Za-z0-9_-]+/g, '$1••••••••');
 };
 
+interface ReasoningProcessContainerProps {
+  thoughts: Array<{ id: string; thought: string; created_at?: string; tokens?: number; isStreaming?: boolean }>;
+  isStreamingActive: boolean;
+}
+
+const ReasoningProcessContainer: React.FC<ReasoningProcessContainerProps> = ({
+  thoughts,
+  isStreamingActive,
+}) => {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const isUserScrolledUpRef = useRef(false);
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 35;
+    isUserScrolledUpRef.current = !isAtBottom;
+  }, []);
+
+  // Auto-scroll to bottom on thoughts updates if user hasn't scrolled away
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || isUserScrolledUpRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [thoughts]);
+
+  // Reset scroll lock when streaming starts or resumes
+  useEffect(() => {
+    if (isStreamingActive) {
+      isUserScrolledUpRef.current = false;
+      const el = scrollRef.current;
+      if (el) {
+        el.scrollTop = el.scrollHeight;
+      }
+    }
+  }, [isStreamingActive]);
+
+  return (
+    <div
+      ref={scrollRef}
+      onScroll={handleScroll}
+      className="p-3.5 border-t border-transparent space-y-2 text-xs text-onedark-fg font-mono leading-relaxed bg-onedark-darker/90 max-h-80 overflow-y-auto [scrollbar-width:thin] scroll-smooth"
+    >
+      {thoughts.map((m, idx) => (
+        <div key={m.id || idx} className="pl-3 border-l-2 border-onedark-accent/40 py-0.5">
+          <div className="whitespace-pre-wrap">
+            {m.thought}
+            {m.isStreaming && (
+              <span className="inline-block w-1.5 h-3.5 ml-1 bg-onedark-accent animate-pulse align-middle" />
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 const renderHighlightedInputText = (text: string) => {
   if (!text) return null;
   const mentionRegex = /(@[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)?)/g;
@@ -2343,18 +2400,10 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                     </button>
 
                     {isTurnOpen && (
-                      <div className="p-3.5 border-t border-transparent space-y-2 text-xs text-onedark-fg font-mono leading-relaxed bg-onedark-darker/90 max-h-80 overflow-y-auto">
-                        {turn.thoughts.map((m, idx) => (
-                          <div key={m.id || idx} className="pl-3 border-l-2 border-onedark-accent/40 py-0.5">
-                            <div className="whitespace-pre-wrap">
-                              {m.thought}
-                              {m.isStreaming && (
-                                <span className="inline-block w-1.5 h-3.5 ml-1 bg-onedark-accent animate-pulse align-middle" />
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
+                      <ReasoningProcessContainer 
+                        thoughts={turn.thoughts} 
+                        isStreamingActive={Boolean(isTurnRunning && turn.isLatest && turn.thoughts.some((t) => t.isStreaming))} 
+                      />
                     )}
                   </div>
                 )}
@@ -2487,6 +2536,73 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                           </span>
                         </div>
                       </div>
+
+                      {/* Collapsed State: Current / Latest Action Strip */}
+                      {!isActOpen && (turn.logs.length > 0 || (isTurnRunning && turn.isLatest && !!task?.active_tool)) && (() => {
+                        const activeTaskTool = (isTurnRunning && turn.isLatest && task?.active_tool && !turn.logs.some((l) => l.isRunning)) ? task.active_tool : null;
+                        const targetLog = activeTaskTool ? null : turn.logs[turn.logs.length - 1];
+                        if (!activeTaskTool && !targetLog) return null;
+
+                        const toolName = activeTaskTool ? activeTaskTool.tool_name : targetLog!.tool_name;
+                        const toolInput = activeTaskTool ? activeTaskTool.tool_input : targetLog!.tool_input;
+                        const isRunning = activeTaskTool ? true : Boolean(targetLog!.isRunning);
+                        const actionInfo = getToolActionInfo(toolName, toolInput, isRunning);
+                        const ActionIcon = actionInfo.icon;
+
+                        return (
+                          <div
+                            onClick={() => setUserToggledActivities((prev) => ({ ...prev, [turn.id]: true }))}
+                            className="px-3.5 py-2 border-t border-white/[0.04] bg-onedark-darker/60 hover:bg-onedark-darker/80 transition-colors flex items-center justify-between text-xs font-mono cursor-pointer group/peek"
+                          >
+                            <div className="flex items-center space-x-2.5 min-w-0 pr-2">
+                              <div className={`p-1 rounded ${actionInfo.badgeBg} flex items-center justify-center flex-shrink-0`}>
+                                {isRunning ? (
+                                  <RefreshCw className="w-3 h-3 animate-spin text-onedark-accent" />
+                                ) : (
+                                  <ActionIcon className={`w-3.5 h-3.5 ${actionInfo.colorClass}`} />
+                                )}
+                              </div>
+                              <div className="truncate flex items-center space-x-1.5 text-xs">
+                                <span className="text-[10px] uppercase font-bold text-onedark-muted tracking-wider group-hover/peek:text-onedark-accent transition-colors">
+                                  {isRunning ? 'Active' : 'Latest'}:
+                                </span>
+                                <span className={`font-semibold ${actionInfo.colorClass}`}>
+                                  {actionInfo.verb}
+                                </span>
+                                <span className="text-onedark-fgBright font-mono truncate">
+                                  {actionInfo.target}
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center space-x-2 flex-shrink-0 text-[10.5px]">
+                              {isRunning ? (
+                                <span className="px-1.5 py-0.5 rounded bg-onedark-accent/20 text-onedark-accent animate-pulse font-medium">
+                                  running...
+                                </span>
+                              ) : targetLog ? (
+                                <>
+                                  <span className="font-mono text-onedark-muted/70 hidden sm:inline">
+                                    {targetLog.duration_ms < 1000 ? `${targetLog.duration_ms}ms` : `${(targetLog.duration_ms / 1000).toFixed(1)}s`}
+                                  </span>
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono ${
+                                      targetLog.exit_code === 0
+                                        ? 'bg-onedark-green/10 text-onedark-green'
+                                        : 'bg-onedark-red/10 text-onedark-red'
+                                    }`}
+                                  >
+                                    exit {targetLog.exit_code}
+                                  </span>
+                                </>
+                              ) : null}
+                              <span className="text-onedark-muted/60 group-hover/peek:text-onedark-fg transition-colors">
+                                <ChevronRight className="w-3 h-3" />
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       {/* Inline Action Items Stream */}
                       {isActOpen && (
