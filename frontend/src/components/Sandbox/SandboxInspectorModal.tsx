@@ -21,7 +21,9 @@ import {
   Shield,
   RotateCcw,
   Lock,
-  Database
+  Database,
+  Globe,
+  ExternalLink
 } from 'lucide-react';
 import { Task } from '../../types';
 
@@ -59,6 +61,54 @@ interface SandboxRecentLog {
   duration_ms: number;
   created_at: string | null;
   tool_input: Record<string, any>;
+  execution_plane?: string;
+  execution_target?: string;
+}
+
+interface SandboxContainerTelemetry {
+  active: boolean;
+  engine: string;
+  server_version?: string;
+  container_name?: string | null;
+  image?: string;
+  status: string;
+  cpu_limit?: string;
+  memory_limit?: string;
+  pids_limit?: number;
+  no_new_privileges?: boolean;
+  cap_drop?: string[];
+  read_only_rootfs?: boolean;
+  workspace_mount?: string;
+}
+
+interface SandboxArtifactManifest {
+  artifact_id: string;
+  name: string;
+  artifact_type: string;
+  version: string;
+  tags: string[];
+  digest: string;
+  size_bytes: number;
+  entry_point?: string;
+  metadata?: Record<string, any>;
+}
+
+interface SandboxDeploymentRecord {
+  deployment_id: string;
+  artifact_id: string;
+  target: string;
+  status: string;
+  endpoint_url?: string | null;
+  container_id?: string | null;
+  ports?: Record<string, number>;
+  error_message?: string | null;
+}
+
+interface SandboxArtifactsTelemetry {
+  manifests: SandboxArtifactManifest[];
+  deployments: SandboxDeploymentRecord[];
+  total_packaged: number;
+  total_active_deployments: number;
 }
 
 interface SandboxCowLayers {
@@ -100,6 +150,8 @@ interface SandboxResources {
   };
   cow_layers?: SandboxCowLayers;
   jail?: SandboxJail;
+  container?: SandboxContainerTelemetry;
+  artifacts?: SandboxArtifactsTelemetry;
   limits: {
     command_timeout_seconds: number;
     git_clone_timeout_seconds: number;
@@ -137,6 +189,7 @@ interface SandboxInfo {
     isolation: string;
     lifecycle: string;
     timeout_seconds: number;
+    container_engine?: string;
   };
 }
 
@@ -144,6 +197,60 @@ interface SandboxInspectorModalProps {
   task: Task;
   onClose: () => void;
 }
+
+const getExecutionPlaneBadge = (plane?: string, target?: string) => {
+  switch (plane) {
+    case 'container':
+      return {
+        label: 'Container',
+        detail: target || 'OCI Sandbox',
+        className: 'text-sky-400 bg-sky-500/10 border-sky-500/25',
+        icon: Box
+      };
+    case 'host_cow':
+      return {
+        label: 'Host CoW',
+        detail: target || 'APFS Tree',
+        className: 'text-onedark-purple bg-onedark-purple/10 border-onedark-purple/25',
+        icon: Layers
+      };
+    case 'rust_ast':
+      return {
+        label: 'Rust AST',
+        detail: target || 'Search Bridge',
+        className: 'text-amber-400 bg-amber-500/10 border-amber-500/25',
+        icon: Code2
+      };
+    case 'web_gateway':
+      return {
+        label: 'Web Intel',
+        detail: target || 'Research Gateway',
+        className: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/25',
+        icon: Globe
+      };
+    case 'saas_vault':
+      return {
+        label: 'SaaS Vault',
+        detail: target || 'Cloud Integration',
+        className: 'text-sky-300 bg-sky-400/10 border-sky-400/25',
+        icon: ShieldCheck
+      };
+    case 'review_cascade':
+      return {
+        label: 'Review Cascade',
+        detail: target || 'Adversarial Probe',
+        className: 'text-rose-400 bg-rose-500/10 border-rose-500/25',
+        icon: Shield
+      };
+    default:
+      return {
+        label: 'Host Workspace',
+        detail: target || 'Local',
+        className: 'text-onedark-muted bg-onedark-darker border-onedark-border',
+        icon: Terminal
+      };
+  }
+};
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -424,9 +531,28 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
               </div>
             </div>
 
-            <div className="flex items-center space-x-1.5 text-[10.5px] text-onedark-green bg-onedark-green/10 border border-onedark-green/20 px-2.5 py-0.5 rounded-full flex-shrink-0">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <span>Filesystem Jailed</span>
+            <div className="flex items-center space-x-2 flex-shrink-0">
+              {data?.resources?.container?.active ? (
+                <div className="flex items-center space-x-1.5 text-[10.5px] text-sky-400 bg-sky-500/10 border border-sky-500/20 px-2.5 py-0.5 rounded-full">
+                  <Box className="w-3.5 h-3.5 text-sky-400" />
+                  <span>Container: {data.resources.container.engine.toUpperCase()} {data.resources.container.server_version ? `v${data.resources.container.server_version}` : ''}</span>
+                </div>
+              ) : data?.resources?.container?.status === 'READY' ? (
+                <div className="flex items-center space-x-1.5 text-[10.5px] text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded-full">
+                  <Box className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Daemon Standby ({data.resources.container.engine})</span>
+                </div>
+              ) : (
+                <div className="flex items-center space-x-1.5 text-[10.5px] text-onedark-purple bg-onedark-purple/10 border border-onedark-purple/20 px-2.5 py-0.5 rounded-full">
+                  <Layers className="w-3.5 h-3.5 text-onedark-purple" />
+                  <span>Host CoW Mode</span>
+                </div>
+              )}
+
+              <div className="flex items-center space-x-1.5 text-[10.5px] text-onedark-green bg-onedark-green/10 border border-onedark-green/20 px-2.5 py-0.5 rounded-full">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>Filesystem Jailed</span>
+              </div>
             </div>
           </div>
 
@@ -650,6 +776,201 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
                   </div>
                 </div>
               </div>
+
+              {/* OCI Container Runtime & Compute Plane Card */}
+              <div className="p-3.5 rounded-xl bg-onedark-surface/40 border border-onedark-borderSubtle space-y-3 font-mono">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center space-x-2 text-xs font-semibold text-onedark-fgBright font-sans">
+                    <Box className="w-4 h-4 text-sky-400" />
+                    <span>OCI Container Runtime & Compute Plane</span>
+                  </div>
+                  <div className="flex items-center space-x-2 text-[10.5px]">
+                    <span className={`px-2 py-0.5 rounded-full border flex items-center space-x-1 font-semibold ${
+                      data.resources?.container?.active
+                        ? 'text-sky-400 bg-sky-500/10 border-sky-500/20'
+                        : data.resources?.container?.status === 'READY'
+                        ? 'text-amber-400 bg-amber-500/10 border-amber-500/20'
+                        : 'text-onedark-muted bg-onedark-darker border-onedark-border'
+                    }`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${data.resources?.container?.active ? 'bg-sky-400' : 'bg-onedark-muted'}`} />
+                      <span>
+                        {data.resources?.container?.active
+                          ? `Active Container (${data.resources.container.engine})`
+                          : data.resources?.container?.status === 'READY'
+                          ? `Daemon Standby (${data.resources.container.engine})`
+                          : 'Host Subprocess Fallback'}
+                      </span>
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 text-xs">
+                  {/* Engine & Version */}
+                  <div className="p-2.5 rounded-lg bg-onedark-darker/70 border border-onedark-borderSubtle space-y-1">
+                    <div className="flex items-center justify-between text-[10px] text-onedark-muted uppercase font-bold tracking-wider">
+                      <span>Engine Runtime</span>
+                      <span className="text-[9px] text-sky-400 bg-sky-400/10 px-1 py-0.2 rounded font-mono">
+                        {data.resources?.container?.engine || 'None'}
+                      </span>
+                    </div>
+                    <div className="text-xs font-bold text-onedark-fgBright truncate">
+                      {data.resources?.container?.server_version
+                        ? `v${data.resources.container.server_version}`
+                        : data.resources?.container?.active
+                        ? 'Connected'
+                        : 'Host Native'}
+                    </div>
+                    <div className="text-[10px] text-onedark-muted truncate">
+                      {data.resources?.container?.workspace_mount
+                        ? `Mount: ${data.resources.container.workspace_mount}`
+                        : 'Standard Jailer Subprocess'}
+                    </div>
+                  </div>
+
+                  {/* Container ID */}
+                  <div className="p-2.5 rounded-lg bg-onedark-darker/70 border border-onedark-borderSubtle space-y-1">
+                    <div className="flex items-center justify-between text-[10px] text-onedark-muted uppercase font-bold tracking-wider">
+                      <span>Container Name</span>
+                      {data.resources?.container?.container_name && (
+                        <button
+                          onClick={() => handleCopy(data.resources?.container?.container_name || '', 'card_cname')}
+                          className="text-onedark-muted hover:text-onedark-fgBright p-0.5 transition-colors cursor-pointer"
+                          title="Copy Container Name"
+                        >
+                          {copiedKey === 'card_cname' ? <Check className="w-3 h-3 text-onedark-green" /> : <Copy className="w-3 h-3" />}
+                        </button>
+                      )}
+                    </div>
+                    <div
+                      className="text-xs font-bold text-onedark-fgBright truncate font-mono"
+                      title={data.resources?.container?.container_name || 'Ephemeral / None'}
+                    >
+                      {data.resources?.container?.container_name || 'Ephemeral on-demand'}
+                    </div>
+                    <div className="text-[10px] text-onedark-muted">
+                      Isolated companion container instance
+                    </div>
+                  </div>
+
+                  {/* Resolved Base Image */}
+                  <div className="p-2.5 rounded-lg bg-onedark-darker/70 border border-onedark-borderSubtle space-y-1">
+                    <div className="flex items-center justify-between text-[10px] text-onedark-muted uppercase font-bold tracking-wider">
+                      <span>Base Image</span>
+                      <span className="text-[9px] text-onedark-green bg-onedark-green/10 px-1 py-0.2 rounded font-mono">
+                        Resolved
+                      </span>
+                    </div>
+                    <div
+                      className="text-xs font-bold text-onedark-fgBright truncate font-mono"
+                      title={data.resources?.container?.image || 'debian:bookworm-slim'}
+                    >
+                      {data.resources?.container?.image || 'debian:bookworm-slim'}
+                    </div>
+                    <div className="text-[10px] text-onedark-muted">
+                      Language stack runtime environment
+                    </div>
+                  </div>
+
+                  {/* Cgroups & Security Boundaries */}
+                  <div className="p-2.5 rounded-lg bg-onedark-darker/70 border border-onedark-borderSubtle space-y-1">
+                    <div className="flex items-center justify-between text-[10px] text-onedark-muted uppercase font-bold tracking-wider">
+                      <span>Cgroup Quotas</span>
+                      <span className="text-[9px] text-onedark-purple bg-onedark-purple/10 px-1 py-0.2 rounded font-mono">
+                        Guarded
+                      </span>
+                    </div>
+                    <div className="text-xs font-bold text-onedark-fgBright truncate">
+                      {data.resources?.container?.cpu_limit || '2.0'} CPUs · {data.resources?.container?.memory_limit || '2048m'} RAM
+                    </div>
+                    <div className="text-[10px] text-onedark-muted truncate">
+                      cap-drop=ALL · {data.resources?.container?.pids_limit || 256} PIDs limit
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Packaged Artifacts & Staging Previews Section */}
+              {data.resources?.artifacts && (data.resources.artifacts.manifests.length > 0 || data.resources.artifacts.deployments.length > 0) && (
+                <div className="p-3.5 rounded-xl bg-onedark-surface/40 border border-onedark-borderSubtle space-y-3 font-mono">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex items-center space-x-2 text-xs font-semibold text-onedark-fgBright font-sans">
+                      <Globe className="w-4 h-4 text-emerald-400" />
+                      <span>Packaged Artifacts & Staging Previews</span>
+                    </div>
+                    <div className="flex items-center space-x-2 text-[10.5px]">
+                      <span className="text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full font-semibold">
+                        {data.resources.artifacts.total_active_deployments} Active Staging Container{data.resources.artifacts.total_active_deployments === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Deployments List */}
+                  {data.resources.artifacts.deployments.length > 0 && (
+                    <div className="space-y-1.5">
+                      <div className="text-[10px] text-onedark-muted uppercase font-bold tracking-wider">Live Staging Endpoints:</div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {data.resources.artifacts.deployments.map((dep, idx) => (
+                          <div key={idx} className="p-2.5 rounded-lg bg-onedark-darker/70 border border-onedark-borderSubtle space-y-1.5 text-xs">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-onedark-fgBright text-[11px] truncate font-mono">
+                                {dep.container_id || dep.deployment_id}
+                              </span>
+                              <span className={`px-1.5 py-0.2 rounded text-[9.5px] font-bold ${
+                                dep.status === 'RUNNING' ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20' : 'text-onedark-muted bg-onedark-darker'
+                              }`}>
+                                {dep.status}
+                              </span>
+                            </div>
+                            {dep.endpoint_url ? (
+                              <div className="flex items-center justify-between pt-0.5">
+                                <a
+                                  href={dep.endpoint_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-onedark-accent hover:underline flex items-center space-x-1 text-[11px] truncate font-semibold"
+                                >
+                                  <span>{dep.endpoint_url}</span>
+                                  <ExternalLink className="w-3 h-3 flex-shrink-0" />
+                                </a>
+                                <span className="text-[10px] text-onedark-muted">
+                                  Port {dep.ports?.host || 80} &rarr; {dep.ports?.container || 80}
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="text-[10.5px] text-onedark-muted truncate">{dep.error_message || 'Deploying container...'}</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Manifests List */}
+                  {data.resources.artifacts.manifests.length > 0 && (
+                    <div className="space-y-1.5 pt-1">
+                      <div className="text-[10px] text-onedark-muted uppercase font-bold tracking-wider">Packaged OCI Images & Bundles:</div>
+                      <div className="flex flex-wrap gap-2">
+                        {data.resources.artifacts.manifests.map((man, idx) => (
+                          <div key={idx} className="p-2 rounded-lg bg-onedark-darker/70 border border-onedark-borderSubtle flex items-center space-x-2 text-xs">
+                            <Box className="w-3.5 h-3.5 text-sky-400 flex-shrink-0" />
+                            <div className="min-w-0">
+                              <div className="font-bold text-onedark-fgBright text-[11px] truncate font-mono">{man.tags[0] || man.name}</div>
+                              <div className="text-[10px] text-onedark-muted">{formatBytes(man.size_bytes)} · {man.artifact_type}</div>
+                            </div>
+                            <button
+                              onClick={() => handleCopy(man.tags[0] || man.name, `manifest_${idx}`)}
+                              className="text-onedark-muted hover:text-onedark-fgBright p-1 transition-colors cursor-pointer ml-1"
+                              title="Copy Image Tag"
+                            >
+                              {copiedKey === `manifest_${idx}` ? <Check className="w-3 h-3 text-onedark-green" /> : <Copy className="w-3 h-3" />}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Copy-on-Write Layer Architecture & Kernel Isolation Card */}
               <div className="p-3.5 rounded-xl bg-onedark-surface/40 border border-onedark-borderSubtle space-y-3 font-mono">
@@ -1066,16 +1387,25 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
                   <div className="space-y-1.5 font-mono">
                     {data.recent_logs.map((log, idx) => {
                       const isSuccess = log.exit_code === 0;
+                      const planeInfo = getExecutionPlaneBadge(log.execution_plane, log.execution_target);
+                      const PlaneIcon = planeInfo.icon;
                       return (
                         <div
                           key={idx}
-                          className="p-2 rounded-lg bg-onedark-darker/60 border border-onedark-borderSubtle flex items-center justify-between text-xs"
+                          className="p-2 rounded-lg bg-onedark-darker/60 border border-onedark-borderSubtle flex items-center justify-between text-xs gap-2"
                         >
-                          <div className="flex items-center space-x-2 min-w-0 flex-1 mr-2">
+                          <div className="flex items-center space-x-2 min-w-0 flex-1">
                             <span className={`w-2 h-2 rounded-full flex-shrink-0 ${
                               isSuccess ? 'bg-onedark-green' : 'bg-onedark-red'
                             }`} />
-                            <span className="font-bold text-onedark-fgBright text-[11px]">
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold border flex items-center space-x-1 flex-shrink-0 ${planeInfo.className}`}
+                              title={`Execution Location: ${log.execution_target || planeInfo.detail}`}
+                            >
+                              <PlaneIcon className="w-2.5 h-2.5" />
+                              <span>{planeInfo.label}</span>
+                            </span>
+                            <span className="font-bold text-onedark-fgBright text-[11px] flex-shrink-0">
                               {log.tool_name}
                             </span>
                             <span className="text-onedark-muted text-[11px] truncate">

@@ -910,7 +910,74 @@ async def get_task_sandbox_info(task_id: str, depth: int = 3, db: AsyncSession =
     git_status = scan["git_status"]
     file_tree = scan["file_tree"]
 
-    # Recent tool executions from TaskLogModel
+    # Classify tool execution planes
+    def classify_tool_execution(tool_name: str, container_active: bool, c_name: Optional[str]) -> Tuple[str, str]:
+        t_name = (tool_name or "").lower()
+        if t_name in ["run_command", "package_artifact", "deploy_staging", "publish_artifact"]:
+            if container_active and c_name:
+                return "container", f"container:{c_name}"
+            return "container", "host:subprocess_jail"
+        elif t_name in ["read_file", "edit_file", "replace_file_content", "list_dir", "get_file_outline", "get_git_diff", "reset_task_turn", "verify_app_preview"]:
+            return "host_cow", "host:apfs_cow"
+        elif t_name in ["search_code", "find_symbols", "tgrep_ast"]:
+            return "rust_ast", "host:rust_search_bridge"
+        elif t_name in ["search_web", "fetch_url"]:
+            return "web_gateway", "external:web_gateway"
+        elif t_name in ["github_pr_action", "create_github_pr", "slack_notify", "linear_issue_tracker", "appsignal_trace"]:
+            return "saas_vault", "cloud:saas_vault"
+        elif t_name in ["run_verified_code_review", "verify_code_hypothesis"]:
+            return "review_cascade", "cloud:adversarial_verifier"
+        else:
+            return "host_cow", "host:workspace"
+
+    # Query container runtime telemetry & artifact staging records
+    from app.core.sandboxes.container.lifecycle import container_lifecycle
+    from app.core.sandboxes.artifacts.packager import artifact_packager
+    from app.core.sandboxes.artifacts.deployer import staging_deployer
+
+    container_telemetry = await container_lifecycle.get_container_telemetry(task.id, ws_path)
+    is_container_active = container_telemetry.get("active", False)
+    active_container_name = container_telemetry.get("container_name")
+
+    deployments = staging_deployer.list_deployments(task_id=task.id)
+    serialized_deployments = [
+        {
+            "deployment_id": d.deployment_id,
+            "artifact_id": d.artifact_id,
+            "target": d.target.value if hasattr(d.target, "value") else str(d.target),
+            "status": d.status.value if hasattr(d.status, "value") else str(d.status),
+            "endpoint_url": d.endpoint_url,
+            "container_id": d.container_id,
+            "ports": d.ports or {},
+            "error_message": d.error_message
+        }
+        for d in deployments
+    ]
+
+    manifests_list = artifact_packager.list_manifests(task_id=task.id)
+    serialized_manifests = [
+        {
+            "artifact_id": m.artifact_id,
+            "name": m.name,
+            "artifact_type": m.artifact_type.value if hasattr(m.artifact_type, "value") else str(m.artifact_type),
+            "version": m.version,
+            "tags": m.tags,
+            "digest": m.digest,
+            "size_bytes": m.size_bytes,
+            "entry_point": m.entry_point,
+            "metadata": m.metadata or {}
+        }
+        for m in manifests_list
+    ]
+
+    artifacts_telemetry = {
+        "manifests": serialized_manifests,
+        "deployments": serialized_deployments,
+        "total_packaged": len(serialized_manifests),
+        "total_active_deployments": sum(1 for d in deployments if (getattr(d.status, "value", d.status) == "RUNNING"))
+    }
+
+    # Recent tool executions from TaskLogModel enriched with execution plane
     recent_logs = []
     try:
         stmt_logs = (
@@ -921,12 +988,15 @@ async def get_task_sandbox_info(task_id: str, depth: int = 3, db: AsyncSession =
         )
         logs_res = await db.execute(stmt_logs)
         for log in logs_res.scalars().all():
+            plane, target = classify_tool_execution(log.tool_name, is_container_active, active_container_name)
             recent_logs.append({
                 "tool_name": log.tool_name,
                 "exit_code": log.exit_code,
                 "duration_ms": log.duration_ms,
                 "created_at": log.created_at.isoformat() if log.created_at else None,
-                "tool_input": log.tool_input or {}
+                "tool_input": log.tool_input or {},
+                "execution_plane": plane,
+                "execution_target": target
             })
     except Exception:
         pass
@@ -1000,6 +1070,8 @@ async def get_task_sandbox_info(task_id: str, depth: int = 3, db: AsyncSession =
         "disk": disk_stats,
         "cow_layers": cow_metrics,
         "jail": jail_status,
+        "container": container_telemetry,
+        "artifacts": artifacts_telemetry,
         "limits": {
             "command_timeout_seconds": 60,
             "git_clone_timeout_seconds": 300,
@@ -1007,7 +1079,7 @@ async def get_task_sandbox_info(task_id: str, depth: int = 3, db: AsyncSession =
         },
         "confinement": {
             "path_jail_enforced": True,
-            "workspace_isolation": "kernel_namespace_cow_overlay",
+            "workspace_isolation": "hybrid_oci_container_overlay" if is_container_active else "kernel_namespace_cow_overlay",
             "auto_disposable": True
         }
     }
@@ -1034,8 +1106,9 @@ async def get_task_sandbox_info(task_id: str, depth: int = 3, db: AsyncSession =
         "cli_command": cli_command,
         "resources": resources,
         "runtime": {
-            "mode": "overlay_cow_sandbox",
-            "isolation": jail_status.get("isolation_type", "filesystem_confinement"),
+            "mode": "hybrid_container_cow" if is_container_active else "overlay_cow_sandbox",
+            "container_engine": container_telemetry.get("engine", "none"),
+            "isolation": "OCI Container Namespace (cgroups v2 + cap-drop=ALL)" if is_container_active else jail_status.get("isolation_type", "filesystem_confinement"),
             "lifecycle": "disposable_on_completion" if task.sandbox_status != "ACTIVE" else "active_execution",
             "timeout_seconds": 60
         }

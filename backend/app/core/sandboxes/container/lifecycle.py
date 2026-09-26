@@ -70,5 +70,37 @@ class ContainerLifecycleManager:
         code, _, _ = await self.client.run_cli(["rm", "-f", container_name], timeout=8.0)
         return code == 0
 
+    async def get_container_telemetry(self, task_id: str, workspace_path: Optional[Path] = None) -> Dict[str, Any]:
+        """
+        Retrieves real-time telemetry and isolation metrics for the task's companion container.
+        """
+        is_available = await self.client.is_available()
+        container_name = self.get_container_name(task_id)
+        effective_image = image_resolver.resolve_image_for_workspace(workspace_path) if workspace_path else "debian:bookworm-slim"
+        policy = default_security_policy
+
+        is_running = False
+        if is_available:
+            if task_id in self._active_containers:
+                code, _, _ = await self.client.run_cli(["inspect", container_name], timeout=3.0)
+                is_running = (code == 0)
+
+        status_str = "RUNNING" if is_running else ("READY" if is_available else "OFFLINE")
+
+        return {
+            "active": is_running,
+            "engine": self.client.engine_type if is_available else "none",
+            "server_version": self.client._version_info.get("version", ""),
+            "container_name": container_name if is_running or task_id in self._active_containers else None,
+            "image": effective_image,
+            "status": status_str,
+            "cpu_limit": str(policy.cpus),
+            "memory_limit": policy.memory,
+            "pids_limit": policy.pids_limit,
+            "security_opts": policy.security_opts,
+            "cap_drop": policy.cap_drop,
+            "workspace_mount": "/workspace:rw"
+        }
+
 
 container_lifecycle = ContainerLifecycleManager()

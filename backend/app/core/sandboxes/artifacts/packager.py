@@ -18,6 +18,13 @@ class ArtifactPackager:
 
     def __init__(self, client=None):
         self.client = client or container_client
+        self._manifests: Dict[str, ArtifactManifest] = {}
+
+    def list_manifests(self, task_id: Optional[str] = None) -> list[ArtifactManifest]:
+        """Returns all recorded artifact manifests, optionally filtered by task_id."""
+        if task_id:
+            return [m for m in self._manifests.values() if m.task_id == task_id]
+        return list(self._manifests.values())
 
     def synthesize_dockerfile(self, workspace_path: Path) -> str:
         """
@@ -146,6 +153,7 @@ CMD ["nginx", "-g", "daemon off;"]
                 entry_point=image_tag,
                 metadata={"engine": self.client.engine_type, "dockerfile": True}
             )
+            self._manifests[artifact_id] = manifest
             return manifest, combined_logs
 
         elif artifact_type == ArtifactType.STATIC_BUNDLE:
@@ -173,6 +181,7 @@ CMD ["nginx", "-g", "daemon off;"]
                 entry_point=str(bundle_dir.relative_to(workspace_path)),
                 metadata={"files_count": len(list(bundle_dir.glob("**/*")))}
             )
+            self._manifests[artifact_id] = manifest
             return manifest, f"Packaged static distribution bundle from '{manifest.entry_point}' ({total_size} bytes)."
 
         return None, f"Unsupported artifact type '{artifact_type}'"
