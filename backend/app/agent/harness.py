@@ -160,6 +160,21 @@ class AntigravityHarness:
                 return "gemini-3.7-flash"
             return requested
 
+        # When auto/adaptive or no model is selected:
+        # Check configured providers to route to an active key if Gemini is unconfigured
+        has_gemini = bool(settings.get_api_key())
+        has_deepseek = bool(settings.get_deepseek_api_key())
+        has_claude = bool(settings.get_anthropic_api_key())
+        has_openai = bool(settings.get_openai_api_key())
+
+        if not has_gemini:
+            if has_deepseek:
+                return "deepseek-reasoner" if intent in ["app_building", "code_modification", "debugging"] else "deepseek-flash"
+            elif has_claude:
+                return "claude-3-7-sonnet" if intent in ["app_building", "code_modification", "debugging"] else "claude-3-5-haiku"
+            elif has_openai:
+                return "gpt-4o" if intent in ["app_building", "code_modification", "debugging"] else "gpt-4o-mini"
+
         # If Task-Adaptive routing is active
         if getattr(settings, "ANTIGRAVITY_ROUTING_MODE", "adaptive") == "adaptive":
             if intent in ["qa_research", "greetings"]:

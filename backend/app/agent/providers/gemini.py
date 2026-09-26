@@ -190,7 +190,7 @@ class GeminiProvider(BaseLLMProvider):
             candidate_models = ["gemini-3.7-flash", "gemini-3.8-flash"]
         should_close = False
         if client is None:
-            client = httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0, read=15.0))
+            client = httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=10.0, read=45.0))
             should_close = True
 
         last_error = "Model response unavailable"
@@ -210,7 +210,7 @@ class GeminiProvider(BaseLLMProvider):
                     payload["system_instruction"] = {"parts": [{"text": system_instruction}]}
 
                 try:
-                    resp = await asyncio.wait_for(client.post(dynamic_url, json=payload), timeout=6.0)
+                    resp = await asyncio.wait_for(client.post(dynamic_url, json=payload), timeout=30.0)
                     if resp.status_code == 200:
                         data = resp.json()
                         candidates = data.get("candidates", [])
@@ -230,7 +230,8 @@ class GeminiProvider(BaseLLMProvider):
                                 err_msg = resp.text[:120]
                         last_error = f"Model {active_model} returned HTTP {resp.status_code}: {err_msg}"
                 except Exception as e:
-                    last_error = f"Model {active_model} error: {str(e)[:100]}"
+                    err_detail = str(e).strip() if str(e).strip() else (f"{type(e).__name__} (Timed out after 30s)" if isinstance(e, (asyncio.TimeoutError, TimeoutError)) else type(e).__name__)
+                    last_error = f"Model {active_model} error: {err_detail[:120]}"
             
             return {"error": last_error, "status_code": 500}
         finally:
