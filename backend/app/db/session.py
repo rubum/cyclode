@@ -130,6 +130,8 @@ def _migrate_db(connection):
             connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN body TEXT")
         if "is_session_scoped" not in prs_cols:
             connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN is_session_scoped BOOLEAN DEFAULT 1")
+        if "is_draft" not in prs_cols:
+            connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN is_draft BOOLEAN DEFAULT 0")
         if "is_listening" not in prs_cols:
             connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN is_listening BOOLEAN DEFAULT 0")
         if "listening_events" not in prs_cols:
@@ -148,6 +150,44 @@ def _migrate_db(connection):
             connection.exec_driver_sql("ALTER TABLE repository_configs ADD COLUMN subscribed_events TEXT DEFAULT 'pull_request.opened,issues.opened,check_run'")
         if "default_persona" not in repo_cols:
             connection.exec_driver_sql("ALTER TABLE repository_configs ADD COLUMN default_persona VARCHAR(50) DEFAULT 'AUTONOMOUS_WORKER'")
+
+    elif "postgres" in connection.dialect.name.lower():
+        postgres_task_cols = [
+            ("session_key", "VARCHAR(255)"),
+            ("repo_name", "VARCHAR(255)"),
+            ("repo_url", "VARCHAR(512)"),
+            ("target_branch", "VARCHAR(128)"),
+            ("commit_sha", "VARCHAR(64)"),
+            ("sandbox_status", "VARCHAR(32) DEFAULT 'NONE'"),
+            ("custom_title", "BOOLEAN DEFAULT FALSE"),
+            ("is_subsession", "BOOLEAN DEFAULT FALSE"),
+            ("parent_task_id", "VARCHAR(36)"),
+            ("plan", "JSON"),
+            ("is_listening", "BOOLEAN DEFAULT FALSE"),
+            ("listening_events", "TEXT DEFAULT 'check_run,pull_request_review_comment,push'"),
+            ("listener_persona", "VARCHAR(50) DEFAULT 'PAIR_PROGRAMMER'"),
+            ("auto_commit_fixes", "BOOLEAN DEFAULT TRUE"),
+        ]
+        for col_name, col_type in postgres_task_cols:
+            try:
+                connection.exec_driver_sql(f"ALTER TABLE tasks ADD COLUMN IF NOT EXISTS {col_name} {col_type};")
+            except Exception:
+                pass
+        try:
+            connection.exec_driver_sql("ALTER TABLE task_messages ADD COLUMN IF NOT EXISTS tokens INTEGER DEFAULT 0;")
+            connection.exec_driver_sql("ALTER TABLE task_messages ADD COLUMN IF NOT EXISTS plan JSON;")
+            connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN IF NOT EXISTS body TEXT;")
+            connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN IF NOT EXISTS is_session_scoped BOOLEAN DEFAULT TRUE;")
+            connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN IF NOT EXISTS is_draft BOOLEAN DEFAULT FALSE;")
+            connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN IF NOT EXISTS is_listening BOOLEAN DEFAULT FALSE;")
+            connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN IF NOT EXISTS listening_events TEXT DEFAULT 'check_run,pull_request_review_comment,push';")
+            connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN IF NOT EXISTS listener_persona VARCHAR(50) DEFAULT 'PAIR_PROGRAMMER';")
+            connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN IF NOT EXISTS auto_commit_fixes BOOLEAN DEFAULT TRUE;")
+            connection.exec_driver_sql("ALTER TABLE repository_configs ADD COLUMN IF NOT EXISTS is_listening BOOLEAN DEFAULT FALSE;")
+            connection.exec_driver_sql("ALTER TABLE repository_configs ADD COLUMN IF NOT EXISTS subscribed_events TEXT DEFAULT 'pull_request.opened,issues.opened,check_run';")
+            connection.exec_driver_sql("ALTER TABLE repository_configs ADD COLUMN IF NOT EXISTS default_persona VARCHAR(50) DEFAULT 'AUTONOMOUS_WORKER';")
+        except Exception:
+            pass
 
 
 async def ensure_default_repositories():
