@@ -64,8 +64,17 @@ class ClaudeProvider(BaseLLMProvider):
             if parts:
                 content_blocks = []
                 for p in parts:
+                    if isinstance(p, str):
+                        if p.strip():
+                            content_blocks.append({"type": "text", "text": p})
+                        continue
+                    if not isinstance(p, dict):
+                        continue
+
                     if "text" in p and p["text"]:
-                        content_blocks.append({"type": "text", "text": p["text"]})
+                        content_blocks.append({"type": "text", "text": str(p["text"])})
+                    elif "content" in p and p["content"] and isinstance(p["content"], str):
+                        content_blocks.append({"type": "text", "text": str(p["content"])})
                     elif "functionCall" in p:
                         fc = p["functionCall"]
                         call_id = fc.get("id") or f"call_{fc.get('name')}"
@@ -75,15 +84,29 @@ class ClaudeProvider(BaseLLMProvider):
                             "name": fc.get("name"),
                             "input": fc.get("args", {})
                         })
+                    elif p.get("type") == "tool_use":
+                        content_blocks.append({
+                            "type": "tool_use",
+                            "id": p.get("id") or f"call_{p.get('name', 'tool')}",
+                            "name": p.get("name"),
+                            "input": p.get("input", {})
+                        })
                     elif "functionResponse" in p:
                         fr = p["functionResponse"]
                         call_id = fr.get("id") or f"call_{fr.get('name')}"
                         resp_obj = fr.get("response", {})
-                        content_str = resp_obj.get("output") or resp_obj.get("stdout") or json.dumps(resp_obj)
+                        content_str = resp_obj.get("output") or resp_obj.get("stdout") or (json.dumps(resp_obj) if isinstance(resp_obj, (dict, list)) else str(resp_obj))
                         content_blocks.append({
                             "type": "tool_result",
                             "tool_use_id": call_id,
                             "content": str(content_str)
+                        })
+                    elif p.get("role") == "tool" or p.get("type") == "tool_result":
+                        call_id = p.get("tool_call_id") or p.get("tool_use_id") or ""
+                        content_blocks.append({
+                            "type": "tool_result",
+                            "tool_use_id": call_id,
+                            "content": str(p.get("content", ""))
                         })
 
                 if content_blocks:
@@ -123,7 +146,32 @@ class ClaudeProvider(BaseLLMProvider):
         if merged_msgs and merged_msgs[0]["role"] == "assistant":
             merged_msgs.insert(0, {"role": "user", "content": [{"type": "text", "text": "Begin task execution."}]})
 
-        return merged_msgs
+        # Reconcile tool_use and tool_result blocks to guarantee strict 1-to-1 matching
+        final_msgs = []
+        for idx, msg in enumerate(merged_msgs):
+            if msg["role"] == "assistant" and isinstance(msg["content"], list):
+                tool_uses = [b for b in msg["content"] if isinstance(b, dict) and b.get("type") == "tool_use"]
+                if tool_uses:
+                    expected_ids = [tu.get("id") for tu in tool_uses if tu.get("id")]
+                    # Check next message
+                    next_msg = merged_msgs[idx + 1] if idx + 1 < len(merged_msgs) else None
+                    if next_msg and next_msg["role"] == "user" and isinstance(next_msg["content"], list):
+                        existing_results = {b.get("tool_use_id"): b for b in next_msg["content"] if isinstance(b, dict) and b.get("type") == "tool_result"}
+                        for tu_id in expected_ids:
+                            if tu_id not in existing_results:
+                                next_msg["content"].append({
+                                    "type": "tool_result",
+                                    "tool_use_id": tu_id,
+                                    "content": "Tool execution completed."
+                                })
+                    elif not next_msg or next_msg["role"] != "user":
+                        # If assistant message has text blocks alongside tool_use, strip tool_use
+                        text_blocks = [b for b in msg["content"] if isinstance(b, dict) and b.get("type") == "text"]
+                        if text_blocks:
+                            msg["content"] = text_blocks
+            final_msgs.append(msg)
+
+        return final_msgs
 
     async def generate_response(
         self,
@@ -291,7 +339,7 @@ class ClaudeProvider(BaseLLMProvider):
 
         should_close = False
         if client is None:
-            client = httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0, read=15.0))
+            client = httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=10.0, read=45.0))
             should_close = True
 
         headers = {
@@ -324,7 +372,7 @@ class ClaudeProvider(BaseLLMProvider):
                 try:
                     resp = await asyncio.wait_for(
                         client.post("https://api.anthropic.com/v1/messages", json=payload, headers=headers),
-                        timeout=8.0
+                        timeout=30.0
                     )
                     if resp.status_code == 200:
                         data = resp.json()
@@ -349,7 +397,8 @@ class ClaudeProvider(BaseLLMProvider):
                                 err_msg = resp.text[:120]
                         last_error = f"Model {active_model} returned HTTP {resp.status_code}: {err_msg}"
                 except Exception as e:
-                    last_error = f"Model {active_model} error: {str(e)[:100]}"
+                    err_detail = str(e).strip() if str(e).strip() else (f"{type(e).__name__} (Timed out after 30s)" if isinstance(e, (asyncio.TimeoutError, TimeoutError)) else type(e).__name__)
+                    last_error = f"Model {active_model} error: {err_detail[:120]}"
 
             return {"error": last_error, "status_code": 500}
         finally:

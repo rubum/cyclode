@@ -419,6 +419,42 @@ class AntigravityHarness:
             phases.append(p_copy)
         return phases
 
+    @staticmethod
+    def advance_plan_step(plan: Dict[str, Any], target_step_idx: int) -> bool:
+        """
+        Monotonically advances plan steps to target_step_idx:
+        - Marks steps 0 through target_step_idx - 1 as 'completed'
+        - Marks step target_step_idx as 'in_progress'
+        - Marks steps target_step_idx + 1 onwards as 'pending'
+        Guarantees that only a SINGLE step is ever 'in_progress' and transitions never regress.
+        """
+        steps = plan.get("steps", [])
+        if not steps or target_step_idx < 0:
+            return False
+
+        target_step_idx = min(target_step_idx, len(steps) - 1)
+
+        # Determine current active progression
+        current_active = 0
+        for i, s in enumerate(steps):
+            if s.get("status") == "in_progress":
+                current_active = i
+                break
+            elif s.get("status") == "completed":
+                current_active = i + 1
+
+        if target_step_idx < current_active:
+            return False
+
+        changed = False
+        for idx, s in enumerate(steps):
+            new_status = "completed" if idx < target_step_idx else ("in_progress" if idx == target_step_idx else "pending")
+            if s.get("status") != new_status:
+                s["status"] = new_status
+                changed = True
+
+        return changed
+
     async def _generate_dynamic_plan(
         self,
         client: httpx.AsyncClient,
@@ -1582,7 +1618,12 @@ class AntigravityHarness:
                                     on_thought, on_stream_start, on_stream_chunk, on_stream_end
                                 )
                                 if provider_resp.raw_parts:
-                                    model_parts = provider_resp.raw_parts
+                                    clean_parts = []
+                                    for p in provider_resp.raw_parts:
+                                        if isinstance(p, dict):
+                                            if "thought" in p or "text" in p or ("content" in p and isinstance(p["content"], str)):
+                                                clean_parts.append(p)
+                                    model_parts = clean_parts if clean_parts else ([{"text": combined_text}] if combined_text else [{"text": "Scaffolding initialized."}])
                                 else:
                                     model_parts = []
                                     if provider_resp.thought:
@@ -1670,7 +1711,12 @@ class AntigravityHarness:
                                     on_thought, on_stream_start, on_stream_chunk, on_stream_end
                                 )
                                 if provider_resp.raw_parts:
-                                    heal_model_parts = provider_resp.raw_parts
+                                    clean_heal_parts = []
+                                    for p in provider_resp.raw_parts:
+                                        if isinstance(p, dict):
+                                            if "thought" in p or "text" in p or ("content" in p and isinstance(p["content"], str)):
+                                                clean_heal_parts.append(p)
+                                    heal_model_parts = clean_heal_parts if clean_heal_parts else ([{"text": combined_text}] if combined_text else [{"text": "Inspecting workspace."}])
                                 else:
                                     heal_model_parts = []
                                     if provider_resp.thought:
@@ -1808,18 +1854,15 @@ class AntigravityHarness:
                             fn_name = call.get("name")
                             args = call.get("args", {})
 
-                            # Dynamic Plan Step Transitions
-                            if fn_name in ["edit_file", "create_pull_request", "post_pull_request_review", "connect_repository"]:
+                            # Monotonic Dynamic Plan Step Transitions
+                            if fn_name in ["edit_file", "replace_file_content", "batch_replace_content", "apply_unified_patch", "create_pull_request", "post_pull_request_review", "connect_repository"]:
                                 if len(current_plan.get("steps", [])) >= 2:
-                                    current_plan["steps"][0]["status"] = "completed"
-                                    current_plan["steps"][1]["status"] = "in_progress"
-                                    await self._emit_plan(current_plan, on_plan)
-                            elif fn_name == "verify_app_preview" or (fn_name == "run_command" and any(k in str(args.get("command", "")).lower() for k in ["test", "pytest", "npm test", "vitest", "npm run test"])):
+                                    if Harness.advance_plan_step(current_plan, 1):
+                                        await self._emit_plan(current_plan, on_plan)
+                            elif (fn_name == "verify_app_preview" or (fn_name == "run_command" and any(k in str(args.get("command", "")).lower() for k in ["test", "pytest", "npm test", "vitest", "npm run test", "npm run build"]))) and mutating_tool_count >= 1:
                                 if len(current_plan.get("steps", [])) >= 3:
-                                    current_plan["steps"][0]["status"] = "completed"
-                                    current_plan["steps"][1]["status"] = "completed"
-                                    current_plan["steps"][2]["status"] = "in_progress"
-                                    await self._emit_plan(current_plan, on_plan)
+                                    if Harness.advance_plan_step(current_plan, 2):
+                                        await self._emit_plan(current_plan, on_plan)
 
                             if on_tool_start:
                                 if inspect.iscoroutinefunction(on_tool_start):
@@ -2709,7 +2752,7 @@ class AntigravityHarness:
                             if s.get("status") == "in_progress":
                                 s["status"] = "failed"
 
-                    current_plan["evaluation"] = scorecard.model_dump()
+                    current_plan["evaluation"] = scorecard.model_dump(mode="json")
                     await self._emit_plan(current_plan, on_plan)
 
                     if model_succeeded:

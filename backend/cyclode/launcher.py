@@ -62,6 +62,21 @@ def start_cyclode(
     if "gemini_api_key" in user_cfg and not os.environ.get("GEMINI_API_KEY"):
         os.environ["GEMINI_API_KEY"] = user_cfg["gemini_api_key"]
 
+    if "deepseek_api_key" in user_cfg and not os.environ.get("DEEPSEEK_API_KEY"):
+        os.environ["DEEPSEEK_API_KEY"] = user_cfg["deepseek_api_key"]
+
+    if "deepseek_base_url" in user_cfg and not os.environ.get("DEEPSEEK_BASE_URL"):
+        os.environ["DEEPSEEK_BASE_URL"] = user_cfg["deepseek_base_url"]
+
+    if "anthropic_api_key" in user_cfg and not os.environ.get("ANTHROPIC_API_KEY"):
+        os.environ["ANTHROPIC_API_KEY"] = user_cfg["anthropic_api_key"]
+
+    if "openai_api_key" in user_cfg and not os.environ.get("OPENAI_API_KEY"):
+        os.environ["OPENAI_API_KEY"] = user_cfg["openai_api_key"]
+
+    if "openai_base_url" in user_cfg and not os.environ.get("OPENAI_BASE_URL"):
+        os.environ["OPENAI_BASE_URL"] = user_cfg["openai_base_url"]
+
     if "linear_api_key" in user_cfg and not os.environ.get("LINEAR_API_KEY"):
         os.environ["LINEAR_API_KEY"] = user_cfg["linear_api_key"]
 

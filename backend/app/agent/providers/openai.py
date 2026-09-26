@@ -57,11 +57,15 @@ class OpenAIProvider(BaseLLMProvider):
         """
         Translates Cyclode/Gemini formatted parts into OpenAI chat completions messages.
         Ensures strict compliance with OpenAI tool calling protocol:
-        Assistant turn with tool_calls is immediately followed by role: 'tool' messages with matching tool_call_id.
+        - Assistant turns with tool_calls must be immediately followed by role: 'tool' messages
+          responding to each tool_call_id.
+        - Orphaned tool_calls or mismatched tool responses are reconciled automatically.
         """
-        openai_msgs = []
+        raw_msgs = []
         if system_instruction:
-            openai_msgs.append({"role": "system", "content": system_instruction})
+            raw_msgs.append({"role": "system", "content": system_instruction})
+
+        tool_id_counter = 0
 
         for m in messages:
             role = m.get("role", "user")
@@ -71,15 +75,23 @@ class OpenAIProvider(BaseLLMProvider):
                 tool_calls = []
                 tool_responses = []
                 for p in parts:
+                    if isinstance(p, str):
+                        if p.strip():
+                            text_parts.append(p)
+                        continue
                     if not isinstance(p, dict):
                         continue
+
                     if "text" in p and p["text"]:
-                        text_parts.append(p["text"])
+                        text_parts.append(str(p["text"]))
+                    elif "content" in p and p["content"] and isinstance(p["content"], str):
+                        text_parts.append(str(p["content"]))
                     elif "functionCall" in p:
                         fc = p["functionCall"]
                         fn_name = fc.get("name", "")
                         fn_args = fc.get("args", {})
-                        call_id = fc.get("id") or f"call_{fn_name}"
+                        tool_id_counter += 1
+                        call_id = fc.get("id") or f"call_{tool_id_counter}_{fn_name}"
                         tool_calls.append({
                             "id": call_id,
                             "type": "function",
@@ -90,10 +102,17 @@ class OpenAIProvider(BaseLLMProvider):
                         })
                     elif "tool_calls" in p and isinstance(p["tool_calls"], list):
                         for tc in p["tool_calls"]:
-                            tool_calls.append(tc)
+                            if isinstance(tc, dict):
+                                tc_id = tc.get("id")
+                                if not tc_id:
+                                    tool_id_counter += 1
+                                    fn_name = tc.get("function", {}).get("name", "tool")
+                                    tc["id"] = f"call_{tool_id_counter}_{fn_name}"
+                                tool_calls.append(tc)
                     elif p.get("type") == "tool_use":
+                        tool_id_counter += 1
                         tool_calls.append({
-                            "id": p.get("id", f"call_{p.get('name', 'tool')}"),
+                            "id": p.get("id") or f"call_{tool_id_counter}_{p.get('name', 'tool')}",
                             "type": "function",
                             "function": {
                                 "name": p.get("name", ""),
@@ -105,14 +124,15 @@ class OpenAIProvider(BaseLLMProvider):
                         fn_name = fr.get("name", "")
                         call_id = fr.get("id") or f"call_{fn_name}"
                         resp_data = fr.get("response", {})
-                        out_str = resp_data.get("output") or resp_data.get("stdout") or json.dumps(resp_data)
+                        out_str = resp_data.get("output") or resp_data.get("stdout") or (json.dumps(resp_data) if isinstance(resp_data, (dict, list)) else str(resp_data))
                         tool_responses.append({
                             "role": "tool",
                             "tool_call_id": call_id,
+                            "name": fn_name,
                             "content": str(out_str)
                         })
                     elif p.get("role") == "tool" or p.get("type") == "tool_result":
-                        call_id = p.get("tool_call_id") or p.get("tool_use_id", "")
+                        call_id = p.get("tool_call_id") or p.get("tool_use_id") or ""
                         content_val = p.get("content", "")
                         tool_responses.append({
                             "role": "tool",
@@ -131,12 +151,12 @@ class OpenAIProvider(BaseLLMProvider):
                     if tool_calls:
                         msg_obj["tool_calls"] = tool_calls
                     if msg_obj.get("content") is not None or "tool_calls" in msg_obj:
-                        openai_msgs.append(msg_obj)
+                        raw_msgs.append(msg_obj)
                 elif role == "user":
                     if tool_responses:
-                        openai_msgs.extend(tool_responses)
+                        raw_msgs.extend(tool_responses)
                     if text_parts:
-                        openai_msgs.append({"role": "user", "content": "\n".join(text_parts)})
+                        raw_msgs.append({"role": "user", "content": "\n".join(text_parts)})
             else:
                 openai_role = "assistant" if role in ["model", "assistant", "agent"] else "user"
                 content_str = m.get("content", "")
@@ -146,9 +166,80 @@ class OpenAIProvider(BaseLLMProvider):
                     full_text += f"<thought>{thought_str}</thought>\n"
                 full_text += content_str
                 if full_text.strip():
-                    openai_msgs.append({"role": openai_role, "content": full_text.strip()})
+                    raw_msgs.append({"role": openai_role, "content": full_text.strip()})
 
-        return openai_msgs
+        # Strict Protocol Reconciliation
+        reconciled_msgs = []
+        i = 0
+        while i < len(raw_msgs):
+            current = raw_msgs[i]
+
+            if current.get("role") == "assistant" and current.get("tool_calls"):
+                req_tool_calls = current["tool_calls"]
+                expected_ids = [tc.get("id") for tc in req_tool_calls if tc.get("id")]
+
+                tool_resp_msgs = []
+                j = i + 1
+                while j < len(raw_msgs) and raw_msgs[j].get("role") == "tool":
+                    tool_resp_msgs.append(raw_msgs[j])
+                    j += 1
+
+                if not tool_resp_msgs:
+                    if current.get("content"):
+                        clean_assistant = dict(current)
+                        clean_assistant.pop("tool_calls", None)
+                        reconciled_msgs.append(clean_assistant)
+                    else:
+                        reconciled_msgs.append(current)
+                        for tc in req_tool_calls:
+                            tc_id = tc.get("id", "call_default")
+                            reconciled_msgs.append({
+                                "role": "tool",
+                                "tool_call_id": tc_id,
+                                "content": "Acknowledged."
+                            })
+                    i = j
+                    continue
+                else:
+                    reconciled_msgs.append(current)
+                    responded_ids = set()
+                    for idx, tr in enumerate(tool_resp_msgs):
+                        tr_id = tr.get("tool_call_id")
+                        if (not tr_id or tr_id not in expected_ids) and idx < len(expected_ids):
+                            tr_id = expected_ids[idx]
+                        responded_ids.add(tr_id)
+                        clean_tr = {
+                            "role": "tool",
+                            "tool_call_id": tr_id or (expected_ids[0] if expected_ids else "call_default"),
+                            "content": tr.get("content", "")
+                        }
+                        reconciled_msgs.append(clean_tr)
+
+                    for tc in req_tool_calls:
+                        tc_id = tc.get("id")
+                        if tc_id and tc_id not in responded_ids:
+                            reconciled_msgs.append({
+                                "role": "tool",
+                                "tool_call_id": tc_id,
+                                "content": "Tool execution completed."
+                            })
+                    i = j
+                    continue
+
+            elif current.get("role") == "tool":
+                reconciled_msgs.append({
+                    "role": "user",
+                    "content": f"[Tool Output]: {current.get('content', '')}"
+                })
+                i += 1
+            else:
+                if current.get("role") == "assistant" and current.get("content") is None and not current.get("tool_calls"):
+                    current = dict(current)
+                    current["content"] = "Execution in progress."
+                reconciled_msgs.append(current)
+                i += 1
+
+        return reconciled_msgs
 
     async def generate_response(
         self,
@@ -318,7 +409,7 @@ class OpenAIProvider(BaseLLMProvider):
         base_url = self.get_base_url()
         should_close = False
         if client is None:
-            client = httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=5.0, read=15.0))
+            client = httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=10.0, read=45.0))
             should_close = True
 
         headers = {
@@ -347,7 +438,7 @@ class OpenAIProvider(BaseLLMProvider):
                 try:
                     resp = await asyncio.wait_for(
                         client.post(f"{base_url}/chat/completions", json=payload, headers=headers),
-                        timeout=8.0
+                        timeout=30.0
                     )
                     if resp.status_code == 200:
                         data = resp.json()
@@ -367,7 +458,8 @@ class OpenAIProvider(BaseLLMProvider):
                                 err_msg = resp.text[:120]
                         last_error = f"Model {active_model} returned HTTP {resp.status_code}: {err_msg}"
                 except Exception as e:
-                    last_error = f"Model {active_model} error: {str(e)[:100]}"
+                    err_detail = str(e).strip() if str(e).strip() else (f"{type(e).__name__} (Timed out after 30s)" if isinstance(e, (asyncio.TimeoutError, TimeoutError)) else type(e).__name__)
+                    last_error = f"Model {active_model} error: {err_detail[:120]}"
 
             return {"error": last_error, "status_code": 500}
         finally:

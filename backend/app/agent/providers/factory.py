@@ -30,12 +30,18 @@ def get_provider_for_model(model_name: Optional[str] = None) -> BaseLLMProvider:
         return GeminiProvider()
     
     # Smart fallback for custom/novel model strings
-    if settings.get_deepseek_api_key() or settings.DEEPSEEK_BASE_URL:
+    if settings.get_api_key():
+        return GeminiProvider()
+    elif settings.get_deepseek_api_key():
         return DeepSeekProvider()
-    elif settings.get_openai_api_key() or settings.OPENAI_BASE_URL:
+    elif settings.get_openai_api_key():
         return OpenAIProvider()
     elif settings.get_anthropic_api_key():
         return ClaudeProvider()
+    elif settings.DEEPSEEK_BASE_URL:
+        return DeepSeekProvider()
+    elif settings.OPENAI_BASE_URL:
+        return OpenAIProvider()
     else:
         return GeminiProvider()
 

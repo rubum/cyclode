@@ -42,6 +42,33 @@ class IntegrationManager:
         and performs a live validation test.
         """
         provider = provider.lower().strip()
+        # Fallback to existing configured secrets if user is updating only model or base_url
+        if provider == "deepseek" and not credentials.get("api_key"):
+            existing = settings.get_deepseek_api_key()
+            if existing:
+                credentials["api_key"] = existing
+        elif provider == "openai" and not credentials.get("api_key"):
+            existing = settings.get_openai_api_key()
+            if existing:
+                credentials["api_key"] = existing
+        elif provider == "anthropic" and not credentials.get("api_key"):
+            existing = settings.get_anthropic_api_key()
+            if existing:
+                credentials["api_key"] = existing
+        elif provider == "gemini" and not credentials.get("api_key"):
+            existing = settings.get_api_key()
+            if existing:
+                credentials["api_key"] = existing
+        elif provider == "github" and not credentials.get("token"):
+            if github_client.token:
+                credentials["token"] = github_client.token
+        elif provider == "slack" and not credentials.get("token"):
+            if slack_client.token:
+                credentials["token"] = slack_client.token
+        elif provider == "linear" and not credentials.get("token") and not credentials.get("api_key"):
+            if linear_client.token:
+                credentials["token"] = linear_client.token
+
         self._custom_credentials[provider] = credentials
         validation = await self.validate_credentials(provider, credentials)
 

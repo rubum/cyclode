@@ -93,3 +93,36 @@ def test_harness_sanitize_plan_phases():
     # Non-destructive phase remains untouched
     assert sanitized[1]["title"] == "Phase 2: Implement Feature"
     assert sanitized[1]["objective"] == "Build the requested feature securely."
+
+
+def test_harness_advance_plan_step_monotonic():
+    plan = {
+        "steps": [
+            {"id": "step-1", "title": "Scaffold workspace", "status": "in_progress"},
+            {"id": "step-2", "title": "Implement core logic", "status": "pending"},
+            {"id": "step-3", "title": "Write unit tests", "status": "pending"},
+            {"id": "step-4", "title": "Final verification", "status": "pending"}
+        ]
+    }
+
+    # Advance to step 2 (index 1)
+    changed = Harness.advance_plan_step(plan, 1)
+    assert changed is True
+    assert plan["steps"][0]["status"] == "completed"
+    assert plan["steps"][1]["status"] == "in_progress"
+    assert plan["steps"][2]["status"] == "pending"
+    assert plan["steps"][3]["status"] == "pending"
+
+    # Advance to step 3 (index 2)
+    changed = Harness.advance_plan_step(plan, 2)
+    assert changed is True
+    assert plan["steps"][0]["status"] == "completed"
+    assert plan["steps"][1]["status"] == "completed"
+    assert plan["steps"][2]["status"] == "in_progress"
+    assert plan["steps"][3]["status"] == "pending"
+
+    # Attempt to advance backwards to index 0 (should be rejected by monotonicity)
+    changed = Harness.advance_plan_step(plan, 0)
+    assert changed is False
+    assert plan["steps"][2]["status"] == "in_progress"
+    assert plan["steps"][0]["status"] == "completed"

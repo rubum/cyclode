@@ -31,6 +31,23 @@ def estimate_tokens(text: str) -> int:
     return max(1, int(max(words * 1.3, chars / 4)))
 
 
+def _serialize_json_safe(obj: Any) -> Any:
+    if obj is None:
+        return None
+    if isinstance(obj, (datetime, )):
+        return obj.isoformat()
+    if hasattr(obj, "model_dump"):
+        try:
+            return obj.model_dump(mode="json")
+        except Exception:
+            return obj.model_dump()
+    if isinstance(obj, dict):
+        return {str(k): _serialize_json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple, set)):
+        return [_serialize_json_safe(v) for v in obj]
+    return obj
+
+
 class AgentTaskPool:
     def __init__(self):
         self.active_tasks: Dict[str, asyncio.Task] = {}
@@ -392,11 +409,12 @@ class AgentTaskPool:
             # Define telemetry callbacks
             async def on_plan(plan_data: Dict[str, Any]):
                 nonlocal active_plan
-                active_plan = plan_data
+                safe_plan = _serialize_json_safe(plan_data)
+                active_plan = safe_plan
                 try:
                     async with async_session_factory() as session:
                         await session.execute(
-                            update(TaskModel).where(TaskModel.id == task_id).values(plan=plan_data)
+                            update(TaskModel).where(TaskModel.id == task_id).values(plan=safe_plan)
                         )
                         await session.commit()
                 except Exception as e:
@@ -404,7 +422,7 @@ class AgentTaskPool:
 
                 await ws_manager.broadcast("TASK_PLAN_UPDATED", {
                     "task_id": task_id,
-                    "plan": plan_data
+                    "plan": safe_plan
                 })
 
             async def on_thought(thought_text: str, stream_id: Optional[str] = None):
@@ -435,16 +453,17 @@ class AgentTaskPool:
                 await ws_manager.broadcast("TOOL_START", {
                     "task_id": task_id,
                     "tool_name": tool_name,
-                    "tool_input": tool_args,
+                    "tool_input": _serialize_json_safe(tool_args),
                     "timestamp": datetime.now(timezone.utc).isoformat()
                 })
 
             async def on_tool_end(tool_name: str, tool_output: str, exit_code: int, duration_ms: int, tool_input: Optional[Dict[str, Any]] = None):
+                safe_input = _serialize_json_safe(tool_input) if tool_input else {}
                 async with async_session_factory() as session:
                     log = TaskLogModel(
                         task_id=task_id,
                         tool_name=tool_name,
-                        tool_input=tool_input or {},
+                        tool_input=safe_input,
                         tool_output=tool_output,
                         exit_code=exit_code,
                         duration_ms=duration_ms
@@ -458,7 +477,7 @@ class AgentTaskPool:
                     "id": log_id,
                     "task_id": task_id,
                     "tool_name": tool_name,
-                    "tool_input": tool_input or {},
+                    "tool_input": safe_input,
                     "tool_output": tool_output,
                     "exit_code": exit_code,
                     "duration_ms": duration_ms,
@@ -467,12 +486,13 @@ class AgentTaskPool:
 
             async def on_message(sender: str, content: str, stream_id: Optional[str] = None):
                 m_tokens = estimate_tokens(content)
+                safe_plan = _serialize_json_safe(active_plan) if sender == "agent" else None
                 async with async_session_factory() as session:
                     msg = TaskMessageModel(
                         task_id=task_id,
                         sender=sender,
                         content=content,
-                        plan=active_plan if sender == "agent" else None,
+                        plan=safe_plan,
                         tokens=m_tokens
                     )
                     session.add(msg)
@@ -491,7 +511,7 @@ class AgentTaskPool:
                     "task_id": task_id,
                     "sender": sender,
                     "content": content,
-                    "plan": active_plan if sender == "agent" else None,
+                    "plan": safe_plan,
                     "tokens": m_tokens,
                     "timestamp": datetime.now(timezone.utc).isoformat()
                 })

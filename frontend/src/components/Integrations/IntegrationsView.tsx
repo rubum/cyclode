@@ -180,38 +180,41 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
   };
 
   const handleSaveCredential = async () => {
-    if (!selectedIntegration || !tokenInput.trim()) return;
+    if (!selectedIntegration) return;
+    if (!selectedIntegration.configured && !tokenInput.trim()) return;
 
     setSubmitting(true);
     setFeedback(null);
 
     const payload: Record<string, any> = {};
+    const hasToken = Boolean(tokenInput.trim());
+
     if (selectedIntegration.id === 'github') {
-      payload.token = tokenInput.trim();
+      if (hasToken) payload.token = tokenInput.trim();
     } else if (selectedIntegration.id === 'slack') {
-      payload.token = tokenInput.trim();
+      if (hasToken) payload.token = tokenInput.trim();
     } else if (selectedIntegration.id === 'appsignal') {
-      payload.api_key = tokenInput.trim();
+      if (hasToken) payload.api_key = tokenInput.trim();
     } else if (selectedIntegration.id === 'gemini') {
-      payload.api_key = tokenInput.trim();
+      if (hasToken) payload.api_key = tokenInput.trim();
       if (modelInput.trim()) payload.model = modelInput.trim();
     } else if (selectedIntegration.id === 'deepseek') {
-      payload.api_key = tokenInput.trim();
+      if (hasToken) payload.api_key = tokenInput.trim();
       if (modelInput.trim()) payload.model = modelInput.trim();
       if (baseUrlInput.trim()) payload.base_url = baseUrlInput.trim();
     } else if (selectedIntegration.id === 'anthropic') {
-      payload.api_key = tokenInput.trim();
+      if (hasToken) payload.api_key = tokenInput.trim();
       if (modelInput.trim()) payload.model = modelInput.trim();
     } else if (selectedIntegration.id === 'openai') {
-      payload.api_key = tokenInput.trim();
+      if (hasToken) payload.api_key = tokenInput.trim();
       if (modelInput.trim()) payload.model = modelInput.trim();
       if (baseUrlInput.trim()) payload.base_url = baseUrlInput.trim();
     } else if (selectedIntegration.id === 'linear') {
-      payload.token = tokenInput.trim();
+      if (hasToken) payload.token = tokenInput.trim();
     } else if (selectedIntegration.id === 'sentry') {
-      payload.token = tokenInput.trim();
+      if (hasToken) payload.token = tokenInput.trim();
     } else {
-      payload.token = tokenInput.trim();
+      if (hasToken) payload.token = tokenInput.trim();
     }
 
     try {
@@ -960,21 +963,29 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                      selectedIntegration.id === 'linear' ? 'Linear API Key / Personal API Key (lin_api_...)' :
                      selectedIntegration.id === 'sentry' ? 'Sentry Auth Token' : 'API Token'}
                   </span>
-                  <span className="text-[10.5px] font-mono text-onedark-accent">Required</span>
+                  {selectedIntegration.configured ? (
+                    <span className="text-[10.5px] font-mono text-emerald-400">Encrypted in Vault</span>
+                  ) : (
+                    <span className="text-[10.5px] font-mono text-onedark-accent">Required</span>
+                  )}
                 </label>
                 <input
                   type="password"
                   value={tokenInput}
                   onChange={(e) => setTokenInput(e.target.value)}
                   placeholder={
-                    selectedIntegration.id === 'github' ? 'ghp_xxxxxxxxxxxxxxxxxxxx' :
-                    selectedIntegration.id === 'slack' ? 'xoxb-xxxxxxxxxxxxxxxxxxxx' :
-                    selectedIntegration.id === 'gemini' ? 'AIzaSyxxxxxxxxxxxxxxxxxxxx' :
-                    selectedIntegration.id === 'deepseek' ? 'sk-xxxxxxxxxxxxxxxxxxxx' :
-                    selectedIntegration.id === 'anthropic' ? 'sk-ant-xxxxxxxxxxxxxxxxxxxx' :
-                    selectedIntegration.id === 'openai' ? 'sk-xxxxxxxxxxxxxxxxxxxx' :
-                    selectedIntegration.id === 'linear' ? 'lin_api_xxxxxxxxxxxxxxxxxxxx' :
-                    selectedIntegration.id === 'sentry' ? 'sntrys_xxxxxxxxxxxxxxxxxxxx' : 'Enter secret key...'
+                    selectedIntegration.configured
+                      ? '•••••••••••• (Active in Vault - leave blank to keep)'
+                      : (
+                        selectedIntegration.id === 'github' ? 'ghp_xxxxxxxxxxxxxxxxxxxx' :
+                        selectedIntegration.id === 'slack' ? 'xoxb-xxxxxxxxxxxxxxxxxxxx' :
+                        selectedIntegration.id === 'gemini' ? 'AIzaSyxxxxxxxxxxxxxxxxxxxx' :
+                        selectedIntegration.id === 'deepseek' ? 'sk-xxxxxxxxxxxxxxxxxxxx' :
+                        selectedIntegration.id === 'anthropic' ? 'sk-ant-xxxxxxxxxxxxxxxxxxxx' :
+                        selectedIntegration.id === 'openai' ? 'sk-xxxxxxxxxxxxxxxxxxxx' :
+                        selectedIntegration.id === 'linear' ? 'lin_api_xxxxxxxxxxxxxxxxxxxx' :
+                        selectedIntegration.id === 'sentry' ? 'sntrys_xxxxxxxxxxxxxxxxxxxx' : 'Enter secret key...'
+                      )
                   }
                   className="w-full px-3.5 py-2.5 rounded-lg bg-onedark-bg border border-onedark-border text-xs text-onedark-fgBright font-mono focus:outline-none focus:border-onedark-accent shadow-xs"
                   autoFocus

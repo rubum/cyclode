@@ -5,6 +5,7 @@ from app.agent.providers.gemini import GeminiProvider
 from app.agent.providers.claude import ClaudeProvider
 from app.agent.providers.openai import OpenAIProvider
 from app.agent.providers.deepseek import DeepSeekProvider
+from app.config import settings
 from app.agent.providers.factory import get_provider_for_model, get_model_catalog
 
 
@@ -162,7 +163,11 @@ def test_openai_message_conversion():
 
 
 @pytest.mark.asyncio
-async def test_missing_api_keys_surface_honest_diagnostics():
+async def test_missing_api_keys_surface_honest_diagnostics(monkeypatch):
+    monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", None)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", None)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     claude = ClaudeProvider(api_key=None)
     claude._api_key = None
     resp_claude = await claude.generate_response([], None, "", "claude-3-7-sonnet")
@@ -349,7 +354,9 @@ def test_deepseek_tool_and_message_conversion():
 
 
 @pytest.mark.asyncio
-async def test_deepseek_missing_api_key_diagnostics():
+async def test_deepseek_missing_api_key_diagnostics(monkeypatch):
+    monkeypatch.setattr(settings, "DEEPSEEK_API_KEY", None)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     ds = DeepSeekProvider(api_key=None)
     ds._api_key = None
     resp = await ds.generate_response([], None, "", "deepseek-flash")
@@ -467,6 +474,167 @@ def test_openai_multi_round_tool_conversation():
     assert converted[3]["tool_call_id"] == "call_1_list_dir"
     assert converted[4]["role"] == "tool"
     assert converted[4]["tool_call_id"] == "call_2_git"
+
+
+def test_deepseek_model_normalization():
+    ds = DeepSeekProvider(api_key="mock-key", base_url="https://api.deepseek.com")
+    assert ds._normalize_model_name("deepseek-flash") == "deepseek-chat"
+    assert ds._normalize_model_name("deepseek-v4-pro") == "deepseek-chat"
+    assert ds._normalize_model_name("deepseek-reasoner") == "deepseek-reasoner"
+    assert ds._normalize_model_name("deepseek-r1") == "deepseek-reasoner"
+
+    # Custom gateways retain their specified model identifier
+    ds_custom = DeepSeekProvider(api_key="mock-key", base_url="https://my-proxy.com/v1")
+    assert ds_custom._normalize_model_name("deepseek-flash") == "deepseek-flash"
+
+
+@pytest.mark.asyncio
+async def test_deepseek_structured_plan_timeout_diagnostics():
+    from unittest.mock import AsyncMock
+    import asyncio
+
+    provider = DeepSeekProvider(api_key="mock-deepseek-key")
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    mock_client.post.side_effect = asyncio.TimeoutError()
+
+    res = await provider.generate_structured_plan("Make a plan", "System instruction", "deepseek-chat", client=mock_client)
+    assert res.get("status_code") == 500
+    assert "Timed out" in res.get("error", "") or "TimeoutError" in res.get("error", "")
+
+
+@pytest.mark.asyncio
+async def test_update_credentials_preserves_existing_key(monkeypatch):
+    from app.integrations.manager import IntegrationManager
+    from unittest.mock import patch
+
+    mgr = IntegrationManager()
+    monkeypatch.setattr(settings, "DEEPSEEK_API_KEY", "sk-existing-secret-key")
+    monkeypatch.setattr(settings, "DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+
+    with patch.object(mgr, "validate_credentials", return_value={"valid": True, "message": "Validated"}):
+        res = await mgr.update_credentials("deepseek", {"model": "deepseek-chat", "base_url": "https://api.deepseek.com"})
+        assert res["status"] == "configured"
+        assert res["masked_credentials"]["api_key"].startswith("sk-e")
+
+
+def test_deepseek_tool_call_reconciliation_guardrail_turn():
+    provider = DeepSeekProvider(api_key="mock-key")
+    # Scenario: Assistant issued tool_call, but harness skipped tool execution due to guardrail and added user prompt
+    history = [
+        {"role": "user", "parts": [{"text": "Build a React game"}]},
+        {"role": "model", "parts": [
+            {"text": "I will scaffold the app."},
+            {"functionCall": {"name": "list_dir", "args": {"subpath": "."}, "id": "call_1"}}
+        ]},
+        {"role": "user", "parts": [{"text": "Autonomous Pre-Completion Verification Notice: index.html missing."}]}
+    ]
+
+    converted = provider._convert_messages(history, system_instruction="System")
+    assert converted[0]["role"] == "system"
+    assert converted[1]["role"] == "user"
+    assert converted[2]["role"] == "assistant"
+    # Tool call stripped because text content was present and no tool responses followed
+    assert "tool_calls" not in converted[2]
+    assert converted[2]["content"] == "I will scaffold the app."
+    assert converted[3]["role"] == "user"
+    assert "Autonomous Pre-Completion Verification Notice" in converted[3]["content"]
+
+
+def test_deepseek_tool_call_reconciliation_partial_responses():
+    provider = DeepSeekProvider(api_key="mock-key")
+    # Scenario: Assistant issued 2 tool calls, but only 1 response was provided in history
+    history = [
+        {"role": "user", "parts": [{"text": "Run checks"}]},
+        {"role": "model", "parts": [
+            {"functionCall": {"name": "read_file", "args": {"file_path": "a.py"}, "id": "call_a"}},
+            {"functionCall": {"name": "read_file", "args": {"file_path": "b.py"}, "id": "call_b"}}
+        ]},
+        {"role": "user", "parts": [
+            {"functionResponse": {"name": "read_file", "id": "call_a", "response": {"output": "a content"}}}
+        ]},
+        {"role": "user", "parts": [{"text": "What next?"}]}
+    ]
+
+    converted = provider._convert_messages(history, system_instruction="")
+    # Check that both tool_a and tool_b have responses before user turn
+    assert converted[1]["role"] == "assistant"
+    assert len(converted[1]["tool_calls"]) == 2
+    assert converted[2]["role"] == "tool"
+    assert converted[2]["tool_call_id"] == "call_a"
+    assert converted[3]["role"] == "tool"
+    assert converted[3]["tool_call_id"] == "call_b"
+    assert converted[4]["role"] == "user"
+    assert converted[4]["content"] == "What next?"
+
+
+def test_openai_tool_call_reconciliation_empty_assistant_with_tools():
+    provider = OpenAIProvider(api_key="mock-key")
+    # Scenario: Assistant issued tool call with no text, followed directly by user message
+    history = [
+        {"role": "user", "parts": [{"text": "Test"}]},
+        {"role": "model", "parts": [
+            {"functionCall": {"name": "test_tool", "args": {}, "id": "call_test"}}
+        ]},
+        {"role": "user", "parts": [{"text": "User interrupted"}]}
+    ]
+
+    converted = provider._convert_messages(history, system_instruction="")
+    assert converted[1]["role"] == "assistant"
+    assert converted[1]["tool_calls"][0]["id"] == "call_test"
+    # Synthesized tool response added before user turn to maintain protocol
+    assert converted[2]["role"] == "tool"
+    assert converted[2]["tool_call_id"] == "call_test"
+    assert converted[3]["role"] == "user"
+
+
+def test_claude_tool_call_reconciliation_missing_results():
+    provider = ClaudeProvider(api_key="mock-key")
+    history = [
+        {"role": "user", "parts": [{"text": "Inspect"}]},
+        {"role": "model", "parts": [
+            {"functionCall": {"name": "list_dir", "args": {}, "id": "call_list"}}
+        ]},
+        {"role": "user", "parts": [{"text": "Follow-up question"}]}
+    ]
+
+    converted = provider._convert_messages(history)
+    # The user message following assistant tool_use must contain the matching tool_result block
+    assert converted[0]["role"] == "user"
+    assert converted[1]["role"] == "assistant"
+    assert converted[2]["role"] == "user"
+    tool_results = [b for b in converted[2]["content"] if b.get("type") == "tool_result"]
+    assert len(tool_results) == 1
+    assert tool_results[0]["tool_use_id"] == "call_list"
+
+
+def test_json_safe_serializer_handles_datetime_and_models():
+    from app.agent.pool import _serialize_json_safe
+    from app.schemas.evals import EvaluationScorecard, EvaluationCheck
+    from datetime import datetime, timezone
+    import json
+
+    now = datetime.now(timezone.utc)
+    scorecard = EvaluationScorecard(
+        status="accomplished",
+        summary="All tests passed",
+        score=1.0,
+        checks=[EvaluationCheck(name="Lint Check", passed=True)]
+    )
+
+    raw_dict = {
+        "title": "Task Plan",
+        "created_at": now,
+        "evaluation": scorecard,
+        "nested": {"time": now, "items": [scorecard]}
+    }
+
+    sanitized = _serialize_json_safe(raw_dict)
+    # Verify standard json.dumps succeeds without TypeError
+    dumped = json.dumps(sanitized)
+    assert "accomplished" in dumped
+    assert "Lint Check" in dumped
+    assert isinstance(sanitized["created_at"], str)
+
 
 
 
