@@ -552,23 +552,31 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
             issues.append(f"Canvas container ID mismatch: HTML declares '<div id=\"{cont_id}\">' but CSS styles '#{mismatched_css_selectors[0]}'. The viewport will collapse to 0x0.")
         elif not has_container_css and not has_dist:
             has_inline_style = bool(re.search(rf'<div\s+[^>]*id=["\']{re.escape(cont_id)}["\'][^>]*style=["\'][^"\']*\b(width|height|position)\b', html_text, re.IGNORECASE))
-            if not has_inline_style:
-                issues.append(f"Canvas mount container '#{cont_id}' has no explicit CSS dimension rules (width: 100%; height: 100%; position: absolute;).")
+    # 3. Unstyled DOM / Missing CSS Engine Check
+    has_css_engine = (
+        bool(combined_css.strip())
+        or bool(re.search(r'tailwindcss|bootstrap|uno\.css|cdn\.jsdelivr\.net|cdnjs\.cloudflare\.com|unpkg\.com', html_text, re.IGNORECASE))
+        or bool(re.search(r'<style\b', html_text, re.IGNORECASE))
+        or len(css_links) > 0
+        or has_dist
+    )
+    if not has_css_engine and len(stripped_dom) > 60:
+        issues.append("HTML document contains DOM layout elements but no CSS stylesheets, <style> tags, or Tailwind CSS CDN scripts (<script src='https://cdn.tailwindcss.com'></script>) are linked. The page will render unstyled default browser HTML.")
 
-    if any("Canvas container" in iss or "HTML elements use class='hidden'" in iss or "Canvas mount container" in iss for iss in issues):
+    if any("Canvas container" in iss or "HTML elements use class='hidden'" in iss or "Canvas mount container" in iss or "no CSS stylesheets" in iss for iss in issues):
         return {
-            "status": "dom_css_mismatch",
+            "status": "uncompiled_css" if any("no CSS stylesheets" in iss for iss in issues) else "dom_css_mismatch",
             "has_preview": True,
             "entry_point": primary_entry,
             "available_entry_points": available_entry_points,
             "assets_count": assets_count,
             "title": extracted_title or "App Preview",
             "framework": framework,
-            "build_status": "dom_css_mismatch",
+            "build_status": "uncompiled_css" if any("no CSS stylesheets" in iss for iss in issues) else "dom_css_mismatch",
             "is_stale": is_stale,
             "build_timestamp": build_timestamp,
             "issues": issues,
-            "recommendation": "Harmonize DOM element IDs and CSS selectors between index.html and stylesheets, add missing '.hidden { display: none !important; }' utility, and ensure canvas containers are styled with width: 100%; height: 100%; position: absolute;."
+            "recommendation": "Link Tailwind CSS (<script src='https://cdn.tailwindcss.com'></script>) or embed comprehensive modern dark theme CSS tokens in <style> to render a styled, professional page." if any("no CSS stylesheets" in iss for iss in issues) else "Harmonize DOM element IDs and CSS selectors between index.html and stylesheets, add missing '.hidden { display: none !important; }' utility, and ensure canvas containers are styled with width: 100%; height: 100%; position: absolute;."
         }
 
     if has_dist:
