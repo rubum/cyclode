@@ -2537,7 +2537,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                         </div>
                       </div>
 
-                      {/* Collapsed State: Current / Latest Action Strip */}
+                      {/* Collapsed State: Latest Log is Expanded by default without Active/Latest prefixes */}
                       {!isActOpen && (turn.logs.length > 0 || (isTurnRunning && turn.isLatest && !!task?.active_tool)) && (() => {
                         const activeTaskTool = (isTurnRunning && turn.isLatest && task?.active_tool && !turn.logs.some((l) => l.isRunning)) ? task.active_tool : null;
                         const targetLog = activeTaskTool ? null : turn.logs[turn.logs.length - 1];
@@ -2548,58 +2548,88 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                         const isRunning = activeTaskTool ? true : Boolean(targetLog!.isRunning);
                         const actionInfo = getToolActionInfo(toolName, toolInput, isRunning);
                         const ActionIcon = actionInfo.icon;
+                        const logKey = targetLog ? (targetLog.id || `log-${turn.id}-${turn.logs.length - 1}`) : `active-tool-${turn.id}`;
+                        const isExpanded = expandedLogIds[logKey] !== undefined ? expandedLogIds[logKey] : true;
+
+                        const displayLog: TaskLog = targetLog || {
+                          id: `active-${task.id}`,
+                          task_id: task.id,
+                          tool_name: activeTaskTool!.tool_name,
+                          tool_input: activeTaskTool!.tool_input,
+                          tool_output: '',
+                          exit_code: 0,
+                          duration_ms: 0,
+                          created_at: new Date().toISOString(),
+                          isRunning: true,
+                        };
 
                         return (
-                          <div
-                            onClick={() => setUserToggledActivities((prev) => ({ ...prev, [turn.id]: true }))}
-                            className="px-3.5 py-2 border-t border-white/[0.04] bg-onedark-darker/60 hover:bg-onedark-darker/80 transition-colors flex items-center justify-between text-xs font-mono cursor-pointer group/peek"
-                          >
-                            <div className="flex items-center space-x-2.5 min-w-0 pr-2">
-                              <div className={`p-1 rounded ${actionInfo.badgeBg} flex items-center justify-center flex-shrink-0`}>
-                                {isRunning ? (
-                                  <RefreshCw className="w-3 h-3 animate-spin text-onedark-accent" />
-                                ) : (
-                                  <ActionIcon className={`w-3.5 h-3.5 ${actionInfo.colorClass}`} />
-                                )}
+                          <div className="border-t border-white/[0.04] bg-onedark-darker/60">
+                            <div
+                              onClick={() => setExpandedLogIds((prev) => ({ ...prev, [logKey]: !isExpanded }))}
+                              className={`px-3.5 py-2 hover:bg-onedark-darker/80 transition-colors flex items-center justify-between text-xs font-mono cursor-pointer select-none group/peek ${
+                                isRunning
+                                  ? 'bg-onedark-accent/10 text-onedark-fgBright'
+                                  : targetLog && targetLog.exit_code !== 0
+                                  ? 'bg-onedark-red/10 text-onedark-red'
+                                  : ''
+                              }`}
+                            >
+                              <div className="flex items-center space-x-2.5 min-w-0 pr-2">
+                                <div className={`p-1 rounded ${actionInfo.badgeBg} flex items-center justify-center flex-shrink-0`}>
+                                  {isRunning ? (
+                                    <RefreshCw className="w-3 h-3 animate-spin text-onedark-accent" />
+                                  ) : (
+                                    <ActionIcon className={`w-3.5 h-3.5 ${actionInfo.colorClass}`} />
+                                  )}
+                                </div>
+                                <div className="truncate flex items-center space-x-1.5 text-xs">
+                                  <span className={`font-semibold ${actionInfo.colorClass}`}>
+                                    {actionInfo.verb}
+                                  </span>
+                                  <span className="text-onedark-fgBright font-mono truncate">
+                                    {actionInfo.target}
+                                  </span>
+                                </div>
                               </div>
-                              <div className="truncate flex items-center space-x-1.5 text-xs">
-                                <span className="text-[10px] uppercase font-bold text-onedark-muted tracking-wider group-hover/peek:text-onedark-accent transition-colors">
-                                  {isRunning ? 'Active' : 'Latest'}:
-                                </span>
-                                <span className={`font-semibold ${actionInfo.colorClass}`}>
-                                  {actionInfo.verb}
-                                </span>
-                                <span className="text-onedark-fgBright font-mono truncate">
-                                  {actionInfo.target}
+
+                              <div className="flex items-center space-x-2 flex-shrink-0 text-[10.5px]">
+                                {isRunning ? (
+                                  <span className="px-1.5 py-0.5 rounded bg-onedark-accent/20 text-onedark-accent animate-pulse font-medium">
+                                    running...
+                                  </span>
+                                ) : targetLog ? (
+                                  <>
+                                    <span className="font-mono text-onedark-muted/70 hidden sm:inline">
+                                      {targetLog.duration_ms < 1000 ? `${targetLog.duration_ms}ms` : `${(targetLog.duration_ms / 1000).toFixed(1)}s`}
+                                    </span>
+                                    <span
+                                      className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono ${
+                                        targetLog.exit_code === 0
+                                          ? 'bg-onedark-green/10 text-onedark-green'
+                                          : 'bg-onedark-red/10 text-onedark-red'
+                                      }`}
+                                    >
+                                      exit {targetLog.exit_code}
+                                    </span>
+                                  </>
+                                ) : null}
+                                <span className="text-onedark-muted/60 group-hover/peek:text-onedark-fg transition-colors">
+                                  {isExpanded ? (
+                                    <ChevronDown className="w-3.5 h-3.5" />
+                                  ) : (
+                                    <ChevronRight className="w-3.5 h-3.5" />
+                                  )}
                                 </span>
                               </div>
                             </div>
 
-                            <div className="flex items-center space-x-2 flex-shrink-0 text-[10.5px]">
-                              {isRunning ? (
-                                <span className="px-1.5 py-0.5 rounded bg-onedark-accent/20 text-onedark-accent animate-pulse font-medium">
-                                  running...
-                                </span>
-                              ) : targetLog ? (
-                                <>
-                                  <span className="font-mono text-onedark-muted/70 hidden sm:inline">
-                                    {targetLog.duration_ms < 1000 ? `${targetLog.duration_ms}ms` : `${(targetLog.duration_ms / 1000).toFixed(1)}s`}
-                                  </span>
-                                  <span
-                                    className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono ${
-                                      targetLog.exit_code === 0
-                                        ? 'bg-onedark-green/10 text-onedark-green'
-                                        : 'bg-onedark-red/10 text-onedark-red'
-                                    }`}
-                                  >
-                                    exit {targetLog.exit_code}
-                                  </span>
-                                </>
-                              ) : null}
-                              <span className="text-onedark-muted/60 group-hover/peek:text-onedark-fg transition-colors">
-                                <ChevronRight className="w-3 h-3" />
-                              </span>
-                            </div>
+                            {/* Expanded Individual Log View */}
+                            {isExpanded && (
+                              <div className="px-3 pb-2 pt-0.5">
+                                <FormattedLogView log={displayLog} initiallyExpanded={true} isExpanded={true} hideHeader={true} />
+                              </div>
+                            )}
                           </div>
                         );
                       })()}
