@@ -27,6 +27,9 @@ import 'prismjs/components/prism-cpp';
 import 'prismjs/components/prism-csharp';
 import 'prismjs/components/prism-java';
 import 'prismjs/components/prism-kotlin';
+import 'prismjs/components/prism-dart';
+import 'prismjs/components/prism-swift';
+import 'prismjs/components/prism-groovy';
 import 'prismjs/components/prism-graphql';
 import 'prismjs/components/prism-scss';
 
@@ -68,6 +71,11 @@ const EXTENSION_MAP: Record<string, string> = {
   cs: 'csharp',
   java: 'java',
   kt: 'kotlin',
+  kts: 'kotlin',
+  dart: 'dart',
+  swift: 'swift',
+  groovy: 'groovy',
+  gradle: 'groovy',
   graphql: 'graphql',
   gql: 'graphql',
   diff: 'diff',
@@ -80,6 +88,10 @@ export function resolveLanguage(langOrExt?: string, fileName?: string): string {
     if (lowerName === 'gemfile' || lowerName === 'rakefile') return 'ruby';
     if (lowerName === 'mix.lock') return 'elixir';
     if (lowerName === 'cargo.lock') return 'toml';
+    if (lowerName === 'pubspec.yaml' || lowerName === 'pubspec.lock') return 'yaml';
+    if (lowerName === 'package.swift') return 'swift';
+    if (lowerName === 'build.gradle.kts' || lowerName === 'settings.gradle.kts') return 'kotlin';
+    if (lowerName === 'build.gradle' || lowerName === 'settings.gradle') return 'groovy';
     
     const parts = lowerName.split('.');
     if (parts.length > 1) {

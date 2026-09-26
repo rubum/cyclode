@@ -1776,13 +1776,15 @@ class AntigravityHarness:
                             has_unfinished_steps = any(s.get("status") in ["pending", "in_progress"] for s in current_plan.get("steps", []))
                             is_dangling_intent = False
 
-                            if raw_text_stripped and guardrail_corrections < max_guardrail_corrections and (is_app_task or has_unfinished_steps or mutating_tool_count > 0):
+                            if raw_text_stripped and guardrail_corrections < max_guardrail_corrections:
                                 ends_with_colon = raw_text_stripped.endswith(":")
                                 tail_lower = raw_text_stripped.lower()[-120:]
                                 forward_phrases = [
                                     "let me ", "let us ", "let's ", "i will now", "i'll now", "i will proceed",
                                     "i am going to", "now let me", "next, i will", "next, let's", "next step is to",
-                                    "let me fix", "let me implement", "let me update", "let me create", "let me add"
+                                    "let me fix", "let me implement", "let me update", "let me create", "let me add",
+                                    "let me confirm", "let me inspect", "let me check", "let me examine", "let me verify",
+                                    "i will check", "i will inspect", "i will examine", "i will verify", "i will confirm"
                                 ]
                                 if ends_with_colon or any(p in tail_lower for p in forward_phrases):
                                     is_dangling_intent = True
@@ -1814,7 +1816,7 @@ class AntigravityHarness:
                                 })
                                 contents.append({
                                     "role": "user",
-                                    "parts": [{"text": "Please proceed with your planned actions and execute the required tool calls (e.g. `edit_file`, `replace_file_content`, `run_command`, `create_pull_request`) to complete the remaining tasks."}]
+                                    "parts": [{"text": "Please proceed with your planned actions and execute the required tool calls (e.g. `read_file`, `list_dir`, `edit_file`, `replace_file_content`, `run_command`, `create_pull_request`) to complete the remaining tasks."}]
                                 })
                                 continue
 
@@ -1861,6 +1863,53 @@ class AntigravityHarness:
                                 contents.append({
                                     "role": "user",
                                     "parts": [{"text": guardrail_prompt}]
+                                })
+                                continue
+
+                            # Multi-Step Plan Milestone Completion Guardrail
+                            # If the plan has multiple milestones and intermediate steps remain pending during an implementation task,
+                            # prompt the model to proceed to the next milestone rather than terminating early.
+                            pending_plan_steps = [s for s in current_plan.get("steps", []) if s.get("status") == "pending"]
+                            if (
+                                (is_app_task or intent_category in ["app_building", "code_modification"])
+                                and len(current_plan.get("steps", [])) >= 3
+                                and len(pending_plan_steps) >= 2
+                                and guardrail_corrections < max_guardrail_corrections
+                            ):
+                                guardrail_corrections += 1
+                                pending_titles = [s.get("title", f"Step {idx+1}") for idx, s in enumerate(pending_plan_steps[:3])]
+                                milestone_prompt = (
+                                    f"Autonomous Milestone Completion Notice:\n"
+                                    f"The formulated execution plan has {len(pending_plan_steps)} remaining uncompleted milestones:\n"
+                                    f"{chr(10).join(f'- {t}' for t in pending_titles)}\n\n"
+                                    f"CRITICAL DIRECTIVE: Do not conclude the task prematurely while plan milestones remain pending. Proceed directly to implement the next milestone using workspace tools (`edit_file`, `replace_file_content`, `run_command`)."
+                                )
+                                logger.info(f"Triggering Milestone Completion Guardrail on task {task_id} (correction {guardrail_corrections}, {len(pending_plan_steps)} steps pending)")
+                                await self._emit_streamed_thought(
+                                    f"**Milestone Execution**: {len(pending_plan_steps)} plan milestones remaining. Advancing to next milestone...",
+                                    on_thought, on_stream_start, on_stream_chunk, on_stream_end
+                                )
+                                if provider_resp.raw_parts:
+                                    clean_parts = []
+                                    for p in provider_resp.raw_parts:
+                                        if isinstance(p, dict):
+                                            if "thought" in p or "text" in p or ("content" in p and isinstance(p["content"], str)):
+                                                clean_parts.append(p)
+                                    m_parts = clean_parts if clean_parts else ([{"text": combined_text}] if combined_text else [{"text": "Advancing plan milestones."}])
+                                else:
+                                    m_parts = []
+                                    if provider_resp.thought:
+                                        m_parts.append({"thought": provider_resp.thought})
+                                    if combined_text:
+                                        m_parts.append({"text": combined_text})
+
+                                contents.append({
+                                    "role": "model",
+                                    "parts": m_parts if m_parts else [{"text": combined_text or "Advancing plan milestones."}]
+                                })
+                                contents.append({
+                                    "role": "user",
+                                    "parts": [{"text": milestone_prompt}]
                                 })
                                 continue
 
@@ -2100,13 +2149,23 @@ class AntigravityHarness:
                             args = call.get("args", {})
 
                             # Monotonic Dynamic Plan Step Transitions
-                            if fn_name in ["edit_file", "replace_file_content", "batch_replace_content", "apply_unified_patch", "create_pull_request", "post_pull_request_review", "connect_repository"]:
-                                if len(current_plan.get("steps", [])) >= 2:
-                                    if Harness.advance_plan_step(current_plan, 1):
+                            plan_steps = current_plan.get("steps", [])
+                            num_steps = len(plan_steps)
+                            if num_steps >= 2:
+                                if fn_name in ["edit_file", "replace_file_content", "batch_replace_content", "apply_unified_patch", "connect_repository"]:
+                                    if num_steps <= 2:
+                                        target_idx = 1
+                                    else:
+                                        # Proportionally advance across intermediate steps up to num_steps - 2
+                                        step_offset = min(max(1, mutating_tool_count // 2), num_steps - 2)
+                                        target_idx = max(1, step_offset)
+                                    if Harness.advance_plan_step(current_plan, target_idx):
                                         await self._emit_plan(current_plan, on_plan)
-                            elif (fn_name == "verify_app_preview" or (fn_name == "run_command" and any(k in str(args.get("command", "")).lower() for k in ["test", "pytest", "npm test", "vitest", "npm run test", "npm run build"]))) and mutating_tool_count >= 1:
-                                if len(current_plan.get("steps", [])) >= 3:
-                                    if Harness.advance_plan_step(current_plan, 2):
+                                elif (fn_name == "verify_app_preview" or (fn_name == "run_command" and any(k in str(args.get("command", "")).lower() for k in ["test", "pytest", "npm test", "vitest", "npm run test", "npm run build", "flutter build", "gradlew", "cargo check"]))) and mutating_tool_count >= 1:
+                                    if Harness.advance_plan_step(current_plan, num_steps - 1):
+                                        await self._emit_plan(current_plan, on_plan)
+                                elif fn_name in ["create_pull_request", "post_pull_request_review"]:
+                                    if Harness.advance_plan_step(current_plan, num_steps - 1):
                                         await self._emit_plan(current_plan, on_plan)
 
                             if on_tool_start:

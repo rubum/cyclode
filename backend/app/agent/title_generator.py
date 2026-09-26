@@ -15,10 +15,17 @@ FILLER_PREFIXES = [
 ]
 
 
+TRAILING_STOPWORDS = {
+    "for", "to", "in", "with", "and", "of", "on", "at", "by", "from",
+    "a", "an", "the", "as", "is", "are", "into", "or", "about", "using", "via"
+}
+
+
 def generate_heuristic_title(prompt: str, repo_name: Optional[str] = None) -> str:
     """
-    Produces a clean, compact 3-6 word session title from a user prompt using
+    Produces a clean, compact 3-8 word session title from a user prompt using
     smart regex parsing (stripping URLs, boilerplate, and extracting repository context).
+    Guarantees complete intent preservation without dangling trailing prepositions.
     """
     if not prompt or not prompt.strip():
         return f"Session: {repo_name}" if repo_name else "New Session"
@@ -50,20 +57,44 @@ def generate_heuristic_title(prompt: str, repo_name: Optional[str] = None) -> st
 
     # If repository was extracted and not already mentioned in text
     if extracted_repo and extracted_repo.lower() not in clean_text.lower():
-        # Shorten text to 3-4 words and append repo
-        words = clean_text.split(" ")[:4]
-        combined = " ".join(words)
+        words = clean_text.split(" ")
+        # Shorten prefix to 3 words to accommodate repository tag
+        combined = " ".join(words[:3])
+        # Strip trailing stopwords from combined prefix before appending repo
+        p_words = combined.split(" ")
+        while len(p_words) > 1 and p_words[-1].lower() in TRAILING_STOPWORDS:
+            p_words.pop()
+        combined = " ".join(p_words)
         candidate = f"{combined} ({extracted_repo})"
     else:
-        # Take the first 5-6 words
-        words = clean_text.split(" ")[:6]
-        candidate = " ".join(words)
+        words = clean_text.split(" ")
+        if len(words) <= 8 and len(clean_text) <= 55:
+            candidate = clean_text
+        else:
+            # Take up to 7-8 words that fit within 52 chars
+            picked = []
+            cur_len = 0
+            for w in words[:8]:
+                if cur_len + len(w) + 1 > 50 and picked:
+                    break
+                picked.append(w)
+                cur_len += len(w) + 1
+            candidate = " ".join(picked)
 
     # Clean trailing punctuation
     candidate = re.sub(r"[:;,.\-?!]+$", "", candidate).strip()
 
-    if len(candidate) > 50:
-        candidate = candidate[:47].rstrip() + "..."
+    # Strip trailing stopwords / prepositions (e.g. "Build app for" -> "Build app")
+    c_words = candidate.split(" ")
+    while len(c_words) > 1 and c_words[-1].lower() in TRAILING_STOPWORDS:
+        c_words.pop()
+    candidate = " ".join(c_words)
+
+    # Clean trailing punctuation again if any remained after popping
+    candidate = re.sub(r"[:;,.\-?!]+$", "", candidate).strip()
+
+    if len(candidate) > 55:
+        candidate = candidate[:52].rstrip() + "..."
 
     # Capitalize first letter cleanly
     if candidate:

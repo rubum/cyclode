@@ -296,3 +296,49 @@ def test_format_plan_chat_summary():
     assert "- **Phase 1: Repository Hygiene & Tooling**: Eliminate stale root duplicate directories" in summary
     assert "- **Phase 2: Security Hardening**: Close SSRF vectors" in summary
     assert "[👉 Inspect Full Plan in Web & Docs](plan://task-test-summary-1)" in summary
+
+
+def test_advance_plan_step_monotonic_multi_step_progression():
+    from app.agent.harness import Harness
+
+    plan = {
+        "steps": [
+            {"id": "step-1", "title": "Scaffold project", "status": "in_progress"},
+            {"id": "step-2", "title": "Build domain models", "status": "pending"},
+            {"id": "step-3", "title": "Implement repositories", "status": "pending"},
+            {"id": "step-4", "title": "UI Components", "status": "pending"},
+            {"id": "step-5", "title": "State Management", "status": "pending"},
+            {"id": "step-6", "title": "Navigation & Routing", "status": "pending"},
+            {"id": "step-7", "title": "Widget tests", "status": "pending"},
+            {"id": "step-8", "title": "Production Web Preview", "status": "pending"},
+        ]
+    }
+
+    # Step 1 advance
+    changed = Harness.advance_plan_step(plan, 1)
+    assert changed is True
+    assert plan["steps"][0]["status"] == "completed"
+    assert plan["steps"][1]["status"] == "in_progress"
+    assert plan["steps"][2]["status"] == "pending"
+
+    # Step 4 advance
+    changed = Harness.advance_plan_step(plan, 4)
+    assert changed is True
+    assert plan["steps"][0]["status"] == "completed"
+    assert plan["steps"][1]["status"] == "completed"
+    assert plan["steps"][2]["status"] == "completed"
+    assert plan["steps"][3]["status"] == "completed"
+    assert plan["steps"][4]["status"] == "in_progress"
+    assert plan["steps"][5]["status"] == "pending"
+
+    # Non-regression check: trying to advance backwards should return False and not regress
+    changed_back = Harness.advance_plan_step(plan, 2)
+    assert changed_back is False
+    assert plan["steps"][4]["status"] == "in_progress"
+
+    # Final step advance
+    changed = Harness.advance_plan_step(plan, 7)
+    assert changed is True
+    assert plan["steps"][6]["status"] == "completed"
+    assert plan["steps"][7]["status"] == "in_progress"
+

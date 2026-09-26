@@ -196,8 +196,15 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
         "client/dist/index.html",
         "build/index.html",
         "client/build/index.html",
+        "build/web/index.html",
+        "build/dist/wasmJs/productionExecutable/index.html",
+        "build/dist/wasmJs/developmentExecutable/index.html",
+        "Bundle/index.html",
+        ".build/carton/index.html",
+        ".build/wasm32-unknown-wasi/release/Bundle/index.html",
         "public/index.html",
         "app/dist/index.html",
+        "web/index.html",
         "index.html",
         "client/index.html",
         "src/index.html",
@@ -240,12 +247,31 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
     # Framework & source discovery
     has_package_json = (ws_path / "package.json").exists() or (ws_path / "client" / "package.json").exists()
     has_vite = (ws_path / "vite.config.js").exists() or (ws_path / "client" / "vite.config.js").exists() or (ws_path / "vite.config.ts").exists() or (ws_path / "client" / "vite.config.ts").exists()
-    has_dist = (ws_path / "dist" / "index.html").exists() or (ws_path / "client" / "dist" / "index.html").exists() or (ws_path / "build" / "index.html").exists()
+    has_flutter = (ws_path / "pubspec.yaml").exists() or (ws_path / "build" / "web" / "index.html").exists()
+    has_gradle_kts = (ws_path / "build.gradle.kts").exists() or (ws_path / "settings.gradle.kts").exists()
+    has_swift_pkg = (ws_path / "Package.swift").exists() or (ws_path / "Bundle" / "index.html").exists()
+
+    has_dist = (
+        (ws_path / "dist" / "index.html").exists()
+        or (ws_path / "client" / "dist" / "index.html").exists()
+        or (ws_path / "build" / "index.html").exists()
+        or (ws_path / "build" / "web" / "index.html").exists()
+        or (ws_path / "build" / "dist" / "wasmJs" / "productionExecutable" / "index.html").exists()
+        or (ws_path / "Bundle" / "index.html").exists()
+    )
 
     # Find dist entry path and mtime if dist exists
     dist_entry_path: Optional[Path] = None
     dist_mtime: Optional[float] = None
-    for cand in ["dist/index.html", "client/dist/index.html", "build/index.html", "client/build/index.html"]:
+    for cand in [
+        "dist/index.html",
+        "client/dist/index.html",
+        "build/index.html",
+        "client/build/index.html",
+        "build/web/index.html",
+        "build/dist/wasmJs/productionExecutable/index.html",
+        "Bundle/index.html"
+    ]:
         p = ws_path / cand
         if p.exists() and p.is_file():
             dist_entry_path = p
@@ -261,10 +287,10 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
             if f.startswith("."):
                 continue
             ext = Path(f).suffix.lower()
-            if ext in {".jsx", ".tsx", ".js", ".ts", ".mjs", ".css", ".html", ".htm", ".json", ".vue", ".svelte"}:
+            if ext in {".jsx", ".tsx", ".js", ".ts", ".mjs", ".css", ".html", ".htm", ".json", ".vue", ".svelte", ".dart", ".swift", ".kt", ".kts"}:
                 fp = Path(root) / f
                 try:
-                    if f in ("package-lock.json", "yarn.lock", "pnpm-lock.yaml"):
+                    if f in ("package-lock.json", "yarn.lock", "pnpm-lock.yaml", "pubspec.lock"):
                         continue
                     m = fp.stat().st_mtime
                     if m > max_src_mtime:
@@ -286,7 +312,13 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
             break
 
     framework = "Static Web"
-    if has_vite or (has_package_json and has_jsx_tsx):
+    if has_flutter:
+        framework = "Flutter Web"
+    elif has_gradle_kts:
+        framework = "Compose Multiplatform (Kotlin/Wasm)"
+    elif has_swift_pkg:
+        framework = "SwiftWasm"
+    elif has_vite or (has_package_json and has_jsx_tsx):
         framework = "React (Vite)" if has_vite else "React / Single Page App"
     elif (ws_path / "requirements.txt").exists() or (ws_path / "pyproject.toml").exists():
         framework = "Python Backend API"

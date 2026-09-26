@@ -619,4 +619,66 @@ async def test_preview_telemetry_probes_injection(temp_workspace: Path):
     assert "cyclode-preview-telemetry" in injected
 
 
+@pytest.mark.asyncio
+async def test_preview_detects_flutter_web_distribution(temp_workspace: Path):
+    from app.api.preview import verify_workspace_preview
+
+    # Setup Flutter structure
+    (temp_workspace / "pubspec.yaml").write_text("name: ecommerce_app\nversion: 1.0.0\n", encoding="utf-8")
+    flutter_build_web = temp_workspace / "build" / "web"
+    flutter_build_web.mkdir(parents=True, exist_ok=True)
+    (flutter_build_web / "index.html").write_text(
+        "<!DOCTYPE html><html><head><title>Flutter Ecommerce</title></head><body><script src='flutter.js'></script></body></html>",
+        encoding="utf-8"
+    )
+    (flutter_build_web / "main.dart.js").write_text("console.log('Flutter app loaded');", encoding="utf-8")
+
+    res = verify_workspace_preview(temp_workspace, "test-flutter")
+    assert res["has_preview"] is True
+    assert res["framework"] == "Flutter Web"
+    assert res["entry_point"] == "build/web/index.html"
+    assert res["build_status"] == "compiled"
+
+
+@pytest.mark.asyncio
+async def test_preview_detects_compose_multiplatform_wasm(temp_workspace: Path):
+    from app.api.preview import verify_workspace_preview
+
+    # Setup Compose Multiplatform structure
+    (temp_workspace / "build.gradle.kts").write_text("plugins { kotlin(\"multiplatform\") }\n", encoding="utf-8")
+    wasm_dir = temp_workspace / "build" / "dist" / "wasmJs" / "productionExecutable"
+    wasm_dir.mkdir(parents=True, exist_ok=True)
+    (wasm_dir / "index.html").write_text(
+        "<!DOCTYPE html><html><head><title>Compose Web App</title></head><body><canvas id='ComposeTarget'></canvas></body></html>",
+        encoding="utf-8"
+    )
+
+    res = verify_workspace_preview(temp_workspace, "test-compose")
+    assert res["has_preview"] is True
+    assert res["framework"] == "Compose Multiplatform (Kotlin/Wasm)"
+    assert res["entry_point"] == "build/dist/wasmJs/productionExecutable/index.html"
+    assert res["build_status"] == "compiled"
+
+
+@pytest.mark.asyncio
+async def test_preview_detects_swiftwasm_bundle(temp_workspace: Path):
+    from app.api.preview import verify_workspace_preview
+
+    # Setup SwiftWasm package structure
+    (temp_workspace / "Package.swift").write_text("// swift-tools-version:5.9\nimport PackageDescription\n", encoding="utf-8")
+    bundle_dir = temp_workspace / "Bundle"
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    (bundle_dir / "index.html").write_text(
+        "<!DOCTYPE html><html><head><title>Swift Tokamak App</title></head><body><script src='bundle.js'></script></body></html>",
+        encoding="utf-8"
+    )
+
+    res = verify_workspace_preview(temp_workspace, "test-swiftwasm")
+    assert res["has_preview"] is True
+    assert res["framework"] == "SwiftWasm"
+    assert res["entry_point"] == "Bundle/index.html"
+    assert res["build_status"] == "compiled"
+
+
+
 

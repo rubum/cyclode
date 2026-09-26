@@ -34,6 +34,21 @@ def test_generate_heuristic_title_empty():
     assert title_none == "New Session"
 
 
+def test_generate_heuristic_title_short_prompt_retention():
+    prompt = "Build a simple Flutter app for ecommerce"
+    title = generate_heuristic_title(prompt)
+    assert title == "Build a simple Flutter app for ecommerce"
+    assert not title.endswith("for")
+
+
+def test_generate_heuristic_title_trailing_preposition_stripping():
+    prompt = "Design modern landing page with animations and full One Dark Pro theme tokens for"
+    title = generate_heuristic_title(prompt)
+    assert not title.endswith("for")
+    assert not title.endswith("and")
+    assert not title.endswith("with")
+
+
 @pytest.mark.asyncio
 async def test_generate_ai_title_mocked():
     from unittest.mock import MagicMock, patch
