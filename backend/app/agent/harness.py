@@ -320,6 +320,7 @@ class AntigravityHarness:
                     raw_state = (item.get("state") or "OPEN").upper()
                     status = "MERGED" if item.get("merged") else ("CLOSED" if raw_state == "CLOSED" else "OPEN")
                     body = item.get("body", "")
+                    is_draft = bool(item.get("draft", item.get("is_draft", False)))
                     diff_stats = {
                         "additions": item.get("additions", 0),
                         "deletions": item.get("deletions", 0),
@@ -332,6 +333,7 @@ class AntigravityHarness:
                         existing.head_branch = head_branch
                         existing.base_branch = base_branch
                         existing.html_url = html_url
+                        existing.is_draft = is_draft
                         if body:
                             existing.body = body
                         if is_session_scoped:
@@ -350,6 +352,7 @@ class AntigravityHarness:
                             html_url=html_url,
                             body=body,
                             is_session_scoped=is_session_scoped,
+                            is_draft=is_draft,
                             status=status,
                             diff_stats=diff_stats,
                             worktree_path=f"worktree-pr-{pr_num}"
@@ -1050,7 +1053,7 @@ class AntigravityHarness:
                     },
                     {
                         "name": "create_pull_request",
-                        "description": "Create a new pull request on GitHub.",
+                        "description": "Create a new pull request on GitHub (supports draft PRs).",
                         "parameters": {
                             "type": "OBJECT",
                             "properties": {
@@ -1058,7 +1061,8 @@ class AntigravityHarness:
                                 "title": {"type": "STRING", "description": "Pull request title"},
                                 "body": {"type": "STRING", "description": "Pull request description"},
                                 "head_branch": {"type": "STRING", "description": "Source head branch"},
-                                "base_branch": {"type": "STRING", "description": "Target base branch (default: main)"}
+                                "base_branch": {"type": "STRING", "description": "Target base branch (default: main)"},
+                                "draft": {"type": "BOOLEAN", "description": "Whether to create the pull request as a draft (default: false)"}
                             },
                             "required": ["repository", "title", "body", "head_branch"]
                         }
@@ -1589,13 +1593,62 @@ class AntigravityHarness:
                             )
 
                         if not function_calls:
-                            # Autonomous Pre-Completion Verification Guardrail
+                            # 0. Autonomous Dangling Intent & Auto-Continuation Guardrail
+                            # If the model emitted a forward-looking transitional promise (e.g. ending in a colon or "let me fix..."),
+                            # prompt it to execute the tool calls rather than halting the session prematurely.
                             intent_category = current_plan.get("intent_category", "app_building" if persona_name == "AppBuilder" else "code_modification")
                             prompt_title_lower = (prompt + " " + title).lower()
                             is_exploration = any(k in prompt_title_lower for k in ["explore", "analyze", "explain", "review", "audit", "summarize", "investigate", "read", "check"])
                             is_app_keyword = not is_exploration and any(k in prompt_title_lower for k in ["build a", "build an", "create a", "create an", "make a", "make an", "game", "minecraft", "voxel", "arcade", "canvas", "dashboard", "calculator", "storefront", "web app", "frontend", "ui component"])
                             is_app_task = (intent_category == "app_building" or persona_name == "AppBuilder" or is_app_keyword)
-                            
+
+                            raw_text_stripped = combined_text.strip()
+                            has_unfinished_steps = any(s.get("status") in ["pending", "in_progress"] for s in current_plan.get("steps", []))
+                            is_dangling_intent = False
+
+                            if raw_text_stripped and guardrail_corrections < max_guardrail_corrections and (is_app_task or has_unfinished_steps or mutating_tool_count > 0):
+                                ends_with_colon = raw_text_stripped.endswith(":")
+                                tail_lower = raw_text_stripped.lower()[-120:]
+                                forward_phrases = [
+                                    "let me ", "let us ", "let's ", "i will now", "i'll now", "i will proceed",
+                                    "i am going to", "now let me", "next, i will", "next, let's", "next step is to",
+                                    "let me fix", "let me implement", "let me update", "let me create", "let me add"
+                                ]
+                                if ends_with_colon or any(p in tail_lower for p in forward_phrases):
+                                    is_dangling_intent = True
+
+                            if is_dangling_intent:
+                                guardrail_corrections += 1
+                                logger.info(f"Triggering Dangling Intent Auto-Continuation on task {task_id} (correction {guardrail_corrections})")
+                                await self._emit_streamed_thought(
+                                    f"**Auto-Continuation**: Detected in-flight action intent ({raw_text_stripped[-50:] if len(raw_text_stripped) > 50 else raw_text_stripped}). Continuing tool execution to complete task...",
+                                    on_thought, on_stream_start, on_stream_chunk, on_stream_end
+                                )
+                                if provider_resp.raw_parts:
+                                    clean_parts = []
+                                    for p in provider_resp.raw_parts:
+                                        if isinstance(p, dict):
+                                            if "thought" in p or "text" in p or ("content" in p and isinstance(p["content"], str)):
+                                                clean_parts.append(p)
+                                    dangling_model_parts = clean_parts if clean_parts else ([{"text": combined_text}] if combined_text else [{"text": "Proceeding with implementation."}])
+                                else:
+                                    dangling_model_parts = []
+                                    if provider_resp.thought:
+                                        dangling_model_parts.append({"thought": provider_resp.thought})
+                                    if combined_text:
+                                        dangling_model_parts.append({"text": combined_text})
+
+                                contents.append({
+                                    "role": "model",
+                                    "parts": dangling_model_parts if dangling_model_parts else [{"text": combined_text or "Proceeding with implementation."}]
+                                })
+                                contents.append({
+                                    "role": "user",
+                                    "parts": [{"text": "Please proceed with your planned actions and execute the required tool calls (e.g. `edit_file`, `replace_file_content`, `run_command`, `create_pull_request`) to complete the remaining tasks."}]
+                                })
+                                continue
+
+                            # Autonomous Pre-Completion Verification Guardrail
                             from app.api.preview import verify_workspace_preview
                             verification = verify_workspace_preview(workspace_path, task_id)
                             status_val = verification.get("status")
@@ -1793,11 +1846,25 @@ class AntigravityHarness:
 
                                 return {"status": "COMPLETED", "summary": chat_agent_text[:120]}
                             else:
-                                for s in current_plan.get("steps", []):
-                                    if s.get("status") != "failed":
-                                        s["status"] = "completed"
-                                eval_status = "accomplished" if all_checks_passed else "needs_revision"
-                                eval_summary = "All execution plan steps verified successfully against workspace state." if all_checks_passed else "Plan execution requires revision."
+                                if intent_category == "qa_research":
+                                    for s in current_plan.get("steps", []):
+                                        if s.get("status") != "failed":
+                                            s["status"] = "completed"
+                                    eval_status = "accomplished" if all_checks_passed else "needs_revision"
+                                    eval_summary = "All execution plan steps verified successfully against workspace state." if all_checks_passed else "Plan execution requires revision."
+                                else:
+                                    any_pending_or_failed = False
+                                    for s in current_plan.get("steps", []):
+                                        if s.get("status") == "in_progress":
+                                            if all_checks_passed:
+                                                s["status"] = "completed"
+                                            else:
+                                                s["status"] = "failed"
+                                        elif s.get("status") in ["pending", "failed"]:
+                                            any_pending_or_failed = True
+
+                                    eval_status = "accomplished" if (all_checks_passed and not any_pending_or_failed) else "needs_revision"
+                                    eval_summary = "All execution plan steps verified successfully against workspace state." if (all_checks_passed and not any_pending_or_failed) else "Plan execution concluded with remaining pending steps or revisions needed."
                                 current_plan["markdown"] = generate_plan_markdown(current_plan, title, prompt)
 
                                 current_plan["evaluation"] = {
@@ -2186,8 +2253,9 @@ class AntigravityHarness:
                                 body_arg = args.get("body", "")
                                 head_branch_arg = args.get("head_branch", "")
                                 base_branch_arg = args.get("base_branch", "main")
+                                draft_arg = bool(args.get("draft", False))
                                 tool_result = await WorkspaceTools.create_pull_request(
-                                    repo_arg, title_arg, body_arg, head_branch_arg, base_branch_arg
+                                    repo_arg, title_arg, body_arg, head_branch_arg, base_branch_arg, draft_arg
                                 )
                                 out_str = json.dumps(tool_result, indent=2)
                                 if isinstance(tool_result, dict) and ("number" in tool_result or "pr_number" in tool_result):
@@ -2196,7 +2264,7 @@ class AntigravityHarness:
                                     task_id=task_id,
                                     action_type="create_pr",
                                     target=f"{repo_arg}:{head_branch_arg}",
-                                    payload={"title": title_arg, "body": body_arg, "head": head_branch_arg, "base": base_branch_arg},
+                                    payload={"title": title_arg, "body": body_arg, "head": head_branch_arg, "base": base_branch_arg, "draft": draft_arg},
                                     status_code=200 if tool_result.get("ok", True) else 400
                                 ))
                             elif fn_name == "connect_repository":

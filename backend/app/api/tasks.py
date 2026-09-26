@@ -386,6 +386,7 @@ async def get_task_prs(
             "body": p.body,
             "status": p.status,
             "is_session_scoped": p.is_session_scoped,
+            "is_draft": getattr(p, "is_draft", False),
             "worktree_path": p.worktree_path,
             "diff_stats": p.diff_stats or {},
             "review_summary": p.review_summary,
@@ -474,6 +475,7 @@ async def sync_task_repo_prs(task_id: str, db: AsyncSession = Depends(get_db)):
         body = p.get("body", "")
         raw_state = (p.get("state") or "OPEN").upper()
         status = "MERGED" if p.get("merged") else ("CLOSED" if raw_state == "CLOSED" else "OPEN")
+        is_draft = bool(p.get("draft", False))
         diff_stats = {
             "additions": p.get("additions", 0),
             "deletions": p.get("deletions", 0),
@@ -486,6 +488,7 @@ async def sync_task_repo_prs(task_id: str, db: AsyncSession = Depends(get_db)):
             existing.head_branch = head_branch
             existing.base_branch = base_branch
             existing.html_url = html_url
+            existing.is_draft = is_draft
             if body:
                 existing.body = body
             if existing.status not in ["TESTS_PASSING", "TESTS_FAILED", "REVIEWING"]:
@@ -502,6 +505,7 @@ async def sync_task_repo_prs(task_id: str, db: AsyncSession = Depends(get_db)):
                 html_url=html_url,
                 body=body,
                 is_session_scoped=False,
+                is_draft=is_draft,
                 status=status,
                 diff_stats=diff_stats,
                 worktree_path=f"worktree-pr-{pr_num}"

@@ -157,6 +157,7 @@ export interface TaskPR {
   test_output?: string;
   body?: string;
   is_session_scoped?: boolean;
+  is_draft?: boolean;
   is_listening?: boolean;
   listening_events?: string[];
   listener_persona?: string;

@@ -102,6 +102,7 @@ export interface PRReaderResponse {
   changed_files_count?: number;
   repo_name?: string;
   clone_url?: string;
+  is_draft?: boolean;
 }
 
 interface HeadingItem {
@@ -2199,6 +2200,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
   const effectiveBaseBranch = data?.base_branch || prRecord?.base_branch || 'main';
   const effectiveAdditions = data?.additions ?? prRecord?.diff_stats?.additions;
   const effectiveDeletions = data?.deletions ?? prRecord?.diff_stats?.deletions;
+  const effectiveIsDraft = Boolean(data?.is_draft || prRecord?.is_draft || (data as any)?.draft || (prRecord as any)?.draft);
 
   return (
     <div className="flex flex-col h-full bg-onedark-darker overflow-hidden text-onedark-fg">
@@ -2347,6 +2349,13 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
             }`}>
               {effectiveState === 'MERGED' ? '● Merged' : effectiveState === 'CLOSED' ? '● Closed' : '● Open'}
             </span>
+
+            {/* Draft Badge */}
+            {effectiveIsDraft && (
+              <span className="px-2 py-0.5 rounded-full font-mono text-[10.5px] font-bold uppercase bg-onedark-muted/20 text-onedark-muted border border-onedark-muted/30 whitespace-nowrap flex-shrink-0">
+                Draft
+              </span>
+            )}
 
             {/* Author */}
             {effectiveAuthor && (

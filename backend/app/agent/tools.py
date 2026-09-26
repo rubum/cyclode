@@ -1891,10 +1891,11 @@ class WorkspaceTools:
         title: str,
         body: str,
         head_branch: str,
-        base_branch: Optional[str] = "main"
+        base_branch: Optional[str] = "main",
+        draft: Optional[bool] = False
     ) -> Dict[str, Any]:
         """
-        Creates a new pull request on GitHub.
+        Creates a new pull request on GitHub (with draft support).
         """
         from app.integrations.github_client import github_client
         from app.integrations.manager import integration_manager
@@ -1908,6 +1909,7 @@ class WorkspaceTools:
             body=body,
             head_branch=head_branch,
             base_branch=base_branch or "main",
+            draft=bool(draft),
             custom_token=token
         )
         return res

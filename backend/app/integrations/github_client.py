@@ -36,10 +36,11 @@ class GitHubClient:
         body: str,
         head_branch: str,
         base_branch: str = "main",
+        draft: bool = False,
         custom_token: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Opens a Pull Request on GitHub.
+        Opens a Pull Request on GitHub (with draft option).
         """
         import os
         token = custom_token or self.token
@@ -51,6 +52,7 @@ class GitHubClient:
                     "html_url": f"https://github.com/{owner}/{repo}/pull/42",
                     "title": title,
                     "state": "open",
+                    "draft": draft,
                     "simulated": True
                 }
             return {
@@ -69,7 +71,8 @@ class GitHubClient:
                     "title": title,
                     "body": body,
                     "head": head_branch,
-                    "base": base_branch
+                    "base": base_branch,
+                    "draft": draft
                 }
             )
             if resp.status_code in (200, 201):

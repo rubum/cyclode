@@ -162,6 +162,18 @@ async def test_github_pr_tools(monkeypatch):
     )
     assert comment_res["ok"] is True
 
+    # 6. Test create_pull_request with draft=True
+    pr_draft_res = await WorkspaceTools.create_pull_request(
+        repository="confident-ai/deepeval",
+        title="feat: add new metric",
+        body="Draft PR body description",
+        head_branch="feature/metric",
+        base_branch="main",
+        draft=True
+    )
+    assert pr_draft_res["draft"] is True
+    assert pr_draft_res["number"] == 42
+
 
 def test_compact_command_output():
     from app.agent.tools import compact_command_output

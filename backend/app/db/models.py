@@ -109,6 +109,7 @@ class TaskPRModel(Base):
     test_output: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     body: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     is_session_scoped: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_draft: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # PR Event Listener / Sentinel State
     is_listening: Mapped[bool] = mapped_column(Boolean, default=False)

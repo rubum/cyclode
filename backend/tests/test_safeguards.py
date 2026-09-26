@@ -126,3 +126,72 @@ def test_harness_advance_plan_step_monotonic():
     assert changed is False
     assert plan["steps"][2]["status"] == "in_progress"
     assert plan["steps"][0]["status"] == "completed"
+
+
+def test_dangling_intent_detection():
+    # Cues indicating conversational transition before tool execution
+    transitions = [
+        "The JS is complete, but I need to align a few class names and add the hero orb. Let me fix these precisely:",
+        "I have created the files. Now let me implement the tests:",
+        "Next, I will run the test suite to verify:",
+        "Let me fix the following components:"
+    ]
+
+    for t in transitions:
+        raw = t.strip()
+        ends_with_colon = raw.endswith(":")
+        tail_lower = raw.lower()[-120:]
+        forward_phrases = [
+            "let me ", "let us ", "let's ", "i will now", "i'll now", "i will proceed",
+            "i am going to", "now let me", "next, i will", "next, let's", "next step is to",
+            "let me fix", "let me implement", "let me update", "let me create", "let me add"
+        ]
+        is_dangling = ends_with_colon or any(p in tail_lower for p in forward_phrases)
+        assert is_dangling is True, f"Failed to detect dangling transition: {t}"
+
+    # Complete non-dangling conclusions
+    completed = [
+        "I have completed all tasks according to the implementation plan. All tests pass.",
+        "The application is now fully built, styled, and verified in Live Preview."
+    ]
+    for c in completed:
+        raw = c.strip()
+        ends_with_colon = raw.endswith(":")
+        tail_lower = raw.lower()[-120:]
+        forward_phrases = [
+            "let me ", "let us ", "let's ", "i will now", "i'll now", "i will proceed",
+            "i am going to", "now let me", "next, i will", "next, let's", "next step is to",
+            "let me fix", "let me implement", "let me update", "let me create", "let me add"
+        ]
+        is_dangling = ends_with_colon or any(p in tail_lower for p in forward_phrases)
+        assert is_dangling is False, f"False positive dangling transition: {c}"
+
+
+def test_plan_step_preservation_avoids_false_accomplished():
+    plan = {
+        "steps": [
+            {"id": "step-1", "title": "Scaffold workspace", "status": "completed"},
+            {"id": "step-2", "title": "Implement core logic", "status": "in_progress"},
+            {"id": "step-3", "title": "Write unit tests", "status": "pending"},
+            {"id": "step-4", "title": "Final verification", "status": "pending"}
+        ]
+    }
+
+    all_checks_passed = True
+    any_pending_or_failed = False
+    for s in plan.get("steps", []):
+        if s.get("status") == "in_progress":
+            if all_checks_passed:
+                s["status"] = "completed"
+            else:
+                s["status"] = "failed"
+        elif s.get("status") in ["pending", "failed"]:
+            any_pending_or_failed = True
+
+    eval_status = "accomplished" if (all_checks_passed and not any_pending_or_failed) else "needs_revision"
+    
+    # Even though checks passed, steps 3 and 4 are still pending, so it should NOT be accomplished
+    assert any_pending_or_failed is True
+    assert eval_status == "needs_revision"
+    assert plan["steps"][2]["status"] == "pending"
+    assert plan["steps"][3]["status"] == "pending"

@@ -636,6 +636,11 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
                           {pr.title}
                         </h4>
                         {getStatusBadge(pr.status)}
+                        {pr.is_draft && (
+                          <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-medium bg-onedark-muted/20 text-onedark-muted border border-onedark-muted/30">
+                            Draft
+                          </span>
+                        )}
                         {pr.is_session_scoped && (
                           <span className="px-1.5 py-0.2 rounded text-[10px] font-mono font-medium bg-onedark-accent/15 text-onedark-accent">
                             Session
