@@ -268,17 +268,20 @@ class OpenAIProvider(BaseLLMProvider):
         if clean_model in ["codex", "openai-codex"]:
             clean_model = "gpt-4o"
 
+        is_reasoning_model = any(sub in clean_model.lower() for sub in ["o1", "o3", "reasoning"])
         payload: Dict[str, Any] = {
             "model": clean_model,
             "messages": openai_messages,
         }
+        if is_reasoning_model:
+            payload["max_completion_tokens"] = 8192
+        else:
+            payload["max_tokens"] = 8192
+            payload["temperature"] = temperature
+
         if openai_tools:
             payload["tools"] = openai_tools
             payload["tool_choice"] = "auto"
-
-        is_reasoning_model = any(sub in clean_model.lower() for sub in ["o1", "o3", "reasoning"])
-        if not is_reasoning_model:
-            payload["temperature"] = temperature
 
         headers = {
             "Authorization": f"Bearer {api_key}",
@@ -424,6 +427,7 @@ class OpenAIProvider(BaseLLMProvider):
                 if clean_model in ["codex", "openai-codex"]:
                     clean_model = "gpt-4o-mini"
 
+                is_reasoning = any(sub in clean_model.lower() for sub in ["o1", "o3", "reasoning"])
                 payload = {
                     "model": clean_model,
                     "messages": [
@@ -432,7 +436,10 @@ class OpenAIProvider(BaseLLMProvider):
                     ],
                     "response_format": {"type": "json_object"}
                 }
-                if not any(sub in clean_model for sub in ["o1", "o3"]):
+                if is_reasoning:
+                    payload["max_completion_tokens"] = 8192
+                else:
+                    payload["max_tokens"] = 8192
                     payload["temperature"] = 0.2
 
                 try:

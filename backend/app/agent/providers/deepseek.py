@@ -305,6 +305,7 @@ class DeepSeekProvider(BaseLLMProvider):
         payload: Dict[str, Any] = {
             "model": clean_model,
             "messages": ds_messages,
+            "max_tokens": 8192,
         }
         if ds_tools:
             payload["tools"] = ds_tools
@@ -464,6 +465,7 @@ class DeepSeekProvider(BaseLLMProvider):
                         {"role": "system", "content": (system_instruction or "") + "\nRespond ONLY with a valid JSON object."},
                         {"role": "user", "content": prompt}
                     ],
+                    "max_tokens": 8192,
                     "response_format": {"type": "json_object"}
                 }
                 if not ("reasoner" in active_model.lower() or "r1" in active_model.lower()):

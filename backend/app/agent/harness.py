@@ -388,13 +388,97 @@ class AntigravityHarness:
         except Exception as e:
             logger.debug(f"Emit plan callback notice: {e}")
 
+    @staticmethod
+    def infer_task_intent(title: str, prompt: str, persona_name: str = "") -> str:
+        """
+        Infers the structural intent category ('planning', 'qa_research', 'app_building',
+        'code_modification', 'debugging', 'review_audit', 'devops') from task title,
+        prompt text, and persona name.
+        Guarantees that coding, refactoring, and UI actions never falsely default to qa_research.
+        """
+        combined = f"{title or ''} {prompt or ''}".strip().lower()
+        cleaned_prompt = (prompt or "").strip().lower()
+        cleaned_title = (title or "").strip().lower()
+
+        # 1. Greetings fast path
+        conversational_pings = {"hey", "hello", "hi", "howdy", "greetings", "good morning", "good afternoon", "good evening", "yo", "sup", "hey there", "hello there"}
+        if cleaned_prompt in conversational_pings or cleaned_title in conversational_pings:
+            return "qa_research"
+
+        # 2. Planning phrases
+        planning_phrases = [
+            "what's the plan", "whats the plan", "what is the plan",
+            "so what's the plan", "so whats the plan",
+            "plan this", "plan this out", "create a plan", "make a plan",
+            "show me the plan", "give me a plan", "draft a plan", "propose a plan",
+            "plan mode", "execution plan", "plan for", "make plan for", "make a plan for"
+        ]
+        if (
+            any(phrase in cleaned_prompt for phrase in planning_phrases)
+            or any(phrase in cleaned_title for phrase in planning_phrases)
+            or cleaned_prompt.startswith("plan ")
+            or cleaned_title.startswith("plan ")
+            or cleaned_prompt == "plan"
+            or cleaned_title == "plan"
+        ):
+            return "planning"
+
+        # 3. Pure Q&A / Research prefixes
+        is_qa_prefix = (
+            any(cleaned_prompt.startswith(prefix) for prefix in ["what is", "what are", "how does", "how do", "how to", "why is", "why does", "explain", "describe", "tell me about", "compare", "contrast", "overview of", "summarize"])
+            or any(cleaned_title.startswith(prefix) for prefix in ["what is", "what are", "how does", "how do", "how to", "why is", "why does", "explain", "describe", "tell me about", "compare", "contrast", "overview of", "summarize"])
+            or "research" in cleaned_title.split()
+        )
+        has_code_file = any(ext in combined for ext in [".py", ".html", ".css", ".js", ".ts", ".tsx", ".jsx", ".json", ".sql", ".rs", ".go", ".c", ".cpp", ".h", "dockerfile"])
+
+        if is_qa_prefix and not has_code_file:
+            return "qa_research"
+
+        # 4. Review & Audit
+        if any(k in combined for k in ["review pr", "review pull request", "audit code", "code review", "verify pr", "check pr", "review diff", "pr review"]):
+            return "review_audit"
+
+        # 5. Debugging & Error diagnosis
+        if any(k in combined for k in ["debug ", "fix bug", "fix error", "fix the bug", "fix the error", "traceback", "exception in", "syntax error", "failing test", "failed test", "failing tests"]):
+            return "debugging"
+
+        # 6. DevOps & Infrastructure
+        if any(k in combined for k in ["dockerfile", "docker-compose", "github action", "ci/cd", "workflow yaml", "k8s", "kubernetes", "deploy to", "helm chart"]):
+            return "devops"
+
+        # 7. Web application / UI building
+        app_builder_keywords = [
+            "landing page", "web app", "webapp", "dashboard", "frontend", "ui component",
+            "index.html", "game", "canvas", "interactive", "storefront", "portfolio page",
+            "calculator", "html5", "tailwind", "react component", "vue component"
+        ]
+        if persona_name == "AppBuilder" or any(k in combined for k in app_builder_keywords):
+            return "app_building"
+
+        # 8. Action / Code modification keywords & file extensions
+        action_verbs = [
+            "extend", "add", "convert", "guard", "design", "scaffold", "build", "create",
+            "make", "fix", "refactor", "implement", "update", "modify", "patch", "remediate",
+            "remediation", "optimize", "improve", "style", "test", "tests", "work on",
+            "wire up", "integrate", "replace", "delete", "remove", "rename", "move"
+        ]
+        has_action_verb = any(v in combined for v in action_verbs)
+
+        if has_action_verb or has_code_file:
+            return "code_modification"
+
+        if persona_name in ["SoftwareEngineer", "PairProgrammer", "IssueResolver"]:
+            return "code_modification"
+
+        return "qa_research"
+
     def _create_initial_plan_placeholder(self, title: str, prompt: str, persona_name: str = "") -> Dict[str, Any]:
         """
         Emits a lightweight dynamic formulation placeholder while the AI model synthesizes the bespoke plan.
         No hardcoded steps or regex keyword templates.
         """
         objective = title or prompt[:100]
-        intent = "app_building" if persona_name == "AppBuilder" else "qa_research"
+        intent = self.infer_task_intent(title, prompt, persona_name)
         plan_data = {
             "intent_category": intent,
             "objective": objective,
@@ -526,6 +610,9 @@ class AntigravityHarness:
             if history_snippets:
                 conversation_context = "Preceding Conversation Context:\n" + "\n\n".join(history_snippets) + "\n\n"
 
+        # Infer heuristic task intent
+        inferred_intent = Harness.infer_task_intent(title, prompt, persona_name)
+
         # Check API key presence for the specific provider
         if api_key is not None and api_key != "":
             prov_key = api_key
@@ -540,7 +627,7 @@ class AntigravityHarness:
         if not prov_key:
             provider_label = "DeepSeek AI" if provider.provider_id == "deepseek" else ("Anthropic Claude" if provider.provider_id == "anthropic" else ("OpenAI / Codex" if provider.provider_id == "openai" else "Google Gemini"))
             return {
-                "intent_category": "planning" if is_planning_query else ("app_building" if persona_name == "AppBuilder" else "qa_research"),
+                "intent_category": inferred_intent,
                 "objective": objective,
                 "steps": [
                     {"id": "step-1", "title": f"Plan Generation Failed: {provider_label} API Key is missing or unconfigured", "status": "failed"}
@@ -610,11 +697,13 @@ class AntigravityHarness:
 
         if plan_res.get("result"):
             parsed = plan_res["result"]
-            intent_cat = parsed.get("intent_category", "planning" if is_planning_query else "qa_research")
-            if is_planning_query:
+            intent_cat = parsed.get("intent_category")
+            if is_planning_query or inferred_intent == "planning":
                 intent_cat = "planning"
             elif intent_cat not in ["planning", "qa_research", "app_building", "code_modification", "review_audit", "debugging", "devops"]:
-                intent_cat = "qa_research"
+                intent_cat = inferred_intent
+            elif intent_cat == "qa_research" and inferred_intent in ["code_modification", "app_building", "debugging", "devops"]:
+                intent_cat = inferred_intent
 
             obj = parsed.get("objective") or objective
             raw_phases = parsed.get("phases", [])
@@ -652,7 +741,7 @@ class AntigravityHarness:
 
         last_error = plan_res.get("error") or "Plan generation failed across candidate models."
         fallback_plan = {
-            "intent_category": "planning" if is_planning_query else ("app_building" if persona_name == "AppBuilder" else "qa_research"),
+            "intent_category": inferred_intent,
             "objective": objective,
             "steps": [
                 {"id": "step-1", "title": f"Plan Generation Failed: {last_error}", "status": "failed"}
@@ -1586,6 +1675,70 @@ class AntigravityHarness:
                         function_calls = [{"name": tc.tool_name, "args": tc.tool_args, "id": tc.call_id} for tc in provider_resp.tool_calls]
                         text_parts = [provider_resp.content] if provider_resp.content else []
 
+                        # Truncation Auto-Continuation Guardrail
+                        truncation_rounds = 0
+                        max_truncation_rounds = 3
+                        while (
+                            provider_resp.finish_reason in ["length", "MAX_TOKENS", "max_tokens"]
+                            and not function_calls
+                            and truncation_rounds < max_truncation_rounds
+                        ):
+                            truncation_rounds += 1
+                            logger.info(f"Model response was truncated (finish_reason={provider_resp.finish_reason}). Auto-continuing ({truncation_rounds}/{max_truncation_rounds}).")
+                            await self._emit_streamed_thought(
+                                f"**Response Truncation Detected**: Output reached token ceiling. Auto-continuing response ({truncation_rounds}/{max_truncation_rounds})...",
+                                on_thought, on_stream_start, on_stream_chunk, on_stream_end
+                            )
+                            cont_model_parts = []
+                            if provider_resp.thought:
+                                cont_model_parts.append({"thought": provider_resp.thought})
+                            if provider_resp.content:
+                                cont_model_parts.append({"text": provider_resp.content})
+                            if not cont_model_parts:
+                                cont_model_parts = [{"text": "..."}]
+
+                            contents.append({
+                                "role": "model",
+                                "parts": cont_model_parts
+                            })
+                            contents.append({
+                                "role": "user",
+                                "parts": [{"text": "Continue directly from where your output was truncated without repeating previous text:"}]
+                            })
+
+                            cont_resp = await provider.generate_response(
+                                messages=contents,
+                                tools=active_tools_def,
+                                system_instruction=effective_system_instruction,
+                                model_name=active_model,
+                                temperature=0.2,
+                                client=client
+                            )
+                            if not cont_resp.is_success:
+                                logger.warning(f"Continuation call failed ({cont_resp.status_code}): {cont_resp.error_message}")
+                                break
+
+                            if cont_resp.thought:
+                                collector.add_thought(cont_resp.thought)
+                                await self._emit_streamed_thought(
+                                    cont_resp.thought, on_thought, on_stream_start, on_stream_chunk, on_stream_end
+                                )
+
+                            if cont_resp.content:
+                                text_parts.append(cont_resp.content)
+                                if on_stream_chunk:
+                                    try:
+                                        res_chunk = on_stream_chunk(task_id, "agent", cont_resp.content, "agent_turn")
+                                        if inspect.iscoroutine(res_chunk):
+                                            await res_chunk
+                                    except Exception:
+                                        pass
+
+                            provider_resp = cont_resp
+                            if provider_resp.tool_calls:
+                                function_calls = [{"name": tc.tool_name, "args": tc.tool_args, "id": tc.call_id} for tc in provider_resp.tool_calls]
+                                break
+
                         combined_text = "\n".join(text_parts).strip() if text_parts else ""
                         if combined_text and function_calls:
                             await self._emit_streamed_thought(
@@ -1846,13 +1999,21 @@ class AntigravityHarness:
 
                                 return {"status": "COMPLETED", "summary": chat_agent_text[:120]}
                             else:
-                                if intent_category == "qa_research":
+                                if intent_category == "qa_research" and mutating_tool_count == 0:
                                     for s in current_plan.get("steps", []):
                                         if s.get("status") != "failed":
                                             s["status"] = "completed"
                                     eval_status = "accomplished" if all_checks_passed else "needs_revision"
                                     eval_summary = "All execution plan steps verified successfully against workspace state." if all_checks_passed else "Plan execution requires revision."
                                 else:
+                                    if is_app_task and mutating_tool_count > 0:
+                                        from app.api.preview import verify_workspace_preview
+                                        preview_verification = verify_workspace_preview(workspace_path, task_id)
+                                        if preview_verification.get("status") in ["ready", "compiled", "static"]:
+                                            for s in current_plan.get("steps", []):
+                                                if s.get("status") != "failed":
+                                                    s["status"] = "completed"
+
                                     any_pending_or_failed = False
                                     for s in current_plan.get("steps", []):
                                         if s.get("status") == "in_progress":

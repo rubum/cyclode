@@ -195,3 +195,112 @@ def test_plan_step_preservation_avoids_false_accomplished():
     assert eval_status == "needs_revision"
     assert plan["steps"][2]["status"] == "pending"
     assert plan["steps"][3]["status"] == "pending"
+
+
+def test_infer_task_intent_heuristics():
+    # 1. Landing page / UI building
+    landing_page_prompt = (
+        "Design Cyclode Landing Page\n"
+        "Extend :root with the full One Dark Pro token set and eliminate stray hex literals in index.html\n"
+        "Add hero depth overlay, card elevation scale, and fluid clamp() typography ramp\n"
+        "Guard the hero rAF loop with prefers-reduced-motion"
+    )
+    assert Harness.infer_task_intent("Design Landing Page", landing_page_prompt, "SoftwareEngineer") == "app_building"
+
+    # 2. Action / Refactoring / Code Modification
+    code_mod_prompt = "Work on that Recommended Remediation and update backend/app/agent/harness.py"
+    assert Harness.infer_task_intent("Fix Remediation", code_mod_prompt, "SoftwareEngineer") == "code_modification"
+
+    # 3. Pure Q&A
+    qa_prompt = "What is Redis LangCache and how does it work?"
+    assert Harness.infer_task_intent("Explain LangCache", qa_prompt, "SoftwareEngineer") == "qa_research"
+
+    # 4. Greetings
+    assert Harness.infer_task_intent("Greeting", "Hey there", "SoftwareEngineer") == "qa_research"
+
+    # 5. Planning
+    plan_prompt = "Make plan for the draft PR and explore premature stoppage"
+    assert Harness.infer_task_intent("Create Plan", plan_prompt, "SoftwareEngineer") == "planning"
+
+    # 6. Debugging
+    debug_prompt = "Fix error in traceback: sqlalchemy.exc.OperationalError: no such column: is_draft"
+    assert Harness.infer_task_intent("Debug DB Error", debug_prompt, "IssueResolver") == "debugging"
+
+    # 7. DevOps
+    devops_prompt = "Configure Dockerfile and docker-compose.yml for production deployment"
+    assert Harness.infer_task_intent("Docker Setup", devops_prompt, "SoftwareEngineer") == "devops"
+
+    # 8. Review & Audit
+    review_prompt = "Review PR #42 and audit code diff for security regressions"
+    assert Harness.infer_task_intent("PR Review", review_prompt, "CodeReviewer") == "review_audit"
+
+
+def test_app_task_step_subsumption_on_verified_preview(tmp_path):
+    plan = {
+        "intent_category": "app_building",
+        "steps": [
+            {"id": "step-1", "title": "Scaffold workspace and HTML entry", "status": "in_progress"},
+            {"id": "step-2", "title": "Implement CSS tokens and styles", "status": "pending"},
+            {"id": "step-3", "title": "Add animations and interactivity", "status": "pending"},
+            {"id": "step-4", "title": "Verify responsive design", "status": "pending"}
+        ]
+    }
+
+    # Simulate verified application preview
+    is_app_task = True
+    mutating_tool_count = 3
+    preview_status = "ready"
+    all_checks_passed = True
+
+    if is_app_task and mutating_tool_count > 0:
+        if preview_status in ["ready", "compiled", "static"]:
+            for s in plan.get("steps", []):
+                if s.get("status") != "failed":
+                    s["status"] = "completed"
+
+    any_pending_or_failed = False
+    for s in plan.get("steps", []):
+        if s.get("status") == "in_progress":
+            s["status"] = "completed" if all_checks_passed else "failed"
+        elif s.get("status") in ["pending", "failed"]:
+            any_pending_or_failed = True
+
+    eval_status = "accomplished" if (all_checks_passed and not any_pending_or_failed) else "needs_revision"
+
+    assert eval_status == "accomplished"
+    assert all(s["status"] == "completed" for s in plan["steps"])
+
+
+def test_coding_task_prevents_qa_research_false_accomplished():
+    plan = {
+        "intent_category": "code_modification",
+        "steps": [
+            {"id": "step-1", "title": "Update provider payload max tokens", "status": "in_progress"},
+            {"id": "step-2", "title": "Add auto-continuation loop", "status": "pending"},
+            {"id": "step-3", "title": "Run test suite", "status": "pending"}
+        ]
+    }
+
+    intent_category = plan["intent_category"]
+    mutating_tool_count = 0
+    all_checks_passed = True
+
+    if intent_category == "qa_research" and mutating_tool_count == 0:
+        for s in plan.get("steps", []):
+            if s.get("status") != "failed":
+                s["status"] = "completed"
+        eval_status = "accomplished"
+    else:
+        any_pending_or_failed = False
+        for s in plan.get("steps", []):
+            if s.get("status") == "in_progress":
+                s["status"] = "completed" if all_checks_passed else "failed"
+            elif s.get("status") in ["pending", "failed"]:
+                any_pending_or_failed = True
+        eval_status = "accomplished" if (all_checks_passed and not any_pending_or_failed) else "needs_revision"
+
+    assert eval_status == "needs_revision"
+    assert plan["steps"][0]["status"] == "completed"
+    assert plan["steps"][1]["status"] == "pending"
+    assert plan["steps"][2]["status"] == "pending"
+

@@ -633,6 +633,75 @@ def test_json_safe_serializer_handles_datetime_and_models():
     assert isinstance(sanitized["created_at"], str)
 
 
+@pytest.mark.asyncio
+async def test_deepseek_payload_sets_max_tokens():
+    from unittest.mock import AsyncMock, MagicMock
+
+    provider = DeepSeekProvider(api_key="mock-key")
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "choices": [{"message": {"role": "assistant", "content": "Done."}, "finish_reason": "stop"}]
+    }
+    mock_client.post.return_value = mock_resp
+
+    await provider.generate_response(
+        messages=[{"role": "user", "parts": [{"text": "Hello"}]}],
+        tools=None,
+        system_instruction="System",
+        model_name="deepseek-chat",
+        client=mock_client
+    )
+
+    call_args = mock_client.post.call_args
+    assert call_args is not None
+    posted_json = call_args.kwargs.get("json") or call_args[1].get("json")
+    assert posted_json is not None
+    assert posted_json.get("max_tokens") == 8192
+
+
+@pytest.mark.asyncio
+async def test_openai_payload_sets_max_tokens_and_completion_tokens():
+    from unittest.mock import AsyncMock, MagicMock
+
+    provider = OpenAIProvider(api_key="mock-key")
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "choices": [{"message": {"role": "assistant", "content": "Done."}, "finish_reason": "stop"}]
+    }
+    mock_client.post.return_value = mock_resp
+
+    # Standard model (gpt-4o)
+    await provider.generate_response(
+        messages=[{"role": "user", "parts": [{"text": "Hello"}]}],
+        tools=None,
+        system_instruction="System",
+        model_name="gpt-4o",
+        client=mock_client
+    )
+    call_args = mock_client.post.call_args
+    posted_json = call_args.kwargs.get("json") or call_args[1].get("json")
+    assert posted_json.get("max_tokens") == 8192
+    assert "max_completion_tokens" not in posted_json
+
+    # Reasoning model (o3-mini)
+    await provider.generate_response(
+        messages=[{"role": "user", "parts": [{"text": "Hello"}]}],
+        tools=None,
+        system_instruction="System",
+        model_name="o3-mini",
+        client=mock_client
+    )
+    call_args = mock_client.post.call_args
+    posted_json = call_args.kwargs.get("json") or call_args[1].get("json")
+    assert posted_json.get("max_completion_tokens") == 8192
+    assert "max_tokens" not in posted_json
+
+
+
 
 
 
