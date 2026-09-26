@@ -18,10 +18,28 @@ class OpenAIProvider(BaseLLMProvider):
         self._base_url = base_url
 
     def get_api_key(self) -> Optional[str]:
-        return self._api_key or settings.get_openai_api_key()
+        if self._api_key:
+            return self._api_key
+        try:
+            from app.integrations.manager import integration_manager
+            custom = integration_manager.get_custom_credential("openai", "api_key")
+            if custom:
+                return custom
+        except Exception:
+            pass
+        return settings.get_openai_api_key()
 
     def get_base_url(self) -> str:
-        return (self._base_url or settings.OPENAI_BASE_URL or "https://api.openai.com/v1").rstrip("/")
+        if self._base_url:
+            return self._base_url.rstrip("/")
+        try:
+            from app.integrations.manager import integration_manager
+            custom = integration_manager.get_custom_credential("openai", "base_url")
+            if custom:
+                return custom.rstrip("/")
+        except Exception:
+            pass
+        return (settings.OPENAI_BASE_URL or "https://api.openai.com/v1").rstrip("/")
 
     def _convert_tool_declarations(self, tools: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
         """

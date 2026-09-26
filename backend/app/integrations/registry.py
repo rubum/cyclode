@@ -13,12 +13,14 @@ class IntegrationRegistry:
         """
         Returns real-time status and capabilities for all supported integrations.
         """
+        from app.integrations.manager import integration_manager
+
         return [
             {
                 "id": "gemini",
                 "name": "Google Gemini & AI Studio",
                 "description": "Powers autonomous agent reasoning, multi-turn pair programming, and asynchronous title synthesis.",
-                "configured": bool(settings.get_api_key() or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")),
+                "configured": integration_manager.is_configured("gemini"),
                 "auth_type": "API Key",
                 "skills": ["gemini.generate_content", "gemini.synthesize_titles"],
                 "icon": "sparkles"
@@ -27,7 +29,7 @@ class IntegrationRegistry:
                 "id": "anthropic",
                 "name": "Anthropic Claude",
                 "description": "Powers deep reasoning, Claude 3.7 Sonnet hybrid thinking, and extended coding agents.",
-                "configured": bool(settings.get_anthropic_api_key()),
+                "configured": integration_manager.is_configured("anthropic"),
                 "auth_type": "API Key",
                 "skills": ["claude.messages_stream", "claude.hybrid_thinking"],
                 "icon": "bot"
@@ -36,7 +38,7 @@ class IntegrationRegistry:
                 "id": "deepseek",
                 "name": "DeepSeek AI",
                 "description": "Powers deepseek-flash ultra-low latency agent loops and DeepSeek-R1 reasoning.",
-                "configured": bool(settings.get_deepseek_api_key()),
+                "configured": integration_manager.is_configured("deepseek"),
                 "auth_type": "API Key",
                 "skills": ["deepseek.chat_completions", "deepseek.reasoning_content"],
                 "icon": "zap"
@@ -45,7 +47,7 @@ class IntegrationRegistry:
                 "id": "openai",
                 "name": "OpenAI & Codex",
                 "description": "Powers GPT-4o, Codex coding workflows, and o1/o3-mini reasoning loops.",
-                "configured": bool(settings.get_openai_api_key()),
+                "configured": integration_manager.is_configured("openai"),
                 "auth_type": "API Key",
                 "skills": ["openai.chat_completions", "openai.reasoning_effort"],
                 "icon": "cpu"

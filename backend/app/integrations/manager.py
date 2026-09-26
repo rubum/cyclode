@@ -22,6 +22,151 @@ class IntegrationManager:
 
     def __init__(self):
         self._custom_credentials: Dict[str, Dict[str, Any]] = {}
+        self._load_persisted_credentials()
+
+    def _load_persisted_credentials(self) -> None:
+        """
+        Loads credentials persisted in ~/.cyclode/config.json into runtime state.
+        """
+        try:
+            from cyclode.config import load_user_config
+            cfg = load_user_config()
+            if not cfg:
+                return
+
+            # Gemini
+            if cfg.get("gemini_api_key"):
+                self._custom_credentials.setdefault("gemini", {})["api_key"] = cfg["gemini_api_key"]
+                if not settings.GEMINI_API_KEY:
+                    settings.GEMINI_API_KEY = cfg["gemini_api_key"]
+            if cfg.get("gemini_model"):
+                self._custom_credentials.setdefault("gemini", {})["model"] = cfg["gemini_model"]
+
+            # DeepSeek
+            if cfg.get("deepseek_api_key"):
+                self._custom_credentials.setdefault("deepseek", {})["api_key"] = cfg["deepseek_api_key"]
+                if not settings.DEEPSEEK_API_KEY:
+                    settings.DEEPSEEK_API_KEY = cfg["deepseek_api_key"]
+            if cfg.get("deepseek_base_url"):
+                self._custom_credentials.setdefault("deepseek", {})["base_url"] = cfg["deepseek_base_url"]
+                if not settings.DEEPSEEK_BASE_URL:
+                    settings.DEEPSEEK_BASE_URL = cfg["deepseek_base_url"]
+            if cfg.get("deepseek_model"):
+                self._custom_credentials.setdefault("deepseek", {})["model"] = cfg["deepseek_model"]
+
+            # Anthropic
+            if cfg.get("anthropic_api_key"):
+                self._custom_credentials.setdefault("anthropic", {})["api_key"] = cfg["anthropic_api_key"]
+                if not settings.ANTHROPIC_API_KEY:
+                    settings.ANTHROPIC_API_KEY = cfg["anthropic_api_key"]
+            if cfg.get("anthropic_model"):
+                self._custom_credentials.setdefault("anthropic", {})["model"] = cfg["anthropic_model"]
+
+            # OpenAI
+            if cfg.get("openai_api_key"):
+                self._custom_credentials.setdefault("openai", {})["api_key"] = cfg["openai_api_key"]
+                if not settings.OPENAI_API_KEY:
+                    settings.OPENAI_API_KEY = cfg["openai_api_key"]
+            if cfg.get("openai_base_url"):
+                self._custom_credentials.setdefault("openai", {})["base_url"] = cfg["openai_base_url"]
+                if not settings.OPENAI_BASE_URL:
+                    settings.OPENAI_BASE_URL = cfg["openai_base_url"]
+            if cfg.get("openai_model"):
+                self._custom_credentials.setdefault("openai", {})["model"] = cfg["openai_model"]
+
+            # GitHub
+            if cfg.get("github_token"):
+                self._custom_credentials.setdefault("github", {})["token"] = cfg["github_token"]
+                if not github_client.token:
+                    github_client.token = cfg["github_token"]
+
+            # Slack
+            if cfg.get("slack_token"):
+                self._custom_credentials.setdefault("slack", {})["token"] = cfg["slack_token"]
+                if not slack_client.token:
+                    slack_client.token = cfg["slack_token"]
+
+            # Linear
+            if cfg.get("linear_api_key") or cfg.get("linear_token"):
+                tok = cfg.get("linear_api_key") or cfg.get("linear_token")
+                self._custom_credentials.setdefault("linear", {})["token"] = tok
+                if not linear_client.token:
+                    linear_client.token = tok
+        except Exception as e:
+            logger.debug(f"Persisted credentials bootstrap note: {e}")
+
+    def get_custom_credential(self, provider: str, key: str = "api_key") -> Optional[str]:
+        """
+        Retrieves active credential for a provider from memory, config.json, settings, or os.environ.
+        """
+        provider = (provider or "").lower().strip()
+        # 1. Check in-memory custom credentials
+        val = self._custom_credentials.get(provider, {}).get(key)
+        if val:
+            return str(val).strip()
+
+        # 2. Check dynamic ~/.cyclode/config.json
+        try:
+            from cyclode.config import load_user_config
+            cfg = load_user_config()
+            cfg_key = f"{provider}_{key}" if key != "token" else f"{provider}_token"
+            if cfg.get(cfg_key):
+                self._custom_credentials.setdefault(provider, {})[key] = cfg[cfg_key]
+                return str(cfg[cfg_key]).strip()
+            if key == "api_key" and cfg.get(f"{provider}_api_key"):
+                self._custom_credentials.setdefault(provider, {})["api_key"] = cfg[f"{provider}_api_key"]
+                return str(cfg[f"{provider}_api_key"]).strip()
+        except Exception:
+            pass
+
+        # 3. Check Settings & os.environ
+        if provider in ["google", "gemini"]:
+            return settings.get_api_key()
+        elif provider == "deepseek":
+            if key == "api_key":
+                return settings.get_deepseek_api_key()
+            elif key == "base_url":
+                return settings.DEEPSEEK_BASE_URL or os.environ.get("DEEPSEEK_BASE_URL")
+        elif provider == "openai":
+            if key == "api_key":
+                return settings.get_openai_api_key()
+            elif key == "base_url":
+                return settings.OPENAI_BASE_URL or os.environ.get("OPENAI_BASE_URL")
+        elif provider in ["anthropic", "claude"]:
+            return settings.get_anthropic_api_key()
+        elif provider == "github" and key in ["token", "api_key"]:
+            return github_client.token or settings.GITHUB_TOKEN or os.environ.get("GITHUB_TOKEN")
+        elif provider == "slack" and key in ["token", "api_key"]:
+            return slack_client.token or settings.SLACK_BOT_TOKEN or os.environ.get("SLACK_BOT_TOKEN")
+        elif provider == "linear" and key in ["token", "api_key"]:
+            return linear_client.token or settings.LINEAR_API_KEY or os.environ.get("LINEAR_API_KEY")
+
+        return None
+
+    def is_configured(self, provider: str) -> bool:
+        """
+        Determines whether a given provider has valid configured credentials in vault, config, settings, or env.
+        """
+        provider = (provider or "").lower().strip()
+        if provider in ["google", "gemini"]:
+            return bool(self.get_custom_credential("gemini", "api_key") or settings.get_api_key())
+        elif provider == "deepseek":
+            return bool(self.get_custom_credential("deepseek", "api_key") or settings.get_deepseek_api_key())
+        elif provider == "openai":
+            return bool(self.get_custom_credential("openai", "api_key") or settings.get_openai_api_key())
+        elif provider in ["anthropic", "claude"]:
+            return bool(self.get_custom_credential("anthropic", "api_key") or settings.get_anthropic_api_key())
+        elif provider == "github":
+            return github_client.is_configured() or bool(self.get_custom_credential("github", "token"))
+        elif provider == "slack":
+            return slack_client.is_configured() or bool(self.get_custom_credential("slack", "token"))
+        elif provider == "linear":
+            return linear_client.is_configured() or bool(self.get_custom_credential("linear", "token"))
+        elif provider == "appsignal":
+            return appsignal_client.is_configured() or bool(self.get_custom_credential("appsignal", "api_key"))
+        elif provider == "sentry":
+            return bool(settings.SENTRY_AUTH_TOKEN or os.environ.get("SENTRY_AUTH_TOKEN"))
+        return False
 
     def mask_token(self, token: Optional[str]) -> str:
         if not token:
@@ -44,30 +189,33 @@ class IntegrationManager:
         provider = provider.lower().strip()
         # Fallback to existing configured secrets if user is updating only model or base_url
         if provider == "deepseek" and not credentials.get("api_key"):
-            existing = settings.get_deepseek_api_key()
+            existing = self.get_custom_credential("deepseek", "api_key") or settings.get_deepseek_api_key()
             if existing:
                 credentials["api_key"] = existing
         elif provider == "openai" and not credentials.get("api_key"):
-            existing = settings.get_openai_api_key()
+            existing = self.get_custom_credential("openai", "api_key") or settings.get_openai_api_key()
             if existing:
                 credentials["api_key"] = existing
-        elif provider == "anthropic" and not credentials.get("api_key"):
-            existing = settings.get_anthropic_api_key()
+        elif provider in ["anthropic", "claude"] and not credentials.get("api_key"):
+            existing = self.get_custom_credential("anthropic", "api_key") or settings.get_anthropic_api_key()
             if existing:
                 credentials["api_key"] = existing
-        elif provider == "gemini" and not credentials.get("api_key"):
-            existing = settings.get_api_key()
+        elif provider in ["gemini", "google"] and not credentials.get("api_key"):
+            existing = self.get_custom_credential("gemini", "api_key") or settings.get_api_key()
             if existing:
                 credentials["api_key"] = existing
         elif provider == "github" and not credentials.get("token"):
-            if github_client.token:
-                credentials["token"] = github_client.token
+            existing = self.get_custom_credential("github", "token") or github_client.token
+            if existing:
+                credentials["token"] = existing
         elif provider == "slack" and not credentials.get("token"):
-            if slack_client.token:
-                credentials["token"] = slack_client.token
+            existing = self.get_custom_credential("slack", "token") or slack_client.token
+            if existing:
+                credentials["token"] = existing
         elif provider == "linear" and not credentials.get("token") and not credentials.get("api_key"):
-            if linear_client.token:
-                credentials["token"] = linear_client.token
+            existing = self.get_custom_credential("linear", "token") or linear_client.token
+            if existing:
+                credentials["token"] = existing
 
         self._custom_credentials[provider] = credentials
         validation = await self.validate_credentials(provider, credentials)
@@ -575,21 +723,21 @@ class IntegrationManager:
             "providers": {
                 "gemini": {
                     "model": settings.GEMINI_DEFAULT_MODEL,
-                    "configured": bool(settings.get_api_key()),
+                    "configured": self.is_configured("gemini"),
                 },
                 "deepseek": {
                     "model": settings.DEEPSEEK_DEFAULT_MODEL,
                     "base_url": settings.DEEPSEEK_BASE_URL,
-                    "configured": bool(settings.get_deepseek_api_key()),
+                    "configured": self.is_configured("deepseek"),
                 },
                 "anthropic": {
                     "model": settings.ANTHROPIC_DEFAULT_MODEL,
-                    "configured": bool(settings.get_anthropic_api_key()),
+                    "configured": self.is_configured("anthropic"),
                 },
                 "openai": {
                     "model": settings.OPENAI_DEFAULT_MODEL,
                     "base_url": settings.OPENAI_BASE_URL,
-                    "configured": bool(settings.get_openai_api_key()),
+                    "configured": self.is_configured("openai"),
                 }
             }
         }

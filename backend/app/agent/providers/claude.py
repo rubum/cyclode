@@ -17,7 +17,16 @@ class ClaudeProvider(BaseLLMProvider):
         self._api_key = api_key
 
     def get_api_key(self) -> Optional[str]:
-        return self._api_key or settings.get_anthropic_api_key()
+        if self._api_key:
+            return self._api_key
+        try:
+            from app.integrations.manager import integration_manager
+            custom = integration_manager.get_custom_credential("anthropic", "api_key")
+            if custom:
+                return custom
+        except Exception:
+            pass
+        return settings.get_anthropic_api_key()
 
     def _convert_tool_declarations(self, tools: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
         """

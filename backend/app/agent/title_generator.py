@@ -92,10 +92,11 @@ async def generate_ai_title(
     # Check if active provider has a configured key, otherwise try alternatives
     if not provider.get_api_key():
         from app.agent.providers.gemini import GeminiProvider
+        from app.agent.providers.deepseek import DeepSeekProvider
         from app.agent.providers.claude import ClaudeProvider
         from app.agent.providers.openai import OpenAIProvider
 
-        for cand_prov in [GeminiProvider(), ClaudeProvider(), OpenAIProvider()]:
+        for cand_prov in [GeminiProvider(), DeepSeekProvider(), ClaudeProvider(), OpenAIProvider()]:
             if cand_prov.get_api_key():
                 provider = cand_prov
                 break

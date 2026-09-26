@@ -17,7 +17,16 @@ class GeminiProvider(BaseLLMProvider):
         self._api_key = api_key
 
     def get_api_key(self) -> Optional[str]:
-        return self._api_key or settings.get_api_key()
+        if self._api_key:
+            return self._api_key
+        try:
+            from app.integrations.manager import integration_manager
+            custom = integration_manager.get_custom_credential("gemini", "api_key")
+            if custom:
+                return custom
+        except Exception:
+            pass
+        return settings.get_api_key()
 
     async def generate_response(
         self,

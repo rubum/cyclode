@@ -126,16 +126,34 @@ class Settings(BaseSettings):
     LINEAR_API_KEY: Optional[str] = Field(default_factory=lambda: _USER_CFG.get("linear_api_key"))
 
     def get_api_key(self) -> Optional[str]:
-        return self.GEMINI_API_KEY or self.GOOGLE_API_KEY or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        return (
+            self.GEMINI_API_KEY
+            or self.GOOGLE_API_KEY
+            or os.environ.get("GEMINI_API_KEY")
+            or os.environ.get("GOOGLE_API_KEY")
+            or _load_cyclode_user_config().get("gemini_api_key")
+        )
 
     def get_anthropic_api_key(self) -> Optional[str]:
-        return self.ANTHROPIC_API_KEY or os.environ.get("ANTHROPIC_API_KEY")
+        return (
+            self.ANTHROPIC_API_KEY
+            or os.environ.get("ANTHROPIC_API_KEY")
+            or _load_cyclode_user_config().get("anthropic_api_key")
+        )
 
     def get_openai_api_key(self) -> Optional[str]:
-        return self.OPENAI_API_KEY or os.environ.get("OPENAI_API_KEY")
+        return (
+            self.OPENAI_API_KEY
+            or os.environ.get("OPENAI_API_KEY")
+            or _load_cyclode_user_config().get("openai_api_key")
+        )
 
     def get_deepseek_api_key(self) -> Optional[str]:
-        return self.DEEPSEEK_API_KEY or os.environ.get("DEEPSEEK_API_KEY")
+        return (
+            self.DEEPSEEK_API_KEY
+            or os.environ.get("DEEPSEEK_API_KEY")
+            or _load_cyclode_user_config().get("deepseek_api_key")
+        )
 
 
 settings = Settings()

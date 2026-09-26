@@ -18,10 +18,28 @@ class DeepSeekProvider(BaseLLMProvider):
         self._base_url = base_url
 
     def get_api_key(self) -> Optional[str]:
-        return self._api_key or settings.get_deepseek_api_key()
+        if self._api_key:
+            return self._api_key
+        try:
+            from app.integrations.manager import integration_manager
+            custom = integration_manager.get_custom_credential("deepseek", "api_key")
+            if custom:
+                return custom
+        except Exception:
+            pass
+        return settings.get_deepseek_api_key()
 
     def get_base_url(self) -> str:
-        return (self._base_url or settings.DEEPSEEK_BASE_URL or "https://api.deepseek.com").rstrip("/")
+        if self._base_url:
+            return self._base_url.rstrip("/")
+        try:
+            from app.integrations.manager import integration_manager
+            custom = integration_manager.get_custom_credential("deepseek", "base_url")
+            if custom:
+                return custom.rstrip("/")
+        except Exception:
+            pass
+        return (settings.DEEPSEEK_BASE_URL or "https://api.deepseek.com").rstrip("/")
 
     def _convert_tool_declarations(self, tools: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
         """
@@ -241,28 +259,6 @@ class DeepSeekProvider(BaseLLMProvider):
                 i += 1
 
         return reconciled_msgs
-
-    async def generate_response(
-        self,
-        messages: List[Dict[str, Any]],
-        tools: Optional[List[Dict[str, Any]]],
-        system_instruction: str,
-        model_name: str,
-        temperature: float = 0.2,
-        thinking_budget: Optional[int] = None,
-        client: Optional[httpx.AsyncClient] = None
-    ) -> ProviderResponse:
-        api_key = self.get_api_key()
-        if not api_key:
-            return ProviderResponse(
-                status_code=401,
-                error_code=401,
-                error_message="DeepSeek API Key is missing or unconfigured."
-            )
-
-        base_url = self.get_base_url()
-        ds_tools = self._convert_tool_declarations(tools)
-        ds_messages = self._convert_messages(messages, system_instruction)
 
     def _normalize_model_name(self, model_name: Optional[str]) -> str:
         clean = (model_name or "").replace("deepseek:", "").strip()

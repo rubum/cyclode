@@ -50,10 +50,17 @@ def get_model_catalog() -> List[Dict[str, Any]]:
     """
     Returns the catalog of all supported models grouped by provider with configuration status.
     """
-    has_gemini = bool(settings.get_api_key())
-    has_claude = bool(settings.get_anthropic_api_key())
-    has_openai = bool(settings.get_openai_api_key())
-    has_deepseek = bool(settings.get_deepseek_api_key())
+    try:
+        from app.integrations.manager import integration_manager
+        has_gemini = integration_manager.is_configured("gemini")
+        has_claude = integration_manager.is_configured("anthropic")
+        has_openai = integration_manager.is_configured("openai")
+        has_deepseek = integration_manager.is_configured("deepseek")
+    except Exception:
+        has_gemini = bool(settings.get_api_key())
+        has_claude = bool(settings.get_anthropic_api_key())
+        has_openai = bool(settings.get_openai_api_key())
+        has_deepseek = bool(settings.get_deepseek_api_key())
 
     return [
         {

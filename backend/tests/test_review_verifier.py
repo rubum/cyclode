@@ -399,3 +399,53 @@ async def test_workspace_tools_verify_code_hypothesis_tool(tmp_path: Path):
 
     assert "verified" in res
 
+
+@pytest.mark.asyncio
+async def test_review_verifier_with_vault_credentials():
+    from unittest.mock import patch, AsyncMock
+    from app.config import settings
+    from app.integrations.manager import integration_manager
+    from app.agent.providers.deepseek import DeepSeekProvider
+
+    # DeepSeek key configured exclusively in Vault / integration manager
+    with patch.object(settings, "DEEPSEEK_API_KEY", None), \
+         patch.dict("os.environ", {}, clear=True):
+        integration_manager._custom_credentials["deepseek"] = {"api_key": "sk-vault-deepseek-key"}
+
+        diff_text = """
+diff --git a/backend/main.py b/backend/main.py
+--- a/backend/main.py
++++ b/backend/main.py
+@@ -10,1 +10,1 @@
+-def query(param):
++def query(param): os.system(f"rm {param}")
+"""
+        # Patch DeepSeekProvider.generate_structured_json
+        with patch.object(DeepSeekProvider, "generate_structured_json", new_callable=AsyncMock) as mock_json:
+            mock_json.return_value = {
+                "result": {
+                    "hypotheses": [
+                        {
+                            "file_path": "backend/main.py",
+                            "line_start": 10,
+                            "line_end": 10,
+                            "title": "Command Injection Vulnerability",
+                            "description": "Untrusted param passed directly to os.system.",
+                            "invariant_violated": "Do not pass unsanitized input to shell.",
+                            "reproduction_scenario": "param = '; rm -rf /'",
+                            "suggested_diff": "```diff\n-os.system(f'rm {param}')\n+subprocess.run(['rm', param], check=True)\n```",
+                            "preliminary_confidence": 0.95
+                        }
+                    ]
+                }
+            }
+
+            hypotheses = await review_verifier.generate_ensemble_hypotheses_async(
+                diff_text=diff_text,
+                model_name="deepseek:deepseek-flash"
+            )
+
+            assert len(hypotheses) >= 1
+            assert any("Command Injection" in h.title for h in hypotheses)
+
+

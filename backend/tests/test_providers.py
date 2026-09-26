@@ -164,8 +164,10 @@ def test_openai_message_conversion():
 
 @pytest.mark.asyncio
 async def test_missing_api_keys_surface_honest_diagnostics(monkeypatch):
+    from app.integrations.manager import integration_manager
     monkeypatch.setattr("app.config.Settings.get_anthropic_api_key", lambda self: None)
     monkeypatch.setattr("app.config.Settings.get_openai_api_key", lambda self: None)
+    monkeypatch.setattr(integration_manager, "get_custom_credential", lambda *args, **kwargs: None)
     claude = ClaudeProvider(api_key=None)
     claude._api_key = None
     resp_claude = await claude.generate_response([], None, "", "claude-3-7-sonnet")
@@ -353,7 +355,9 @@ def test_deepseek_tool_and_message_conversion():
 
 @pytest.mark.asyncio
 async def test_deepseek_missing_api_key_diagnostics(monkeypatch):
+    from app.integrations.manager import integration_manager
     monkeypatch.setattr("app.config.Settings.get_deepseek_api_key", lambda self: None)
+    monkeypatch.setattr(integration_manager, "get_custom_credential", lambda *args, **kwargs: None)
     ds = DeepSeekProvider(api_key=None)
     ds._api_key = None
     resp = await ds.generate_response([], None, "", "deepseek-flash")
@@ -699,6 +703,97 @@ async def test_openai_payload_sets_max_tokens_and_completion_tokens():
     posted_json = call_args.kwargs.get("json") or call_args[1].get("json")
     assert posted_json.get("max_completion_tokens") == 8192
     assert "max_tokens" not in posted_json
+
+
+@pytest.mark.asyncio
+async def test_provider_api_key_resolution_from_integration_manager():
+    from unittest.mock import patch
+    from app.integrations.manager import integration_manager
+
+    with patch.object(settings, "DEEPSEEK_API_KEY", None), \
+         patch.object(settings, "OPENAI_API_KEY", None), \
+         patch.object(settings, "ANTHROPIC_API_KEY", None), \
+         patch.object(settings, "GEMINI_API_KEY", None), \
+         patch.object(settings, "GOOGLE_API_KEY", None), \
+         patch.dict("os.environ", {}, clear=True):
+        
+        # Save custom credentials in integration manager
+        integration_manager._custom_credentials["deepseek"] = {"api_key": "sk-deepseek-vault-test-123"}
+        integration_manager._custom_credentials["openai"] = {"api_key": "sk-openai-vault-test-456"}
+        integration_manager._custom_credentials["anthropic"] = {"api_key": "sk-ant-vault-test-789"}
+        integration_manager._custom_credentials["gemini"] = {"api_key": "AIzaSyVaultTest999"}
+
+        ds_prov = DeepSeekProvider()
+        oa_prov = OpenAIProvider()
+        cl_prov = ClaudeProvider()
+        gm_prov = GeminiProvider()
+
+        assert ds_prov.get_api_key() == "sk-deepseek-vault-test-123"
+        assert oa_prov.get_api_key() == "sk-openai-vault-test-456"
+        assert cl_prov.get_api_key() == "sk-ant-vault-test-789"
+        assert gm_prov.get_api_key() == "AIzaSyVaultTest999"
+
+        assert integration_manager.is_configured("deepseek") is True
+        assert integration_manager.is_configured("openai") is True
+        assert integration_manager.is_configured("anthropic") is True
+        assert integration_manager.is_configured("gemini") is True
+
+
+@pytest.mark.asyncio
+async def test_provider_base_url_resolution_from_integration_manager():
+    from unittest.mock import patch
+    from app.integrations.manager import integration_manager
+
+    with patch.object(settings, "DEEPSEEK_BASE_URL", None), \
+         patch.object(settings, "OPENAI_BASE_URL", None), \
+         patch.dict("os.environ", {}, clear=True):
+        
+        integration_manager._custom_credentials["deepseek"] = {"base_url": "https://custom.deepseek.internal/v1"}
+        integration_manager._custom_credentials["openai"] = {"base_url": "http://localhost:11434/v1"}
+
+        ds_prov = DeepSeekProvider()
+        oa_prov = OpenAIProvider()
+
+        assert ds_prov.get_base_url() == "https://custom.deepseek.internal/v1"
+        assert oa_prov.get_base_url() == "http://localhost:11434/v1"
+
+
+@pytest.mark.asyncio
+async def test_vault_interceptor_extracts_all_provider_keys():
+    from app.agent.vault_interceptor import VaultInterceptor
+    from app.integrations.manager import integration_manager
+
+    # Test prompt with multiple provider secrets
+    prompt = (
+        "Configure DeepSeek sk-mockmockmockmockmockmockmock123 and "
+        "Claude sk-ant-api03-mockantkey1234567890abcdef and "
+        "OpenAI sk-proj-mockopenaikey1234567890abcdef and "
+        "Linear lin_api_mocklinearkey1234567890"
+    )
+
+    sanitized, extracted = await VaultInterceptor.process_prompt(prompt)
+
+    assert "deepseek_api_key" in extracted
+    assert extracted["deepseek_api_key"] == "sk-mockmockmockmockmockmockmock123"
+    assert "sk-mockmockmockmockmockmockmock123" not in sanitized
+
+    assert "anthropic_api_key" in extracted
+    assert extracted["anthropic_api_key"] == "sk-ant-api03-mockantkey1234567890abcdef"
+    assert "sk-ant-api03-mockantkey1234567890abcdef" not in sanitized
+
+    assert "openai_api_key" in extracted
+    assert extracted["openai_api_key"] == "sk-proj-mockopenaikey1234567890abcdef"
+    assert "sk-proj-mockopenaikey1234567890abcdef" not in sanitized
+
+    assert "linear_api_key" in extracted
+    assert extracted["linear_api_key"] == "lin_api_mocklinearkey1234567890"
+    assert "lin_api_mocklinearkey1234567890" not in sanitized
+
+    assert integration_manager.get_custom_credential("deepseek", "api_key") == "sk-mockmockmockmockmockmockmock123"
+    assert integration_manager.get_custom_credential("anthropic", "api_key") == "sk-ant-api03-mockantkey1234567890abcdef"
+    assert integration_manager.get_custom_credential("openai", "api_key") == "sk-proj-mockopenaikey1234567890abcdef"
+    assert integration_manager.get_custom_credential("linear", "api_key") == "lin_api_mocklinearkey1234567890"
+
 
 
 

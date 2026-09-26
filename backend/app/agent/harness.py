@@ -162,10 +162,10 @@ class AntigravityHarness:
 
         # When auto/adaptive or no model is selected:
         # Check configured providers to route to an active key if Gemini is unconfigured
-        has_gemini = bool(settings.get_api_key())
-        has_deepseek = bool(settings.get_deepseek_api_key())
-        has_claude = bool(settings.get_anthropic_api_key())
-        has_openai = bool(settings.get_openai_api_key())
+        has_gemini = bool(settings.get_api_key() or integration_manager.get_custom_credential("gemini", "api_key"))
+        has_deepseek = bool(settings.get_deepseek_api_key() or integration_manager.get_custom_credential("deepseek", "api_key"))
+        has_claude = bool(settings.get_anthropic_api_key() or integration_manager.get_custom_credential("anthropic", "api_key"))
+        has_openai = bool(settings.get_openai_api_key() or integration_manager.get_custom_credential("openai", "api_key"))
 
         if not has_gemini:
             if has_deepseek:
@@ -634,7 +634,9 @@ class AntigravityHarness:
         elif api_key == "":
             prov_key = None
         else:
-            prov_key = provider.get_api_key() if hasattr(provider, "get_api_key") else None
+            prov_key = (
+                provider.get_api_key() if hasattr(provider, "get_api_key") else None
+            ) or integration_manager.get_custom_credential(provider.provider_id, "api_key")
 
         if hasattr(provider, "_api_key") and prov_key:
             provider._api_key = prov_key
@@ -814,12 +816,11 @@ class AntigravityHarness:
         provider_label = "DeepSeek AI" if provider_id == "deepseek" else ("Anthropic Claude" if provider_id == "anthropic" else ("OpenAI / Codex" if provider_id == "openai" else "Google Gemini"))
         env_var_name = "DEEPSEEK_API_KEY" if provider_id == "deepseek" else ("ANTHROPIC_API_KEY" if provider_id == "anthropic" else ("OPENAI_API_KEY" if provider_id == "openai" else "GEMINI_API_KEY"))
 
-        custom_creds = integration_manager._custom_credentials.get(provider_id, {})
         api_key = (
             extracted_creds.get(f"{provider_id}_api_key")
-            or custom_creds.get("api_key")
             or (provider.get_api_key() if hasattr(provider, "get_api_key") else None)
-            or (settings.get_api_key() if provider_id == "google" else None)
+            or integration_manager.get_custom_credential(provider_id, "api_key")
+            or (settings.get_api_key() if provider_id in ["google", "gemini"] else None)
         )
 
         # Ensure workspace directory exists

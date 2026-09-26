@@ -43,6 +43,15 @@ class BaseLLMProvider(ABC):
         """
         Retrieves the configured API key for this provider.
         """
+        if getattr(self, "_api_key", None):
+            return self._api_key
+        try:
+            from app.integrations.manager import integration_manager
+            custom = integration_manager.get_custom_credential(self.provider_id, "api_key")
+            if custom:
+                return custom
+        except Exception:
+            pass
         return None
 
     @abstractmethod
