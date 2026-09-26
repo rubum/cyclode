@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import logging
 import mimetypes
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from pathlib import Path
@@ -656,6 +657,222 @@ EXTENSION_MAP = {
 }
 
 
+IGNORE_SANDBOX_SCAN_DIRS = {
+    ".git", "__pycache__", ".pytest_cache", "node_modules",
+    "dist", "build", ".gemini", ".next", ".cache", ".idea", ".vscode",
+    "target", ".venv", "venv", "env", ".env", "vendor", "bower_components",
+    "Pods", ".turbo", ".nx", ".nuxt", ".output", "out",
+    ".gradle", ".m2", ".cargo", ".rustup", ".husky", ".yarn", ".pnpm-store"
+}
+
+
+def _scan_sandbox_filesystem(
+    ws_path: Optional[Path],
+    depth: int = 3,
+    task_branch: Optional[str] = None,
+    repo_url: Optional[str] = None,
+    commit_sha: Optional[str] = None
+) -> Dict[str, Any]:
+    if not ws_path or not ws_path.exists() or not ws_path.is_dir():
+        return {
+            "exists": False,
+            "manifests": [],
+            "total_files": 0,
+            "total_bytes": 0,
+            "top_directories": [],
+            "languages": [],
+            "git_status": {
+                "branch": task_branch or "main",
+                "repo_url": repo_url or "",
+                "commit_sha": commit_sha or "",
+                "is_clean": True,
+                "modified_count": 0,
+                "untracked_count": 0
+            },
+            "file_tree": []
+        }
+
+    # 1. Project manifests
+    manifests: List[Dict[str, Any]] = []
+    manifest_checks = [
+        ("Cargo.toml", "Rust (Cargo)"),
+        ("package.json", "Node.js (npm/yarn/pnpm)"),
+        ("pyproject.toml", "Python (PEP 621/Poetry)"),
+        ("requirements.txt", "Python (pip)"),
+        ("go.mod", "Go Module"),
+        ("pom.xml", "Java (Maven)"),
+        ("build.gradle", "Java/Kotlin (Gradle)"),
+        ("Dockerfile", "Docker Container"),
+        ("Makefile", "GNU Make"),
+    ]
+    for fname, label in manifest_checks:
+        m_path = ws_path / fname
+        if m_path.exists():
+            try:
+                manifests.append({
+                    "name": fname,
+                    "type": label,
+                    "size_bytes": m_path.stat().st_size
+                })
+            except Exception:
+                pass
+
+    # 2. Collect top-level directories directly under workspace
+    top_directories_map: Dict[str, Dict[str, Any]] = {}
+    try:
+        for item in ws_path.iterdir():
+            if item.is_dir() and item.name not in IGNORE_SANDBOX_SCAN_DIRS and not item.name.startswith("."):
+                top_directories_map[item.name] = {
+                    "name": item.name,
+                    "file_count": 0,
+                    "size_bytes": 0
+                }
+    except Exception:
+        pass
+
+    # 3. Single-pass recursive scan for languages, total counts, and directory metrics
+    total_files = 0
+    total_bytes = 0
+    language_counts: Dict[str, Dict[str, Any]] = {}
+    MAX_SCANNED_FILES = 10000
+
+    try:
+        for root, dirs, files in os.walk(ws_path):
+            dirs[:] = [d for d in dirs if d not in IGNORE_SANDBOX_SCAN_DIRS and not d.startswith(".")]
+
+            # Compute relative path to map into top-level directory stats
+            rel_root = Path(root).relative_to(ws_path)
+            top_dir_name = rel_root.parts[0] if rel_root.parts else None
+
+            for f in files:
+                if total_files >= MAX_SCANNED_FILES:
+                    break
+                p = Path(root) / f
+                try:
+                    fsize = p.stat().st_size
+                except Exception:
+                    fsize = 0
+
+                total_files += 1
+                total_bytes += fsize
+
+                ext = p.suffix.lower()
+                lang = EXTENSION_MAP.get(ext, "Other" if ext else "Plain Text")
+                if lang not in language_counts:
+                    language_counts[lang] = {"count": 0, "bytes": 0}
+                language_counts[lang]["count"] += 1
+                language_counts[lang]["bytes"] += fsize
+
+                if top_dir_name and top_dir_name in top_directories_map:
+                    top_directories_map[top_dir_name]["file_count"] += 1
+                    top_directories_map[top_dir_name]["size_bytes"] += fsize
+
+            if total_files >= MAX_SCANNED_FILES:
+                break
+    except Exception:
+        pass
+
+    top_directories = sorted(top_directories_map.values(), key=lambda x: x["size_bytes"], reverse=True)
+
+    # 4. Format languages list
+    languages_list = []
+    total_lang_bytes = sum(v["bytes"] for v in language_counts.values()) or 1
+    for lang_name, stats in sorted(language_counts.items(), key=lambda x: x[1]["bytes"], reverse=True):
+        pct = round((stats["bytes"] / total_lang_bytes) * 100, 1)
+        languages_list.append({
+            "name": lang_name,
+            "count": stats["count"],
+            "size_bytes": stats["bytes"],
+            "percentage": pct
+        })
+
+    # 5. Git status inspection (lightweight, isolated timeout)
+    git_status = {
+        "branch": task_branch or "main",
+        "repo_url": repo_url or "",
+        "commit_sha": commit_sha or "",
+        "is_clean": True,
+        "modified_count": 0,
+        "untracked_count": 0
+    }
+    if (ws_path / ".git").exists():
+        try:
+            proc = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=str(ws_path),
+                capture_output=True,
+                text=True,
+                timeout=1.5
+            )
+            if proc.returncode == 0:
+                lines = [l for l in proc.stdout.split("\n") if l.strip()]
+                modified = [l for l in lines if not l.startswith("??")]
+                untracked = [l for l in lines if l.startswith("??")]
+                git_status["is_clean"] = len(lines) == 0
+                git_status["modified_count"] = len(modified)
+                git_status["untracked_count"] = len(untracked)
+        except Exception:
+            pass
+
+    # 6. Hierarchical file tree
+    max_tree_depth = min(max(depth, 1), 10)
+
+    def build_tree(current_path: Path, max_depth: int = max_tree_depth, current_depth: int = 0, max_entries: int = 150) -> List[Dict[str, Any]]:
+        if not current_path.exists() or current_depth >= max_depth:
+            return []
+        items = []
+        try:
+            entries = [
+                p for p in current_path.iterdir()
+                if p.name not in IGNORE_SANDBOX_SCAN_DIRS and not p.name.startswith(".")
+            ]
+            entries.sort(key=lambda x: (not x.is_dir(), x.name.lower()))
+            for p in entries[:max_entries]:
+                rel = str(p.relative_to(ws_path))
+                if p.is_dir():
+                    try:
+                        direct_count = sum(1 for child in p.iterdir() if child.name not in IGNORE_SANDBOX_SCAN_DIRS and not child.name.startswith("."))
+                    except Exception:
+                        direct_count = 0
+                    children = build_tree(p, max_depth, current_depth + 1, max_entries)
+                    items.append({
+                        "name": p.name,
+                        "path": rel,
+                        "is_dir": True,
+                        "type": "directory",
+                        "child_count": direct_count,
+                        "children": children
+                    })
+                else:
+                    try:
+                        f_size = p.stat().st_size
+                    except Exception:
+                        f_size = 0
+                    items.append({
+                        "name": p.name,
+                        "path": rel,
+                        "is_dir": False,
+                        "type": "file",
+                        "size": f_size
+                    })
+        except Exception:
+            pass
+        return items
+
+    file_tree = build_tree(ws_path, max_depth=max_tree_depth)
+
+    return {
+        "exists": True,
+        "manifests": manifests,
+        "total_files": total_files,
+        "total_bytes": total_bytes,
+        "top_directories": top_directories[:10],
+        "languages": languages_list[:8],
+        "git_status": git_status,
+        "file_tree": file_tree
+    }
+
+
 @router.get("/{task_id}/sandbox")
 async def get_task_sandbox_info(task_id: str, depth: int = 3, db: AsyncSession = Depends(get_db)):
     stmt = select(TaskModel).where(TaskModel.id == task_id)
@@ -670,123 +887,24 @@ async def get_task_sandbox_info(task_id: str, depth: int = 3, db: AsyncSession =
         if specific_sb.exists() and specific_sb.is_dir():
             ws_path = specific_sb
 
-    exists = bool(ws_path and ws_path.exists() and ws_path.is_dir())
+    # Offload single-pass filesystem scanning to threadpool to avoid event loop starvation
+    scan = await asyncio.to_thread(
+        _scan_sandbox_filesystem,
+        ws_path,
+        depth,
+        task.git_branch,
+        task.repo_url,
+        task.commit_sha
+    )
 
-    top_directories: List[Dict[str, Any]] = []
-    language_counts: Dict[str, Dict[str, Any]] = {}
-    manifests: List[Dict[str, Any]] = []
-    total_files = 0
-    total_bytes = 0
-
-    git_status = {
-        "branch": task.git_branch or "main",
-        "repo_url": task.repo_url or "",
-        "commit_sha": task.commit_sha or "",
-        "is_clean": True,
-        "modified_count": 0,
-        "untracked_count": 0
-    }
-
-    if exists and ws_path:
-        # Check project manifests
-        manifest_checks = [
-            ("Cargo.toml", "Rust (Cargo)"),
-            ("package.json", "Node.js (npm/yarn/pnpm)"),
-            ("pyproject.toml", "Python (PEP 621/Poetry)"),
-            ("requirements.txt", "Python (pip)"),
-            ("go.mod", "Go Module"),
-            ("pom.xml", "Java (Maven)"),
-            ("build.gradle", "Java/Kotlin (Gradle)"),
-            ("Dockerfile", "Docker Container"),
-            ("Makefile", "GNU Make"),
-        ]
-        for fname, label in manifest_checks:
-            m_path = ws_path / fname
-            if m_path.exists():
-                try:
-                    manifests.append({
-                        "name": fname,
-                        "type": label,
-                        "size_bytes": m_path.stat().st_size
-                    })
-                except Exception:
-                    pass
-
-        # Scan filesystem for stats and languages
-        ignored_dirs = {".git", "__pycache__", ".pytest_cache", "node_modules", "dist", "build", ".gemini", ".next", ".cache"}
-        for root, dirs, files in os.walk(ws_path):
-            dirs[:] = [d for d in dirs if d not in ignored_dirs and not d.startswith(".")]
-            for f in files:
-                p = Path(root) / f
-                ext = p.suffix.lower()
-                lang = EXTENSION_MAP.get(ext, "Other" if ext else "Plain Text")
-                try:
-                    fsize = p.stat().st_size
-                except Exception:
-                    fsize = 0
-
-                total_files += 1
-                total_bytes += fsize
-
-                if lang not in language_counts:
-                    language_counts[lang] = {"count": 0, "bytes": 0}
-                language_counts[lang]["count"] += 1
-                language_counts[lang]["bytes"] += fsize
-
-        # Top-level directories directly under workspace
-        try:
-            for item in ws_path.iterdir():
-                if item.is_dir() and item.name not in ignored_dirs and not item.name.startswith("."):
-                    dir_files = 0
-                    dir_bytes = 0
-                    for r, d, fls in os.walk(item):
-                        d[:] = [sub for sub in d if sub not in ignored_dirs and not sub.startswith(".")]
-                        dir_files += len(fls)
-                        for fl in fls:
-                            try:
-                                dir_bytes += (Path(r) / fl).stat().st_size
-                            except Exception:
-                                pass
-                    top_directories.append({
-                        "name": item.name,
-                        "file_count": dir_files,
-                        "size_bytes": dir_bytes
-                    })
-            top_directories.sort(key=lambda x: x["size_bytes"], reverse=True)
-        except Exception:
-            pass
-
-        # Git status inspection
-        if (ws_path / ".git").exists():
-            try:
-                proc = subprocess.run(
-                    ["git", "status", "--porcelain"],
-                    cwd=str(ws_path),
-                    capture_output=True,
-                    text=True,
-                    timeout=2.0
-                )
-                if proc.returncode == 0:
-                    lines = [l for l in proc.stdout.split("\n") if l.strip()]
-                    modified = [l for l in lines if not l.startswith("??")]
-                    untracked = [l for l in lines if l.startswith("??")]
-                    git_status["is_clean"] = len(lines) == 0
-                    git_status["modified_count"] = len(modified)
-                    git_status["untracked_count"] = len(untracked)
-            except Exception:
-                pass
-
-    # Format languages
-    languages_list = []
-    total_lang_bytes = sum(v["bytes"] for v in language_counts.values()) or 1
-    for lang_name, stats in sorted(language_counts.items(), key=lambda x: x[1]["bytes"], reverse=True):
-        pct = round((stats["bytes"] / total_lang_bytes) * 100, 1)
-        languages_list.append({
-            "name": lang_name,
-            "count": stats["count"],
-            "size_bytes": stats["bytes"],
-            "percentage": pct
-        })
+    exists = scan["exists"]
+    total_files = scan["total_files"]
+    total_bytes = scan["total_bytes"]
+    top_directories = scan["top_directories"]
+    languages_list = scan["languages"]
+    manifests = scan["manifests"]
+    git_status = scan["git_status"]
+    file_tree = scan["file_tree"]
 
     # Recent tool executions from TaskLogModel
     recent_logs = []
@@ -819,52 +937,6 @@ async def get_task_sandbox_info(task_id: str, depth: int = 3, db: AsyncSession =
                 host_path = str(Path(host_root) / rel)
             except Exception:
                 host_path = f"{host_root.rstrip('/')}/{ws_path.name}"
-
-    max_tree_depth = min(max(depth, 1), 10)
-    IGNORE_TREE_NAMES = {
-        ".git", "__pycache__", ".pytest_cache", "node_modules",
-        "dist", "build", ".gemini", ".next", ".cache", ".idea", ".vscode"
-    }
-
-    def build_tree(current_path: Path, max_depth: int = max_tree_depth, current_depth: int = 0, max_entries: int = 150) -> List[Dict[str, Any]]:
-        if not current_path.exists() or current_depth >= max_depth:
-            return []
-        items = []
-        try:
-            entries = [
-                p for p in current_path.iterdir()
-                if p.name not in IGNORE_TREE_NAMES
-            ]
-            entries.sort(key=lambda x: (not x.is_dir(), x.name.lower()))
-            for p in entries[:max_entries]:
-                rel = str(p.relative_to(ws_path)) if ws_path else p.name
-                if p.is_dir():
-                    try:
-                        direct_count = sum(1 for child in p.iterdir() if child.name not in IGNORE_TREE_NAMES)
-                    except Exception:
-                        direct_count = 0
-                    children = build_tree(p, max_depth, current_depth + 1, max_entries)
-                    items.append({
-                        "name": p.name,
-                        "path": rel,
-                        "is_dir": True,
-                        "type": "directory",
-                        "child_count": direct_count,
-                        "children": children
-                    })
-                else:
-                    items.append({
-                        "name": p.name,
-                        "path": rel,
-                        "is_dir": False,
-                        "type": "file",
-                        "size": p.stat().st_size
-                    })
-        except Exception:
-            pass
-        return items
-
-    file_tree = build_tree(ws_path, max_depth=max_tree_depth) if (exists and ws_path) else []
 
     cli_command = f'docker exec -it cyclode-backend bash -c "cd {container_path} && exec bash"' if container_path else ""
 

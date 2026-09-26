@@ -34,9 +34,12 @@ interface SandboxInfo {
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
+// Client-side cache for instant workspace file tree rendering across task switches
+const sandboxCache = new Map<string, SandboxInfo>();
+
 export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
-  const [data, setData] = useState<SandboxInfo | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<SandboxInfo | null>(() => (task?.id ? sandboxCache.get(task.id) || null : null));
+  const [loading, setLoading] = useState<boolean>(() => !(task?.id && sandboxCache.has(task.id)));
   const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [targetLine, setTargetLine] = useState<number | null>(null);
@@ -113,7 +116,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
       const res = await fetch(`${API_BASE}/api/tasks/${task.id}/sandbox`);
       if (!res.ok) {
         if (res.status === 404 && (task.status === 'INITIALIZING' || task.sandbox_status === 'PROVISIONING')) {
-          setData((prev) => prev || {
+          const fallbackData: SandboxInfo = {
             task_id: task.id,
             sandbox_status: 'PROVISIONING',
             workspace_path: task.workspace_path || '',
@@ -121,12 +124,14 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
             file_tree: [],
             file_count: 0,
             total_size_bytes: 0
-          });
+          };
+          setData((prev) => prev || fallbackData);
           return;
         }
         throw new Error(`Failed to load sandbox filesystem (${res.status})`);
       }
       const json: SandboxInfo = await res.json();
+      sandboxCache.set(task.id, json);
       setData(json);
 
       if (json.file_tree && Array.isArray(json.file_tree) && json.file_tree.length > 0) {
@@ -151,12 +156,29 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
     prevTaskIdRef.current = task.id;
 
     if (isNewTask) {
-      setSelectedFile(null);
-      setTargetLine(null);
-      setData(null);
       setIsAgentPopoverOpen(false);
       setActiveSnippetContext(null);
-      fetchFilesystem(false);
+
+      const cached = sandboxCache.get(task.id);
+      if (cached) {
+        setData(cached);
+        setLoading(false);
+        if (cached.file_tree && Array.isArray(cached.file_tree) && cached.file_tree.length > 0) {
+          setSelectedFile((prev) => {
+            if (prev && fileExistsInTree(cached.file_tree!, prev)) {
+              return prev;
+            }
+            return findPreferredOrFirstFile(cached.file_tree!);
+          });
+        }
+        // Fetch silently in background to refresh freshness
+        fetchFilesystem(true);
+      } else {
+        setSelectedFile(null);
+        setTargetLine(null);
+        setData(null);
+        fetchFilesystem(false);
+      }
     } else {
       // Same task: refresh tree silently in the background without resetting selectedFile or unmounting
       fetchFilesystem(true);
