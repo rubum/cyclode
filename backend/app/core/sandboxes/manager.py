@@ -4,18 +4,21 @@ import os
 from app.core.sandboxes.base import SandboxProvider, SandboxContext
 from app.core.sandboxes.ephemeral_provider import ephemeral_sandbox_provider
 from app.core.sandboxes.overlay_provider import overlay_sandbox_provider
+from app.core.sandboxes.container_provider import container_sandbox_provider
 
 
 class SandboxManager:
     """
-    Unified manager for ephemeral and Copy-on-Write compute sandboxes.
-    Routes operations to OverlayFSSandboxProvider or EphemeralSandboxProvider based on configuration.
+    Unified manager for ephemeral, Copy-on-Write, and OCI container compute sandboxes.
+    Routes operations to ContainerSandboxProvider, OverlayFSSandboxProvider, or EphemeralSandboxProvider.
     """
 
     def __init__(self, provider: Optional[SandboxProvider] = None):
-        preferred_backend = os.environ.get("SANDBOX_BACKEND", "overlay").lower()
+        preferred_backend = os.environ.get("SANDBOX_BACKEND", "auto").lower()
         if provider:
             self.provider = provider
+        elif preferred_backend in ["container", "docker", "podman", "auto"]:
+            self.provider = container_sandbox_provider
         elif preferred_backend in ["overlay", "cow", "default"]:
             self.provider = overlay_sandbox_provider
         else:

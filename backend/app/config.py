@@ -96,6 +96,13 @@ class Settings(BaseSettings):
     ANTIGRAVITY_MAX_PARALLEL_WORKERS: int = 5
     ANTIGRAVITY_EXECUTION_TIMEOUT_SECONDS: int = 600
 
+    # Sandbox and Container Isolation
+    SANDBOX_BACKEND: str = Field(default_factory=lambda: str(_USER_CFG.get("sandbox_backend", os.environ.get("SANDBOX_BACKEND", "auto"))))
+    SANDBOX_CONTAINER_ENGINE: str = Field(default_factory=lambda: str(_USER_CFG.get("container_engine", os.environ.get("SANDBOX_CONTAINER_ENGINE", "auto"))))
+    SANDBOX_CONTAINER_IMAGE: Optional[str] = Field(default_factory=lambda: _USER_CFG.get("container_image") or os.environ.get("SANDBOX_CONTAINER_IMAGE"))
+    SANDBOX_CPU_LIMIT: float = 4.0
+    SANDBOX_MEMORY_LIMIT: str = "3g"
+
     # Action Approval Policies
     POLICY_GIT_PUSH: PolicyLevel = PolicyLevel.REQUIRE_APPROVAL
     POLICY_CREATE_PR: PolicyLevel = PolicyLevel.REQUIRE_APPROVAL

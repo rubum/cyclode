@@ -2068,3 +2068,93 @@ class WorkspaceTools:
             "message": "Hypothesis was falsified, mitigated by context, or rejected under the Zero-Style invariant."
         }
 
+    @staticmethod
+    async def package_artifact(
+        workspace_path: Path,
+        artifact_type: str = "OCI_IMAGE",
+        name: Optional[str] = None,
+        tag: str = "latest"
+    ) -> Dict[str, Any]:
+        """
+        Builds and packages software artifacts (e.g. OCI Container Image, Static Distribution Bundle)
+        from workspace source files.
+        """
+        from app.core.sandboxes.artifacts import artifact_packager, ArtifactType
+
+        task_id = workspace_path.name.replace("sandbox-", "")
+        type_enum = ArtifactType.OCI_IMAGE if artifact_type.upper() == "OCI_IMAGE" else ArtifactType.STATIC_BUNDLE
+
+        manifest, logs = await artifact_packager.package_artifact(
+            task_id=task_id,
+            workspace_path=workspace_path,
+            artifact_type=type_enum,
+            name=name,
+            tag=tag
+        )
+
+        if manifest:
+            return {
+                "ok": True,
+                "artifact": manifest.to_dict(),
+                "logs": logs[:1000]
+            }
+        return {
+            "ok": False,
+            "error": "Artifact packaging failed",
+            "logs": logs[:1000]
+        }
+
+    @staticmethod
+    async def deploy_staging(
+        workspace_path: Path,
+        artifact_manifest_dict: Dict[str, Any],
+        port: int = 80
+    ) -> Dict[str, Any]:
+        """
+        Deploys a packaged artifact into an isolated staging container with live endpoint routing.
+        """
+        from app.core.sandboxes.artifacts import staging_deployer, ArtifactManifest, ArtifactType
+
+        manifest = ArtifactManifest(
+            artifact_id=artifact_manifest_dict.get("artifact_id", "art-unknown"),
+            task_id=artifact_manifest_dict.get("task_id", workspace_path.name.replace("sandbox-", "")),
+            artifact_type=ArtifactType(artifact_manifest_dict.get("artifact_type", "OCI_IMAGE")),
+            name=artifact_manifest_dict.get("name", "app"),
+            version=artifact_manifest_dict.get("version", "latest"),
+            tags=artifact_manifest_dict.get("tags", []),
+            digest=artifact_manifest_dict.get("digest", ""),
+            entry_point=artifact_manifest_dict.get("entry_point")
+        )
+
+        record = await staging_deployer.deploy_staging(manifest, container_port=port)
+        return {
+            "ok": record.status.value == "RUNNING",
+            "deployment": record.to_dict()
+        }
+
+    @staticmethod
+    async def publish_artifact(
+        local_tag: str,
+        remote_tag: str,
+        registry_url: Optional[str] = None,
+        username: Optional[str] = None,
+        token: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Pushes a packaged OCI container image to a remote registry (GHCR, Docker Hub, ECR).
+        """
+        from app.core.sandboxes.artifacts import registry_client
+
+        if registry_url and username and token:
+            ok, login_msg = await registry_client.login(registry_url, username, token)
+            if not ok:
+                return {"ok": False, "error": f"Login failed: {login_msg}"}
+
+        success, logs = await registry_client.push_image(local_tag, remote_tag)
+        return {
+            "ok": success,
+            "remote_tag": remote_tag,
+            "logs": logs[:1000]
+        }
+
+

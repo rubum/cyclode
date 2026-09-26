@@ -1,8 +1,26 @@
+import asyncio
 import pytest
 from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.db.session import async_session_factory
 from app.db.models import TaskModel
+from app.agent.pool import agent_pool
+
+
+@pytest.fixture(autouse=True)
+def isolate_agent_worker(monkeypatch):
+    async def dummy_worker(*args, **kwargs):
+        try:
+            while True:
+                await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            pass
+
+    async def dummy_title(*args, **kwargs):
+        pass
+
+    monkeypatch.setattr(agent_pool, "_run_task_worker", dummy_worker)
+    monkeypatch.setattr(agent_pool, "_generate_and_update_title", dummy_title)
 
 
 @pytest.mark.asyncio
