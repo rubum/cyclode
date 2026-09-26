@@ -164,10 +164,8 @@ def test_openai_message_conversion():
 
 @pytest.mark.asyncio
 async def test_missing_api_keys_surface_honest_diagnostics(monkeypatch):
-    monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", None)
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.setattr(settings, "OPENAI_API_KEY", None)
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setattr("app.config.Settings.get_anthropic_api_key", lambda self: None)
+    monkeypatch.setattr("app.config.Settings.get_openai_api_key", lambda self: None)
     claude = ClaudeProvider(api_key=None)
     claude._api_key = None
     resp_claude = await claude.generate_response([], None, "", "claude-3-7-sonnet")
@@ -355,8 +353,7 @@ def test_deepseek_tool_and_message_conversion():
 
 @pytest.mark.asyncio
 async def test_deepseek_missing_api_key_diagnostics(monkeypatch):
-    monkeypatch.setattr(settings, "DEEPSEEK_API_KEY", None)
-    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setattr("app.config.Settings.get_deepseek_api_key", lambda self: None)
     ds = DeepSeekProvider(api_key=None)
     ds._api_key = None
     resp = await ds.generate_response([], None, "", "deepseek-flash")

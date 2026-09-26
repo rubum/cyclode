@@ -20,9 +20,16 @@ services:
       - DEBUG=true
       - WORKSPACE_ROOT=/workspaces
       - HOST_WORKSPACE_ROOT=${HOST_WORKSPACE_ROOT:-${PWD}/workspaces}
+      - CYCLODE_HOME=/data
       - DATABASE_URL=sqlite+aiosqlite:////data/cyclode.db
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      - LINEAR_API_KEY=${LINEAR_API_KEY:-}
       - ANTIGRAVITY_MODEL=${ANTIGRAVITY_MODEL:-gemini-3.7-flash}
       - ANTIGRAVITY_ENABLE_THINKING=${ANTIGRAVITY_ENABLE_THINKING:-true}
       - POLICY_GIT_PUSH=${POLICY_GIT_PUSH:-require_approval}

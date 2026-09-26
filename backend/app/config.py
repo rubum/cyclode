@@ -126,7 +126,7 @@ class Settings(BaseSettings):
     LINEAR_API_KEY: Optional[str] = Field(default_factory=lambda: _USER_CFG.get("linear_api_key"))
 
     def get_api_key(self) -> Optional[str]:
-        return self.GEMINI_API_KEY or self.GOOGLE_API_KEY
+        return self.GEMINI_API_KEY or self.GOOGLE_API_KEY or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
 
     def get_anthropic_api_key(self) -> Optional[str]:
         return self.ANTHROPIC_API_KEY or os.environ.get("ANTHROPIC_API_KEY")
