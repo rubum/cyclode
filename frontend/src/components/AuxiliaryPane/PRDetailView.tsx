@@ -342,41 +342,64 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, o
       {/* Sticky Files Summary & Filter Bar */}
       <div 
         data-sticky-diff-header="true"
-        className="sticky -top-4 z-20 -mx-4 px-4 py-2.5 bg-onedark-darker/95 backdrop-blur-md border-b border-onedark-borderSubtle flex flex-wrap items-center justify-between gap-2.5 text-xs select-none shadow-sm transition-all"
+        className="sticky -top-4 z-20 -mx-4 px-4 py-2 bg-onedark-darker/95 backdrop-blur-md border-b border-onedark-borderSubtle flex flex-wrap items-center justify-between gap-2.5 text-xs select-none shadow-sm transition-all"
       >
         <div className="flex items-center space-x-2.5 min-w-0 flex-1">
-          <span className="font-semibold text-onedark-fgBright whitespace-nowrap">
-            {title || `Files Changed (${filteredFiles.length}${filteredFiles.length !== files.length ? ` / ${files.length}` : ''})`}
-          </span>
-
-          {files.length > 0 && (
-            <span className="px-1.5 py-0.2 rounded-full bg-onedark-surface text-[10.5px] font-mono text-onedark-muted border border-onedark-border whitespace-nowrap hidden lg:inline-block">
-              {files.reduce((acc, f) => acc + (f.additions || 0), 0).toLocaleString()} additions, {files.reduce((acc, f) => acc + (f.deletions || 0), 0).toLocaleString()} deletions
+          {/* Main Title & Count */}
+          <div className="flex items-center space-x-1.5 flex-shrink-0">
+            <span className="font-semibold text-onedark-fgBright whitespace-nowrap">
+              {title || 'Files Changed'}
             </span>
-          )}
+            <span className="px-1.5 py-0.2 rounded-full bg-onedark-surface text-[11px] font-mono font-bold text-onedark-accent border border-onedark-borderSubtle">
+              {filteredFiles.length}{filteredFiles.length !== files.length ? ` / ${files.length}` : ''}
+            </span>
+            {files.length > 0 && (
+              <span className="hidden 2xl:inline-flex items-center space-x-1 px-1.5 py-0.2 rounded bg-onedark-surface text-[10px] font-mono text-onedark-muted border border-onedark-borderSubtle">
+                <span className="text-onedark-green font-semibold">+{files.reduce((acc, f) => acc + (f.additions || 0), 0)}</span>
+                <span className="text-onedark-border">/</span>
+                <span className="text-onedark-red font-semibold">-{files.reduce((acc, f) => acc + (f.deletions || 0), 0)}</span>
+              </span>
+            )}
+          </div>
 
           {/* Current File in View Breadcrumb */}
           {activeFile && (
-            <div className="flex items-center space-x-2 min-w-0 bg-onedark-surface/70 hover:bg-onedark-surface border border-onedark-borderSubtle rounded-lg px-2.5 py-1 text-xs text-onedark-fg shadow-2xs group transition-colors flex-1 max-w-xl">
-              <span className="px-1.5 py-0.2 rounded font-mono text-[10px] font-semibold bg-onedark-darker text-onedark-muted border border-onedark-borderSubtle whitespace-nowrap flex-shrink-0">
+            <div className="flex items-center space-x-2 min-w-0 bg-onedark-surface/60 hover:bg-onedark-surface/80 border border-onedark-borderSubtle rounded-lg px-2.5 py-1 text-xs text-onedark-fg transition-colors group flex-1 max-w-xl">
+              <span className="px-1.5 py-0.2 rounded font-mono text-[9.5px] font-bold bg-onedark-darker text-onedark-muted border border-onedark-borderSubtle whitespace-nowrap flex-shrink-0">
                 {activeFileIndex + 1} / {filteredFiles.length}
               </span>
 
               <button
                 type="button"
                 onClick={() => scrollToDiffFile(activeFile.filename)}
-                className="flex items-center space-x-1.5 min-w-0 flex-1 truncate cursor-pointer text-left group-hover:text-onedark-accent transition-colors"
+                className="flex items-center space-x-1.5 min-w-0 flex-1 cursor-pointer text-left overflow-hidden group-hover:text-onedark-accent transition-colors"
                 title={`Jump to top of ${activeFile.filename}`}
               >
                 <FileCode2 className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
-                <span className="font-mono text-[11.5px] truncate font-semibold text-onedark-fgBright group-hover:text-onedark-accent">
-                  {activeFile.filename}
+                <span className="font-mono text-[11.5px] flex items-center min-w-0">
+                  {(() => {
+                    const parts = activeFile.filename.split('/');
+                    const fname = parts.pop();
+                    const dname = parts.join('/');
+                    return (
+                      <>
+                        {dname && (
+                          <span className="text-onedark-muted/60 truncate shrink min-w-0" title={dname}>
+                            {dname}/
+                          </span>
+                        )}
+                        <span className="text-onedark-fgBright font-semibold shrink-0 group-hover:text-onedark-accent transition-colors">
+                          {fname}
+                        </span>
+                      </>
+                    );
+                  })()}
                 </span>
               </button>
 
               {getStatusBadge(activeFile.status)}
 
-              <div className="flex items-center space-x-1 font-mono text-[10px] text-onedark-muted flex-shrink-0 pl-1.5 border-l border-onedark-borderSubtle whitespace-nowrap">
+              <div className="hidden sm:flex items-center space-x-1 font-mono text-[10px] text-onedark-muted flex-shrink-0 pl-1.5 border-l border-onedark-borderSubtle whitespace-nowrap">
                 <span className="text-onedark-green font-semibold">+{activeFile.additions || 0}</span>
                 <span className="text-onedark-red font-semibold">-{activeFile.deletions || 0}</span>
               </div>
@@ -417,19 +440,19 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, o
         <div className="flex items-center space-x-2 flex-shrink-0">
           {files.length > 0 && (
             <div className="relative">
-              <Search className="w-3 h-3 text-onedark-muted absolute left-2 top-1/2 -translate-y-1/2" />
+              <Search className="w-3 h-3 text-onedark-muted absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
                 value={fileFilter}
                 onChange={(e) => setFileFilter(e.target.value)}
-                placeholder={isRegex ? "Grep files & diffs (/pattern/)..." : "Grep files & diff content..."}
-                className={`w-44 sm:w-56 pl-6 pr-14 py-0.5 text-[10.5px] rounded bg-onedark-bg border ${
+                placeholder={isRegex ? "Grep files & diffs (/pattern/)..." : "Grep files & diffs..."}
+                className={`w-32 sm:w-44 lg:w-52 pl-6 pr-14 py-1 text-[10.5px] rounded-lg bg-onedark-bg border ${
                   isRegex
                     ? grepMatcher.isValid
                       ? 'border-onedark-purple/60 focus:border-onedark-purple text-onedark-fg'
                       : 'border-onedark-red/60 focus:border-onedark-red text-onedark-red'
-                    : 'border-onedark-border focus:border-onedark-accent text-onedark-fg'
-                } placeholder:text-onedark-muted focus:outline-none`}
+                    : 'border-onedark-borderSubtle focus:border-onedark-accent text-onedark-fg'
+                } placeholder:text-onedark-muted focus:outline-none transition-all`}
               />
               <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
                 {fileFilter && (
@@ -473,7 +496,7 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, o
               });
               setCollapsedFiles(next);
             }}
-            className="text-[11px] text-onedark-accent hover:underline cursor-pointer font-medium whitespace-nowrap"
+            className="px-2 py-1 rounded-md bg-onedark-surface hover:bg-onedark-surface/80 border border-onedark-borderSubtle text-[10.5px] text-onedark-fg hover:text-onedark-fgBright cursor-pointer font-medium whitespace-nowrap transition-colors"
           >
             {filteredFiles.every((f) => collapsedFiles[f.filename]) ? 'Expand all' : 'Collapse all'}
           </button>
@@ -514,13 +537,13 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, o
                       }`}
                     />
                     <FileCode2 className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
-                    <span className="font-mono text-xs truncate" title={f.filename}>
-                      {dirPath && <span className="text-onedark-muted/70">{dirPath}/</span>}
-                      <span className="text-onedark-fgBright font-semibold">{fileNameOnly}</span>
+                    <span className="font-mono text-xs flex items-center min-w-0 truncate" title={f.filename}>
+                      {dirPath && <span className="text-onedark-muted/70 truncate shrink min-w-0">{dirPath}/</span>}
+                      <span className="text-onedark-fgBright font-semibold shrink-0">{fileNameOnly}</span>
                     </span>
                     {getStatusBadge(f.status)}
                     {hasPatchMatches && (
-                      <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono bg-onedark-purple/15 text-onedark-purple border border-onedark-purple/30 flex items-center gap-1">
+                      <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono bg-onedark-purple/15 text-onedark-purple border border-onedark-purple/30 flex items-center gap-1 whitespace-nowrap flex-shrink-0">
                         <Terminal className="w-2.5 h-2.5" />
                         {grepInfo?.patchMatchCount} match{grepInfo && grepInfo.patchMatchCount > 1 ? 'es' : ''} in diff
                       </span>
