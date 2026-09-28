@@ -11,10 +11,13 @@ import {
   Folder,
   AlignJustify,
   Columns,
-  Sparkles
+  Sparkles,
+  X,
+  Terminal
 } from 'lucide-react';
 import { Task, TaskDiff, TaskCommit } from '../../types';
 import { CommitHistoryDropdown } from './CommitHistoryDropdown';
+import { createGrepMatcher } from '../../utils/grepMatcher';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -197,6 +200,7 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({ task, onSelectAu
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [fileFilter, setFileFilter] = useState<string>('');
+  const [isRegex, setIsRegex] = useState<boolean>(false);
   const [collapsedFiles, setCollapsedFiles] = useState<Record<string, boolean>>({});
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
   const [copiedPatch, setCopiedPatch] = useState<string | null>(null);
@@ -289,11 +293,33 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({ task, onSelectAu
     setCollapsedFiles((prev) => ({ ...prev, [filePath]: !prev[filePath] }));
   };
 
+  const grepMatcher = useMemo(() => {
+    return createGrepMatcher(fileFilter, { isRegex, searchDiffContent: true });
+  }, [fileFilter, isRegex]);
+
+  const diffGrepMap = useMemo(() => {
+    const map = new Map<string, { matchesPath: boolean; patchMatchCount: number; matchedLineIndices: Set<number> }>();
+    if (!fileFilter.trim()) return map;
+    for (const d of diffs) {
+      const matchesPath = grepMatcher.test(d.file_path);
+      const patchRes = d.diff_content ? grepMatcher.grepPatch(d.diff_content) : { hasMatch: false, matchingLinesCount: 0, matchedLineIndices: [] };
+      map.set(d.file_path, {
+        matchesPath,
+        patchMatchCount: patchRes.matchingLinesCount,
+        matchedLineIndices: new Set(patchRes.matchedLineIndices),
+      });
+    }
+    return map;
+  }, [diffs, fileFilter, grepMatcher]);
+
   const filteredDiffs = useMemo(() => {
     if (!fileFilter.trim()) return diffs;
-    const q = fileFilter.toLowerCase();
-    return diffs.filter((d) => d.file_path.toLowerCase().includes(q));
-  }, [diffs, fileFilter]);
+    return diffs.filter((d) => {
+      const grepInfo = diffGrepMap.get(d.file_path);
+      if (!grepInfo) return false;
+      return grepInfo.matchesPath || grepInfo.patchMatchCount > 0;
+    });
+  }, [diffs, fileFilter, diffGrepMap]);
 
   const totalAdditions = useMemo(() => {
     return diffs.reduce((acc, d) => acc + (d.additions || 0), 0);
@@ -416,9 +442,45 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({ task, onSelectAu
                 type="text"
                 value={fileFilter}
                 onChange={(e) => setFileFilter(e.target.value)}
-                placeholder="Filter modified files..."
-                className="w-full pl-8 pr-2.5 py-1 text-xs rounded-lg bg-onedark-bg border border-onedark-border text-onedark-fg placeholder:text-onedark-muted focus:outline-none focus:border-onedark-accent font-mono transition-colors"
+                placeholder={isRegex ? "Grep files & diffs (/pattern/)..." : "Grep modified files & diffs..."}
+                className={`w-full pl-8 pr-14 py-1 text-xs rounded-lg bg-onedark-bg border ${
+                  isRegex
+                    ? grepMatcher.isValid
+                      ? 'border-onedark-purple/60 focus:border-onedark-purple text-onedark-fg'
+                      : 'border-onedark-red/60 focus:border-onedark-red text-onedark-red'
+                    : 'border-onedark-border focus:border-onedark-accent text-onedark-fg'
+                } placeholder:text-onedark-muted font-mono transition-colors focus:outline-none`}
               />
+              <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+                {fileFilter && (
+                  <button
+                    type="button"
+                    onClick={() => setFileFilter('')}
+                    className="p-0.5 rounded text-onedark-muted hover:text-onedark-fg cursor-pointer"
+                    title="Clear filter"
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsRegex((prev) => !prev)}
+                  className={`px-1 py-0.2 rounded font-mono text-[9.5px] font-bold transition-all cursor-pointer ${
+                    isRegex
+                      ? 'bg-onedark-purple text-white shadow-xs'
+                      : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface'
+                  }`}
+                  title={
+                    isRegex
+                      ? grepMatcher.isValid
+                        ? 'Grep / Regular Expression active (Click to disable)'
+                        : `Regex error: ${grepMatcher.error || 'Invalid regex'}`
+                      : 'Enable Grep / Regular Expression mode'
+                  }
+                >
+                  .*
+                </button>
+              </div>
             </div>
 
             <button
@@ -529,6 +591,8 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({ task, onSelectAu
             const pathParts = d.file_path.split('/');
             const fileNameOnly = pathParts.pop();
             const dirPath = pathParts.join('/');
+            const grepInfo = diffGrepMap.get(d.file_path);
+            const hasPatchMatches = (grepInfo?.patchMatchCount || 0) > 0;
 
             return (
               <div
@@ -552,6 +616,12 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({ task, onSelectAu
                       <span className="text-onedark-fgBright font-semibold">{fileNameOnly}</span>
                     </span>
                     {getStatusBadge(d.status)}
+                    {hasPatchMatches && (
+                      <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono bg-onedark-purple/15 text-onedark-purple border border-onedark-purple/30 flex items-center gap-1">
+                        <Terminal className="w-2.5 h-2.5" />
+                        {grepInfo?.patchMatchCount} match{grepInfo && grepInfo.patchMatchCount > 1 ? 'es' : ''} in diff
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center space-x-2 flex-shrink-0">
@@ -676,12 +746,15 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({ task, onSelectAu
                           const isAddition = lineObj.type === 'addition';
                           const isDeletion = lineObj.type === 'deletion';
                           const isHeader = lineObj.type === 'header';
+                          const isLineGrepMatch = Boolean(fileFilter.trim() && !isHeader && grepMatcher.test(lineObj.text));
 
                           return (
                             <div
                               key={lineIdx}
                               className={`flex items-center px-1.5 py-0.5 rounded-xs transition-colors ${
-                                isAddition
+                                isLineGrepMatch
+                                  ? 'bg-onedark-purple/20 ring-1 ring-onedark-purple/60 text-onedark-fgBright font-semibold'
+                                  : isAddition
                                   ? 'bg-onedark-green/15 text-onedark-green font-medium'
                                   : isDeletion
                                   ? 'bg-onedark-red/15 text-onedark-red font-medium'

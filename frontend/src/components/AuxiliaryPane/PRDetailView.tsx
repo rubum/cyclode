@@ -54,6 +54,7 @@ import { LinearIssueDetailView } from './LinearIssueDetailView';
 import { PRListenerConfigModal } from './PRListenerConfigModal';
 import { Task, TaskPR, PRCommentItem } from '../../types';
 import { useWebSocket } from '../../contexts/WebSocketContext';
+import { createGrepMatcher } from '../../utils/grepMatcher';
 
 export interface PRFileItem {
   filename: string;
@@ -182,6 +183,8 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, o
   const [collapsedFiles, setCollapsedFiles] = useState<Record<string, boolean>>({});
   const [copiedFile, setCopiedFile] = useState<string | null>(null);
   const [fileFilter, setFileFilter] = useState<string>('');
+  const [isRegex, setIsRegex] = useState<boolean>(false);
+  const [searchDiffLines, setSearchDiffLines] = useState<boolean>(true);
 
   const toggleFile = (filename: string) => {
     setCollapsedFiles((prev) => ({ ...prev, [filename]: !prev[filename] }));
@@ -194,11 +197,35 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, o
     setTimeout(() => setCopiedFile(null), 1500);
   };
 
+  const grepMatcher = useMemo(() => {
+    return createGrepMatcher(fileFilter, { isRegex, searchDiffContent: searchDiffLines });
+  }, [fileFilter, isRegex, searchDiffLines]);
+
+  const fileGrepMap = useMemo(() => {
+    const map = new Map<string, { matchesFilename: boolean; patchMatchCount: number; matchedLineIndices: Set<number> }>();
+    if (!fileFilter.trim()) {
+      return map;
+    }
+    for (const f of files) {
+      const matchesFilename = grepMatcher.test(f.filename);
+      const patchRes = searchDiffLines && f.patch ? grepMatcher.grepPatch(f.patch) : { hasMatch: false, matchingLinesCount: 0, matchedLineIndices: [] };
+      map.set(f.filename, {
+        matchesFilename,
+        patchMatchCount: patchRes.matchingLinesCount,
+        matchedLineIndices: new Set(patchRes.matchedLineIndices)
+      });
+    }
+    return map;
+  }, [files, fileFilter, grepMatcher, searchDiffLines]);
+
   const filteredFiles = useMemo(() => {
     if (!fileFilter.trim()) return files;
-    const q = fileFilter.toLowerCase();
-    return files.filter(f => f.filename.toLowerCase().includes(q));
-  }, [files, fileFilter]);
+    return files.filter((f) => {
+      const grepInfo = fileGrepMap.get(f.filename);
+      if (!grepInfo) return false;
+      return grepInfo.matchesFilename || grepInfo.patchMatchCount > 0;
+    });
+  }, [files, fileFilter, fileGrepMap]);
 
   if (files.length === 0 && !diffText) {
     return (
@@ -244,7 +271,7 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, o
       <div className="px-3 py-2 bg-onedark-surface/50 border border-onedark-borderSubtle rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs select-none">
         <div className="flex items-center space-x-2">
           <span className="font-semibold text-onedark-fgBright">
-            {title || `Files Changed (${files.length})`}
+            {title || `Files Changed (${filteredFiles.length}${filteredFiles.length !== files.length ? ` / ${files.length}` : ''})`}
           </span>
           {files.length > 0 && (
             <span className="px-1.5 py-0.2 rounded-full bg-onedark-surface text-[10.5px] font-mono text-onedark-muted border border-onedark-border">
@@ -254,16 +281,52 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, o
         </div>
 
         <div className="flex items-center space-x-2">
-          {files.length > 3 && (
+          {files.length > 0 && (
             <div className="relative">
               <Search className="w-3 h-3 text-onedark-muted absolute left-2 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 value={fileFilter}
                 onChange={(e) => setFileFilter(e.target.value)}
-                placeholder="Filter files..."
-                className="w-36 pl-6 pr-2 py-0.5 text-[10.5px] rounded bg-onedark-bg border border-onedark-border text-onedark-fg placeholder:text-onedark-muted focus:outline-none focus:border-onedark-accent"
+                placeholder={isRegex ? "Grep files & diffs (/pattern/)..." : "Grep files & diff content..."}
+                className={`w-44 sm:w-56 pl-6 pr-14 py-0.5 text-[10.5px] rounded bg-onedark-bg border ${
+                  isRegex
+                    ? grepMatcher.isValid
+                      ? 'border-onedark-purple/60 focus:border-onedark-purple text-onedark-fg'
+                      : 'border-onedark-red/60 focus:border-onedark-red text-onedark-red'
+                    : 'border-onedark-border focus:border-onedark-accent text-onedark-fg'
+                } placeholder:text-onedark-muted focus:outline-none`}
               />
+              <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+                {fileFilter && (
+                  <button
+                    type="button"
+                    onClick={() => setFileFilter('')}
+                    className="p-0.5 rounded text-onedark-muted hover:text-onedark-fg cursor-pointer"
+                    title="Clear filter"
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setIsRegex((prev) => !prev)}
+                  className={`px-1 py-0.2 rounded font-mono text-[9.5px] font-bold transition-all cursor-pointer ${
+                    isRegex
+                      ? 'bg-onedark-purple text-white shadow-xs'
+                      : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface'
+                  }`}
+                  title={
+                    isRegex
+                      ? grepMatcher.isValid
+                        ? 'Grep / Regular Expression active (Click to disable)'
+                        : `Regex error: ${grepMatcher.error || 'Invalid regex'}`
+                      : 'Enable Grep / Regular Expression mode'
+                  }
+                >
+                  .*
+                </button>
+              </div>
             </div>
           )}
 
@@ -285,116 +348,133 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, o
 
       {/* Render Each File Diff */}
       <div className="space-y-3">
-        {filteredFiles.map((f, idx) => {
-          const isCollapsed = collapsedFiles[f.filename] ?? false;
-          const parsedLines = f.patch ? parseUnifiedPatch(f.patch) : [];
-          const pathParts = f.filename.split('/');
-          const fileNameOnly = pathParts.pop();
-          const dirPath = pathParts.join('/');
+        {filteredFiles.length === 0 ? (
+          <div className="p-8 text-center text-xs text-onedark-muted font-sans bg-onedark-surface/20 border border-onedark-borderSubtle rounded-xl">
+            No changed files or diff lines match "{fileFilter}"
+          </div>
+        ) : (
+          filteredFiles.map((f, idx) => {
+            const isCollapsed = collapsedFiles[f.filename] ?? false;
+            const parsedLines = f.patch ? parseUnifiedPatch(f.patch) : [];
+            const pathParts = f.filename.split('/');
+            const fileNameOnly = pathParts.pop();
+            const dirPath = pathParts.join('/');
+            const grepInfo = fileGrepMap.get(f.filename);
+            const hasPatchMatches = (grepInfo?.patchMatchCount || 0) > 0;
 
-          return (
-            <div
-              key={`${f.filename}-${idx}`}
-              id={`diff-file-${encodeURIComponent(f.filename)}`}
-              className="rounded-xl border border-onedark-borderSubtle overflow-hidden bg-onedark-darker transition-colors shadow-xs scroll-mt-4"
-            >
-              {/* File Header */}
+            return (
               <div
-                onClick={() => toggleFile(f.filename)}
-                className="px-3 py-2 bg-onedark-surface/40 hover:bg-onedark-surface/60 border-b border-onedark-borderSubtle flex items-center justify-between cursor-pointer select-none gap-2"
+                key={`${f.filename}-${idx}`}
+                id={`diff-file-${encodeURIComponent(f.filename)}`}
+                className="rounded-xl border border-onedark-borderSubtle overflow-hidden bg-onedark-darker transition-colors shadow-xs scroll-mt-4"
               >
-                <div className="flex items-center space-x-2 min-w-0 flex-1">
-                  <ChevronDown
-                    className={`w-3.5 h-3.5 text-onedark-muted transition-transform duration-150 flex-shrink-0 ${
-                      isCollapsed ? '-rotate-90' : ''
-                    }`}
-                  />
-                  <FileCode2 className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
-                  <span className="font-mono text-xs truncate" title={f.filename}>
-                    {dirPath && <span className="text-onedark-muted/70">{dirPath}/</span>}
-                    <span className="text-onedark-fgBright font-semibold">{fileNameOnly}</span>
-                  </span>
-                  {getStatusBadge(f.status)}
-                </div>
+                {/* File Header */}
+                <div
+                  onClick={() => toggleFile(f.filename)}
+                  className="px-3 py-2 bg-onedark-surface/40 hover:bg-onedark-surface/60 border-b border-onedark-borderSubtle flex items-center justify-between cursor-pointer select-none gap-2"
+                >
+                  <div className="flex items-center space-x-2 min-w-0 flex-1">
+                    <ChevronDown
+                      className={`w-3.5 h-3.5 text-onedark-muted transition-transform duration-150 flex-shrink-0 ${
+                        isCollapsed ? '-rotate-90' : ''
+                      }`}
+                    />
+                    <FileCode2 className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
+                    <span className="font-mono text-xs truncate" title={f.filename}>
+                      {dirPath && <span className="text-onedark-muted/70">{dirPath}/</span>}
+                      <span className="text-onedark-fgBright font-semibold">{fileNameOnly}</span>
+                    </span>
+                    {getStatusBadge(f.status)}
+                    {hasPatchMatches && (
+                      <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono bg-onedark-purple/15 text-onedark-purple border border-onedark-purple/30 flex items-center gap-1">
+                        <Terminal className="w-2.5 h-2.5" />
+                        {grepInfo?.patchMatchCount} match{grepInfo && grepInfo.patchMatchCount > 1 ? 'es' : ''} in diff
+                      </span>
+                    )}
+                  </div>
 
-                <div className="flex items-center space-x-2 flex-shrink-0">
-                  <button
-                    onClick={(e) => handleCopyPath(f.filename, e)}
-                    className="p-1 rounded hover:bg-onedark-bg text-onedark-muted hover:text-onedark-fg transition-colors cursor-pointer"
-                    title="Copy file path"
-                  >
-                    {copiedFile === f.filename ? <Check className="w-3 h-3 text-onedark-green" /> : <Copy className="w-3 h-3" />}
-                  </button>
+                  <div className="flex items-center space-x-2 flex-shrink-0">
+                    <button
+                      onClick={(e) => handleCopyPath(f.filename, e)}
+                      className="p-1 rounded hover:bg-onedark-bg text-onedark-muted hover:text-onedark-fg transition-colors cursor-pointer"
+                      title="Copy file path"
+                    >
+                      {copiedFile === f.filename ? <Check className="w-3 h-3 text-onedark-green" /> : <Copy className="w-3 h-3" />}
+                    </button>
 
-                  <div className="flex items-center space-x-1 font-mono text-[10.5px]">
-                    <span className="text-onedark-green font-semibold">+{f.additions || 0}</span>
-                    <span className="text-onedark-red font-semibold">-{f.deletions || 0}</span>
+                    <div className="flex items-center space-x-1 font-mono text-[10.5px]">
+                      <span className="text-onedark-green font-semibold">+{f.additions || 0}</span>
+                      <span className="text-onedark-red font-semibold">-{f.deletions || 0}</span>
+                    </div>
                   </div>
                 </div>
+
+                {/* File Patch Lines */}
+                {!isCollapsed && (
+                  <div className="p-2.5 overflow-x-auto text-[12.5px] leading-relaxed font-mono bg-onedark-bg/60 select-text">
+                    {parsedLines.length > 0 ? (
+                      parsedLines.map((lineObj, lineIdx) => {
+                        const isAddition = lineObj.type === 'addition';
+                        const isDeletion = lineObj.type === 'deletion';
+                        const isHeader = lineObj.type === 'header';
+                        const activeLineNum = lineObj.newLine || lineObj.oldLine || 1;
+                        const isLineGrepMatch = Boolean(fileFilter.trim() && !isHeader && grepMatcher.test(lineObj.text));
+
+                        return (
+                          <div
+                            key={lineIdx}
+                            className={`group/line flex items-center px-1 py-0.5 rounded-xs transition-colors relative ${
+                              isLineGrepMatch
+                                ? 'bg-onedark-purple/20 ring-1 ring-onedark-purple/60 text-onedark-fgBright font-semibold'
+                                : isAddition
+                                ? 'bg-onedark-green/10 text-onedark-green hover:bg-onedark-green/15'
+                                : isDeletion
+                                ? 'bg-onedark-red/10 text-onedark-red hover:bg-onedark-red/15'
+                                : isHeader
+                                ? 'text-onedark-purple bg-onedark-surface/40 font-semibold'
+                                : 'text-onedark-fg/90 hover:bg-onedark-surface/30'
+                            }`}
+                          >
+                            {!isHeader ? (
+                              <div className="flex items-center flex-shrink-0 w-20 text-[11px] font-mono text-onedark-muted/40 select-none mr-2 border-r border-onedark-borderSubtle pr-1.5 justify-between">
+                                <span className="w-7 text-right">{lineObj.oldLine ?? ''}</span>
+                                <span className="w-7 text-right">{lineObj.newLine ?? ''}</span>
+                                {onLineComment && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      onLineComment(f.filename, activeLineNum, lineObj.text);
+                                    }}
+                                    className="opacity-0 group-hover/line:opacity-100 transition-opacity p-0.5 rounded bg-onedark-accent text-white hover:bg-onedark-accent/90 hover:scale-110 shadow-xs cursor-pointer ml-1"
+                                    title={`Comment on line ${activeLineNum} with Reviewer Agent`}
+                                  >
+                                    <MessageSquarePlus className="w-3 h-3" />
+                                  </button>
+                                )}
+                              </div>
+                            ) : (
+                              <div className="w-20 text-[11px] font-mono text-onedark-purple/60 select-none mr-2 border-r border-onedark-borderSubtle pr-1.5 text-center flex-shrink-0">
+                                @@
+                              </div>
+                            )}
+
+                            <pre className="font-mono text-[12.5px] leading-relaxed whitespace-pre flex-1 overflow-x-visible">
+                              {lineObj.text || ' '}
+                            </pre>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <div className="text-onedark-muted italic py-1 px-2 text-xs font-sans">
+                        Binary file change or empty patch
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-
-              {/* File Patch Lines */}
-              {!isCollapsed && (
-                <div className="p-2.5 overflow-x-auto text-[12.5px] leading-relaxed font-mono bg-onedark-bg/60 select-text">
-                  {parsedLines.length > 0 ? (
-                    parsedLines.map((lineObj, lineIdx) => {
-                      const isAddition = lineObj.type === 'addition';
-                      const isDeletion = lineObj.type === 'deletion';
-                      const isHeader = lineObj.type === 'header';
-                      const activeLineNum = lineObj.newLine || lineObj.oldLine || 1;
-
-                      return (
-                        <div
-                          key={lineIdx}
-                          className={`group/line flex items-center px-1 py-0.5 rounded-xs transition-colors relative ${
-                            isAddition
-                              ? 'bg-onedark-green/10 text-onedark-green hover:bg-onedark-green/15'
-                              : isDeletion
-                              ? 'bg-onedark-red/10 text-onedark-red hover:bg-onedark-red/15'
-                              : isHeader
-                              ? 'text-onedark-purple bg-onedark-surface/40 font-semibold'
-                              : 'text-onedark-fg/90 hover:bg-onedark-surface/30'
-                          }`}
-                        >
-                          {!isHeader ? (
-                            <div className="flex items-center flex-shrink-0 w-20 text-[11px] font-mono text-onedark-muted/40 select-none mr-2 border-r border-onedark-borderSubtle pr-1.5 justify-between">
-                              <span className="w-7 text-right">{lineObj.oldLine ?? ''}</span>
-                              <span className="w-7 text-right">{lineObj.newLine ?? ''}</span>
-                              {onLineComment && (
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    onLineComment(f.filename, activeLineNum, lineObj.text);
-                                  }}
-                                  className="opacity-0 group-hover/line:opacity-100 transition-opacity p-0.5 rounded bg-onedark-accent text-white hover:bg-onedark-accent/90 hover:scale-110 shadow-xs cursor-pointer ml-1"
-                                  title={`Comment on line ${activeLineNum} with Reviewer Agent`}
-                                >
-                                  <MessageSquarePlus className="w-3 h-3" />
-                                </button>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="w-20 text-[11px] font-mono text-onedark-purple/60 select-none mr-2 border-r border-onedark-borderSubtle pr-1.5 text-center flex-shrink-0">
-                              @@
-                            </div>
-                          )}
-
-                          <pre className="font-mono text-[12.5px] leading-relaxed whitespace-pre flex-1 overflow-x-visible">
-                            {lineObj.text || ' '}
-                          </pre>
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <div className="text-onedark-muted italic py-1 px-2 text-xs font-sans">
-                      Binary file change or empty patch
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
     </div>
   );
@@ -975,6 +1055,7 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
 }) => {
   const [filter, setFilter] = useState<'ALL' | 'CONVERSATION' | 'CODE' | 'REVIEWS'>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isRegex, setIsRegex] = useState<boolean>(false);
   const [newCommentText, setNewCommentText] = useState<string>('');
   const [replyingTo, setReplyingTo] = useState<PRCommentItem | null>(null);
   const [isPosting, setIsPosting] = useState<boolean>(false);
@@ -987,21 +1068,25 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
   const codeCount = useMemo(() => comments.filter(c => c.type === 'code_comment').length, [comments]);
   const reviewCount = useMemo(() => comments.filter(c => c.type === 'review').length, [comments]);
 
+  const grepMatcher = useMemo(() => {
+    return createGrepMatcher(searchQuery, { isRegex });
+  }, [searchQuery, isRegex]);
+
   const filteredComments = useMemo(() => {
     return comments.filter((c) => {
       if (filter === 'CONVERSATION' && c.type !== 'conversation') return false;
       if (filter === 'CODE' && c.type !== 'code_comment') return false;
       if (filter === 'REVIEWS' && c.type !== 'review') return false;
       if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const matchesAuthor = c.author?.toLowerCase().includes(q);
-        const matchesBody = c.body?.toLowerCase().includes(q);
-        const matchesPath = c.path?.toLowerCase().includes(q);
-        return matchesAuthor || matchesBody || matchesPath;
+        const matchesAuthor = grepMatcher.test(c.author);
+        const matchesBody = grepMatcher.test(c.body);
+        const matchesPath = grepMatcher.test(c.path);
+        const matchesLine = c.line ? grepMatcher.test(String(c.line)) : false;
+        return matchesAuthor || matchesBody || matchesPath || matchesLine;
       }
       return true;
     });
-  }, [comments, filter, searchQuery]);
+  }, [comments, filter, searchQuery, grepMatcher]);
 
   const handlePost = async () => {
     const text = newCommentText.trim();
@@ -1162,17 +1247,45 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search discussion comments, code reviews, authors..."
-            className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-onedark-darker border border-onedark-borderSubtle text-xs text-onedark-fg placeholder-onedark-muted focus:outline-hidden focus:border-onedark-accent/60"
+            placeholder={isRegex ? "Grep comments, reviews, paths (/regex/)..." : "Search discussion comments, code reviews, authors..."}
+            className={`w-full pl-8 pr-14 py-1.5 rounded-lg bg-onedark-darker border ${
+              isRegex
+                ? grepMatcher.isValid
+                  ? 'border-onedark-purple/60 focus:border-onedark-purple text-onedark-fg'
+                  : 'border-onedark-red/60 focus:border-onedark-red text-onedark-red'
+                : 'border-onedark-borderSubtle focus:border-onedark-accent/60 text-onedark-fg'
+            } text-xs placeholder-onedark-muted focus:outline-hidden`}
           />
-          {searchQuery && (
+          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="p-0.5 rounded text-onedark-muted hover:text-onedark-fg cursor-pointer"
+                title="Clear filter"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            )}
             <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-onedark-muted hover:text-onedark-fg"
+              type="button"
+              onClick={() => setIsRegex((prev) => !prev)}
+              className={`px-1.5 py-0.5 rounded font-mono text-[10px] font-bold transition-all cursor-pointer ${
+                isRegex
+                  ? 'bg-onedark-purple text-white shadow-xs'
+                  : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface'
+              }`}
+              title={
+                isRegex
+                  ? grepMatcher.isValid
+                    ? 'Grep / Regular Expression active (Click to disable)'
+                    : `Regex error: ${grepMatcher.error || 'Invalid regex'}`
+                  : 'Enable Grep / Regular Expression mode'
+              }
             >
-              <X className="w-3 h-3" />
+              .*
             </button>
-          )}
+          </div>
         </div>
       </div>
 
@@ -2104,6 +2217,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
     }
   });
   const [outlineFilterQuery, setOutlineFilterQuery] = useState<string>('');
+  const [isOutlineRegex, setIsOutlineRegex] = useState<boolean>(false);
 
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [isReviewDecisionModalOpen, setIsReviewDecisionModalOpen] = useState<boolean>(false);
@@ -2391,46 +2505,46 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
     return items;
   }, [prRecord?.review_summary]);
 
+  const outlineGrepMatcher = useMemo(() => {
+    return createGrepMatcher(outlineFilterQuery, { isRegex: isOutlineRegex });
+  }, [outlineFilterQuery, isOutlineRegex]);
+
   // Tab-specific filtered data for sidebar
   const filteredOverviewHeadings = useMemo(() => {
     if (!outlineFilterQuery.trim()) return overviewHeadings;
-    const q = outlineFilterQuery.toLowerCase();
-    return overviewHeadings.filter(h => h.title.toLowerCase().includes(q));
-  }, [overviewHeadings, outlineFilterQuery]);
+    return overviewHeadings.filter(h => outlineGrepMatcher.test(h.title));
+  }, [overviewHeadings, outlineFilterQuery, outlineGrepMatcher]);
 
   const filteredReviewHeadings = useMemo(() => {
     if (!outlineFilterQuery.trim()) return reviewHeadings;
-    const q = outlineFilterQuery.toLowerCase();
-    return reviewHeadings.filter(h => h.title.toLowerCase().includes(q));
-  }, [reviewHeadings, outlineFilterQuery]);
+    return reviewHeadings.filter(h => outlineGrepMatcher.test(h.title));
+  }, [reviewHeadings, outlineFilterQuery, outlineGrepMatcher]);
 
   const filesList = data?.files || [];
   const filteredSidebarFiles = useMemo(() => {
     if (!outlineFilterQuery.trim()) return filesList;
-    const q = outlineFilterQuery.toLowerCase();
-    return filesList.filter(f => f.filename.toLowerCase().includes(q));
-  }, [filesList, outlineFilterQuery]);
+    return filesList.filter(f => outlineGrepMatcher.test(f.filename) || (f.patch && outlineGrepMatcher.grepPatch(f.patch).hasMatch));
+  }, [filesList, outlineFilterQuery, outlineGrepMatcher]);
 
   const commitsList = data?.commits || [];
   const filteredSidebarCommits = useMemo(() => {
     if (!outlineFilterQuery.trim()) return commitsList;
-    const q = outlineFilterQuery.toLowerCase();
     return commitsList.filter(c => 
-      (c.message || '').toLowerCase().includes(q) || 
-      (c.author_name || '').toLowerCase().includes(q) || 
-      (c.sha || '').toLowerCase().includes(q)
+      outlineGrepMatcher.test(c.message) || 
+      outlineGrepMatcher.test(c.author_name) || 
+      outlineGrepMatcher.test(c.sha) ||
+      outlineGrepMatcher.test(c.short_sha)
     );
-  }, [commitsList, outlineFilterQuery]);
+  }, [commitsList, outlineFilterQuery, outlineGrepMatcher]);
 
   const filteredSidebarComments = useMemo(() => {
     if (!outlineFilterQuery.trim()) return comments;
-    const q = outlineFilterQuery.toLowerCase();
     return comments.filter(c => 
-      (c.author || '').toLowerCase().includes(q) || 
-      (c.body || '').toLowerCase().includes(q) || 
-      (c.path || '').toLowerCase().includes(q)
+      outlineGrepMatcher.test(c.author) || 
+      outlineGrepMatcher.test(c.body) || 
+      outlineGrepMatcher.test(c.path)
     );
-  }, [comments, outlineFilterQuery]);
+  }, [comments, outlineFilterQuery, outlineGrepMatcher]);
 
   // Smooth scroll helpers
   const scrollToHeading = (id: string) => {
@@ -2935,15 +3049,23 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
             {/* Quick Filter */}
             {tabOutlineInfo.count > 3 && (
               <div className="p-2 border-b border-onedark-borderSubtle/60">
-                <div className="flex items-center space-x-1.5 bg-onedark-surface/60 rounded px-2 py-1 border border-onedark-borderSubtle">
+                <div className={`flex items-center space-x-1.5 bg-onedark-surface/60 rounded px-2 py-1 border ${
+                  isOutlineRegex
+                    ? outlineGrepMatcher.isValid
+                      ? 'border-onedark-purple/60'
+                      : 'border-onedark-red/60'
+                    : 'border-onedark-borderSubtle'
+                }`}>
                   <Search className="w-3 h-3 text-onedark-muted shrink-0" />
                   <input
                     type="text"
                     value={outlineFilterQuery}
                     onChange={(e) => setOutlineFilterQuery(e.target.value)}
                     placeholder={
-                      prTab === 'diff'
-                        ? 'Filter files...'
+                      isOutlineRegex
+                        ? 'Grep (/pattern/)...'
+                        : prTab === 'diff'
+                        ? 'Filter files & diffs...'
                         : prTab === 'commits'
                         ? 'Filter commits...'
                         : prTab === 'comments'
@@ -2957,6 +3079,24 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
                       <X className="w-3 h-3" />
                     </button>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => setIsOutlineRegex((prev) => !prev)}
+                    className={`px-1 py-0.2 rounded font-mono text-[9px] font-bold transition-all cursor-pointer ${
+                      isOutlineRegex
+                        ? 'bg-onedark-purple text-white shadow-xs'
+                        : 'text-onedark-muted hover:text-onedark-fg'
+                    }`}
+                    title={
+                      isOutlineRegex
+                        ? outlineGrepMatcher.isValid
+                          ? 'Grep / Regular Expression active'
+                          : `Regex error: ${outlineGrepMatcher.error || 'Invalid regex'}`
+                        : 'Enable Grep / Regular Expression mode'
+                    }
+                  >
+                    .*
+                  </button>
                 </div>
               </div>
             )}

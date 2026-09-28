@@ -353,6 +353,8 @@ async def get_task_prs(
     scope: Optional[str] = None,
     author: Optional[str] = None,
     state: Optional[str] = None,
+    query: Optional[str] = None,
+    is_regex: bool = False,
     db: AsyncSession = Depends(get_db)
 ):
     stmt = select(TaskPRModel).where(TaskPRModel.task_id == task_id)
@@ -373,6 +375,46 @@ async def get_task_prs(
     stmt = stmt.order_by(TaskPRModel.pr_number.desc())
     res = await db.execute(stmt)
     prs = res.scalars().all()
+
+    if query and query.strip():
+        q = query.strip()
+        if is_regex:
+            import re
+            try:
+                pattern = re.compile(q, re.IGNORECASE)
+                prs = [
+                    p for p in prs
+                    if pattern.search(str(p.pr_number))
+                    or (p.title and pattern.search(p.title))
+                    or (p.author and pattern.search(p.author))
+                    or (p.head_branch and pattern.search(p.head_branch))
+                    or (p.base_branch and pattern.search(p.base_branch))
+                    or (p.body and pattern.search(p.body))
+                    or (p.review_summary and pattern.search(p.review_summary))
+                ]
+            except re.error:
+                prs = [
+                    p for p in prs
+                    if q.lower() in str(p.pr_number).lower()
+                    or (p.title and q.lower() in p.title.lower())
+                    or (p.author and q.lower() in p.author.lower())
+                    or (p.head_branch and q.lower() in p.head_branch.lower())
+                    or (p.base_branch and q.lower() in p.base_branch.lower())
+                    or (p.body and q.lower() in p.body.lower())
+                    or (p.review_summary and q.lower() in p.review_summary.lower())
+                ]
+        else:
+            q_lower = q.lower()
+            prs = [
+                p for p in prs
+                if q_lower in str(p.pr_number).lower()
+                or (p.title and q_lower in p.title.lower())
+                or (p.author and q_lower in p.author.lower())
+                or (p.head_branch and q_lower in p.head_branch.lower())
+                or (p.base_branch and q_lower in p.base_branch.lower())
+                or (p.body and q_lower in p.body.lower())
+                or (p.review_summary and q_lower in p.review_summary.lower())
+            ]
     return [
         {
             "id": p.id,

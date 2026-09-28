@@ -25,7 +25,8 @@ import {
   Search,
   Filter,
   Zap,
-  Radio
+  Radio,
+  X
 } from 'lucide-react';
 import { Task, TaskPR } from '../../types';
 import { useWebSocket } from '../../contexts/WebSocketContext';
@@ -33,6 +34,7 @@ import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { PRReviewAgentPopover, LineContext } from './PRReviewAgentPopover';
 import { PRDetailView } from './PRDetailView';
 import { PRListenerConfigModal } from './PRListenerConfigModal';
+import { createGrepMatcher } from '../../utils/grepMatcher';
 
 interface PullRequestsTabProps {
   task: Task | null;
@@ -105,6 +107,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
   const [authorFilter, setAuthorFilter] = useState<string>('ALL');
   const [scopeFilter, setScopeFilter] = useState<'SESSION' | 'ALL_REPO'>('SESSION');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isRegexFilter, setIsRegexFilter] = useState<boolean>(false);
 
   // Review Agent Popover state
   const [activePopoverPR, setActivePopoverPR] = useState<TaskPR | null>(null);
@@ -298,6 +301,10 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
   }, [displayedScopedPrs]);
 
+  const grepMatcher = useMemo(() => {
+    return createGrepMatcher(searchQuery, { isRegex: isRegexFilter });
+  }, [searchQuery, isRegexFilter]);
+
   const filteredPrs = useMemo(() => {
     return displayedScopedPrs.filter((pr) => {
       if (authorFilter !== 'ALL') {
@@ -314,16 +321,17 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
         if (statusFilter === 'CLOSED' && pr.status !== 'CLOSED') return false;
       }
       if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const matchNum = String(pr.pr_number).includes(q);
-        const matchTitle = pr.title?.toLowerCase().includes(q);
-        const matchAuthor = pr.author?.toLowerCase().includes(q);
-        const matchBranch = pr.head_branch?.toLowerCase().includes(q) || pr.base_branch?.toLowerCase().includes(q);
-        if (!matchNum && !matchTitle && !matchAuthor && !matchBranch) return false;
+        const matchNum = grepMatcher.test(String(pr.pr_number)) || grepMatcher.test(`#${pr.pr_number}`);
+        const matchTitle = grepMatcher.test(pr.title);
+        const matchAuthor = grepMatcher.test(pr.author);
+        const matchBranch = grepMatcher.test(pr.head_branch) || grepMatcher.test(pr.base_branch);
+        const matchBody = grepMatcher.test(pr.body);
+        const matchReview = grepMatcher.test(pr.review_summary);
+        if (!matchNum && !matchTitle && !matchAuthor && !matchBranch && !matchBody && !matchReview) return false;
       }
       return true;
     });
-  }, [displayedScopedPrs, authorFilter, statusFilter, searchQuery]);
+  }, [displayedScopedPrs, authorFilter, statusFilter, searchQuery, grepMatcher]);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -480,15 +488,51 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
 
         {/* Filter Pills & Search */}
         <div className="flex items-center gap-1.5 flex-wrap">
-          <div className="relative flex-1 min-w-[120px]">
+          <div className="relative flex-1 min-w-[140px]">
             <Search className="w-3 h-3 text-onedark-muted absolute left-2.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Filter PRs..."
+              placeholder={isRegexFilter ? "Grep PRs (/pattern/ or regex)..." : "Filter PRs..."}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-7 pr-2.5 py-1 text-[11px] rounded-md bg-onedark-surface border border-onedark-border text-onedark-fg placeholder:text-onedark-muted/60 focus:outline-none focus:border-onedark-accent"
+              className={`w-full pl-7 pr-14 py-1 text-[11px] rounded-md bg-onedark-surface border ${
+                isRegexFilter
+                  ? grepMatcher.isValid
+                    ? 'border-onedark-purple/60 focus:border-onedark-purple text-onedark-fg'
+                    : 'border-onedark-red/60 focus:border-onedark-red text-onedark-red'
+                  : 'border-onedark-border focus:border-onedark-accent text-onedark-fg'
+              } placeholder:text-onedark-muted/60 focus:outline-none`}
             />
+            <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="p-0.5 rounded text-onedark-muted hover:text-onedark-fg cursor-pointer"
+                  title="Clear filter"
+                >
+                  <X className="w-2.5 h-2.5" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setIsRegexFilter((prev) => !prev)}
+                className={`px-1 py-0.5 rounded font-mono text-[10px] font-bold transition-all cursor-pointer ${
+                  isRegexFilter
+                    ? 'bg-onedark-purple text-white shadow-xs'
+                    : 'text-onedark-muted/70 hover:text-onedark-fg hover:bg-onedark-darker'
+                }`}
+                title={
+                  isRegexFilter
+                    ? grepMatcher.isValid
+                      ? 'Grep / Regular Expression active (Click to disable)'
+                      : `Regex error: ${grepMatcher.error || 'Invalid regex'}`
+                    : 'Enable Grep / Regular Expression search'
+                }
+              >
+                .*
+              </button>
+            </div>
           </div>
 
           <div className="flex items-center gap-1 text-[10px]">

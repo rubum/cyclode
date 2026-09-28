@@ -149,7 +149,7 @@ async def test_task_pr_endpoints_and_actions():
         assert sync_data["ok"] is True
         assert "count" in sync_data
 
-        # 8. Test scoped and author filtering on GET /api/tasks/{task_id}/prs
+        # 8. Test scoped, author, and grep filtering on GET /api/tasks/{task_id}/prs
         session_scoped_res = await client.get(f"/api/tasks/{task_id}/prs?scope=session")
         assert session_scoped_res.status_code == 200
         session_prs = session_scoped_res.json()
@@ -159,6 +159,23 @@ async def test_task_pr_endpoints_and_actions():
         assert author_filter_res.status_code == 200
         author_prs = author_filter_res.json()
         assert all("octocat" in p["author"].lower() for p in author_prs)
+
+        # 8b. Test Grep / Regex query filtering
+        grep_res = await client.get(f"/api/tasks/{task_id}/prs?query=race%20condition")
+        assert grep_res.status_code == 200
+        grep_prs = grep_res.json()
+        assert len(grep_prs) >= 1
+        assert any(p["pr_number"] == 42 for p in grep_prs)
+
+        regex_res = await client.get(f"/api/tasks/{task_id}/prs?query=fix/.*race&is_regex=true")
+        assert regex_res.status_code == 200
+        regex_prs = regex_res.json()
+        assert len(regex_prs) >= 1
+        assert any(p["pr_number"] == 42 for p in regex_prs)
+
+        nomatch_res = await client.get(f"/api/tasks/{task_id}/prs?query=non_existent_symbol_12345")
+        assert nomatch_res.status_code == 200
+        assert len(nomatch_res.json()) == 0
 
         # 9. Test GET and POST PR comments
         post_comment_res = await client.post(f"/api/tasks/{task_id}/prs/42/comments", json={
