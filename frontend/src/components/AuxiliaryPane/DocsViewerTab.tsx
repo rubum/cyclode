@@ -287,15 +287,91 @@ interface PRDiffSectionProps {
 }
 
 const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, onLineComment }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
   const [filterQuery, setFilterQuery] = useState('');
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
   const [copiedFile, setCopiedFile] = useState<string | null>(null);
+  const [activeFilename, setActiveFilename] = useState<string | null>(null);
 
   const filteredFiles = useMemo(() => {
     if (!filterQuery.trim()) return files;
     const q = filterQuery.toLowerCase();
     return files.filter(f => f.filename.toLowerCase().includes(q));
   }, [files, filterQuery]);
+
+  // Track active visible file under sticky header
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !filteredFiles.length) return;
+
+    let scrollParent: HTMLElement | null = null;
+    let parent = container.parentElement;
+    while (parent) {
+      const overflowY = window.getComputedStyle(parent).overflowY;
+      if (overflowY === 'auto' || overflowY === 'scroll') {
+        scrollParent = parent;
+        break;
+      }
+      parent = parent.parentElement;
+    }
+
+    const target = scrollParent || window;
+
+    const handleScroll = () => {
+      if (!filteredFiles.length) return;
+
+      const headerEl = container.querySelector('[data-sticky-diff-header]');
+      const headerBottom = headerEl ? headerEl.getBoundingClientRect().bottom : (scrollParent ? scrollParent.getBoundingClientRect().top + 60 : 60);
+
+      let current: string = filteredFiles[0].filename;
+      for (let i = 0; i < filteredFiles.length; i++) {
+        const f = filteredFiles[i];
+        const el = document.getElementById(`doc-diff-file-${encodeURIComponent(f.filename)}`);
+        if (el) {
+          const rect = el.getBoundingClientRect();
+          if (rect.top <= headerBottom + 30) {
+            current = f.filename;
+          } else {
+            break;
+          }
+        }
+      }
+      setActiveFilename(current);
+    };
+
+    handleScroll();
+
+    target.addEventListener('scroll', handleScroll, { passive: true });
+    window.addEventListener('resize', handleScroll, { passive: true });
+
+    return () => {
+      target.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('resize', handleScroll);
+    };
+  }, [filteredFiles]);
+
+  const activeFileIndex = useMemo(() => {
+    if (!filteredFiles.length) return 0;
+    const idx = filteredFiles.findIndex((f) => f.filename === activeFilename);
+    return idx >= 0 ? idx : 0;
+  }, [filteredFiles, activeFilename]);
+
+  const activeFile = useMemo(() => {
+    return filteredFiles[activeFileIndex] || filteredFiles[0] || null;
+  }, [filteredFiles, activeFileIndex]);
+
+  const scrollToDiffFile = (filename?: string) => {
+    if (!filename) return;
+    const el = document.getElementById(`doc-diff-file-${encodeURIComponent(filename)}`);
+    if (el) {
+      setCollapsedFiles((prev) => {
+        const next = new Set(prev);
+        next.delete(filename);
+        return next;
+      });
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
 
   const toggleCollapse = (filename: string) => {
     setCollapsedFiles(prev => {
@@ -369,37 +445,85 @@ const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, onLineCo
   }
 
   return (
-    <div className="space-y-3 select-text">
-      {/* Diff Toolbar */}
-      <div className="p-2.5 bg-onedark-surface/60 border border-onedark-borderSubtle rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs select-none">
-        {/* Search / Filter input */}
-        <div className="flex items-center space-x-1.5 bg-onedark-bg rounded-lg px-2.5 py-1 border border-onedark-borderSubtle flex-1 min-w-[180px] max-w-sm">
-          <Search className="w-3.5 h-3.5 text-onedark-muted flex-shrink-0" />
-          <input
-            type="text"
-            value={filterQuery}
-            onChange={(e) => setFilterQuery(e.target.value)}
-            placeholder="Filter files by path or extension..."
-            className="w-full bg-transparent border-none text-xs text-onedark-fg focus:outline-none placeholder:text-onedark-muted/60"
-          />
-          {filterQuery && (
-            <button onClick={() => setFilterQuery('')} className="text-onedark-muted hover:text-onedark-fg cursor-pointer">
-              <X className="w-3 h-3" />
-            </button>
+    <div ref={containerRef} className="space-y-3 select-text">
+      {/* Sticky Diff Toolbar */}
+      <div 
+        data-sticky-diff-header="true"
+        className="sticky -top-4 z-20 -mx-4 px-4 py-2.5 bg-onedark-darker/95 backdrop-blur-md border-b border-onedark-borderSubtle flex flex-wrap items-center justify-between gap-2 text-xs select-none shadow-sm transition-all"
+      >
+        <div className="flex items-center space-x-2 min-w-0 flex-1">
+          <span className="font-semibold text-onedark-fgBright whitespace-nowrap">
+            Files Changed ({filteredFiles.length > 0 ? `${activeFileIndex + 1} / ${filteredFiles.length}` : '0'}{filteredFiles.length !== files.length ? ` of ${files.length}` : ''})
+          </span>
+
+          {activeFile && (
+            <div className="flex items-center space-x-1.5 min-w-0 max-w-[280px] sm:max-w-[420px] bg-onedark-surface/80 hover:bg-onedark-surface border border-onedark-borderSubtle rounded-lg px-2 py-0.5 text-xs text-onedark-fg shadow-2xs group transition-colors">
+              <button
+                type="button"
+                onClick={() => scrollToDiffFile(activeFile.filename)}
+                className="flex items-center space-x-1.5 min-w-0 truncate cursor-pointer text-left"
+                title={`Jump to ${activeFile.filename}`}
+              >
+                <FileCode2 className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
+                <span className="font-mono text-[11px] truncate">
+                  {activeFile.filename}
+                </span>
+              </button>
+
+              <div className="flex items-center space-x-1 font-mono text-[10px] text-onedark-muted flex-shrink-0 pl-1 border-l border-onedark-borderSubtle">
+                <span className="text-onedark-green font-semibold">+{activeFile.additions || 0}</span>
+                <span className="text-onedark-red font-semibold">-{activeFile.deletions || 0}</span>
+              </div>
+
+              {filteredFiles.length > 1 && (
+                <div className="flex items-center space-x-0.5 ml-1 pl-1 border-l border-onedark-borderSubtle flex-shrink-0">
+                  <button
+                    type="button"
+                    disabled={activeFileIndex <= 0}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      scrollToDiffFile(filteredFiles[activeFileIndex - 1]?.filename);
+                    }}
+                    className="p-0.5 rounded hover:bg-onedark-darker text-onedark-muted hover:text-onedark-fg disabled:opacity-25 disabled:pointer-events-none cursor-pointer"
+                    title="Previous file"
+                  >
+                    <ChevronUp className="w-3 h-3" />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={activeFileIndex >= filteredFiles.length - 1}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      scrollToDiffFile(filteredFiles[activeFileIndex + 1]?.filename);
+                    }}
+                    className="p-0.5 rounded hover:bg-onedark-darker text-onedark-muted hover:text-onedark-fg disabled:opacity-25 disabled:pointer-events-none cursor-pointer"
+                    title="Next file"
+                  >
+                    <ChevronDown className="w-3 h-3" />
+                  </button>
+                </div>
+              )}
+            </div>
           )}
         </div>
 
-        {/* Stats & Actions */}
-        <div className="flex items-center space-x-2 text-[11px]">
-          <div className="flex items-center space-x-1 px-2 py-0.5 rounded-md bg-onedark-bg border border-onedark-borderSubtle font-mono">
-            <span className="text-onedark-green font-semibold">+{totalAdditions.toLocaleString()}</span>
-            <span className="text-onedark-muted">/</span>
-            <span className="text-onedark-red font-semibold">-{totalDeletions.toLocaleString()}</span>
+        {/* Search / Filter input */}
+        <div className="flex items-center space-x-2 flex-shrink-0">
+          <div className="flex items-center space-x-1.5 bg-onedark-bg rounded-lg px-2.5 py-1 border border-onedark-borderSubtle w-44 sm:w-56">
+            <Search className="w-3.5 h-3.5 text-onedark-muted flex-shrink-0" />
+            <input
+              type="text"
+              value={filterQuery}
+              onChange={(e) => setFilterQuery(e.target.value)}
+              placeholder="Filter files..."
+              className="w-full bg-transparent border-none text-xs text-onedark-fg focus:outline-none placeholder:text-onedark-muted/60"
+            />
+            {filterQuery && (
+              <button onClick={() => setFilterQuery('')} className="text-onedark-muted hover:text-onedark-fg cursor-pointer">
+                <X className="w-3 h-3" />
+              </button>
+            )}
           </div>
-
-          <span className="text-onedark-muted font-mono">
-            {filteredFiles.length} / {files.length} files
-          </span>
 
           <div className="flex items-center space-x-1 border-l border-onedark-border pl-2">
             <button
@@ -440,7 +564,11 @@ const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, onLineCo
               'MOD';
 
             return (
-              <div key={`${f.filename}-${fileIdx}`} className="rounded-xl border border-onedark-border bg-onedark-darker overflow-hidden shadow-xs">
+              <div 
+                key={`${f.filename}-${fileIdx}`} 
+                id={`doc-diff-file-${encodeURIComponent(f.filename)}`}
+                className="rounded-xl border border-onedark-border bg-onedark-darker overflow-hidden shadow-xs scroll-mt-14"
+              >
                 {/* File Header */}
                 <div 
                   onClick={() => toggleCollapse(f.filename)}
