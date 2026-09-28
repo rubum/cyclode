@@ -451,32 +451,36 @@ const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, onLineCo
         data-sticky-diff-header="true"
         className="sticky -top-4 z-20 -mx-4 px-4 py-2.5 bg-onedark-darker/95 backdrop-blur-md border-b border-onedark-borderSubtle flex flex-wrap items-center justify-between gap-2 text-xs select-none shadow-sm transition-all"
       >
-        <div className="flex items-center space-x-2 min-w-0 flex-1">
+        <div className="flex items-center space-x-2.5 min-w-0 flex-1">
           <span className="font-semibold text-onedark-fgBright whitespace-nowrap">
-            Files Changed ({filteredFiles.length > 0 ? `${activeFileIndex + 1} / ${filteredFiles.length}` : '0'}{filteredFiles.length !== files.length ? ` of ${files.length}` : ''})
+            Files Changed ({filteredFiles.length}{filteredFiles.length !== files.length ? ` / ${files.length}` : ''})
           </span>
 
           {activeFile && (
-            <div className="flex items-center space-x-1.5 min-w-0 max-w-[280px] sm:max-w-[420px] bg-onedark-surface/80 hover:bg-onedark-surface border border-onedark-borderSubtle rounded-lg px-2 py-0.5 text-xs text-onedark-fg shadow-2xs group transition-colors">
+            <div className="flex items-center space-x-2 min-w-0 bg-onedark-surface/70 hover:bg-onedark-surface border border-onedark-borderSubtle rounded-lg px-2.5 py-1 text-xs text-onedark-fg shadow-2xs group transition-colors flex-1 max-w-xl">
+              <span className="px-1.5 py-0.2 rounded font-mono text-[10px] font-semibold bg-onedark-darker text-onedark-muted border border-onedark-borderSubtle whitespace-nowrap flex-shrink-0">
+                {activeFileIndex + 1} / {filteredFiles.length}
+              </span>
+
               <button
                 type="button"
                 onClick={() => scrollToDiffFile(activeFile.filename)}
-                className="flex items-center space-x-1.5 min-w-0 truncate cursor-pointer text-left"
+                className="flex items-center space-x-1.5 min-w-0 flex-1 truncate cursor-pointer text-left group-hover:text-onedark-accent transition-colors"
                 title={`Jump to ${activeFile.filename}`}
               >
                 <FileCode2 className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
-                <span className="font-mono text-[11px] truncate">
+                <span className="font-mono text-[11.5px] truncate font-semibold text-onedark-fgBright group-hover:text-onedark-accent">
                   {activeFile.filename}
                 </span>
               </button>
 
-              <div className="flex items-center space-x-1 font-mono text-[10px] text-onedark-muted flex-shrink-0 pl-1 border-l border-onedark-borderSubtle">
+              <div className="flex items-center space-x-1 font-mono text-[10px] text-onedark-muted flex-shrink-0 pl-1.5 border-l border-onedark-borderSubtle whitespace-nowrap">
                 <span className="text-onedark-green font-semibold">+{activeFile.additions || 0}</span>
                 <span className="text-onedark-red font-semibold">-{activeFile.deletions || 0}</span>
               </div>
 
               {filteredFiles.length > 1 && (
-                <div className="flex items-center space-x-0.5 ml-1 pl-1 border-l border-onedark-borderSubtle flex-shrink-0">
+                <div className="flex items-center space-x-0.5 ml-0.5 pl-1.5 border-l border-onedark-borderSubtle flex-shrink-0">
                   <button
                     type="button"
                     disabled={activeFileIndex <= 0}
@@ -484,10 +488,10 @@ const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, onLineCo
                       e.stopPropagation();
                       scrollToDiffFile(filteredFiles[activeFileIndex - 1]?.filename);
                     }}
-                    className="p-0.5 rounded hover:bg-onedark-darker text-onedark-muted hover:text-onedark-fg disabled:opacity-25 disabled:pointer-events-none cursor-pointer"
+                    className="p-0.5 rounded hover:bg-onedark-darker text-onedark-muted hover:text-onedark-fg disabled:opacity-20 disabled:pointer-events-none cursor-pointer transition-colors"
                     title="Previous file"
                   >
-                    <ChevronUp className="w-3 h-3" />
+                    <ChevronUp className="w-3.5 h-3.5" />
                   </button>
                   <button
                     type="button"
@@ -496,10 +500,10 @@ const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, onLineCo
                       e.stopPropagation();
                       scrollToDiffFile(filteredFiles[activeFileIndex + 1]?.filename);
                     }}
-                    className="p-0.5 rounded hover:bg-onedark-darker text-onedark-muted hover:text-onedark-fg disabled:opacity-25 disabled:pointer-events-none cursor-pointer"
+                    className="p-0.5 rounded hover:bg-onedark-darker text-onedark-muted hover:text-onedark-fg disabled:opacity-20 disabled:pointer-events-none cursor-pointer transition-colors"
                     title="Next file"
                   >
-                    <ChevronDown className="w-3 h-3" />
+                    <ChevronDown className="w-3.5 h-3.5" />
                   </button>
                 </div>
               )}
