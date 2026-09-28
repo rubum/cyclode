@@ -295,7 +295,8 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, o
           return (
             <div
               key={`${f.filename}-${idx}`}
-              className="rounded-xl border border-onedark-borderSubtle overflow-hidden bg-onedark-darker transition-colors shadow-xs"
+              id={`diff-file-${encodeURIComponent(f.filename)}`}
+              className="rounded-xl border border-onedark-borderSubtle overflow-hidden bg-onedark-darker transition-colors shadow-xs scroll-mt-4"
             >
               {/* File Header */}
               <div
@@ -568,7 +569,8 @@ export const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ commits, rep
           return (
             <div
               key={`${c.sha}-${idx}`}
-              className="rounded-xl border border-onedark-borderSubtle bg-onedark-darker overflow-hidden hover:border-onedark-border transition-all shadow-xs"
+              id={`commit-item-${c.sha}`}
+              className="rounded-xl border border-onedark-borderSubtle bg-onedark-darker overflow-hidden hover:border-onedark-border transition-all shadow-xs scroll-mt-4"
             >
               <div className="p-3.5 flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                 <div className="flex items-start space-x-3 min-w-0 flex-1">
@@ -1198,7 +1200,8 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
           return (
             <div
               key={c.id}
-              className={`rounded-xl border transition-all overflow-hidden ${
+              id={`comment-item-${c.id}`}
+              className={`rounded-xl border transition-all overflow-hidden scroll-mt-4 ${
                 isReview
                   ? c.review_state === 'APPROVED'
                     ? 'border-l-4 border-l-onedark-green border-onedark-green/30 bg-onedark-green/5 shadow-2xs'
@@ -2312,8 +2315,8 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
     }
   };
 
-  // Extract on-page headings for Table of Contents
-  const headings = useMemo<HeadingItem[]>(() => {
+  // Extract on-page headings for Overview
+  const overviewHeadings = useMemo<HeadingItem[]>(() => {
     const md = data?.overview_markdown || data?.content_markdown || prRecord?.body || '';
     if (!md) return [];
     const lines = md.split('\n');
@@ -2350,6 +2353,86 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
     return items;
   }, [data?.overview_markdown, data?.content_markdown, prRecord?.body]);
 
+  // Extract on-page headings for AI Review Report
+  const reviewHeadings = useMemo<HeadingItem[]>(() => {
+    const md = prRecord?.review_summary || '';
+    if (!md) return [];
+    const lines = md.split('\n');
+    const items: HeadingItem[] = [];
+    let inCode = false;
+
+    for (const line of lines) {
+      if (line.trim().startsWith('```')) {
+        inCode = !inCode;
+        continue;
+      }
+      if (inCode) continue;
+
+      const match = line.match(/^(#{1,4})\s+(.+)$/);
+      if (match) {
+        const level = match[1].length;
+        const rawText = match[2].trim();
+        const cleanText = rawText
+          .replace(/<[^>]+>/g, '')
+          .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+          .replace(/[*_`]/g, '')
+          .trim();
+        const id = cleanText
+          .toLowerCase()
+          .replace(/[^\w\s-]/g, '')
+          .trim()
+          .replace(/\s+/g, '-');
+
+        if (cleanText) {
+          items.push({ level, title: cleanText, id });
+        }
+      }
+    }
+    return items;
+  }, [prRecord?.review_summary]);
+
+  // Tab-specific filtered data for sidebar
+  const filteredOverviewHeadings = useMemo(() => {
+    if (!outlineFilterQuery.trim()) return overviewHeadings;
+    const q = outlineFilterQuery.toLowerCase();
+    return overviewHeadings.filter(h => h.title.toLowerCase().includes(q));
+  }, [overviewHeadings, outlineFilterQuery]);
+
+  const filteredReviewHeadings = useMemo(() => {
+    if (!outlineFilterQuery.trim()) return reviewHeadings;
+    const q = outlineFilterQuery.toLowerCase();
+    return reviewHeadings.filter(h => h.title.toLowerCase().includes(q));
+  }, [reviewHeadings, outlineFilterQuery]);
+
+  const filesList = data?.files || [];
+  const filteredSidebarFiles = useMemo(() => {
+    if (!outlineFilterQuery.trim()) return filesList;
+    const q = outlineFilterQuery.toLowerCase();
+    return filesList.filter(f => f.filename.toLowerCase().includes(q));
+  }, [filesList, outlineFilterQuery]);
+
+  const commitsList = data?.commits || [];
+  const filteredSidebarCommits = useMemo(() => {
+    if (!outlineFilterQuery.trim()) return commitsList;
+    const q = outlineFilterQuery.toLowerCase();
+    return commitsList.filter(c => 
+      (c.message || '').toLowerCase().includes(q) || 
+      (c.author_name || '').toLowerCase().includes(q) || 
+      (c.sha || '').toLowerCase().includes(q)
+    );
+  }, [commitsList, outlineFilterQuery]);
+
+  const filteredSidebarComments = useMemo(() => {
+    if (!outlineFilterQuery.trim()) return comments;
+    const q = outlineFilterQuery.toLowerCase();
+    return comments.filter(c => 
+      (c.author || '').toLowerCase().includes(q) || 
+      (c.body || '').toLowerCase().includes(q) || 
+      (c.path || '').toLowerCase().includes(q)
+    );
+  }, [comments, outlineFilterQuery]);
+
+  // Smooth scroll helpers
   const scrollToHeading = (id: string) => {
     if (!contentScrollRef.current) return;
     const target = contentScrollRef.current.querySelector(`[id="${id}"]`);
@@ -2358,11 +2441,79 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
     }
   };
 
-  const filteredHeadings = useMemo(() => {
-    if (!outlineFilterQuery.trim()) return headings;
-    const q = outlineFilterQuery.toLowerCase();
-    return headings.filter(h => h.title.toLowerCase().includes(q));
-  }, [headings, outlineFilterQuery]);
+  const scrollToDiffFile = (filename: string) => {
+    if (!contentScrollRef.current) return;
+    const target = contentScrollRef.current.querySelector(`[id="diff-file-${encodeURIComponent(filename)}"]`);
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  const scrollToCommit = (sha: string) => {
+    if (!contentScrollRef.current) return;
+    const target = contentScrollRef.current.querySelector(`[id="commit-item-${sha}"]`);
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  const scrollToComment = (id: number | string) => {
+    if (!contentScrollRef.current) return;
+    const target = contentScrollRef.current.querySelector(`[id="comment-item-${id}"]`);
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  // Tab outline configuration
+  const tabOutlineInfo = useMemo(() => {
+    if (prTab === 'overview') {
+      return {
+        title: 'Outline',
+        count: overviewHeadings.length,
+        hasItems: overviewHeadings.length > 0,
+        Icon: ListTree
+      };
+    }
+    if (prTab === 'diff') {
+      return {
+        title: 'Files Changed',
+        count: filesList.length,
+        hasItems: filesList.length > 0,
+        Icon: FileCode2
+      };
+    }
+    if (prTab === 'commits') {
+      return {
+        title: 'Commits',
+        count: commitsList.length,
+        hasItems: commitsList.length > 0,
+        Icon: GitCommit
+      };
+    }
+    if (prTab === 'comments') {
+      return {
+        title: 'Comments',
+        count: comments.length,
+        hasItems: comments.length > 0,
+        Icon: MessageSquare
+      };
+    }
+    if (prTab === 'review') {
+      return {
+        title: 'Review Sections',
+        count: reviewHeadings.length,
+        hasItems: reviewHeadings.length > 0,
+        Icon: ShieldCheck
+      };
+    }
+    return {
+      title: 'Outline',
+      count: 0,
+      hasItems: false,
+      Icon: ListTree
+    };
+  }, [prTab, overviewHeadings.length, filesList.length, commitsList.length, comments.length, reviewHeadings.length]);
 
   const effectiveTitle = data?.title || prRecord?.title || `Pull Request #${data?.pr_number || prNumber || prRecord?.pr_number || ''}`;
   const effectiveState = (data?.state || prRecord?.status || 'OPEN').toUpperCase();
@@ -2399,7 +2550,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
 
         <div className="flex items-center space-x-1 flex-shrink-0">
           {/* Collapsible Left Outline Toggle Button */}
-          {headings.length > 0 && viewMode === 'reader' && (
+          {tabOutlineInfo.hasItems && viewMode === 'reader' && (
             <button
               onClick={() => {
                 setIsOutlineOpen(prev => {
@@ -2413,12 +2564,12 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
                   ? 'bg-onedark-accent/20 border-onedark-accent/40 text-onedark-accent font-semibold'
                   : 'bg-onedark-surface/60 border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fg'
               }`}
-              title={isOutlineOpen ? 'Collapse Table of Contents Sidebar' : 'Expand Table of Contents Sidebar'}
+              title={isOutlineOpen ? `Collapse ${tabOutlineInfo.title} Sidebar` : `Expand ${tabOutlineInfo.title} Sidebar`}
             >
-              <PanelLeft className="w-3.5 h-3.5 flex-shrink-0" />
-              <span className="hidden md:inline text-[11px] whitespace-nowrap">Outline</span>
+              <tabOutlineInfo.Icon className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className="hidden md:inline text-[11px] whitespace-nowrap">{tabOutlineInfo.title}</span>
               <span className="px-1.5 py-0.2 rounded-full bg-onedark-surface border border-onedark-borderSubtle text-[10px] text-onedark-muted font-mono">
-                {headings.length}
+                {tabOutlineInfo.count}
               </span>
             </button>
           )}
@@ -2757,16 +2908,16 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
 
       {/* Main Content Area with Collapsible Left Outline Rail */}
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Collapsible Document Outline Left Sidebar */}
-        {!isLoading && !error && viewMode === 'reader' && isOutlineOpen && headings.length > 0 && (
+        {/* Collapsible Document / Files / Commits / Comments Left Sidebar */}
+        {!isLoading && !error && viewMode === 'reader' && isOutlineOpen && tabOutlineInfo.hasItems && (
           <aside className="w-60 xl:w-64 border-r border-onedark-borderSubtle bg-onedark-bg/95 flex flex-col flex-shrink-0 z-10 select-none transition-all duration-200">
             {/* Outline Header */}
             <div className="p-2.5 px-3 border-b border-onedark-borderSubtle flex items-center justify-between bg-onedark-surface/30">
-              <div className="flex items-center space-x-2">
-                <ListTree className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
-                <span className="text-xs font-semibold text-onedark-fgBright">Outline</span>
-                <span className="px-1.5 py-0.2 rounded-full bg-onedark-surface border border-onedark-borderSubtle text-[10px] text-onedark-muted font-mono">
-                  {headings.length}
+              <div className="flex items-center space-x-2 min-w-0">
+                <tabOutlineInfo.Icon className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
+                <span className="text-xs font-semibold text-onedark-fgBright truncate">{tabOutlineInfo.title}</span>
+                <span className="px-1.5 py-0.2 rounded-full bg-onedark-surface border border-onedark-borderSubtle text-[10px] text-onedark-muted font-mono flex-shrink-0">
+                  {tabOutlineInfo.count}
                 </span>
               </div>
               <button
@@ -2774,15 +2925,15 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
                   setIsOutlineOpen(false);
                   try { localStorage.setItem('cyclode_pr_outline_open', 'false'); } catch {}
                 }}
-                className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-colors cursor-pointer"
-                title="Collapse Outline"
+                className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-colors cursor-pointer flex-shrink-0"
+                title="Collapse Sidebar"
               >
                 <PanelLeftClose className="w-3.5 h-3.5" />
               </button>
             </div>
 
-            {/* Quick Filter (when > 4 headings) */}
-            {headings.length > 4 && (
+            {/* Quick Filter */}
+            {tabOutlineInfo.count > 3 && (
               <div className="p-2 border-b border-onedark-borderSubtle/60">
                 <div className="flex items-center space-x-1.5 bg-onedark-surface/60 rounded px-2 py-1 border border-onedark-borderSubtle">
                   <Search className="w-3 h-3 text-onedark-muted shrink-0" />
@@ -2790,7 +2941,15 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
                     type="text"
                     value={outlineFilterQuery}
                     onChange={(e) => setOutlineFilterQuery(e.target.value)}
-                    placeholder="Filter sections..."
+                    placeholder={
+                      prTab === 'diff'
+                        ? 'Filter files...'
+                        : prTab === 'commits'
+                        ? 'Filter commits...'
+                        : prTab === 'comments'
+                        ? 'Filter comments...'
+                        : 'Filter sections...'
+                    }
                     className="w-full bg-transparent border-none text-[11px] text-onedark-fg focus:outline-none placeholder:text-onedark-muted/60"
                   />
                   {outlineFilterQuery && (
@@ -2802,32 +2961,171 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
               </div>
             )}
 
-            {/* Headings List */}
+            {/* Sidebar Content depending on prTab */}
             <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5 [scrollbar-width:thin]">
-              {filteredHeadings.length === 0 ? (
-                <div className="p-3 text-center text-xs text-onedark-muted">
-                  No matching sections
-                </div>
-              ) : (
-                filteredHeadings.map((h, idx) => (
-                  <button
-                    key={`${h.id}-${idx}`}
-                    onClick={() => scrollToHeading(h.id)}
-                    className={`w-full text-left truncate py-1.5 px-2 rounded-md hover:bg-onedark-surface/70 transition-all text-xs cursor-pointer flex items-center group ${
-                      h.level === 1
-                        ? 'font-bold text-onedark-fgBright hover:text-onedark-accent'
-                        : h.level === 2
-                        ? 'pl-3.5 font-medium text-onedark-fg hover:text-onedark-fgBright'
-                        : 'pl-6 text-onedark-muted text-[11.5px] hover:text-onedark-fg'
-                    }`}
-                    title={h.title}
-                  >
-                    <span className={`w-1 h-1 rounded-full mr-2 flex-shrink-0 transition-colors ${
-                      h.level === 1 ? 'bg-onedark-accent' : h.level === 2 ? 'bg-onedark-muted/60 group-hover:bg-onedark-accent' : 'bg-transparent'
-                    }`} />
-                    <span className="truncate">{h.title}</span>
-                  </button>
-                ))
+              {/* 1. Overview Tab Headings */}
+              {prTab === 'overview' && (
+                filteredOverviewHeadings.length === 0 ? (
+                  <div className="p-3 text-center text-xs text-onedark-muted">No matching sections</div>
+                ) : (
+                  filteredOverviewHeadings.map((h, idx) => (
+                    <button
+                      key={`${h.id}-${idx}`}
+                      onClick={() => scrollToHeading(h.id)}
+                      className={`w-full text-left truncate py-1.5 px-2 rounded-md hover:bg-onedark-surface/70 transition-all text-xs cursor-pointer flex items-center group ${
+                        h.level === 1
+                          ? 'font-bold text-onedark-fgBright hover:text-onedark-accent'
+                          : h.level === 2
+                          ? 'pl-3.5 font-medium text-onedark-fg hover:text-onedark-fgBright'
+                          : 'pl-6 text-onedark-muted text-[11.5px] hover:text-onedark-fg'
+                      }`}
+                      title={h.title}
+                    >
+                      <span className={`w-1 h-1 rounded-full mr-2 flex-shrink-0 transition-colors ${
+                        h.level === 1 ? 'bg-onedark-accent' : h.level === 2 ? 'bg-onedark-muted/60 group-hover:bg-onedark-accent' : 'bg-transparent'
+                      }`} />
+                      <span className="truncate">{h.title}</span>
+                    </button>
+                  ))
+                )
+              )}
+
+              {/* 2. Files Changed Tab File Tree */}
+              {prTab === 'diff' && (
+                filteredSidebarFiles.length === 0 ? (
+                  <div className="p-3 text-center text-xs text-onedark-muted">No matching files</div>
+                ) : (
+                  filteredSidebarFiles.map((f, idx) => {
+                    const pathParts = f.filename.split('/');
+                    const fileNameOnly = pathParts.pop();
+                    const dirPath = pathParts.join('/');
+                    const isAdded = f.status === 'added' || f.status === 'new';
+                    const isDeleted = f.status === 'deleted' || f.status === 'removed';
+
+                    return (
+                      <button
+                        key={`${f.filename}-${idx}`}
+                        onClick={() => scrollToDiffFile(f.filename)}
+                        className="w-full text-left p-1.5 rounded-md hover:bg-onedark-surface/70 transition-all text-xs cursor-pointer flex items-center justify-between group font-mono gap-1"
+                        title={f.filename}
+                      >
+                        <div className="flex items-center space-x-1.5 min-w-0 flex-1 overflow-hidden">
+                          <span className={`text-[10px] font-bold w-3 text-center flex-shrink-0 ${
+                            isAdded ? 'text-onedark-green' : isDeleted ? 'text-onedark-red' : 'text-onedark-blue'
+                          }`}>
+                            {isAdded ? '+' : isDeleted ? '-' : '~'}
+                          </span>
+                          <div className="min-w-0 flex-1 truncate">
+                            {dirPath && <div className="text-[9.5px] text-onedark-muted/70 truncate leading-none">{dirPath}/</div>}
+                            <div className="text-[11.5px] text-onedark-fgBright font-medium truncate group-hover:text-onedark-accent">
+                              {fileNameOnly}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center space-x-1 text-[10px] text-right flex-shrink-0">
+                          {(f.additions || 0) > 0 && <span className="text-onedark-green">+{f.additions}</span>}
+                          {(f.deletions || 0) > 0 && <span className="text-onedark-red">-{f.deletions}</span>}
+                        </div>
+                      </button>
+                    );
+                  })
+                )
+              )}
+
+              {/* 3. Commits Tab List */}
+              {prTab === 'commits' && (
+                filteredSidebarCommits.length === 0 ? (
+                  <div className="p-3 text-center text-xs text-onedark-muted">No matching commits</div>
+                ) : (
+                  filteredSidebarCommits.map((c, idx) => {
+                    const parsed = parseCommitDetails(c);
+                    return (
+                      <button
+                        key={`${c.sha}-${idx}`}
+                        onClick={() => scrollToCommit(c.sha)}
+                        className="w-full text-left p-1.5 rounded-md hover:bg-onedark-surface/70 transition-all text-xs cursor-pointer space-y-1 group"
+                        title={c.message}
+                      >
+                        <div className="flex items-center justify-between gap-1 text-[10px] font-mono">
+                          <span className="text-onedark-accent font-semibold">{c.sha.slice(0, 7)}</span>
+                          {parsed.ticket && (
+                            <span className="px-1 py-0.2 rounded bg-onedark-accent/15 text-onedark-accent">
+                              {parsed.ticket}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11.5px] text-onedark-fg group-hover:text-onedark-fgBright truncate font-sans">
+                          {parsed.cleanSubject}
+                        </div>
+                      </button>
+                    );
+                  })
+                )
+              )}
+
+              {/* 4. Comments Tab List */}
+              {prTab === 'comments' && (
+                filteredSidebarComments.length === 0 ? (
+                  <div className="p-3 text-center text-xs text-onedark-muted">No matching comments</div>
+                ) : (
+                  filteredSidebarComments.map((c, idx) => {
+                    const isBot = (c.author || '').toLowerCase().includes('[bot]') || (c.author || '').toLowerCase() === 'coderabbitai';
+                    return (
+                      <button
+                        key={`${c.id}-${idx}`}
+                        onClick={() => scrollToComment(c.id)}
+                        className="w-full text-left p-1.5 rounded-md hover:bg-onedark-surface/70 transition-all text-xs cursor-pointer space-y-0.5 group"
+                        title={c.body}
+                      >
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="font-bold text-[11px] text-onedark-fgBright truncate">
+                            @{c.author}
+                          </span>
+                          {isBot && (
+                            <span className="px-1 py-0.2 rounded text-[9px] font-mono bg-onedark-purple/20 text-onedark-purple font-bold">
+                              BOT
+                            </span>
+                          )}
+                        </div>
+                        {c.path && (
+                          <div className="text-[10px] font-mono text-onedark-accent truncate">
+                            {c.path.split('/').pop()}{c.line ? `:${c.line}` : ''}
+                          </div>
+                        )}
+                        <div className="text-[11px] text-onedark-muted group-hover:text-onedark-fg truncate font-sans">
+                          {c.body ? c.body.replace(/[#*`_]/g, '').slice(0, 60) : 'No content'}
+                        </div>
+                      </button>
+                    );
+                  })
+                )
+              )}
+
+              {/* 5. AI Review Tab Headings */}
+              {prTab === 'review' && (
+                filteredReviewHeadings.length === 0 ? (
+                  <div className="p-3 text-center text-xs text-onedark-muted">No matching sections</div>
+                ) : (
+                  filteredReviewHeadings.map((h, idx) => (
+                    <button
+                      key={`${h.id}-${idx}`}
+                      onClick={() => scrollToHeading(h.id)}
+                      className={`w-full text-left truncate py-1.5 px-2 rounded-md hover:bg-onedark-surface/70 transition-all text-xs cursor-pointer flex items-center group ${
+                        h.level === 1
+                          ? 'font-bold text-onedark-fgBright hover:text-onedark-accent'
+                          : h.level === 2
+                          ? 'pl-3.5 font-medium text-onedark-fg hover:text-onedark-fgBright'
+                          : 'pl-6 text-onedark-muted text-[11.5px] hover:text-onedark-fg'
+                      }`}
+                      title={h.title}
+                    >
+                      <span className={`w-1 h-1 rounded-full mr-2 flex-shrink-0 transition-colors ${
+                        h.level === 1 ? 'bg-onedark-purple' : h.level === 2 ? 'bg-onedark-muted/60 group-hover:bg-onedark-purple' : 'bg-transparent'
+                      }`} />
+                      <span className="truncate">{h.title}</span>
+                    </button>
+                  ))
+                )
               )}
             </div>
           </aside>
