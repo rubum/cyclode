@@ -49,7 +49,10 @@ import {
   Compass,
   Plus,
   GitCompare,
-  Paperclip
+  Paperclip,
+  FileText,
+  Table,
+  Image as ImageIcon
 } from 'lucide-react';
 import { Task, TaskMessage, TaskLog, RepositoryConfig, TaskPR, WorkspacePreviewInfo, TaskPlan, LayoutPreset } from '../../types';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
@@ -64,6 +67,26 @@ function formatBytes(bytes: number): string {
   const sizes = ['B', 'KB', 'MB', 'GB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+}
+
+function getAttachmentIcon(filename: string) {
+  const ext = filename.split('.').pop()?.toLowerCase() || '';
+  if (['csv', 'tsv', 'parquet', 'tab'].includes(ext)) {
+    return { icon: Table, color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20' };
+  }
+  if (['ipynb', 'py', 'ts', 'tsx', 'js', 'jsx', 'json', 'rs', 'go', 'sql', 'html', 'css'].includes(ext)) {
+    return { icon: FileCode2, color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20' };
+  }
+  if (['zip', 'tar', 'gz', 'tgz', 'bz2', 'whl', 'rar', '7z'].includes(ext)) {
+    return { icon: Box, color: 'text-orange-400', bg: 'bg-orange-500/10 border-orange-500/20' };
+  }
+  if (['pdf', 'doc', 'docx', 'md', 'txt'].includes(ext)) {
+    return { icon: FileText, color: 'text-purple-400', bg: 'bg-purple-500/10 border-purple-500/20' };
+  }
+  if (['png', 'jpg', 'jpeg', 'svg', 'webp', 'gif'].includes(ext)) {
+    return { icon: ImageIcon, color: 'text-cyan-400', bg: 'bg-cyan-500/10 border-cyan-500/20' };
+  }
+  return { icon: Paperclip, color: 'text-onedark-accent', bg: 'bg-onedark-accent/10 border-onedark-accent/20' };
 }
 
 export interface ChatAttachment {
@@ -1633,9 +1656,10 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     return (
       <div className="flex flex-col h-full bg-onedark-bg relative font-sans text-onedark-fg overflow-y-auto">
         {/* Top Control Bar in Empty State */}
-        <div className="h-10 px-4 bg-onedark-darker/70 flex items-center justify-between text-xs text-onedark-muted select-none flex-shrink-0">
+        <div className="h-10 px-4 bg-onedark-darker/80 border-b border-onedark-borderSubtle/60 flex items-center justify-between text-xs text-onedark-muted select-none flex-shrink-0">
           <div className="flex items-center space-x-2">
-            <span className="font-mono text-[11px] text-onedark-fg">New Session</span>
+            <Sparkles className="w-3.5 h-3.5 text-onedark-accent" />
+            <span className="font-mono text-[11.5px] font-semibold text-onedark-fgBright">New Session</span>
           </div>
 
           <div className="flex items-center space-x-2">
@@ -1692,7 +1716,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
         <div className={`w-full ${contentMaxWidth} mx-auto py-12 flex flex-col justify-center flex-1 space-y-8`}>
           {/* Header Hero */}
-          <div className="text-center space-y-2">
+          <div className="text-center space-y-2.5">
             <h1 className="text-3xl font-extrabold text-onedark-fgBright tracking-tight sm:text-4xl">
               What are we working on?
             </h1>
@@ -1719,31 +1743,37 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 handleAttachFiles(e.dataTransfer.files);
               }
             }}
-            className={`p-3.5 rounded-2xl bg-onedark-surface/90 shadow-md backdrop-blur-md focus-within:ring-2 focus-within:ring-onedark-accent/20 transition-all space-y-3 relative ${
+            className={`p-4 sm:p-5 rounded-2xl bg-onedark-surface/60 border border-onedark-border/80 shadow-xl shadow-black/20 backdrop-blur-xl focus-within:border-onedark-accent/60 focus-within:ring-2 focus-within:ring-onedark-accent/15 focus-within:bg-onedark-surface/80 transition-all duration-200 space-y-3 relative ${
               isDraggingInput ? 'ring-2 ring-onedark-accent border-onedark-accent bg-onedark-surface' : ''
             }`}
           >
             {/* Attachment Pills in Empty State */}
             {attachments.length > 0 && (
-              <div className="flex items-center gap-1.5 overflow-x-auto py-1 px-1 flex-wrap border-b border-onedark-borderSubtle/60 pb-2">
-                {attachments.map((att) => (
-                  <div
-                    key={att.id}
-                    className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-darker/80 border border-onedark-borderSubtle text-[11px] font-mono text-onedark-fg shadow-2xs"
-                  >
-                    <Paperclip className="w-3 h-3 text-onedark-accent flex-shrink-0" />
-                    <span className="truncate max-w-[150px] font-semibold">{att.name}</span>
-                    <span className="text-onedark-muted/70 text-[10px]">({formatBytes(att.size)})</span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveAttachment(att.id)}
-                      className="text-onedark-muted hover:text-onedark-fg cursor-pointer p-0.5"
-                      title="Remove attachment"
+              <div className="flex items-center gap-2 overflow-x-auto py-1 px-1 flex-wrap border-b border-onedark-borderSubtle/60 pb-2.5">
+                {attachments.map((att) => {
+                  const meta = getAttachmentIcon(att.name);
+                  const IconComp = meta.icon;
+                  return (
+                    <div
+                      key={att.id}
+                      className="flex items-center space-x-2 px-2.5 py-1.5 rounded-lg bg-onedark-darker/80 border border-onedark-borderSubtle/80 text-xs font-mono text-onedark-fg shadow-2xs group"
                     >
-                      <X className="w-2.5 h-2.5" />
-                    </button>
-                  </div>
-                ))}
+                      <div className={`p-1 rounded ${meta.bg} flex items-center justify-center`}>
+                        <IconComp className={`w-3.5 h-3.5 ${meta.color} flex-shrink-0`} />
+                      </div>
+                      <span className="truncate max-w-[160px] font-semibold text-onedark-fgBright">{att.name}</span>
+                      <span className="text-onedark-muted/80 text-[10.5px]">({formatBytes(att.size)})</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveAttachment(att.id)}
+                        className="text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/80 rounded p-0.5 cursor-pointer transition-colors ml-1"
+                        title="Remove attachment"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             )}
 
@@ -1775,7 +1805,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 }}
                 placeholder="Ask a question, describe a change, paste a stack trace, or type '@' to reference a repo..."
                 rows={3}
-                className={`w-full bg-transparent text-[15px] placeholder-onedark-muted/60 focus:outline-none resize-none font-sans leading-relaxed p-2.5 min-h-[72px] max-h-[240px] overflow-y-auto caret-onedark-yellow ${
+                className={`w-full bg-transparent text-[15px] placeholder-onedark-muted/60 focus:outline-none resize-none font-sans leading-relaxed p-2.5 min-h-[80px] max-h-[260px] overflow-y-auto caret-onedark-yellow ${
                   inputValue ? 'text-transparent' : 'text-onedark-fgBright'
                 }`}
               />
@@ -1783,16 +1813,23 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               {renderMentionMenu("top-full left-0 mt-1.5")}
             </div>
 
-            <div className="flex items-center justify-between pt-2 border-t border-transparent gap-2 flex-wrap sm:flex-nowrap">
+            <div className="flex items-center justify-between pt-3 border-t border-onedark-borderSubtle/60 gap-2.5 flex-wrap sm:flex-nowrap">
               {/* Persona Selector, Model Selector, Repo Pill & Attach Button */}
               <div className="flex items-center space-x-2 min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden py-0.5">
                 {/* Persona Pill */}
-                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-darker/60 hover:bg-onedark-darker text-xs text-onedark-fg font-mono shadow-xs flex-shrink-0 transition-colors">
-                  <Sparkles className="w-3.5 h-3.5 text-onedark-yellow flex-shrink-0" />
+                <div className="relative flex items-center h-8 rounded-lg bg-onedark-darker/60 hover:bg-onedark-darker border border-onedark-borderSubtle/80 hover:border-onedark-border text-xs text-onedark-fg font-mono transition-all shadow-2xs group flex-shrink-0 cursor-pointer">
+                  <div className="flex items-center space-x-1.5 pl-2.5 pr-2 pointer-events-none">
+                    <Sparkles className="w-3.5 h-3.5 text-onedark-yellow flex-shrink-0 group-hover:scale-110 transition-transform" />
+                    <span className="text-xs text-onedark-fg font-mono truncate max-w-[140px]">
+                      {personas.find((p) => p.id === selectedPersona)?.label || 'General Assistant'}
+                    </span>
+                    <ChevronDown className="w-3 h-3 text-onedark-muted group-hover:text-onedark-fg transition-colors flex-shrink-0" />
+                  </div>
                   <select
                     value={selectedPersona}
                     onChange={(e) => setSelectedPersona(e.target.value)}
-                    className="bg-transparent text-onedark-fg focus:outline-none cursor-pointer text-xs pr-1"
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer text-xs"
+                    title="Select Persona"
                   >
                     {personas.map((p) => (
                       <option key={p.id} value={p.id} className="bg-onedark-darker text-onedark-fg">
@@ -1803,12 +1840,19 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 </div>
 
                 {/* Model Selector Pill */}
-                <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-darker/60 hover:bg-onedark-darker text-xs text-onedark-fg font-mono shadow-xs flex-shrink-0 transition-colors">
-                  <Bot className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
+                <div className="relative flex items-center h-8 rounded-lg bg-onedark-darker/60 hover:bg-onedark-darker border border-onedark-borderSubtle/80 hover:border-onedark-border text-xs text-onedark-fg font-mono transition-all shadow-2xs group flex-shrink-0 cursor-pointer">
+                  <div className="flex items-center space-x-1.5 pl-2.5 pr-2 pointer-events-none">
+                    <Bot className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0 group-hover:scale-110 transition-transform" />
+                    <span className="text-xs text-onedark-fg font-mono truncate max-w-[130px]">
+                      {modelOptions.flatMap((g) => g.models).find((m) => m.id === selectedModel)?.label || 'Auto Tiering'}
+                    </span>
+                    <ChevronDown className="w-3 h-3 text-onedark-muted group-hover:text-onedark-fg transition-colors flex-shrink-0" />
+                  </div>
                   <select
                     value={selectedModel}
                     onChange={(e) => setSelectedModel(e.target.value)}
-                    className="bg-transparent text-onedark-fg focus:outline-none cursor-pointer text-xs pr-1"
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer text-xs"
+                    title="Select Model Tier"
                   >
                     {modelOptions.map((g) => (
                       <optgroup key={g.group} label={g.group} className="bg-onedark-darker text-onedark-muted font-bold">
@@ -1826,10 +1870,10 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 <button
                   type="button"
                   onClick={() => chatFileInputRef.current?.click()}
-                  className="px-2.5 py-1 rounded-lg bg-onedark-darker/60 hover:bg-onedark-darker text-xs text-onedark-fg font-mono shadow-xs flex-shrink-0 transition-colors flex items-center space-x-1.5 cursor-pointer"
+                  className="h-8 px-2.5 rounded-lg bg-onedark-darker/60 hover:bg-onedark-darker border border-onedark-borderSubtle/80 hover:border-onedark-border text-xs text-onedark-fg hover:text-onedark-fgBright font-mono shadow-2xs flex-shrink-0 transition-all flex items-center space-x-1.5 cursor-pointer active:scale-95 group"
                   title="Attach files (CSV, TSV, Parquet, JSON, Notebooks, Images, Archives, PDFs)"
                 >
-                  <Paperclip className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
+                  <Paperclip className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0 group-hover:scale-110 transition-transform" />
                   <span>Attach</span>
                 </button>
 
@@ -1849,10 +1893,10 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                             }
                             emptyStateTextareaRef.current?.focus();
                           }}
-                          className={`px-2 py-1 rounded-lg text-[11px] font-mono transition-all flex items-center space-x-1 cursor-pointer flex-shrink-0 max-w-[170px] ${
+                          className={`h-8 px-2.5 rounded-lg text-[11px] font-mono transition-all flex items-center space-x-1.5 cursor-pointer flex-shrink-0 max-w-[170px] shadow-2xs ${
                             isIncluded
-                              ? 'bg-onedark-accent/20 text-onedark-accent font-semibold'
-                              : 'bg-onedark-darker/60 hover:bg-onedark-darker text-onedark-muted hover:text-onedark-fgBright'
+                              ? 'bg-onedark-accent/20 border border-onedark-accent/40 text-onedark-accent font-semibold'
+                              : 'bg-onedark-darker/60 hover:bg-onedark-darker border border-onedark-borderSubtle/80 hover:border-onedark-border text-onedark-muted hover:text-onedark-fgBright'
                           }`}
                           title={`Click to reference ${tag}`}
                         >
@@ -1867,7 +1911,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                     <button
                       type="button"
                       onClick={onNavigateToRepos}
-                      className="px-2.5 py-1 rounded-lg bg-onedark-darker/60 hover:bg-onedark-darker text-[11px] font-mono text-onedark-muted hover:text-onedark-fgBright transition-all flex items-center space-x-1.5 cursor-pointer flex-shrink-0"
+                      className="h-8 px-2.5 rounded-lg bg-onedark-darker/60 hover:bg-onedark-darker border border-dashed border-onedark-borderSubtle hover:border-onedark-border text-[11px] font-mono text-onedark-muted hover:text-onedark-fgBright transition-all flex items-center space-x-1.5 cursor-pointer flex-shrink-0 shadow-2xs"
                       title="Connect a GitHub/GitLab repository"
                     >
                       <Plus className="w-3 h-3 text-onedark-accent flex-shrink-0" />
@@ -1881,7 +1925,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               <button
                 type="submit"
                 disabled={(!inputValue.trim() && attachments.length === 0) || isSubmitting}
-                className="px-4 py-2 rounded-xl bg-onedark-fgBright hover:bg-white text-onedark-darker text-xs font-bold flex items-center space-x-1.5 transition-all duration-150 disabled:opacity-35 disabled:cursor-not-allowed shadow-sm active:scale-95 cursor-pointer flex-shrink-0"
+                className="h-8 px-4 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker text-xs font-bold font-mono tracking-wide flex items-center space-x-1.5 transition-all duration-150 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm active:scale-95 cursor-pointer flex-shrink-0"
               >
                 {isSubmitting ? (
                   <>
@@ -1899,19 +1943,19 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
           </form>
 
           {/* Starter Templates */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2">
             {starterTemplates.map((item, idx) => {
               const Icon = item.icon;
               return (
                 <button
                   key={idx}
                   onClick={() => handleSelectTemplate(item)}
-                  className="p-4 rounded-xl bg-onedark-surface/40 hover:bg-onedark-surface text-left transition-all duration-200 space-y-2.5 group shadow-xs hover:shadow-md hover:-translate-y-0.5 flex flex-col justify-between cursor-pointer"
+                  className="p-4 rounded-xl bg-onedark-surface/30 hover:bg-onedark-surface/70 border border-onedark-borderSubtle/70 hover:border-onedark-accent/40 text-left transition-all duration-200 space-y-3 group shadow-xs hover:shadow-md hover:-translate-y-0.5 flex flex-col justify-between cursor-pointer relative overflow-hidden"
                 >
-                  <div className="space-y-1.5 w-full">
+                  <div className="space-y-2 w-full">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center space-x-2 min-w-0">
-                        <div className={`p-1.5 rounded-lg ${item.bgColor} ${item.color} flex-shrink-0`}>
+                      <div className="flex items-center space-x-2.5 min-w-0">
+                        <div className={`p-1.5 rounded-lg ${item.bgColor} ${item.color} border border-white/5 flex-shrink-0 group-hover:scale-105 transition-transform`}>
                           <Icon className="w-4 h-4" />
                         </div>
                         <span className="text-sm font-semibold text-onedark-fgBright group-hover:text-onedark-accent transition-colors truncate">
@@ -1919,7 +1963,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                         </span>
                       </div>
                       {item.badge && (
-                        <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-onedark-darker/60 text-onedark-muted group-hover:text-onedark-fg transition-colors flex-shrink-0">
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-onedark-darker/60 border border-onedark-borderSubtle/60 text-onedark-muted group-hover:text-onedark-fg transition-colors flex-shrink-0">
                           {item.badge}
                         </span>
                       )}
@@ -1929,7 +1973,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                     </p>
                   </div>
                   <div className="flex items-center justify-between pt-1 text-[11px] text-onedark-muted/80 group-hover:text-onedark-accent transition-colors">
-                    <span className="font-mono text-[10px]">
+                    <span className="font-mono text-[10.5px]">
                       {item.action === 'connect_repo' ? 'Open repository manager ➔' : 'Load prompt template ➔'}
                     </span>
                     <ArrowRight className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
@@ -3177,9 +3221,9 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
       </div>
 
       {/* Centralized Bottom Chat Input Bar */}
-      <div className="p-4 bg-onedark-darker/90">
+      <div className="p-3 sm:p-4 bg-onedark-darker/90 border-t border-onedark-borderSubtle/60 backdrop-blur-md">
         <div className={`w-full ${contentMaxWidth} mx-auto`}>
-          <form onSubmit={handleSubmit} className="flex flex-col space-y-2 relative z-20">
+          <form onSubmit={handleSubmit} className="flex flex-col space-y-2.5 relative z-20">
             {/* Repository Mention Autocomplete Menu */}
             {renderMentionMenu("bottom-full left-0 mb-2")}
 
@@ -3187,12 +3231,19 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
             <div className="flex items-center justify-between gap-2 px-1 text-xs select-none">
               <div className="flex items-center space-x-2 min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden py-0.5">
                 {/* Persona Selector Pill */}
-                <div className="flex items-center space-x-1.5 px-2 py-0.5 rounded-lg bg-onedark-surface/60 hover:bg-onedark-surface text-[11px] text-onedark-fg font-mono shadow-xs flex-shrink-0 transition-colors border border-onedark-borderSubtle">
-                  <Sparkles className="w-3 h-3 text-onedark-yellow flex-shrink-0" />
+                <div className="relative flex items-center h-7 rounded-lg bg-onedark-surface/40 hover:bg-onedark-surface border border-onedark-borderSubtle/80 hover:border-onedark-border text-[11px] text-onedark-fg font-mono transition-all shadow-2xs group flex-shrink-0 cursor-pointer">
+                  <div className="flex items-center space-x-1.5 pl-2 pr-1.5 pointer-events-none">
+                    <Sparkles className="w-3 h-3 text-onedark-yellow flex-shrink-0 group-hover:scale-110 transition-transform" />
+                    <span className="text-[11px] text-onedark-fg font-mono truncate max-w-[130px]">
+                      {personas.find((p) => p.id === selectedPersona)?.label || 'General Assistant'}
+                    </span>
+                    <ChevronDown className="w-2.5 h-2.5 text-onedark-muted group-hover:text-onedark-fg transition-colors flex-shrink-0" />
+                  </div>
                   <select
                     value={selectedPersona}
                     onChange={(e) => setSelectedPersona(e.target.value)}
-                    className="bg-transparent text-onedark-fg focus:outline-none cursor-pointer text-[11px] pr-1"
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer text-[11px]"
+                    title="Select Persona"
                   >
                     {personas.map((p) => (
                       <option key={p.id} value={p.id} className="bg-onedark-darker text-onedark-fg">
@@ -3203,12 +3254,19 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 </div>
 
                 {/* Model Selector Pill */}
-                <div className="flex items-center space-x-1.5 px-2 py-0.5 rounded-lg bg-onedark-surface/60 hover:bg-onedark-surface text-[11px] text-onedark-fg font-mono shadow-xs flex-shrink-0 transition-colors border border-onedark-borderSubtle">
-                  <Bot className="w-3 h-3 text-onedark-accent flex-shrink-0" />
+                <div className="relative flex items-center h-7 rounded-lg bg-onedark-surface/40 hover:bg-onedark-surface border border-onedark-borderSubtle/80 hover:border-onedark-border text-[11px] text-onedark-fg font-mono transition-all shadow-2xs group flex-shrink-0 cursor-pointer">
+                  <div className="flex items-center space-x-1.5 pl-2 pr-1.5 pointer-events-none">
+                    <Bot className="w-3 h-3 text-onedark-accent flex-shrink-0 group-hover:scale-110 transition-transform" />
+                    <span className="text-[11px] text-onedark-fg font-mono truncate max-w-[120px]">
+                      {modelOptions.flatMap((g) => g.models).find((m) => m.id === selectedModel)?.label || 'Auto Tiering'}
+                    </span>
+                    <ChevronDown className="w-2.5 h-2.5 text-onedark-muted group-hover:text-onedark-fg transition-colors flex-shrink-0" />
+                  </div>
                   <select
                     value={selectedModel}
                     onChange={(e) => setSelectedModel(e.target.value)}
-                    className="bg-transparent text-onedark-fg focus:outline-none cursor-pointer text-[11px] pr-1"
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer text-[11px]"
+                    title="Select Model Tier"
                   >
                     {modelOptions.map((g) => (
                       <optgroup key={g.group} label={g.group} className="bg-onedark-darker text-onedark-muted font-bold">
@@ -3226,32 +3284,38 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
             {/* Attachment Pills Container */}
             {attachments.length > 0 && (
-              <div className="flex items-center gap-1.5 overflow-x-auto py-1 px-1 flex-wrap">
-                {attachments.map((att) => (
-                  <div
-                    key={att.id}
-                    className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-surface/80 border border-onedark-borderSubtle text-[11px] font-mono text-onedark-fg shadow-2xs"
-                  >
-                    <Paperclip className="w-3 h-3 text-onedark-accent flex-shrink-0" />
-                    <span className="truncate max-w-[150px] font-semibold">{att.name}</span>
-                    <span className="text-onedark-muted/70 text-[10px]">({formatBytes(att.size)})</span>
-                    {att.status === 'uploading' ? (
-                      <Loader2 className="w-3 h-3 animate-spin text-onedark-accent" />
-                    ) : att.status === 'error' ? (
-                      <span className="text-onedark-red font-bold text-[10px]" title={att.error}>!</span>
-                    ) : (
-                      <Check className="w-3 h-3 text-onedark-green" />
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveAttachment(att.id)}
-                      className="text-onedark-muted hover:text-onedark-fg cursor-pointer p-0.5"
-                      title="Remove attachment"
+              <div className="flex items-center gap-1.5 overflow-x-auto py-1 px-1 flex-wrap border-b border-onedark-borderSubtle/50 pb-2">
+                {attachments.map((att) => {
+                  const meta = getAttachmentIcon(att.name);
+                  const IconComp = meta.icon;
+                  return (
+                    <div
+                      key={att.id}
+                      className="flex items-center space-x-2 px-2.5 py-1 rounded-lg bg-onedark-surface/60 border border-onedark-borderSubtle/80 text-[11px] font-mono text-onedark-fg shadow-2xs group"
                     >
-                      <X className="w-2.5 h-2.5" />
-                    </button>
-                  </div>
-                ))}
+                      <div className={`p-0.5 rounded ${meta.bg} flex items-center justify-center`}>
+                        <IconComp className={`w-3 h-3 ${meta.color} flex-shrink-0`} />
+                      </div>
+                      <span className="truncate max-w-[150px] font-semibold text-onedark-fgBright">{att.name}</span>
+                      <span className="text-onedark-muted/80 text-[10px]">({formatBytes(att.size)})</span>
+                      {att.status === 'uploading' ? (
+                        <Loader2 className="w-3 h-3 animate-spin text-onedark-accent" />
+                      ) : att.status === 'error' ? (
+                        <span className="text-onedark-red font-bold text-[10px]" title={att.error}>!</span>
+                      ) : (
+                        <Check className="w-3 h-3 text-onedark-green" />
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveAttachment(att.id)}
+                        className="text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/80 rounded p-0.5 cursor-pointer transition-colors ml-0.5"
+                        title="Remove attachment"
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             )}
 
@@ -3284,18 +3348,18 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   handleAttachFiles(e.dataTransfer.files);
                 }
               }}
-              className={`flex items-end space-x-2 bg-onedark-darker border border-onedark-border rounded-xl px-3.5 py-2 focus-within:border-onedark-accent/80 focus-within:ring-1 focus-within:ring-onedark-accent/20 transition-all shadow-inner min-h-[46px] relative ${
-                isDraggingInput ? 'ring-2 ring-onedark-accent border-onedark-accent bg-onedark-surface/30' : ''
+              className={`flex items-end space-x-2 bg-onedark-surface/40 hover:bg-onedark-surface/60 focus-within:bg-onedark-surface/80 border border-onedark-border/80 focus-within:border-onedark-accent/70 rounded-2xl px-3 py-2 focus-within:ring-2 focus-within:ring-onedark-accent/15 transition-all shadow-md min-h-[48px] relative ${
+                isDraggingInput ? 'ring-2 ring-onedark-accent border-onedark-accent bg-onedark-surface/60' : ''
               }`}
             >
               {/* Paperclip attach button */}
               <button
                 type="button"
                 onClick={() => chatFileInputRef.current?.click()}
-                className="h-8 w-8 rounded-lg text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/80 flex items-center justify-center transition-colors cursor-pointer mb-0.5 flex-shrink-0"
+                className="h-8 w-8 rounded-lg text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface border border-transparent hover:border-onedark-borderSubtle/60 flex items-center justify-center transition-all cursor-pointer mb-0.5 flex-shrink-0 active:scale-95 group"
                 title="Attach file(s) (CSV, TSV, Parquet, JSON, Notebooks, Images, Archives, PDFs)"
               >
-                <Paperclip className="w-4 h-4" />
+                <Paperclip className="w-4 h-4 text-onedark-muted group-hover:text-onedark-accent transition-colors" />
               </button>
 
               <div className="relative flex-1 min-h-[36px] max-h-[220px] flex items-center">
@@ -3334,7 +3398,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 <button
                   type="button"
                   onClick={() => onStopTask && onStopTask()}
-                  className="h-9 px-3.5 rounded-xl bg-onedark-red hover:bg-onedark-red/90 text-white text-xs font-bold flex items-center space-x-1.5 transition-all shadow-sm flex-shrink-0 active:scale-95 animate-pulse cursor-pointer mb-0.5"
+                  className="h-8 px-3.5 rounded-lg bg-onedark-red hover:bg-onedark-red/90 text-white text-xs font-bold font-mono flex items-center space-x-1.5 transition-all shadow-sm flex-shrink-0 active:scale-95 animate-pulse cursor-pointer mb-0.5"
                   title="Stop execution (Esc)"
                 >
                   <Square className="w-3.5 h-3.5 fill-current" />
@@ -3344,7 +3408,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 <button
                   type="button"
                   disabled
-                  className="h-9 w-9 rounded-xl bg-onedark-accent/70 text-onedark-darker flex items-center justify-center transition-all shadow-sm flex-shrink-0 cursor-wait mb-0.5"
+                  className="h-8 w-8 rounded-lg bg-onedark-accent/70 text-onedark-darker flex items-center justify-center transition-all shadow-sm flex-shrink-0 cursor-wait mb-0.5"
                   title="Processing request..."
                 >
                   <Loader2 className="w-4 h-4 animate-spin stroke-[2.5]" />
@@ -3353,7 +3417,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 <button
                   type="submit"
                   disabled={!inputValue.trim() && attachments.length === 0}
-                  className="h-9 w-9 rounded-xl bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-sm flex items-center justify-center flex-shrink-0 active:scale-95 cursor-pointer mb-0.5"
+                  className="h-8 w-8 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-sm flex items-center justify-center flex-shrink-0 active:scale-95 cursor-pointer mb-0.5"
                   title="Send message (Enter ↵)"
                 >
                   <Send className="w-4 h-4 stroke-[2.5]" />
