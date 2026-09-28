@@ -8,6 +8,7 @@ export interface GrepMatcherOptions {
   isRegex?: boolean;
   caseSensitive?: boolean;
   searchDiffContent?: boolean;
+  isAst?: boolean;
 }
 
 export interface GrepLineMatch {
@@ -28,9 +29,12 @@ export interface GrepMatcher {
   rawQuery: string;
   isRegex: boolean;
   caseSensitive: boolean;
+  isAst: boolean;
   isValid: boolean;
   error: string | null;
   regex: RegExp | null;
+  highlightRegex: RegExp | null;
+  targetSymbol?: string;
   test: (text: string | null | undefined) => boolean;
   matchCount: (text: string | null | undefined) => number;
   highlightSegments: (text: string) => { text: string; matched: boolean }[];
@@ -45,24 +49,126 @@ export function escapeRegExp(str: string): string {
 }
 
 /**
+ * Helper to parse AST query syntax (e.g., @router, class: Foo, func: bar, def: baz)
+ * into test patterns and highlight tokens.
+ */
+export function parseAstQuery(query: string): {
+  isAst: boolean;
+  targetSymbol?: string;
+  testPattern?: string;
+  highlightPattern?: string;
+} {
+  const trimmed = query.trim();
+  if (!trimmed) return { isAst: false };
+
+  // Decorator query: @router, @app.get, @inject
+  if (trimmed.startsWith('@')) {
+    const symbol = trimmed.slice(1).trim();
+    if (!symbol) {
+      return { isAst: true, testPattern: '@', highlightPattern: '@' };
+    }
+    const escaped = escapeRegExp(symbol);
+    return {
+      isAst: true,
+      targetSymbol: symbol,
+      testPattern: `(?:@\\s*${escaped}|${escaped})`,
+      highlightPattern: `@?\\s*${escaped}`,
+    };
+  }
+
+  // Class / Type / Interface query: class: User, extends: Base, interface: Config
+  const classMatch = trimmed.match(/^(?:class|extends|interface|struct|type):\s*(.+)$/i);
+  if (classMatch) {
+    const symbol = classMatch[1].trim();
+    if (!symbol) return { isAst: true, testPattern: 'class', highlightPattern: 'class' };
+    const escaped = escapeRegExp(symbol);
+    return {
+      isAst: true,
+      targetSymbol: symbol,
+      testPattern: `(?:class|struct|interface|type)\\s+[A-Za-z0-9_$]*${escaped}|${escaped}`,
+      highlightPattern: escaped,
+    };
+  }
+
+  // Function / Method query: func: handle_request, def: compute, fn: process
+  const funcMatch = trimmed.match(/^(?:func|fn|def|method|action):\s*(.+)$/i);
+  if (funcMatch) {
+    const symbol = funcMatch[1].trim();
+    if (!symbol) return { isAst: true, testPattern: 'def|function|func', highlightPattern: 'def|function|func' };
+    const escaped = escapeRegExp(symbol);
+    return {
+      isAst: true,
+      targetSymbol: symbol,
+      testPattern: `(?:def|async\\s+def|function|fn|func|const|let|var)\\s+[A-Za-z0-9_$]*${escaped}|${escaped}`,
+      highlightPattern: escaped,
+    };
+  }
+
+  // Variable / Const / Let query: const: API_URL, var: count
+  const varMatch = trimmed.match(/^(?:var|const|let|val):\s*(.+)$/i);
+  if (varMatch) {
+    const symbol = varMatch[1].trim();
+    if (!symbol) return { isAst: true, testPattern: 'const|let|var', highlightPattern: 'const|let|var' };
+    const escaped = escapeRegExp(symbol);
+    return {
+      isAst: true,
+      targetSymbol: symbol,
+      testPattern: `(?:const|let|var|val)\\s+${escaped}|${escaped}`,
+      highlightPattern: escaped,
+    };
+  }
+
+  // Symbol query: symbol: Identifier
+  const symMatch = trimmed.match(/^(?:symbol|sym|id):\s*(.+)$/i);
+  if (symMatch) {
+    const symbol = symMatch[1].trim();
+    const escaped = escapeRegExp(symbol);
+    return {
+      isAst: true,
+      targetSymbol: symbol,
+      testPattern: `\\b${escaped}\\b`,
+      highlightPattern: `\\b${escaped}\\b`,
+    };
+  }
+
+  // Endpoint / Route query: endpoint: /api/tasks, route: /users
+  const routeMatch = trimmed.match(/^(?:endpoint|route|path):\s*(.+)$/i);
+  if (routeMatch) {
+    const routePath = routeMatch[1].trim();
+    const escaped = escapeRegExp(routePath);
+    return {
+      isAst: true,
+      targetSymbol: routePath,
+      testPattern: `["']${escaped}|${escaped}`,
+      highlightPattern: escaped,
+    };
+  }
+
+  return { isAst: false };
+}
+
+/**
  * Constructs a resilient GrepMatcher instance from a search query string.
  */
 export function createGrepMatcher(query: string, options: GrepMatcherOptions = {}): GrepMatcher {
   const trimmed = query.trim();
   const caseSensitive = options.caseSensitive ?? false;
   let isRegex = options.isRegex ?? false;
+  let isAst = options.isAst ?? false;
 
   if (!trimmed) {
     return {
       rawQuery: '',
       isRegex: false,
       caseSensitive: false,
+      isAst: false,
       isValid: true,
       error: null,
       regex: null,
+      highlightRegex: null,
       test: () => true,
       matchCount: () => 0,
-      highlightSegments: (text) => [{ text, matched: false }],
+      highlightSegments: (text) => [{ text: text || '', matched: false }],
       grepPatch: () => ({
         hasMatch: false,
         matchingLinesCount: 0,
@@ -72,22 +178,34 @@ export function createGrepMatcher(query: string, options: GrepMatcherOptions = {
     };
   }
 
+  const astInfo = parseAstQuery(trimmed);
+  if (astInfo.isAst) {
+    isAst = true;
+  }
+
   // Check for slash-enclosed regex syntax e.g. /pattern/i
   let patternStr = trimmed;
+  let highlightPatternStr = trimmed;
   let flags = caseSensitive ? 'g' : 'gi';
 
   const slashMatch = trimmed.match(/^\/(.+)\/([gimsuy]*)$/);
   if (slashMatch) {
     patternStr = slashMatch[1];
+    highlightPatternStr = patternStr;
     isRegex = true;
     const specifiedFlags = slashMatch[2];
     flags = specifiedFlags.includes('g') ? specifiedFlags : `${specifiedFlags}g`;
     if (!caseSensitive && !flags.includes('i')) {
       flags += 'i';
     }
+  } else if (astInfo.isAst && astInfo.testPattern) {
+    patternStr = astInfo.testPattern;
+    highlightPatternStr = astInfo.highlightPattern || astInfo.targetSymbol || trimmed;
+    isRegex = true;
   }
 
   let compiledRegex: RegExp | null = null;
+  let compiledHighlightRegex: RegExp | null = null;
   let isValid = true;
   let error: string | null = null;
 
@@ -104,11 +222,23 @@ export function createGrepMatcher(query: string, options: GrepMatcherOptions = {
         compiledRegex = null;
       }
     }
+
+    try {
+      compiledHighlightRegex = new RegExp(highlightPatternStr, flags);
+    } catch {
+      try {
+        compiledHighlightRegex = new RegExp(escapeRegExp(highlightPatternStr), flags);
+      } catch {
+        compiledHighlightRegex = compiledRegex;
+      }
+    }
   } else {
     try {
       compiledRegex = new RegExp(escapeRegExp(patternStr), flags);
+      compiledHighlightRegex = compiledRegex;
     } catch {
       compiledRegex = null;
+      compiledHighlightRegex = null;
     }
   }
 
@@ -116,7 +246,6 @@ export function createGrepMatcher(query: string, options: GrepMatcherOptions = {
     if (!trimmed) return true;
     if (!text) return false;
     if (compiledRegex) {
-      // Reset regex index for global flags
       compiledRegex.lastIndex = 0;
       return compiledRegex.test(text);
     }
@@ -145,12 +274,13 @@ export function createGrepMatcher(query: string, options: GrepMatcherOptions = {
 
   const highlightSegments = (text: string): { text: string; matched: boolean }[] => {
     if (!trimmed || !text) return [{ text: text || '', matched: false }];
-    if (!compiledRegex) {
+    const activeRegex = compiledHighlightRegex || compiledRegex;
+    if (!activeRegex) {
       return [{ text, matched: false }];
     }
 
     const segments: { text: string; matched: boolean }[] = [];
-    compiledRegex.lastIndex = 0;
+    activeRegex.lastIndex = 0;
     let lastIndex = 0;
     let match: RegExpExecArray | null;
 
@@ -158,20 +288,21 @@ export function createGrepMatcher(query: string, options: GrepMatcherOptions = {
     let iterations = 0;
     const maxIterations = 500;
 
-    while ((match = compiledRegex.exec(text)) !== null && iterations++ < maxIterations) {
+    while ((match = activeRegex.exec(text)) !== null && iterations++ < maxIterations) {
       if (match.index > lastIndex) {
         segments.push({
           text: text.slice(lastIndex, match.index),
           matched: false,
         });
       }
-      segments.push({
-        text: match[0],
-        matched: true,
-      });
-      lastIndex = match.index + match[0].length;
-      if (match[0].length === 0) {
-        compiledRegex.lastIndex++;
+      if (match[0].length > 0) {
+        segments.push({
+          text: match[0],
+          matched: true,
+        });
+        lastIndex = match.index + match[0].length;
+      } else {
+        activeRegex.lastIndex++;
       }
     }
 
@@ -224,9 +355,12 @@ export function createGrepMatcher(query: string, options: GrepMatcherOptions = {
     rawQuery: query,
     isRegex,
     caseSensitive,
+    isAst,
     isValid,
     error,
     regex: compiledRegex,
+    highlightRegex: compiledHighlightRegex,
+    targetSymbol: astInfo.targetSymbol,
     test,
     matchCount,
     highlightSegments,

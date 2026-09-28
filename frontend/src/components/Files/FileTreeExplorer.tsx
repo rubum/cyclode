@@ -5,16 +5,17 @@ import {
   FileCode, 
   Search, 
   ChevronRight, 
-  ChevronDown,
-  X,
-  Loader2,
-  Code2,
-  Sparkles,
-  Layers,
-  Terminal,
-  FileText,
-  Target
+  ChevronDown, 
+  X, 
+  Loader2, 
+  Code2, 
+  Sparkles, 
+  Layers, 
+  Terminal, 
+  FileText, 
+  Target 
 } from 'lucide-react';
+import { createGrepMatcher } from '../../utils/grepMatcher';
 
 export interface FileNode {
   name: string;
@@ -408,24 +409,27 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
     }));
   };
 
-  const highlightMatch = (text: string, query: string) => {
-    if (!query.trim()) return text;
+  const searchMatcher = useMemo(() => {
+    return createGrepMatcher(filter, { isRegex, caseSensitive, isAst: searchMode === 'ast' });
+  }, [filter, isRegex, caseSensitive, searchMode]);
+
+  const highlightMatch = (text: string | null | undefined, _query?: string) => {
+    if (!text) return null;
+    if (!filter.trim()) return text;
     try {
-      const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const regex = new RegExp(`(${escaped})`, caseSensitive ? 'g' : 'gi');
-      const parts = text.split(regex);
+      const segments = searchMatcher.highlightSegments(text);
       return (
         <span>
-          {parts.map((part, i) =>
-            regex.test(part) ? (
+          {segments.map((seg, i) =>
+            seg.matched ? (
               <mark
                 key={i}
-                className="bg-onedark-yellow/20 text-onedark-yellow font-semibold rounded px-1 py-0.2 border border-onedark-yellow/30"
+                className="bg-onedark-yellow/25 text-onedark-yellow font-semibold rounded px-0.5 border border-onedark-yellow/40 shadow-xs"
               >
-                {part}
+                {seg.text}
               </mark>
             ) : (
-              part
+              <span key={i}>{seg.text}</span>
             )
           )}
         </span>
@@ -890,19 +894,27 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
 
                           <div className="min-w-0 flex-1 leading-snug">
                             {match.signature ? (
-                              <div className="flex items-center space-x-1.5 flex-wrap">
-                                {match.type && (
-                                  <span className="px-1 py-0.2 rounded text-[9.5px] uppercase font-bold bg-onedark-purple/20 text-onedark-purple">
-                                    {match.type}
+                              <div className="space-y-0.5">
+                                <div className="flex items-center space-x-1.5 flex-wrap">
+                                  {match.type && (
+                                    <span className="px-1 py-0.2 rounded text-[9.5px] uppercase font-bold bg-onedark-purple/20 text-onedark-purple">
+                                      {match.type}
+                                    </span>
+                                  )}
+                                  <span className="text-onedark-fg font-semibold truncate">
+                                    {highlightMatch(match.signature)}
                                   </span>
+                                </div>
+                                {match.decorators && match.decorators.length > 0 && (
+                                  <div className="text-[10px] text-onedark-muted/80 flex items-center space-x-1 truncate font-mono">
+                                    <span className="text-onedark-purple">@</span>
+                                    <span>{match.decorators.map((d) => highlightMatch(d)).reduce((prev, curr) => [prev, ', ', curr] as any)}</span>
+                                  </div>
                                 )}
-                                <span className="text-onedark-fg font-semibold truncate">
-                                  {match.signature}
-                                </span>
                               </div>
                             ) : (
                               <div className="truncate text-onedark-fg/90">
-                                {highlightMatch(match.line_content || '', filter)}
+                                {highlightMatch(match.line_content || '')}
                               </div>
                             )}
                           </div>

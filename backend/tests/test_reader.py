@@ -273,3 +273,123 @@ async def test_search_doc_pages_endpoint():
         assert resp_empty.status_code == 200
         assert resp_empty.json()["total_results"] == 0
 
+
+@pytest.mark.asyncio
+async def test_fetch_arxiv_paper_info():
+    from app.api.reader import _fetch_arxiv_paper_info
+
+    sample_atom = """<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/abs/1706.03762v7</id>
+    <updated>2023-08-02T01:55:40Z</updated>
+    <published>2017-06-12T17:57:34Z</published>
+    <title>Attention Is All You Need</title>
+    <summary>The dominant sequence transduction models are based on complex recurrent or convolutional neural networks.</summary>
+    <author>
+      <name>Ashish Vaswani</name>
+    </author>
+    <author>
+      <name>Noam Shazeer</name>
+    </author>
+    <arxiv:comment xmlns:arxiv="http://arxiv.org/schemas/atom">15 pages, 5 figures</arxiv:comment>
+    <arxiv:primary_category xmlns:arxiv="http://arxiv.org/schemas/atom" term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.CL" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+  </entry>
+</feed>"""
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.text = sample_atom
+
+    with patch("httpx.AsyncClient.get", return_value=mock_resp):
+        info = await _fetch_arxiv_paper_info("1706.03762", "https://arxiv.org/abs/1706.03762")
+        assert info["type"] == "arxiv"
+        assert info["title"] == "Attention Is All You Need"
+        assert "Ashish Vaswani" in info["authors"]
+        assert "Noam Shazeer" in info["authors"]
+        assert "cs.CL" in info["categories"]
+        assert info["arxiv_id"] == "1706.03762"
+        assert "/api/reader/proxy/pdf?url=https://arxiv.org/pdf/1706.03762.pdf" in info["pdf_url"]
+        assert "The dominant sequence transduction models" in info["abstract"]
+        assert "Attention Is All You Need" in info["content_markdown"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.asyncio
+async def test_get_url_reader_arxiv_and_pdf():
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
+
+    mock_arxiv_result = {
+        "type": "arxiv",
+        "url": "https://arxiv.org/abs/2401.12345",
+        "title": "Deep Reasoning with Multi-Agent Systems",
+        "arxiv_id": "2401.12345",
+        "authors": ["Jane Doe"],
+        "published": "2024-01-15",
+        "categories": ["cs.AI"],
+        "pdf_url": "/api/reader/proxy/pdf?url=https://arxiv.org/pdf/2401.12345.pdf",
+        "content_markdown": "# Deep Reasoning with Multi-Agent Systems\n\nAbstract here",
+    }
+
+    transport = ASGITransport(app=app)
+    with patch("app.api.reader._fetch_arxiv_paper_info", return_value=mock_arxiv_result):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # 1. Test arXiv abs URL
+            resp = await client.get("/api/reader?url=https://arxiv.org/abs/2401.12345")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["type"] == "arxiv"
+            assert data["arxiv_id"] == "2401.12345"
+            assert data["title"] == "Deep Reasoning with Multi-Agent Systems"
+            assert "Jane Doe" in data["authors"]
+            assert "/api/reader/proxy/pdf" in data["pdf_url"]
+
+            # 2. Test direct .pdf URL
+            pdf_resp = await client.get("/api/reader?url=https://example.com/research/whitepaper.pdf")
+            assert pdf_resp.status_code == 200
+            pdf_data = pdf_resp.json()
+            assert pdf_data["type"] == "pdf"
+            assert pdf_data["title"] == "whitepaper.pdf"
+            assert "/api/reader/proxy/pdf" in pdf_data["pdf_url"]
+
+
+@pytest.mark.asyncio
+async def test_proxy_pdf_stream():
+    from app.api.reader import proxy_pdf_stream
+    from fastapi.responses import StreamingResponse
+
+    # Mock upstream response stream
+    mock_upstream_resp = MagicMock()
+    mock_upstream_resp.status_code = 200
+    mock_upstream_resp.headers = {
+        "content-type": "application/pdf",
+        "content-length": "1024",
+        "etag": '"abc123etag"',
+    }
+    async def mock_aiter_bytes(chunk_size=65536):
+        yield b"%PDF-1.5 mock pdf content"
+
+    mock_upstream_resp.aiter_bytes = mock_aiter_bytes
+    mock_upstream_resp.aclose = AsyncMock()
+
+    mock_client = MagicMock()
+    mock_client.build_request.return_value = MagicMock()
+    mock_client.send = AsyncMock(return_value=mock_upstream_resp)
+    mock_client.aclose = AsyncMock()
+
+    with patch("httpx.AsyncClient", return_value=mock_client):
+        response = await proxy_pdf_stream("https://arxiv.org/pdf/1706.03762.pdf")
+        assert isinstance(response, StreamingResponse)
+        assert response.media_type == "application/pdf"
+        assert 'inline; filename="1706.03762.pdf"' in response.headers["Content-Disposition"]
+        assert response.headers["Access-Control-Allow-Origin"] == "*"
+
+        chunks = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk)
+        assert b"".join(chunks) == b"%PDF-1.5 mock pdf content"
+
+

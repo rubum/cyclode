@@ -781,9 +781,23 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({ task, onSelectAu
                               </span>
 
                               {/* Content */}
-                              <span className="whitespace-pre flex-1 min-w-0">
-                                {lineObj.text.replace(/^[+-]/, '')}
-                              </span>
+                              {isLineGrepMatch ? (
+                                <span className="whitespace-pre flex-1 min-w-0">
+                                  {grepMatcher.highlightSegments(lineObj.text.replace(/^[+-]/, '')).map((seg, sIdx) =>
+                                    seg.matched ? (
+                                      <mark key={sIdx} className="bg-onedark-yellow/30 text-onedark-yellow font-bold px-0.5 rounded-xs">
+                                        {seg.text}
+                                      </mark>
+                                    ) : (
+                                      <span key={sIdx}>{seg.text}</span>
+                                    )
+                                  )}
+                                </span>
+                              ) : (
+                                <span className="whitespace-pre flex-1 min-w-0">
+                                  {lineObj.text.replace(/^[+-]/, '')}
+                                </span>
+                              )}
                             </div>
                           );
                         });

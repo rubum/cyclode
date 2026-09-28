@@ -31,13 +31,17 @@ import {
   Bot,
   Radio,
   Compass,
-  Play
+  Play,
+  GraduationCap,
+  Columns,
+  Layers
 } from 'lucide-react';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { PRReviewAgentPopover, LineContext } from './PRReviewAgentPopover';
 import { LinearIssueDetailView } from './LinearIssueDetailView';
 import { RepoListenerConfigModal } from './RepoListenerConfigModal';
 import { useWebSocket } from '../../contexts/WebSocketContext';
+import { createGrepMatcher } from '../../utils/grepMatcher';
 import { Task } from '../../types';
 
 export interface DocNavItem {
@@ -78,10 +82,11 @@ export interface PRCommitItem {
 }
 
 interface ReaderResponse {
-  type: 'github' | 'web';
+  type: 'github' | 'web' | 'arxiv' | 'pdf' | string;
   is_pr?: boolean;
   url: string;
   title: string;
+  domain?: string;
   description?: string;
   content_markdown: string;
   overview_markdown?: string;
@@ -105,6 +110,17 @@ interface ReaderResponse {
   language?: string;
   clone_url?: string;
   default_branch?: string;
+  // arXiv and PDF specific fields
+  arxiv_id?: string;
+  pdf_url?: string;
+  raw_pdf_url?: string;
+  authors?: string[];
+  published?: string;
+  updated?: string;
+  categories?: string[];
+  abstract?: string;
+  comment?: string;
+  doi?: string;
 }
 
 interface HeadingItem {
@@ -289,15 +305,37 @@ interface PRDiffSectionProps {
 const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, onLineComment }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [filterQuery, setFilterQuery] = useState('');
+  const [isRegex, setIsRegex] = useState(false);
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
   const [copiedFile, setCopiedFile] = useState<string | null>(null);
   const [activeFilename, setActiveFilename] = useState<string | null>(null);
 
+  const grepMatcher = useMemo(() => {
+    return createGrepMatcher(filterQuery, { isRegex, searchDiffContent: true });
+  }, [filterQuery, isRegex]);
+
+  const fileGrepMap = useMemo(() => {
+    const map = new Map<string, { matchesFilename: boolean; patchMatchCount: number }>();
+    if (!filterQuery.trim()) return map;
+    for (const f of files) {
+      const matchesFilename = grepMatcher.test(f.filename);
+      const patchRes = f.patch ? grepMatcher.grepPatch(f.patch) : { hasMatch: false, matchingLinesCount: 0 };
+      map.set(f.filename, {
+        matchesFilename,
+        patchMatchCount: patchRes.matchingLinesCount,
+      });
+    }
+    return map;
+  }, [files, filterQuery, grepMatcher]);
+
   const filteredFiles = useMemo(() => {
     if (!filterQuery.trim()) return files;
-    const q = filterQuery.toLowerCase();
-    return files.filter(f => f.filename.toLowerCase().includes(q));
-  }, [files, filterQuery]);
+    return files.filter((f) => {
+      const grepInfo = fileGrepMap.get(f.filename);
+      if (!grepInfo) return false;
+      return grepInfo.matchesFilename || grepInfo.patchMatchCount > 0;
+    });
+  }, [files, filterQuery, fileGrepMap]);
 
   // Track active visible file under sticky header
   useEffect(() => {
@@ -615,12 +653,15 @@ const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, onLineCo
                         const isDeletion = lineObj.type === 'deletion';
                         const isHeader = lineObj.type === 'header';
                         const activeLineNum = lineObj.newLine || lineObj.oldLine || 1;
+                        const isLineGrepMatch = Boolean(filterQuery.trim() && !isHeader && grepMatcher.test(lineObj.text));
 
                         return (
                           <div
                             key={lineIdx}
                             className={`group/line flex items-center px-1 py-0.5 rounded-xs transition-colors relative ${
-                              isAddition
+                              isLineGrepMatch
+                                ? 'bg-onedark-purple/20 ring-1 ring-onedark-purple/60 text-onedark-fgBright font-semibold'
+                                : isAddition
                                 ? 'bg-onedark-green/10 text-onedark-green hover:bg-onedark-green/15'
                                 : isDeletion
                                 ? 'bg-onedark-red/10 text-onedark-red hover:bg-onedark-red/15'
@@ -655,7 +696,22 @@ const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, onLineCo
 
                             {/* Diff Text with 12.5px font size */}
                             <pre className="font-mono text-[12.5px] leading-relaxed whitespace-pre flex-1 overflow-x-visible">
-                              {lineObj.text || ' '}
+                              {isLineGrepMatch ? (
+                                grepMatcher.highlightSegments(lineObj.text || ' ').map((seg, sIdx) =>
+                                  seg.matched ? (
+                                    <mark
+                                      key={sIdx}
+                                      className="bg-onedark-yellow/30 text-onedark-yellow font-bold px-0.5 rounded-xs border border-onedark-yellow/40 shadow-xs"
+                                    >
+                                      {seg.text}
+                                    </mark>
+                                  ) : (
+                                    <span key={sIdx}>{seg.text}</span>
+                                  )
+                                )
+                              ) : (
+                                lineObj.text || ' '
+                              )}
                             </pre>
                           </div>
                         );
@@ -971,6 +1027,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'reader' | 'webview'>('reader');
+  const [pdfViewMode, setPdfViewMode] = useState<'summary' | 'pdf' | 'split'>('split');
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const [prTab, setPrTab] = useState<'overview' | 'diff' | 'commits'>('overview');
 
@@ -1070,6 +1127,12 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
       }
       const json: ReaderResponse = await res.json();
       setData(json);
+
+      if (json.type === 'arxiv') {
+        setPdfViewMode('split');
+      } else if (json.type === 'pdf') {
+        setPdfViewMode('pdf');
+      }
 
       // Auto-open site tree on first load of a doc with navigation
       if (json.navigation && json.navigation.length > 0) {
@@ -1292,7 +1355,9 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
     );
   }
 
-  const isGitHub = data?.type === 'github' || url.includes('github.com');
+  const isGitHub = data?.type === 'github' || Boolean(url && url.includes('github.com'));
+  const isArXiv = data?.type === 'arxiv' || Boolean(data?.arxiv_id) || Boolean(currentUrl && /arxiv\.org/i.test(currentUrl)) || Boolean(url && /arxiv\.org/i.test(url));
+  const isPdf = data?.type === 'pdf' || Boolean(data?.pdf_url) || Boolean(currentUrl && /\.pdf($|\?)/i.test(currentUrl)) || Boolean(url && /\.pdf($|\?)/i.test(url));
 
   return (
     <div className="flex flex-col h-full bg-onedark-darker overflow-hidden text-onedark-fg">
@@ -1330,6 +1395,10 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
 
           {isPlanDoc ? (
             <Compass className="w-4 h-4 text-onedark-accent flex-shrink-0" />
+          ) : isArXiv ? (
+            <GraduationCap className="w-4 h-4 text-onedark-accent flex-shrink-0" />
+          ) : isPdf ? (
+            <FileText className="w-4 h-4 text-onedark-red flex-shrink-0" />
           ) : isGitHub ? (
             <FolderGit2 className="w-4 h-4 text-onedark-folder flex-shrink-0" />
           ) : (
@@ -1346,7 +1415,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
         {/* Right: Actions */}
         <div className="flex items-center space-x-1 flex-shrink-0">
           {/* Site Tree & Search Drawer Toggle */}
-          {((data?.navigation && data.navigation.length > 0) || (data && !isGitHub && !isPlanDoc)) && (
+          {((data?.navigation && data.navigation.length > 0) || (data && !isGitHub && !isPlanDoc && !isArXiv && !isPdf)) && (
             <button
               onClick={() => setIsSiteTreeOpen(!isSiteTreeOpen)}
               className={`flex items-center space-x-1 px-2 py-1 rounded text-xs transition-all border cursor-pointer ${
@@ -1362,7 +1431,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
           )}
 
           {/* Document Outline Left Sidebar Toggle */}
-          {headings.length > 0 && (
+          {headings.length > 0 && !isPdf && (
             <button
               onClick={() => setIsOutlineOpen(!isOutlineOpen)}
               className={`flex items-center space-x-1.5 px-2.5 py-1 rounded text-xs transition-all border cursor-pointer ${
@@ -1380,8 +1449,8 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
             </button>
           )}
 
-          {/* Mode Switcher (Hide in Plan Mode) */}
-          {!isPlanDoc && (
+          {/* Mode Switcher (Hide in Plan, arXiv, and PDF Modes) */}
+          {!isPlanDoc && !isArXiv && !isPdf && (
             <div className="flex items-center bg-onedark-surface/80 rounded border border-onedark-borderSubtle p-0.5 text-[11px] font-medium mr-0.5">
               <button
                 onClick={() => setViewMode('reader')}
@@ -1507,6 +1576,139 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
                     </button>
                   </>
                 )}
+              </div>
+            </div>
+          )}
+
+          {/* arXiv / PDF Paper Hero Banner & Tri-Mode Switcher */}
+          {(isArXiv || isPdf) && data && !data.is_pr && (
+            <div className="bg-onedark-surface/30 border-b border-onedark-borderSubtle select-none flex-shrink-0">
+              <div className="px-3 py-2 flex flex-wrap items-center justify-between gap-2 border-b border-onedark-borderSubtle/60 text-xs">
+                {/* Left: Metadata badges and authors */}
+                <div className="flex flex-wrap items-center gap-2 min-w-0">
+                  {data.arxiv_id && (
+                    <a
+                      href={`https://arxiv.org/abs/${data.arxiv_id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-2 py-0.5 rounded-full font-mono text-[10.5px] font-bold bg-onedark-accent/15 text-onedark-accent border border-onedark-accent/30 hover:bg-onedark-accent/25 transition-colors flex items-center space-x-1"
+                      title="Open abstract page on arXiv.org"
+                    >
+                      <GraduationCap className="w-3 h-3" />
+                      <span>arXiv:{data.arxiv_id}</span>
+                    </a>
+                  )}
+
+                  {!data.arxiv_id && isPdf && (
+                    <span className="px-2 py-0.5 rounded-full font-mono text-[10.5px] font-bold bg-onedark-red/15 text-onedark-red border border-onedark-red/30 flex items-center space-x-1">
+                      <FileText className="w-3 h-3" />
+                      <span>PDF Document</span>
+                    </span>
+                  )}
+
+                  {data.authors && data.authors.length > 0 && (
+                    <span className="text-onedark-muted flex items-center space-x-1 max-w-md truncate" title={data.authors.join(', ')}>
+                      <span>by</span>
+                      <span className="font-semibold text-onedark-fgBright truncate">
+                        {data.authors.slice(0, 3).join(', ')}{data.authors.length > 3 ? ` +${data.authors.length - 3} more` : ''}
+                      </span>
+                    </span>
+                  )}
+
+                  {data.published && (
+                    <span className="text-[11px] text-onedark-muted font-mono">
+                      Published {data.published}
+                    </span>
+                  )}
+
+                  {data.categories && data.categories.length > 0 && (
+                    <div className="flex items-center space-x-1">
+                      {data.categories.slice(0, 3).map((cat) => (
+                        <span
+                          key={cat}
+                          className="px-1.5 py-0.2 rounded text-[10px] font-mono bg-onedark-surface border border-onedark-borderSubtle text-onedark-fg"
+                        >
+                          {cat}
+                        </span>
+                      ))}
+                      {data.categories.length > 3 && (
+                        <span className="text-[10px] text-onedark-muted font-mono" title={data.categories.join(', ')}>
+                          +{data.categories.length - 3}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Right: Actions */}
+                <div className="flex items-center space-x-1.5">
+                  {onAskAgent && (
+                    <button
+                      onClick={() => {
+                        const paperIdentifier = data.arxiv_id ? `arXiv:${data.arxiv_id}` : (data.title || 'this paper');
+                        onAskAgent(`Please analyze the paper "${data.title}" (${paperIdentifier}). Summarize its core problem statement, novel contributions, methodology, and key experimental findings.`);
+                      }}
+                      className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-onedark-surface hover:bg-onedark-surface/80 border border-onedark-border text-onedark-fgBright text-[11px] font-medium transition-all cursor-pointer shadow-xs"
+                      title="Ask agent to analyze and summarize this paper"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-onedark-yellow" />
+                      <span>Ask Agent</span>
+                    </button>
+                  )}
+
+                  {(data.raw_pdf_url || data.pdf_url) && (
+                    <a
+                      href={data.raw_pdf_url || data.pdf_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      download={data.arxiv_id ? `arXiv_${data.arxiv_id}.pdf` : undefined}
+                      className="flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-onedark-accent/20 hover:bg-onedark-accent/30 border border-onedark-accent/40 text-onedark-accent text-[11px] font-semibold transition-all cursor-pointer shadow-xs"
+                      title="Download or open PDF"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download PDF</span>
+                    </a>
+                  )}
+                </div>
+              </div>
+
+              {/* Tri-Mode Segmented Switcher */}
+              <div className="flex items-center px-3 pt-1 space-x-1">
+                <button
+                  onClick={() => setPdfViewMode('summary')}
+                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-t-md text-xs font-medium border-b-2 transition-all cursor-pointer ${
+                    pdfViewMode === 'summary'
+                      ? 'border-onedark-accent text-onedark-fgBright bg-onedark-darker font-semibold'
+                      : 'border-transparent text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
+                  }`}
+                >
+                  <FileText className="w-3.5 h-3.5 text-onedark-accent" />
+                  <span>Summary & Abstract</span>
+                </button>
+
+                <button
+                  onClick={() => setPdfViewMode('pdf')}
+                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-t-md text-xs font-medium border-b-2 transition-all cursor-pointer ${
+                    pdfViewMode === 'pdf'
+                      ? 'border-onedark-accent text-onedark-fgBright bg-onedark-darker font-semibold'
+                      : 'border-transparent text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
+                  }`}
+                >
+                  <Layers className="w-3.5 h-3.5 text-onedark-purple" />
+                  <span>Full PDF</span>
+                </button>
+
+                <button
+                  onClick={() => setPdfViewMode('split')}
+                  className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-t-md text-xs font-medium border-b-2 transition-all cursor-pointer ${
+                    pdfViewMode === 'split'
+                      ? 'border-onedark-accent text-onedark-fgBright bg-onedark-darker font-semibold'
+                      : 'border-transparent text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
+                  }`}
+                >
+                  <Columns className="w-3.5 h-3.5 text-onedark-blue" />
+                  <span>Split View</span>
+                </button>
               </div>
             </div>
           )}
@@ -1913,7 +2115,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
         )}
 
         {/* Reader / Webview Viewport */}
-        <div ref={contentScrollRef} className="flex-1 overflow-y-auto p-4 select-text">
+        <div ref={contentScrollRef} className={`flex-1 ${(isArXiv || isPdf) && pdfViewMode !== 'summary' ? 'overflow-hidden flex flex-col p-4' : 'overflow-y-auto p-4'} select-text`}>
           {isLoading && (
             <div className="space-y-4 select-none">
               <div className="flex items-center justify-between p-3.5 rounded-xl border border-onedark-accent/30 bg-onedark-accent/5 shadow-xs">
@@ -2013,6 +2215,43 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
                 />
               ) : (
                 <PRCommitsSection commits={data.commits || []} />
+              )
+            ) : (isArXiv || isPdf || Boolean(data.pdf_url)) ? (
+              pdfViewMode === 'summary' ? (
+                <div className="max-w-none text-onedark-fg text-[14px] leading-[1.7]">
+                  <MarkdownRenderer
+                    content={data.overview_markdown || data.content_markdown}
+                    onLinkClick={(nextUrl) => navigateTo(nextUrl)}
+                  />
+                </div>
+              ) : pdfViewMode === 'pdf' ? (
+                <div className="h-full flex flex-col -m-4">
+                  <iframe
+                    src={data.pdf_url || data.raw_pdf_url}
+                    title={data.title || 'PDF Preview'}
+                    className="flex-1 w-full h-full border-none bg-white"
+                  />
+                </div>
+              ) : (
+                <div className="h-full flex flex-col lg:flex-row -m-4 overflow-hidden">
+                  {/* Left Side: Summary & Abstract */}
+                  <div className="flex-1 lg:w-1/2 overflow-y-auto p-4 border-b lg:border-b-0 lg:border-r border-onedark-borderSubtle">
+                    <div className="max-w-none text-onedark-fg text-[14px] leading-[1.7]">
+                      <MarkdownRenderer
+                        content={data.overview_markdown || data.content_markdown}
+                        onLinkClick={(nextUrl) => navigateTo(nextUrl)}
+                      />
+                    </div>
+                  </div>
+                  {/* Right Side: Embedded PDF Iframe */}
+                  <div className="flex-1 lg:w-1/2 flex flex-col h-full bg-onedark-darker">
+                    <iframe
+                      src={data.pdf_url || data.raw_pdf_url}
+                      title={data.title || 'PDF Preview'}
+                      className="flex-1 w-full h-full border-none bg-white"
+                    />
+                  </div>
+                </div>
               )
             ) : (
               <div className="max-w-none text-onedark-fg text-[14px] leading-[1.7]">

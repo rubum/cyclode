@@ -177,16 +177,36 @@ interface PRDiffSectionProps {
   diffText?: string;
   onLineComment?: (filename: string, line: number, content: string) => void;
   title?: string;
+  targetFile?: string | null;
+  targetLine?: number | null;
+  searchQuery?: string;
 }
 
-export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, onLineComment, title }) => {
+export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ 
+  files, 
+  diffText, 
+  onLineComment, 
+  title,
+  targetFile,
+  targetLine,
+  searchQuery 
+}) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [collapsedFiles, setCollapsedFiles] = useState<Record<string, boolean>>({});
   const [copiedFile, setCopiedFile] = useState<string | null>(null);
-  const [fileFilter, setFileFilter] = useState<string>('');
+  const [fileFilter, setFileFilter] = useState<string>(searchQuery || '');
   const [isRegex, setIsRegex] = useState<boolean>(false);
   const [searchDiffLines, setSearchDiffLines] = useState<boolean>(true);
   const [activeFilename, setActiveFilename] = useState<string | null>(null);
+  const [pulsingTarget, setPulsingTarget] = useState<{ file: string; line?: number } | null>(null);
+  const [currentMatchIndex, setCurrentMatchIndex] = useState<number>(0);
+
+  // Sync searchQuery from parent
+  useEffect(() => {
+    if (searchQuery !== undefined && searchQuery !== fileFilter) {
+      setFileFilter(searchQuery);
+    }
+  }, [searchQuery]);
 
   const toggleFile = (filename: string) => {
     setCollapsedFiles((prev) => ({ ...prev, [filename]: !prev[filename] }));
@@ -228,6 +248,178 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, o
       return grepInfo.matchesFilename || grepInfo.patchMatchCount > 0;
     });
   }, [files, fileFilter, fileGrepMap]);
+
+  // Compute all matches across filtered files
+  const allMatches = useMemo<Array<{ filename: string; lineNum: number; lineText: string; matchIndexInFile: number; totalMatchesInFile: number }>>(() => {
+    if (!fileFilter.trim() || !searchDiffLines) return [];
+    const matches: Array<{ filename: string; lineNum: number; lineText: string; matchIndexInFile: number; totalMatchesInFile: number }> = [];
+    for (const f of filteredFiles) {
+      if (!f.patch) continue;
+      const parsed = parseUnifiedPatch(f.patch);
+      const fileMatches: Array<{ lineNum: number; lineText: string }> = [];
+      for (const p of parsed) {
+        if (p.type !== 'header' && grepMatcher.test(p.text)) {
+          const lineNum = p.newLine || p.oldLine;
+          if (lineNum) {
+            fileMatches.push({ lineNum, lineText: p.text });
+          }
+        }
+      }
+      fileMatches.forEach((m, idx) => {
+        matches.push({
+          filename: f.filename,
+          lineNum: m.lineNum,
+          lineText: m.lineText,
+          matchIndexInFile: idx,
+          totalMatchesInFile: fileMatches.length
+        });
+      });
+    }
+    return matches;
+  }, [filteredFiles, fileFilter, grepMatcher, searchDiffLines]);
+
+  // Keep currentMatchIndex within bounds
+  useEffect(() => {
+    if (allMatches.length === 0) {
+      setCurrentMatchIndex(0);
+    } else if (currentMatchIndex >= allMatches.length) {
+      setCurrentMatchIndex(0);
+    }
+  }, [allMatches.length, currentMatchIndex]);
+
+  const scrollToDiffFile = (filename?: string, lineNum?: number) => {
+    if (!filename) return;
+    setCollapsedFiles((prev) => ({ ...prev, [filename]: false }));
+    
+    if (lineNum) {
+      setPulsingTarget({ file: filename, line: lineNum });
+      setTimeout(() => {
+        const lineEl = document.getElementById(`diff-line-${encodeURIComponent(filename)}-${lineNum}`);
+        if (lineEl) {
+          lineEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else {
+          const fileEl = document.getElementById(`diff-file-${encodeURIComponent(filename)}`);
+          if (fileEl) {
+            fileEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
+        }
+      }, 50);
+      return;
+    }
+
+    // If there are search matches in diff lines, find the first matching line
+    const grepInfo = fileGrepMap.get(filename);
+    if (grepInfo && grepInfo.patchMatchCount > 0) {
+      const fileItem = files.find((f) => f.filename === filename);
+      if (fileItem && fileItem.patch) {
+        const parsed = parseUnifiedPatch(fileItem.patch);
+        for (const p of parsed) {
+          if (p.type !== 'header' && grepMatcher.test(p.text)) {
+            const matchLineNum = p.newLine || p.oldLine;
+            if (matchLineNum) {
+              setPulsingTarget({ file: filename, line: matchLineNum });
+              setTimeout(() => {
+                const el = document.getElementById(`diff-line-${encodeURIComponent(filename)}-${matchLineNum}`);
+                if (el) {
+                  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                } else {
+                  const fileEl = document.getElementById(`diff-file-${encodeURIComponent(filename)}`);
+                  if (fileEl) {
+                    fileEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }
+                }
+              }, 50);
+              return;
+            }
+          }
+        }
+      }
+    }
+
+    // Fallback: scroll to top of file card
+    setPulsingTarget(null);
+    const el = document.getElementById(`diff-file-${encodeURIComponent(filename)}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  const jumpToMatchIndex = (index: number) => {
+    if (allMatches.length === 0) return;
+    const normalized = (index + allMatches.length) % allMatches.length;
+    setCurrentMatchIndex(normalized);
+    const m = allMatches[normalized];
+    scrollToDiffFile(m.filename, m.lineNum);
+  };
+
+  const handleNextMatch = () => {
+    jumpToMatchIndex(currentMatchIndex + 1);
+  };
+
+  const handlePrevMatch = () => {
+    jumpToMatchIndex(currentMatchIndex - 1);
+  };
+
+  const handleJumpToNextMatchInFile = (filename: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const fileMatches = allMatches.map((m, idx) => ({ ...m, globalIndex: idx })).filter((m) => m.filename === filename);
+    if (fileMatches.length === 0) return;
+
+    const currentInFileIdx = fileMatches.findIndex((m) => m.globalIndex === currentMatchIndex);
+    let nextMatch;
+    if (currentInFileIdx >= 0) {
+      nextMatch = fileMatches[(currentInFileIdx + 1) % fileMatches.length];
+    } else {
+      nextMatch = fileMatches[0];
+    }
+    setCurrentMatchIndex(nextMatch.globalIndex);
+    scrollToDiffFile(nextMatch.filename, nextMatch.lineNum);
+  };
+
+  // When targetFile or targetLine changes, expand, auto-scroll and pulse
+  useEffect(() => {
+    if (!targetFile) return;
+    setCollapsedFiles((prev) => ({ ...prev, [targetFile]: false }));
+
+    let targetLineNum = targetLine;
+    if (!targetLineNum && fileGrepMap.get(targetFile)?.patchMatchCount) {
+      const fileItem = files.find((f) => f.filename === targetFile);
+      if (fileItem && fileItem.patch) {
+        const parsed = parseUnifiedPatch(fileItem.patch);
+        for (const p of parsed) {
+          if (p.type !== 'header' && grepMatcher.test(p.text)) {
+            targetLineNum = p.newLine || p.oldLine || null;
+            if (targetLineNum) break;
+          }
+        }
+      }
+    }
+
+    setPulsingTarget(targetLineNum ? { file: targetFile, line: targetLineNum } : null);
+
+    const timer = setTimeout(() => {
+      if (targetLineNum) {
+        const lineEl = document.getElementById(`diff-line-${encodeURIComponent(targetFile)}-${targetLineNum}`);
+        if (lineEl) {
+          lineEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          return;
+        }
+      }
+      const fileEl = document.getElementById(`diff-file-${encodeURIComponent(targetFile)}`);
+      if (fileEl) {
+        fileEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 100);
+
+    const clearTimer = setTimeout(() => {
+      setPulsingTarget(null);
+    }, 4000);
+
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(clearTimer);
+    };
+  }, [targetFile, targetLine, fileGrepMap, grepMatcher, files]);
 
   // Track active visible file under the sticky top header
   useEffect(() => {
@@ -289,15 +481,6 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, o
   const activeFile = useMemo(() => {
     return filteredFiles[activeFileIndex] || filteredFiles[0] || null;
   }, [filteredFiles, activeFileIndex]);
-
-  const scrollToDiffFile = (filename?: string) => {
-    if (!filename) return;
-    const el = document.getElementById(`diff-file-${encodeURIComponent(filename)}`);
-    if (el) {
-      setCollapsedFiles((prev) => ({ ...prev, [filename]: false }));
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    }
-  };
 
   if (files.length === 0 && !diffText) {
     return (
@@ -439,51 +622,97 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, o
 
         <div className="flex items-center space-x-2 flex-shrink-0">
           {files.length > 0 && (
-            <div className="relative">
-              <Search className="w-3 h-3 text-onedark-muted absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="text"
-                value={fileFilter}
-                onChange={(e) => setFileFilter(e.target.value)}
-                placeholder={isRegex ? "Grep files & diffs (/pattern/)..." : "Grep files & diffs..."}
-                className={`w-32 sm:w-44 lg:w-52 pl-6 pr-14 py-1 text-[10.5px] rounded-lg bg-onedark-bg border ${
-                  isRegex
-                    ? grepMatcher.isValid
-                      ? 'border-onedark-purple/60 focus:border-onedark-purple text-onedark-fg'
-                      : 'border-onedark-red/60 focus:border-onedark-red text-onedark-red'
-                    : 'border-onedark-borderSubtle focus:border-onedark-accent text-onedark-fg'
-                } placeholder:text-onedark-muted focus:outline-none transition-all`}
-              />
-              <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
-                {fileFilter && (
-                  <button
-                    type="button"
-                    onClick={() => setFileFilter('')}
-                    className="p-0.5 rounded text-onedark-muted hover:text-onedark-fg cursor-pointer"
-                    title="Clear filter"
-                  >
-                    <X className="w-2.5 h-2.5" />
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setIsRegex((prev) => !prev)}
-                  className={`px-1 py-0.2 rounded font-mono text-[9.5px] font-bold transition-all cursor-pointer ${
-                    isRegex
-                      ? 'bg-onedark-purple text-white shadow-xs'
-                      : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface'
-                  }`}
-                  title={
+            <div className="flex items-center space-x-1.5">
+              <div className="relative">
+                <Search className="w-3 h-3 text-onedark-muted absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  value={fileFilter}
+                  onChange={(e) => setFileFilter(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      if (e.shiftKey) {
+                        handlePrevMatch();
+                      } else {
+                        handleNextMatch();
+                      }
+                    }
+                  }}
+                  placeholder={isRegex ? "Grep files & diffs (/pattern/)..." : "Grep files & diffs..."}
+                  className={`w-32 sm:w-44 lg:w-52 pl-6 pr-14 py-1 text-[10.5px] rounded-lg bg-onedark-bg border ${
                     isRegex
                       ? grepMatcher.isValid
-                        ? 'Grep / Regular Expression active (Click to disable)'
-                        : `Regex error: ${grepMatcher.error || 'Invalid regex'}`
-                      : 'Enable Grep / Regular Expression mode'
-                  }
-                >
-                  .*
-                </button>
+                        ? 'border-onedark-purple/60 focus:border-onedark-purple text-onedark-fg'
+                        : 'border-onedark-red/60 focus:border-onedark-red text-onedark-red'
+                      : 'border-onedark-borderSubtle focus:border-onedark-accent text-onedark-fg'
+                  } placeholder:text-onedark-muted focus:outline-none transition-all`}
+                />
+                <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+                  {fileFilter && (
+                    <button
+                      type="button"
+                      onClick={() => setFileFilter('')}
+                      className="p-0.5 rounded text-onedark-muted hover:text-onedark-fg cursor-pointer"
+                      title="Clear filter"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setIsRegex((prev) => !prev)}
+                    className={`px-1 py-0.2 rounded font-mono text-[9.5px] font-bold transition-all cursor-pointer ${
+                      isRegex
+                        ? 'bg-onedark-purple text-white shadow-xs'
+                        : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface'
+                    }`}
+                    title={
+                      isRegex
+                        ? grepMatcher.isValid
+                          ? 'Grep / Regular Expression active (Click to disable)'
+                          : `Regex error: ${grepMatcher.error || 'Invalid regex'}`
+                        : 'Enable Grep / Regular Expression mode'
+                    }
+                  >
+                    .*
+                  </button>
+                </div>
               </div>
+
+              {/* Grep matches stepper */}
+              {fileFilter.trim() && (
+                <div className="flex items-center space-x-1 px-2 py-0.5 rounded-lg bg-onedark-surface border border-onedark-borderSubtle text-[11px] font-mono text-onedark-fg select-none">
+                  {allMatches.length > 0 ? (
+                    <>
+                      <span className="text-onedark-purple font-semibold">
+                        {currentMatchIndex + 1}/{allMatches.length}
+                      </span>
+                      <span className="text-onedark-muted hidden sm:inline">match{allMatches.length > 1 ? 'es' : ''}</span>
+                      <div className="flex items-center space-x-0.5 ml-1 border-l border-onedark-borderSubtle pl-1">
+                        <button
+                          type="button"
+                          onClick={handlePrevMatch}
+                          className="p-0.5 rounded hover:bg-onedark-darker text-onedark-muted hover:text-onedark-fg cursor-pointer transition-colors"
+                          title="Previous match (Shift+Enter / ▲)"
+                        >
+                          <ChevronUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleNextMatch}
+                          className="p-0.5 rounded hover:bg-onedark-darker text-onedark-muted hover:text-onedark-fg cursor-pointer transition-colors"
+                          title="Next match (Enter / ▼)"
+                        >
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <span className="text-onedark-muted text-[10.5px]">0 diff matches</span>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -543,10 +772,16 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, o
                     </span>
                     {getStatusBadge(f.status)}
                     {hasPatchMatches && (
-                      <span className="px-1.5 py-0.2 rounded text-[9.5px] font-mono bg-onedark-purple/15 text-onedark-purple border border-onedark-purple/30 flex items-center gap-1 whitespace-nowrap flex-shrink-0">
+                      <button
+                        type="button"
+                        onClick={(e) => handleJumpToNextMatchInFile(f.filename, e)}
+                        className="px-1.5 py-0.5 rounded text-[9.5px] font-mono bg-onedark-purple/20 hover:bg-onedark-purple/30 text-onedark-purple border border-onedark-purple/40 flex items-center gap-1 whitespace-nowrap flex-shrink-0 cursor-pointer transition-colors"
+                        title="Cycle through search matches in this file"
+                      >
                         <Terminal className="w-2.5 h-2.5" />
-                        {grepInfo?.patchMatchCount} match{grepInfo && grepInfo.patchMatchCount > 1 ? 'es' : ''} in diff
-                      </span>
+                        <span>{grepInfo?.patchMatchCount} match{grepInfo && grepInfo.patchMatchCount > 1 ? 'es' : ''} in diff</span>
+                        <ChevronDown className="w-2.5 h-2.5 opacity-60" />
+                      </button>
                     )}
                   </div>
 
@@ -576,12 +811,21 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, o
                         const isHeader = lineObj.type === 'header';
                         const activeLineNum = lineObj.newLine || lineObj.oldLine || 1;
                         const isLineGrepMatch = Boolean(fileFilter.trim() && !isHeader && grepMatcher.test(lineObj.text));
+                        const isPulsing = Boolean(
+                          pulsingTarget &&
+                          pulsingTarget.line &&
+                          (pulsingTarget.file === f.filename || pulsingTarget.file.endsWith('/' + f.filename) || f.filename.endsWith('/' + pulsingTarget.file)) &&
+                          pulsingTarget.line === activeLineNum
+                        );
 
                         return (
                           <div
                             key={lineIdx}
-                            className={`group/line flex items-center px-1 py-0.5 rounded-xs transition-colors relative ${
-                              isLineGrepMatch
+                            id={`diff-line-${encodeURIComponent(f.filename)}-${activeLineNum}`}
+                            className={`group/line flex items-center px-1 py-0.5 rounded-xs transition-all relative scroll-mt-20 ${
+                              isPulsing
+                                ? 'bg-onedark-purple/30 ring-2 ring-onedark-purple text-onedark-fgBright font-semibold shadow-xs'
+                                : isLineGrepMatch
                                 ? 'bg-onedark-purple/20 ring-1 ring-onedark-purple/60 text-onedark-fgBright font-semibold'
                                 : isAddition
                                 ? 'bg-onedark-green/10 text-onedark-green hover:bg-onedark-green/15'
@@ -616,7 +860,22 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ files, diffText, o
                             )}
 
                             <pre className="font-mono text-[12.5px] leading-relaxed whitespace-pre flex-1 overflow-x-visible">
-                              {lineObj.text || ' '}
+                              {isLineGrepMatch ? (
+                                grepMatcher.highlightSegments(lineObj.text || ' ').map((seg, sIdx) =>
+                                  seg.matched ? (
+                                    <mark
+                                      key={sIdx}
+                                      className="bg-onedark-yellow/30 text-onedark-yellow font-bold px-0.5 rounded-xs border border-onedark-yellow/40 shadow-xs"
+                                    >
+                                      {seg.text}
+                                    </mark>
+                                  ) : (
+                                    <span key={sIdx}>{seg.text}</span>
+                                  )
+                                )
+                              ) : (
+                                lineObj.text || ' '
+                              )}
                             </pre>
                           </div>
                         );
@@ -2365,6 +2624,8 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
   const [isListenerModalOpen, setIsListenerModalOpen] = useState<boolean>(false);
   const [isListening, setIsListening] = useState<boolean>(prRecord?.is_listening || false);
   const [activeLineComment, setActiveLineComment] = useState<LineContext | null>(null);
+  const [targetDiffFile, setTargetDiffFile] = useState<string | null>(null);
+  const [targetDiffLine, setTargetDiffLine] = useState<number | null>(null);
   const [isOutlineOpen, setIsOutlineOpen] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem('cyclode_pr_outline_open');
@@ -2703,7 +2964,32 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
     );
   }, [comments, outlineFilterQuery, outlineGrepMatcher]);
 
-  // Smooth scroll helpers
+  // Smooth scroll and navigation helpers
+  const handleJumpToDiff = (filePath: string, line?: number) => {
+    setPrTab('diff');
+    setTargetDiffFile(filePath);
+    setTargetDiffLine(line || null);
+  };
+
+  const handleSidebarDiffFileClick = (filename: string) => {
+    setPrTab('diff');
+    setTargetDiffFile(filename);
+    let matchedLine: number | null = null;
+    if (outlineFilterQuery.trim()) {
+      const fileItem = filesList.find((f) => f.filename === filename);
+      if (fileItem && fileItem.patch) {
+        const parsed = parseUnifiedPatch(fileItem.patch);
+        for (const p of parsed) {
+          if (p.type !== 'header' && outlineGrepMatcher.test(p.text)) {
+            matchedLine = p.newLine || p.oldLine || null;
+            if (matchedLine) break;
+          }
+        }
+      }
+    }
+    setTargetDiffLine(matchedLine);
+  };
+
   const scrollToHeading = (id: string) => {
     if (!contentScrollRef.current) return;
     const target = contentScrollRef.current.querySelector(`[id="${id}"]`);
@@ -3298,11 +3584,13 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
                     const dirPath = pathParts.join('/');
                     const isAdded = f.status === 'added' || f.status === 'new';
                     const isDeleted = f.status === 'deleted' || f.status === 'removed';
+                    const patchGrepRes = outlineFilterQuery.trim() && f.patch ? outlineGrepMatcher.grepPatch(f.patch) : null;
+                    const patchMatchCount = patchGrepRes?.matchingLinesCount || 0;
 
                     return (
                       <button
                         key={`${f.filename}-${idx}`}
-                        onClick={() => scrollToDiffFile(f.filename)}
+                        onClick={() => handleSidebarDiffFileClick(f.filename)}
                         className="w-full text-left p-1.5 rounded-md hover:bg-onedark-surface/70 transition-all text-xs cursor-pointer flex items-center justify-between group font-mono gap-1"
                         title={f.filename}
                       >
@@ -3313,9 +3601,44 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
                             {isAdded ? '+' : isDeleted ? '-' : '~'}
                           </span>
                           <div className="min-w-0 flex-1 truncate">
-                            {dirPath && <div className="text-[9.5px] text-onedark-muted/70 truncate leading-none">{dirPath}/</div>}
-                            <div className="text-[11.5px] text-onedark-fgBright font-medium truncate group-hover:text-onedark-accent">
-                              {fileNameOnly}
+                            {dirPath && (
+                              <div className="text-[9.5px] text-onedark-muted/70 truncate leading-none">
+                                {outlineFilterQuery.trim() && outlineGrepMatcher.test(dirPath) ? (
+                                  outlineGrepMatcher.highlightSegments(dirPath).map((seg, sIdx) =>
+                                    seg.matched ? (
+                                      <mark key={sIdx} className="bg-onedark-yellow/30 text-onedark-yellow font-bold px-0.5 rounded-xs">
+                                        {seg.text}
+                                      </mark>
+                                    ) : (
+                                      <span key={sIdx}>{seg.text}</span>
+                                    )
+                                  )
+                                ) : (
+                                  dirPath
+                                )}/
+                              </div>
+                            )}
+                            <div className="text-[11.5px] text-onedark-fgBright font-medium truncate group-hover:text-onedark-accent flex items-center gap-1">
+                              <span className="truncate">
+                                {outlineFilterQuery.trim() && outlineGrepMatcher.test(fileNameOnly || '') ? (
+                                  outlineGrepMatcher.highlightSegments(fileNameOnly || '').map((seg, sIdx) =>
+                                    seg.matched ? (
+                                      <mark key={sIdx} className="bg-onedark-yellow/30 text-onedark-yellow font-bold px-0.5 rounded-xs">
+                                        {seg.text}
+                                      </mark>
+                                    ) : (
+                                      <span key={sIdx}>{seg.text}</span>
+                                    )
+                                  )
+                                ) : (
+                                  fileNameOnly
+                                )}
+                              </span>
+                              {patchMatchCount > 0 && (
+                                <span className="px-1 py-0.2 rounded text-[9px] font-mono bg-onedark-purple/20 text-onedark-purple border border-onedark-purple/30 whitespace-nowrap flex-shrink-0" title={`${patchMatchCount} diff matches in this file`}>
+                                  {patchMatchCount}m
+                                </span>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -3470,6 +3793,9 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
               <PRDiffSection 
                 files={data?.files || []} 
                 diffText={data?.diff_text} 
+                targetFile={targetDiffFile}
+                targetLine={targetDiffLine}
+                searchQuery={outlineFilterQuery}
                 onLineComment={(filename, line, content) => {
                   setActiveLineComment({ filename, line, content });
                   setIsReviewPopoverOpen(true);
@@ -3493,9 +3819,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
                 lastSyncedAt={lastSyncedAt}
                 onRefreshComments={fetchCommentsOnly}
                 onAskAboutComment={onAskAboutComment}
-                onJumpToDiff={() => {
-                  setPrTab('diff');
-                }}
+                onJumpToDiff={handleJumpToDiff}
               />
             ) : prTab === 'tests' ? (
               <div className="space-y-3">

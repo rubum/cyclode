@@ -3,10 +3,11 @@ import json
 import hashlib
 import logging
 from typing import Optional, Dict, Any, List
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urlparse, urljoin, quote, unquote
 from html.parser import HTMLParser
 import httpx
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy import select, and_, or_
 from app.db.session import async_session_factory
 from app.db.models import DocPageCacheModel
@@ -1011,6 +1012,151 @@ Unable to retrieve ticket `{issue_key}` from Linear.
     }
 
 
+async def _fetch_arxiv_paper_info(arxiv_id: str, original_url: str) -> Dict[str, Any]:
+    """
+    Fetches structured metadata and abstract for an arXiv paper, synthesizing
+    rich markdown and canonical PDF streaming URLs.
+    """
+    clean_id = re.sub(r"^arxiv:\s*", "", arxiv_id, flags=re.IGNORECASE).strip()
+    clean_id = clean_id.replace(".pdf", "").strip()
+
+    title = f"arXiv:{clean_id}"
+    authors: List[str] = []
+    abstract = ""
+    published = ""
+    updated = ""
+    categories: List[str] = []
+    comment = ""
+    doi = ""
+
+    api_url = f"https://export.arxiv.org/api/query?id_list={clean_id}"
+    headers = {
+        "User-Agent": "CyclodeReader/1.0 (https://github.com/rubum/cyclode; mailto:support@cyclode.dev)",
+        "Accept": "application/atom+xml,application/xml,text/xml",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+            resp = await client.get(api_url, headers=headers)
+            if resp.status_code == 200 and resp.text:
+                import xml.etree.ElementTree as ET
+                root = ET.fromstring(resp.text)
+                ns = {"atom": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/schemas/atom"}
+                entry = root.find("atom:entry", ns)
+                if entry is not None:
+                    title_elem = entry.find("atom:title", ns)
+                    if title_elem is not None and title_elem.text:
+                        title = re.sub(r"\s+", " ", title_elem.text).strip()
+
+                    summary_elem = entry.find("atom:summary", ns)
+                    if summary_elem is not None and summary_elem.text:
+                        abstract = summary_elem.text.strip()
+
+                    pub_elem = entry.find("atom:published", ns)
+                    if pub_elem is not None and pub_elem.text:
+                        published = pub_elem.text[:10]
+
+                    upd_elem = entry.find("atom:updated", ns)
+                    if upd_elem is not None and upd_elem.text:
+                        updated = upd_elem.text[:10]
+
+                    for a in entry.findall("atom:author", ns):
+                        name_elem = a.find("atom:name", ns)
+                        if name_elem is not None and name_elem.text:
+                            authors.append(name_elem.text.strip())
+
+                    for c in entry.findall("atom:category", ns):
+                        term = c.attrib.get("term")
+                        if term and term not in categories:
+                            categories.append(term)
+
+                    comm_elem = entry.find("arxiv:comment", ns)
+                    if comm_elem is not None and comm_elem.text:
+                        comment = comm_elem.text.strip()
+
+                    doi_elem = entry.find("arxiv:doi", ns)
+                    if doi_elem is not None and doi_elem.text:
+                        doi = doi_elem.text.strip()
+    except Exception as e:
+        logger.warning(f"Error querying arXiv API for {clean_id}: {e}")
+
+    # Fallback to HTML scraping if title/abstract not resolved
+    if not abstract or title == f"arXiv:{clean_id}":
+        abs_url = f"https://arxiv.org/abs/{clean_id}"
+        try:
+            async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+                resp = await client.get(abs_url, headers={"User-Agent": "Mozilla/5.0"})
+                if resp.status_code == 200:
+                    html_text = resp.text
+                    t_match = re.search(r'<meta\s+name="citation_title"\s+content="([^"]+)"', html_text)
+                    if t_match:
+                        title = t_match.group(1).strip()
+                    if not authors:
+                        authors = re.findall(r'<meta\s+name="citation_author"\s+content="([^"]+)"', html_text)
+                    d_match = re.search(r'<meta\s+name="citation_date"\s+content="([^"]+)"', html_text)
+                    if d_match:
+                        published = d_match.group(1).strip()
+                    ab_match = re.search(r'<blockquote\s+class="abstract[^"]*">\s*<span\s+class="descriptor">Abstract:</span>([\s\S]*?)</blockquote>', html_text)
+                    if ab_match:
+                        abstract = re.sub(r"<[^>]+>", "", ab_match.group(1)).strip()
+        except Exception as e:
+            logger.warning(f"Error scraping arXiv HTML for {clean_id}: {e}")
+
+    canonical_abs_url = f"https://arxiv.org/abs/{clean_id}"
+    canonical_pdf_url = f"https://arxiv.org/pdf/{clean_id}.pdf"
+    proxy_pdf_url = f"/api/reader/proxy/pdf?url=https://arxiv.org/pdf/{clean_id}.pdf"
+
+    # Synthesize rich executive Markdown overview
+    md_lines = [
+        f"# {title}",
+        "",
+        f"**arXiv Identifier:** [`arXiv:{clean_id}`]({canonical_abs_url}) · **PDF:** [Direct Download]({canonical_pdf_url})",
+        "",
+    ]
+    if authors:
+        md_lines.append(f"**Authors:** {', '.join(authors)}")
+        md_lines.append("")
+    if published:
+        date_str = f"Published {published}" + (f" (Updated {updated})" if updated and updated != published else "")
+        md_lines.append(f"**Date:** {date_str}")
+        md_lines.append("")
+    if categories:
+        md_lines.append(f"**Subjects:** {', '.join([f'`{c}`' for c in categories])}")
+        md_lines.append("")
+    if comment:
+        md_lines.append(f"**Comments:** *{comment}*")
+        md_lines.append("")
+    if doi:
+        md_lines.append(f"**DOI:** [{doi}](https://doi.org/{doi})")
+        md_lines.append("")
+
+    md_lines.append("## Abstract")
+    md_lines.append("")
+    md_lines.append(abstract if abstract else "No abstract provided.")
+
+    content_markdown = "\n".join(md_lines)
+
+    return {
+        "type": "arxiv",
+        "url": canonical_abs_url,
+        "title": title,
+        "domain": "arxiv.org",
+        "description": f"arXiv:{clean_id} - {title}",
+        "arxiv_id": clean_id,
+        "authors": authors,
+        "published": published,
+        "updated": updated,
+        "categories": categories,
+        "comment": comment,
+        "doi": doi,
+        "abstract": abstract,
+        "pdf_url": proxy_pdf_url,
+        "raw_pdf_url": canonical_pdf_url,
+        "content_markdown": content_markdown,
+        "overview_markdown": content_markdown,
+    }
+
+
 def _extract_snippet(text: str, query: str, max_chars: int = 220) -> str:
     if not text or not query:
         return ""
@@ -1097,6 +1243,58 @@ async def get_url_reader(url: str = Query(..., description="Target URL to read")
 
     parsed = urlparse(clean_url)
     hostname = (parsed.hostname or "").lower()
+
+    # Check for arXiv paper URL or identifier (e.g. arxiv.org/abs/2401.12345, arxiv.org/pdf/2401.12345, or arxiv:2401.12345)
+    arxiv_match = re.search(
+        r"(?:arxiv\.org/(?:abs|pdf|html)/|arxiv:)(\d{4}\.\d{4,5}(?:v\d+)?|[a-zA-Z\-]+/\d{7})",
+        clean_url,
+        re.IGNORECASE
+    )
+    if arxiv_match:
+        arxiv_id = arxiv_match.group(1)
+        try:
+            arxiv_info = await _fetch_arxiv_paper_info(arxiv_id, clean_url)
+            try:
+                page_id = hashlib.sha256(clean_url.encode("utf-8")).hexdigest()[:32]
+                async with async_session_factory() as session:
+                    stmt = select(DocPageCacheModel).where(DocPageCacheModel.id == page_id)
+                    res = await session.execute(stmt)
+                    existing = res.scalars().first()
+                    if existing:
+                        existing.title = arxiv_info.get("title", f"arXiv:{arxiv_id}")
+                        existing.content_markdown = arxiv_info.get("content_markdown", "")
+                        existing.domain = "arxiv.org"
+                    else:
+                        new_page = DocPageCacheModel(
+                            id=page_id,
+                            url=clean_url,
+                            domain="arxiv.org",
+                            title=arxiv_info.get("title", f"arXiv:{arxiv_id}"),
+                            content_markdown=arxiv_info.get("content_markdown", ""),
+                            headings_json="[]"
+                        )
+                        session.add(new_page)
+                    await session.commit()
+            except Exception as e:
+                logger.debug(f"arXiv doc caching notice: {e}")
+            return arxiv_info
+        except Exception as e:
+            logger.warning(f"Error resolving arXiv paper {arxiv_id}: {e}")
+
+    # Check for direct PDF URL extension
+    if parsed.path.lower().endswith(".pdf"):
+        doc_title = parsed.path.split("/")[-1] or hostname
+        proxy_pdf = f"/api/reader/proxy/pdf?url={quote(clean_url)}"
+        return {
+            "type": "pdf",
+            "url": clean_url,
+            "title": doc_title,
+            "domain": hostname,
+            "description": f"PDF Document from {hostname}",
+            "pdf_url": proxy_pdf,
+            "raw_pdf_url": clean_url,
+            "content_markdown": f"# {doc_title}\n\n[Open Direct PDF]({clean_url})\n\n*(PDF document loaded in embedded viewport)*",
+        }
 
     # Check for Linear issue URL: https://linear.app/<org>/issue/PD-1236/... or ticket key
     if "linear.app" in hostname:
@@ -1262,7 +1460,25 @@ async def get_url_reader(url: str = Query(..., description="Target URL to read")
                     "content_markdown": f"### Unable to load content\n\nServer responded with HTTP {resp.status_code}. You can [open this link in a new browser tab]({clean_url})."
                 }
 
-            content_type = resp.headers.get("content-type", "")
+            content_type = resp.headers.get("content-type", "").lower()
+
+            # If response is a PDF document
+            if "application/pdf" in content_type or "application/x-pdf" in content_type:
+                doc_title = parsed.path.split("/")[-1] or hostname
+                if not doc_title.lower().endswith(".pdf"):
+                    doc_title += ".pdf"
+                proxy_pdf = f"/api/reader/proxy/pdf?url={quote(clean_url)}"
+                return {
+                    "type": "pdf",
+                    "url": clean_url,
+                    "title": doc_title,
+                    "domain": hostname,
+                    "description": f"PDF Document from {hostname}",
+                    "pdf_url": proxy_pdf,
+                    "raw_pdf_url": clean_url,
+                    "content_markdown": f"# {doc_title}\n\n[Open Direct PDF]({clean_url})\n\n*(PDF document loaded in embedded viewport)*",
+                }
+
             raw_text = resp.text
 
             # If raw markdown or text
@@ -1347,3 +1563,77 @@ async def get_url_reader(url: str = Query(..., description="Target URL to read")
             "description": "Load error",
             "content_markdown": f"### Error Loading Page\n\n{str(e)}\n\n[Open link in external browser]({clean_url})"
         }
+
+
+@router.get("/proxy/pdf")
+async def proxy_pdf_stream(url: str = Query(..., description="Target PDF URL to proxy and stream")):
+    """
+    Proxies and streams an external PDF file to bypass browser CORS and frame-ancestors restrictions,
+    enabling embedded viewing in Cyclode's DocsViewerTab.
+    """
+    clean_url = unquote(url).strip()
+    if not clean_url.startswith(("http://", "https://")):
+        clean_url = "https://" + clean_url
+
+    parsed = urlparse(clean_url)
+    if not parsed.hostname:
+        raise HTTPException(status_code=400, detail="Invalid target URL provided")
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/pdf,*/*;q=0.8",
+    }
+
+    try:
+        client = httpx.AsyncClient(timeout=35.0, follow_redirects=True)
+        req = client.build_request("GET", clean_url, headers=headers)
+        resp = await client.send(req, stream=True)
+
+        if resp.status_code >= 400:
+            await resp.aclose()
+            await client.aclose()
+            raise HTTPException(status_code=resp.status_code, detail=f"Upstream server returned HTTP {resp.status_code}")
+
+        # Extract filename for download header
+        path_name = parsed.path.split("/")[-1] or "document.pdf"
+        if not path_name.lower().endswith(".pdf"):
+            path_name += ".pdf"
+
+        async def stream_chunks():
+            try:
+                async for chunk in resp.aiter_bytes(chunk_size=65536):
+                    yield chunk
+            finally:
+                await resp.aclose()
+                await client.aclose()
+
+        response_headers = {
+            "Content-Disposition": f'inline; filename="{path_name}"',
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+            "Access-Control-Allow-Headers": "*",
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "public, max-age=86400",
+        }
+
+        if "content-length" in resp.headers:
+            response_headers["Content-Length"] = resp.headers["content-length"]
+        if "etag" in resp.headers:
+            response_headers["ETag"] = resp.headers["etag"]
+        if "last-modified" in resp.headers:
+            response_headers["Last-Modified"] = resp.headers["last-modified"]
+
+        return StreamingResponse(
+            stream_chunks(),
+            media_type="application/pdf",
+            headers=response_headers,
+            status_code=resp.status_code
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"Error in PDF proxy stream for {clean_url}: {e}")
+        raise HTTPException(status_code=502, detail=f"Failed to fetch PDF stream: {str(e)}")
