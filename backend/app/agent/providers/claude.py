@@ -5,7 +5,7 @@ from typing import Dict, Any, List, Optional
 import httpx
 
 from app.config import settings
-from app.agent.providers.base import BaseLLMProvider, ProviderResponse, ToolCallRequest, normalize_json_schema
+from app.agent.providers.base import BaseLLMProvider, ProviderResponse, ToolCallRequest, normalize_json_schema, parse_lenient_tool_arguments
 
 logger = logging.getLogger("cyclode.providers.claude")
 
@@ -295,7 +295,7 @@ class ClaudeProvider(BaseLLMProvider):
                     tool_calls.append(ToolCallRequest(
                         call_id=block.get("id", f"call_{len(tool_calls)+1}"),
                         tool_name=block.get("name", ""),
-                        tool_args=block.get("input", {}),
+                        tool_args=parse_lenient_tool_arguments(block.get("input", {})),
                         raw_part=block
                     ))
 

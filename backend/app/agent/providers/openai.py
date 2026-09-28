@@ -5,7 +5,14 @@ from typing import Dict, Any, List, Optional
 import httpx
 
 from app.config import settings
-from app.agent.providers.base import BaseLLMProvider, ProviderResponse, ToolCallRequest, normalize_json_schema
+from app.agent.providers.base import (
+    BaseLLMProvider,
+    ProviderResponse,
+    ToolCallRequest,
+    normalize_json_schema,
+    parse_lenient_tool_arguments,
+    extract_markup_tool_calls,
+)
 
 logger = logging.getLogger("cyclode.providers.openai")
 
@@ -369,16 +376,20 @@ class OpenAIProvider(BaseLLMProvider):
                 fn = tc.get("function", {})
                 fn_name = fn.get("name", "")
                 raw_args = fn.get("arguments", "{}")
-                try:
-                    parsed_args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
-                except Exception:
-                    parsed_args = {}
+                parsed_args = parse_lenient_tool_arguments(raw_args)
                 tool_calls.append(ToolCallRequest(
                     call_id=call_id,
                     tool_name=fn_name,
                     tool_args=parsed_args,
                     raw_part=tc
                 ))
+
+            # Extract markup tool calls (DSML, XML, special tokens) if present in content_text
+            if "<" in content_text or "｜" in content_text or "```tool_call" in content_text or "＜" in content_text:
+                cleaned_c, extracted_tcs = extract_markup_tool_calls(content_text)
+                if extracted_tcs:
+                    content_text = cleaned_c
+                    tool_calls.extend(extracted_tcs)
 
             usage = data.get("usage", {})
             input_tokens = usage.get("prompt_tokens", 0)

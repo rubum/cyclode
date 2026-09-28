@@ -92,12 +92,13 @@ export const getToolActionInfo = (
   isRunning: boolean = false
 ) => {
   const input = toolInput || {};
+  const getFilePath = () => input.file_path || input.path || input.filePath || input.target_file || input.filename || input.file;
   switch (toolName) {
     case 'edit_file':
       return {
         icon: Pencil,
         verb: isRunning ? 'Editing' : 'Edited',
-        target: input.file_path || input.path || 'file',
+        target: getFilePath() || 'file',
         colorClass: 'text-onedark-green',
         badgeBg: 'bg-onedark-green/10',
         badgeBorder: 'border-onedark-green/30',
@@ -106,7 +107,27 @@ export const getToolActionInfo = (
       return {
         icon: FileCode2,
         verb: isRunning ? 'Reading' : 'Read',
-        target: input.file_path || input.path || 'file',
+        target: getFilePath() || 'file',
+        colorClass: 'text-onedark-accent',
+        badgeBg: 'bg-onedark-accent/10',
+        badgeBorder: 'border-onedark-accent/30',
+      };
+    case 'replace_file_content':
+    case 'batch_replace_content':
+    case 'apply_unified_patch':
+      return {
+        icon: Pencil,
+        verb: isRunning ? 'Updating' : 'Updated',
+        target: getFilePath() || 'file',
+        colorClass: 'text-onedark-green',
+        badgeBg: 'bg-onedark-green/10',
+        badgeBorder: 'border-onedark-green/30',
+      };
+    case 'get_file_outline':
+      return {
+        icon: FileCode2,
+        verb: isRunning ? 'Extracting outline' : 'Extracted outline',
+        target: getFilePath() || 'file',
         colorClass: 'text-onedark-accent',
         badgeBg: 'bg-onedark-accent/10',
         badgeBorder: 'border-onedark-accent/30',
@@ -115,7 +136,7 @@ export const getToolActionInfo = (
       return {
         icon: Terminal,
         verb: isRunning ? 'Running' : 'Ran',
-        target: input.command ? `$ ${input.command}` : 'command',
+        target: (input.command || input.cmd) ? `$ ${input.command || input.cmd}` : 'command',
         colorClass: 'text-onedark-yellow',
         badgeBg: 'bg-onedark-yellow/10',
         badgeBorder: 'border-onedark-yellow/30',
@@ -124,7 +145,7 @@ export const getToolActionInfo = (
       return {
         icon: Folder,
         verb: isRunning ? 'Listing' : 'Listed',
-        target: input.subpath || input.directory || '.',
+        target: input.subpath || input.directory || input.path || input.dir || '.',
         colorClass: 'text-onedark-folder',
         badgeBg: 'bg-onedark-folder/10',
         badgeBorder: 'border-onedark-folder/30',
@@ -134,7 +155,7 @@ export const getToolActionInfo = (
       return {
         icon: Search,
         verb: isRunning ? 'Searching' : 'Searched',
-        target: input.query ? `"${input.query}"` : 'codebase',
+        target: (input.query || input.search || input.pattern) ? `"${input.query || input.search || input.pattern}"` : 'codebase',
         colorClass: 'text-onedark-yellow',
         badgeBg: 'bg-onedark-yellow/10',
         badgeBorder: 'border-onedark-yellow/30',
@@ -683,7 +704,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   onNavigateToRepos,
 }) => {
   const [inputValue, setInputValue] = useState('');
-  const [selectedPersona, setSelectedPersona] = useState('SoftwareEngineer');
+  const [selectedPersona, setSelectedPersona] = useState('General');
   const [selectedModel, setSelectedModel] = useState('auto');
   const [openThoughts, setOpenThoughts] = useState<Record<string, boolean>>({});
   const [userToggledPlans, setUserToggledPlans] = useState<Record<string, boolean>>({});
@@ -1431,6 +1452,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   }, [effectiveRepos]);
 
   const personas = [
+    { id: 'General', label: 'General Assistant' },
     { id: 'SoftwareEngineer', label: 'Software Engineer' },
     { id: 'AppBuilder', label: 'App Builder' },
     { id: 'CodeReviewer', label: 'Code Reviewer' },
@@ -2254,13 +2276,15 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
                     {isPlanOpen && (
                       <div className="p-3.5 border-t border-white/[0.04] space-y-3.5 text-xs bg-onedark-darker/40">
-                        {turn.plan?.objective && (
-                          <div className="p-2.5 rounded-lg bg-onedark-surface/30 text-[11.5px] font-sans text-onedark-fg leading-relaxed">
-                            <span className="font-semibold font-mono text-[10px] uppercase tracking-wider block mb-1 text-onedark-muted">
-                              Goal
-                            </span>
-                            {turn.plan.objective}
-                          </div>
+                        {turn.plan?.overview &&
+                          turn.plan.overview !== turn.plan.title &&
+                          turn.plan.overview.length > 40 && (
+                            <div className="p-2.5 rounded-lg bg-onedark-surface/30 text-[11.5px] font-sans text-onedark-fg leading-relaxed">
+                              <span className="font-semibold font-mono text-[10px] uppercase tracking-wider block mb-1 text-onedark-muted">
+                                Overview
+                              </span>
+                              {turn.plan.overview}
+                            </div>
                         )}
 
                         {/* Connected Stepper Timeline */}
@@ -2985,7 +3009,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
                 <div className="p-3.5 rounded-lg bg-onedark-darker border border-onedark-border text-xs text-onedark-fg font-mono space-y-1 leading-relaxed">
                   <div><strong className="text-onedark-muted">Action:</strong> {latestApproval.action_type}</div>
-                  <div><strong className="text-onedark-muted">Target:</strong> {latestApproval.action_details.title || latestApproval.action_details.branch}</div>
+                  <div><strong className="text-onedark-muted">Target:</strong> {latestApproval.action_details.command || latestApproval.action_details.title || latestApproval.action_details.branch || 'Workspace Action'}</div>
                   {latestApproval.action_details.description && (
                     <div className="mt-2 text-onedark-muted whitespace-pre-wrap text-xs">
                       {latestApproval.action_details.description}

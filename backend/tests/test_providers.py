@@ -795,6 +795,89 @@ async def test_vault_interceptor_extracts_all_provider_keys():
     assert integration_manager.get_custom_credential("linear", "api_key") == "lin_api_mocklinearkey1234567890"
 
 
+def test_parse_lenient_tool_arguments():
+    from app.agent.providers.base import parse_lenient_tool_arguments
+
+    # 1. Standard valid JSON
+    res1 = parse_lenient_tool_arguments('{"file_path": "index.html", "content": "hello world"}')
+    assert res1 == {"file_path": "index.html", "content": "hello world"}
+
+    # 2. Unescaped newlines inside string (fails standard json.loads)
+    raw_with_newlines = '{\n  "file_path": "app.js",\n  "content": "function init() {\n    console.log(\'test\');\n  }"\n}'
+    res2 = parse_lenient_tool_arguments(raw_with_newlines)
+    assert res2.get("file_path") == "app.js"
+    assert "console.log" in res2.get("content", "")
+
+    # 3. Trailing commas
+    raw_trailing = '{"file_path": "styles.css", "content": "body { margin: 0; }",}'
+    res3 = parse_lenient_tool_arguments(raw_trailing)
+    assert res3 == {"file_path": "styles.css", "content": "body { margin: 0; }"}
+
+    # 4. Markdown code fence wrapper in arguments string
+    raw_fenced = '```json\n{"command": "pytest -v"}\n```'
+    res4 = parse_lenient_tool_arguments(raw_fenced)
+    assert res4 == {"command": "pytest -v"}
+
+    # 5. Malformed payload recovered via regex extraction
+    raw_malformed = '{"file_path": "index.html", "content": "<div class="hero">Unescaped "quotes"</div>"}'
+    res5 = parse_lenient_tool_arguments(raw_malformed)
+    assert res5.get("file_path") == "index.html"
+
+    # 6. Unclosed trailing content block recovery
+    raw_unclosed = '{"file_path": "index.html", "content": "<!DOCTYPE html><html><body><h1>Landing Page</h1></body></html>'
+    res6 = parse_lenient_tool_arguments(raw_unclosed)
+    assert res6.get("file_path") == "index.html"
+    assert "Landing Page" in res6.get("content", "")
+
+    # 7. Batch edits array extraction recovery
+    raw_batch = '{"edits": [{"file_path": "a.txt", "target_content": "old", "replacement_content": "new",},]}'
+    res7 = parse_lenient_tool_arguments(raw_batch)
+    assert "edits" in res7
+    assert len(res7["edits"]) == 1
+    assert res7["edits"][0]["file_path"] == "a.txt"
+
+    # 8. Malformed JSON with literal escape sequences (\\n, \\", \\t) recovered via regex
+    raw_escaped_html = '{"file_path": "index.html", "content": "<!DOCTYPE html>\\n<html lang=\\"en\\" class=\\"dark\\">\\n<head>\\n<meta charset=\\"UTF-8\\" />\\n"}'
+    res8 = parse_lenient_tool_arguments(raw_escaped_html)
+    assert res8.get("file_path") == "index.html"
+    assert "\n" in res8.get("content", "")
+    assert '<html lang="en" class="dark">' in res8.get("content", "")
+    assert "\\n" not in res8.get("content", "")
+    assert '\\"' not in res8.get("content", "")
+
+    # 9. Regex recovered replace_file_content with escaped target and replacement
+    raw_replace = '{"file_path": "App.tsx", "target_content": "const x = 1;\\nconst y = 2;", "replacement_content": "const x = 10;\\nconst y = 20;"}'
+    res9 = parse_lenient_tool_arguments(raw_replace)
+    assert res9.get("file_path") == "App.tsx"
+    assert res9.get("target_content") == "const x = 1;\nconst y = 2;"
+    assert res9.get("replacement_content") == "const x = 10;\nconst y = 20;"
+
+    # 10. None / Empty payload
+    assert parse_lenient_tool_arguments(None) == {}
+    assert parse_lenient_tool_arguments("") == {}
+    assert parse_lenient_tool_arguments("{}") == {}
+
+
+def test_unescape_json_string():
+    from app.agent.providers.base import _unescape_json_string
+
+    # Standard escapes
+    assert _unescape_json_string(r"hello\nworld") == "hello\nworld"
+    assert _unescape_json_string(r'say \"hello\"') == 'say "hello"'
+    assert _unescape_json_string(r"col1\tcol2") == "col1\tcol2"
+    assert _unescape_json_string(r"line1\r\nline2") == "line1\r\nline2"
+    assert _unescape_json_string(r"path\\to\\file") == "path\\to\\file"
+    assert _unescape_json_string(r"tag\u0026more") == "tag&more"
+
+    # Non-string / None / unescaped strings
+    assert _unescape_json_string(None) is None
+    assert _unescape_json_string(123) == 123
+    assert _unescape_json_string("plain text") == "plain text"
+
+
+
+
+
 
 
 

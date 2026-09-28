@@ -229,3 +229,5 @@ export const useWebSocket = () => {
   }
   return context;
 };
+
+export const useWebSocketContext = useWebSocket;

@@ -158,3 +158,130 @@ def test_multi_language_symbol_extraction(tmp_path):
     assert fallback_res["total_matches"] >= 1
     assert fallback_res["matches"][0]["file_path"] == "cluster.ex"
 
+
+def test_haskell_and_polyglot_symbol_extraction(tmp_path):
+    ws = tmp_path / "polyglot_v2_ws"
+    ws.mkdir()
+
+    # 1. Haskell file
+    hs_file = ws / "Main.hs"
+    hs_file.write_text(
+        "module Data.Engine.Core where\n\n"
+        "data ServerState = Idle | Running Int\n\n"
+        "class Summarizer a where\n"
+        "  summarize :: a -> String\n\n"
+        "computeScore :: Int -> Float -> Double\n"
+        "computeScore count factor = fromIntegral count * realToFrac factor\n",
+        encoding="utf-8"
+    )
+
+    # 2. C# file
+    cs_file = ws / "Service.cs"
+    cs_file.write_text(
+        "namespace App.Core;\n"
+        "public class PaymentProcessor {\n"
+        "    public async Task<bool> ProcessPaymentAsync(decimal amount) {\n"
+        "        return true;\n"
+        "    }\n"
+        "}\n",
+        encoding="utf-8"
+    )
+
+    # 3. Swift file
+    swift_file = ws / "Model.swift"
+    swift_file.write_text(
+        "public struct UserSession {\n"
+        "    public func validateToken() -> Bool {\n"
+        "        return true\n"
+        "    }\n"
+        "}\n",
+        encoding="utf-8"
+    )
+
+    # 4. Dart file
+    dart_file = ws / "widget.dart"
+    dart_file.write_text(
+        "class DashboardCard extends StatelessWidget {\n"
+        "  Future<void> refreshState() async {\n"
+        "  }\n"
+        "}\n",
+        encoding="utf-8"
+    )
+
+    # 5. Terraform / HCL file
+    tf_file = ws / "main.tf"
+    tf_file.write_text(
+        'resource "aws_s3_bucket" "data_lake" {\n'
+        '  bucket = "cyclode-data-lake"\n'
+        '}\n'
+        'module "vpc" {\n'
+        '  source = "terraform-aws-modules/vpc/aws"\n'
+        '}\n',
+        encoding="utf-8"
+    )
+
+    # 6. Solidity file
+    sol_file = ws / "Token.sol"
+    sol_file.write_text(
+        "contract LiquidityPool {\n"
+        "    function swapTokens(uint256 amountIn) external returns (uint256) {}\n"
+        "}\n",
+        encoding="utf-8"
+    )
+
+    # 7. Zig file
+    zig_file = ws / "math.zig"
+    zig_file.write_text(
+        "pub const Vector3 = struct {\n"
+        "    x: f32,\n"
+        "    y: f32,\n"
+        "    z: f32,\n"
+        "};\n"
+        "pub fn dotProduct(a: Vector3, b: Vector3) f32 {\n"
+        "    return a.x * b.x + a.y * b.y + a.z * b.z;\n"
+        "}\n",
+        encoding="utf-8"
+    )
+
+    # Extract all symbols via find_symbols
+    sym_res = WorkspaceTools.find_symbols(ws, max_results=100)
+    assert sym_res["total_found"] >= 10
+    symbols = sym_res["symbols"]
+    sym_names = [s["name"] for s in symbols]
+
+    # Haskell assertions
+    assert "Data.Engine.Core" in sym_names
+    assert "ServerState" in sym_names
+    assert "Summarizer" in sym_names
+    assert "computeScore" in sym_names
+
+    # C# assertions
+    assert "PaymentProcessor" in sym_names
+    assert "ProcessPaymentAsync" in sym_names
+
+    # Swift assertions
+    assert "UserSession" in sym_names
+    assert "validateToken" in sym_names
+
+    # Dart assertions
+    assert "DashboardCard" in sym_names
+    assert "refreshState" in sym_names
+
+    # Terraform assertions
+    assert "aws_s3_bucket.data_lake" in sym_names
+    assert "vpc" in sym_names
+
+    # Solidity assertions
+    assert "LiquidityPool" in sym_names
+    assert "swapTokens" in sym_names
+
+    # Zig assertions
+    assert "Vector3" in sym_names
+    assert "dotProduct" in sym_names
+
+    # Test get_file_outline on Haskell file
+    outline = WorkspaceTools.get_file_outline(ws, "Main.hs")
+    assert "symbols" in outline
+    assert len(outline["symbols"]) >= 3
+
+

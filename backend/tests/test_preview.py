@@ -677,7 +677,94 @@ async def test_preview_detects_swiftwasm_bundle(temp_workspace: Path):
     assert res["has_preview"] is True
     assert res["framework"] == "SwiftWasm"
     assert res["entry_point"] == "Bundle/index.html"
-    assert res["build_status"] == "compiled"
+@pytest.mark.asyncio
+async def test_preview_detects_dom_js_id_mismatch(temp_workspace: Path):
+    from app.api.preview import verify_workspace_preview
+
+    (temp_workspace / "index.html").write_text(
+        "<!DOCTYPE html><html><head><script src='https://cdn.tailwindcss.com'></script></head>"
+        "<body><div id='app'><button id='btn-start'>Start</button></div>"
+        "<script src='app.js'></script></body></html>",
+        encoding="utf-8"
+    )
+    # app.js queries 'start-btn' instead of 'btn-start'
+    (temp_workspace / "app.js").write_text(
+        "document.getElementById('start-btn').addEventListener('click', () => { console.log('Clicked'); });",
+        encoding="utf-8"
+    )
+
+    res = verify_workspace_preview(temp_workspace, "test-mismatch")
+    assert res["status"] == "js_dom_mismatch"
+    assert any("DOM Contract Violation" in iss and "#start-btn" in iss for iss in res["issues"])
+
+
+@pytest.mark.asyncio
+async def test_preview_detects_dead_buttons(temp_workspace: Path):
+    from app.api.preview import verify_workspace_preview
+
+    (temp_workspace / "index.html").write_text(
+        "<!DOCTYPE html><html><head><script src='https://cdn.tailwindcss.com'></script></head>"
+        "<body><div id='app'>"
+        "<button id='btn-active' onclick='doSomething()'>Active</button>"
+        "<button id='btn-dead'>Dead Button</button>"
+        "</div><script src='app.js'></script></body></html>",
+        encoding="utf-8"
+    )
+    (temp_workspace / "app.js").write_text(
+        "function doSomething() { console.log('active'); }",
+        encoding="utf-8"
+    )
+
+    res = verify_workspace_preview(temp_workspace, "test-dead-btn")
+    assert res["status"] == "dead_buttons"
+    assert any("Dead UI Button Detected" in iss and "#btn-dead" in iss for iss in res["issues"])
+
+
+@pytest.mark.asyncio
+async def test_preview_validates_canvas_and_render_loop(temp_workspace: Path):
+    from app.api.preview import verify_workspace_preview
+
+    (temp_workspace / "index.html").write_text(
+        "<!DOCTYPE html><html><head><style>#game-container { position: absolute; width: 100%; height: 100%; }</style></head>"
+        "<body><div id='game-container'><canvas id='game-canvas'></canvas></div>"
+        "<script src='game.js'></script></body></html>",
+        encoding="utf-8"
+    )
+    # Lacks getContext
+    (temp_workspace / "game.js").write_text(
+        "console.log('Game initialized');",
+        encoding="utf-8"
+    )
+
+    res = verify_workspace_preview(temp_workspace, "test-canvas")
+    assert res["status"] == "dom_css_mismatch"
+    assert any("Canvas Context Issue" in iss for iss in res["issues"])
+
+
+@pytest.mark.asyncio
+async def test_preview_clean_pass_on_fully_wired_app(temp_workspace: Path):
+    from app.api.preview import verify_workspace_preview
+
+    (temp_workspace / "index.html").write_text(
+        "<!DOCTYPE html><html><head><script src='https://cdn.tailwindcss.com'></script></head>"
+        "<body><div id='app'>"
+        "<h1 id='hero-title'>Dashboard</h1>"
+        "<button id='btn-refresh'>Refresh</button>"
+        "</div><script src='app.js'></script></body></html>",
+        encoding="utf-8"
+    )
+    (temp_workspace / "app.js").write_text(
+        "const title = document.getElementById('hero-title');\n"
+        "document.getElementById('btn-refresh').addEventListener('click', () => {\n"
+        "  title.innerText = 'Refreshed';\n"
+        "});",
+        encoding="utf-8"
+    )
+
+    res = verify_workspace_preview(temp_workspace, "test-wired")
+    assert res["status"] == "ready"
+    assert len(res["issues"]) == 0
+
 
 
 

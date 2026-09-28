@@ -67,6 +67,19 @@ class SandboxManager:
     async def destroy_by_task_id(self, task_id: str, workspace_path: Optional[str] = None) -> bool:
         return await self.provider.destroy_by_task_id(task_id, workspace_path)
 
+    def get_sandbox_capabilities(self, context: Optional[SandboxContext] = None) -> Dict[str, Any]:
+        """
+        Returns upfront runtime capabilities for the active sandbox provider and environment.
+        Used early before/during execution plan synthesis and server proxy routing.
+        """
+        is_container = isinstance(self.provider, type(container_sandbox_provider))
+        return {
+            "live_port_proxy": True,
+            "container_isolated": is_container,
+            "supports_dev_server": True,
+            "provider_type": self.provider.__class__.__name__
+        }
+
 
 sandbox_manager = SandboxManager()
 

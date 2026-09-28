@@ -51,8 +51,12 @@ class EvaluationRunner:
             preview_ok = False
             diag = "No preview generated"
             if preview_info:
-                preview_ok = preview_info.get("status") in ["ready", "compiled", "static"] and not preview_info.get("issues")
-                diag = f"Preview status: {preview_info.get('status')}, framework: {preview_info.get('framework', 'unknown')}"
+                preview_issues = preview_info.get("issues", [])
+                preview_ok = preview_info.get("status") in ["ready", "compiled", "static"] and not preview_issues
+                if preview_ok:
+                    diag = f"Preview status: {preview_info.get('status')}, framework: {preview_info.get('framework', 'unknown')}"
+                else:
+                    diag = f"Preview status: {preview_info.get('status')}, issues: {', '.join(preview_issues[:3])}"
 
             checks.append(EvaluationCheck(
                 name="Live Application Preview",
@@ -92,6 +96,27 @@ class EvaluationRunner:
             category=EvaluationCategory.SECURITY_JAIL,
             passed=True,
             diagnostics=f"Verified. {sanitized_count} sensitive keys stripped from child processes.",
+            duration_ms=1
+        ))
+
+        # 6. Executive Delivery Completion Invariant (Anti-Dangling Scratchpad Guard)
+        from app.agent.harness import Harness
+        cleaned_text = (final_agent_text or "").strip()
+        has_delivery = bool(cleaned_text)
+        is_dangling = Harness.is_dangling_action_intent(cleaned_text) if has_delivery else True
+        exec_passed = has_delivery and not is_dangling
+        if not has_delivery:
+            diag = "No final executive summary delivered."
+        elif is_dangling:
+            diag = f"Agent output contains in-flight transitional action promises ('{cleaned_text[:60]}...') without completed delivery."
+        else:
+            diag = "Verified completed terminal executive delivery."
+
+        checks.append(EvaluationCheck(
+            name="Executive Delivery Completion",
+            category=EvaluationCategory.SYNTHESIS,
+            passed=exec_passed,
+            diagnostics=diag,
             duration_ms=1
         ))
 

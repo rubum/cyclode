@@ -82,30 +82,47 @@ const MainApp: React.FC = () => {
           setActiveTaskDetails((prev) => {
             if (!prev || prev.id !== taskId) return data;
 
-            // Seamlessly preserve live in-flight streaming messages or optimistic user messages
             const localMessages = prev.messages || [];
             const serverMessages: TaskMessage[] = data.messages || [];
 
+            const isMatch = (localMsg: TaskMessage, serverMsg: TaskMessage) => {
+              if (serverMsg.id === localMsg.id) return true;
+              if (
+                serverMsg.sender === localMsg.sender &&
+                serverMsg.content.trim() === localMsg.content.trim() &&
+                serverMsg.content.trim().length > 0
+              ) {
+                return true;
+              }
+              // Deduplicate stop/cancellation messages even if formatted slightly differently
+              if (
+                localMsg.content.includes('Task stopped') &&
+                serverMsg.content.includes('Task stopped')
+              ) {
+                return true;
+              }
+              return false;
+            };
+
             const inFlightMessages = localMessages.filter(
-              (m) => m.isStreaming || (m.isOptimistic && !serverMessages.some((sm) => sm.content === m.content))
+              (m) => m.isStreaming || (m.isOptimistic && !serverMessages.some((sm) => isMatch(m, sm)))
             );
+
+            const serverLogs: TaskLog[] = data.logs || [];
+            const runningLogs = (prev.logs || []).filter((l) => l.isRunning && !serverLogs.some((sl) => sl.id === l.id));
+            const mergedLogs = runningLogs.length > 0 ? [...serverLogs, ...runningLogs] : serverLogs;
 
             if (inFlightMessages.length === 0) {
               return {
                 ...data,
+                logs: mergedLogs,
                 active_tool: prev.active_tool && data.status === 'RUNNING' ? prev.active_tool : data.active_tool,
               };
             }
 
             const mergedMessages = [...serverMessages];
             for (const inflight of inFlightMessages) {
-              const alreadyPresent = serverMessages.some(
-                (sm) =>
-                  sm.id === inflight.id ||
-                  (sm.sender === inflight.sender &&
-                    sm.content.trim() === inflight.content.trim() &&
-                    sm.content.trim().length > 0)
-              );
+              const alreadyPresent = serverMessages.some((sm) => isMatch(inflight, sm));
               if (!alreadyPresent) {
                 mergedMessages.push(inflight);
               }
@@ -114,6 +131,7 @@ const MainApp: React.FC = () => {
             return {
               ...data,
               messages: mergedMessages,
+              logs: mergedLogs,
               active_tool: prev.active_tool && data.status === 'RUNNING' ? prev.active_tool : data.active_tool,
             };
           });
@@ -418,8 +436,14 @@ const MainApp: React.FC = () => {
         setActiveTaskDetails((prev) => {
           if (!prev) return prev;
           const currentLogs = [...(prev.logs || [])];
-          const newRunningLog: TaskLog = {
-            id: `live-log-${Date.now()}`,
+          const callId = data.call_id || `live-log-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+          
+          if (currentLogs.some((l: any) => (l.call_id && l.call_id === callId) || l.id === callId)) {
+            return prev;
+          }
+
+          const newRunningLog: TaskLog & { call_id?: string } = {
+            id: callId,
             task_id: data.task_id,
             tool_name: data.tool_name,
             tool_input: data.tool_input || {},
@@ -428,6 +452,7 @@ const MainApp: React.FC = () => {
             duration_ms: 0,
             created_at: data.timestamp || new Date().toISOString(),
             isRunning: true,
+            call_id: data.call_id,
           };
           return {
             ...prev,
@@ -446,8 +471,23 @@ const MainApp: React.FC = () => {
       if (activeTaskId === data.task_id) {
         setActiveTaskDetails((prev) => {
           if (!prev) return prev;
-          const logs = (prev.logs || []).map((l) => {
-            if (l.isRunning && l.tool_name === data.tool_name) {
+          let matched = false;
+          const logs = (prev.logs || []).map((l: any) => {
+            // First priority: match exact call_id
+            if (data.call_id && (l.call_id === data.call_id || l.id === data.call_id)) {
+              matched = true;
+              return {
+                ...l,
+                id: data.id || l.id,
+                tool_output: data.tool_output,
+                exit_code: data.exit_code,
+                duration_ms: data.duration_ms,
+                isRunning: false,
+              };
+            }
+            // Fallback: match first running log with same tool_name if not matched by call_id
+            if (!matched && !data.call_id && l.isRunning && l.tool_name === data.tool_name) {
+              matched = true;
               return {
                 ...l,
                 id: data.id || l.id,
@@ -687,7 +727,7 @@ const MainApp: React.FC = () => {
 
   const handleNewChatWithPrompt = async (
     prompt: string,
-    persona: string = 'SoftwareEngineer',
+    persona: string = 'General',
     modelName: string = 'auto'
   ) => {
     const tempId = `temp-${Date.now()}`;
@@ -697,7 +737,7 @@ const MainApp: React.FC = () => {
       title: initialTitle,
       custom_title: false,
       description: prompt,
-      persona: persona || 'SoftwareEngineer',
+      persona: persona || 'General',
       model_name: modelName || 'auto',
       status: 'INITIALIZING',
       sandbox_status: 'PROVISIONING',
@@ -730,7 +770,7 @@ const MainApp: React.FC = () => {
         body: JSON.stringify({
           title: initialTitle,
           description: prompt,
-          persona: persona || 'SoftwareEngineer',
+          persona: persona || 'General',
           model_name: modelName || 'auto',
         }),
       });
@@ -842,24 +882,9 @@ const MainApp: React.FC = () => {
       );
       return {
         ...prev,
-        status: 'COMPLETED',
         approvals: updatedApprovals,
-        messages: [
-          ...(prev.messages || []),
-          {
-            id: `approve-${Date.now()}`,
-            task_id: activeTaskId,
-            sender: 'agent',
-            content: '🎉 **Action Approved!** Submitting pull request and completing task...',
-            created_at: new Date().toISOString(),
-            isOptimistic: true,
-          },
-        ],
       };
     });
-    setTasks((prev) =>
-      prev.map((t) => (t.id === activeTaskId ? { ...t, status: 'COMPLETED' } : t))
-    );
 
     try {
       await fetch(`${API_BASE}/api/tasks/${activeTaskId}/approve`, {

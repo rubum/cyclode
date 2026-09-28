@@ -64,12 +64,23 @@ class WorkspaceTools:
         start_line: Optional[int] = None,
         end_line: Optional[int] = None
     ) -> Dict[str, Any]:
+        """
+        Reads file content from workspace.
+        Prefers inspecting full file in a single turn without line slices unless the file is massive (>500KB).
+        """
+        if not file_path or not str(file_path).strip():
+            return {"error": "file_path cannot be empty"}
+        clean_path = str(file_path).strip().lstrip("/")
+        if clean_path.startswith("./"):
+            clean_path = clean_path[2:]
+        if not clean_path:
+            return {"error": "Invalid file_path (points to workspace root)"}
         ws_root = workspace_path.resolve()
-        target = (ws_root / file_path).resolve()
+        target = (ws_root / clean_path).resolve()
         if not target.is_relative_to(ws_root):
             return {"error": "Access denied outside workspace"}
         if not target.exists() or not target.is_file():
-            return {"error": f"File '{file_path}' not found"}
+            return {"error": f"File '{clean_path}' not found"}
 
         lockfiles = {"package-lock.json", "pnpm-lock.yaml", "yarn.lock", "Cargo.lock", "poetry.lock", "composer.lock", "Pipfile.lock"}
         minified_exts = {".min.js", ".min.css", ".map", ".bundle.js"}
@@ -142,17 +153,28 @@ class WorkspaceTools:
 
     @staticmethod
     def edit_file(workspace_path: Path, file_path: str, content: str) -> Dict[str, Any]:
+        if not file_path or not str(file_path).strip():
+            return {"error": "file_path cannot be empty"}
+        if content is None or not str(content).strip():
+            return {"error": "content cannot be empty. Provide the complete file implementation when calling edit_file."}
+        clean_path = str(file_path).strip().lstrip("/")
+        if clean_path.startswith("./"):
+            clean_path = clean_path[2:]
+        if not clean_path:
+            return {"error": "Invalid file_path (points to workspace root)"}
         ws_root = workspace_path.resolve()
-        target = (ws_root / file_path).resolve()
+        target = (ws_root / clean_path).resolve()
         if not target.is_relative_to(ws_root):
             return {"error": "Access denied outside workspace"}
+        if target.exists() and target.is_dir():
+            return {"error": f"Target path '{clean_path}' is a directory, not a file"}
 
         target.parent.mkdir(parents=True, exist_ok=True)
         # CoW protection: if file is a shared hardlink, unlink first to write to a new private inode
         if target.exists() and target.is_file() and target.stat().st_nlink > 1:
             target.unlink()
         target.write_text(content, encoding="utf-8")
-        return {"file_path": file_path, "status": "written", "bytes": len(content)}
+        return {"file_path": clean_path, "status": "written", "bytes": len(content)}
 
     @staticmethod
     def _fuzzy_search_and_replace(
@@ -269,12 +291,19 @@ class WorkspaceTools:
         replacement_content: str,
         allow_multiple: bool = False
     ) -> Dict[str, Any]:
+        if not file_path or not str(file_path).strip():
+            return {"error": "file_path cannot be empty"}
+        clean_path = str(file_path).strip().lstrip("/")
+        if clean_path.startswith("./"):
+            clean_path = clean_path[2:]
+        if not clean_path:
+            return {"error": "Invalid file_path (points to workspace root)"}
         ws_root = workspace_path.resolve()
-        target = (ws_root / file_path).resolve()
+        target = (ws_root / clean_path).resolve()
         if not target.is_relative_to(ws_root):
             return {"error": "Access denied outside workspace"}
         if not target.exists() or not target.is_file():
-            return {"error": f"File '{file_path}' not found"}
+            return {"error": f"File '{clean_path}' not found"}
 
         try:
             original = target.read_text(encoding="utf-8")
@@ -309,7 +338,11 @@ class WorkspaceTools:
         Atomically applies multiple search-and-replace operations across one or more files
         in a single turn with atomic validation, rollback on error, and CoW hardlink protection.
         """
-        if not edits or not isinstance(edits, list):
+        if not edits:
+            return {"error": "edits must be a non-empty list of replacement operations"}
+        if isinstance(edits, dict):
+            edits = [edits]
+        elif not isinstance(edits, list):
             return {"error": "edits must be a non-empty list of replacement operations"}
 
         ws_root = workspace_path.resolve()
@@ -322,17 +355,56 @@ class WorkspaceTools:
             if not isinstance(edit, dict):
                 return {"error": f"Edit at index {idx} must be an object"}
             
-            f_path = edit.get("file_path")
-            t_content = edit.get("target_content")
-            r_content = edit.get("replacement_content", "")
-            allow_mult = bool(edit.get("allow_multiple", False))
+            f_path = (
+                edit.get("file_path")
+                or edit.get("path")
+                or edit.get("filePath")
+                or edit.get("target_file")
+                or edit.get("filename")
+                or edit.get("file")
+            )
+            t_content = (
+                edit.get("target_content")
+                if edit.get("target_content") is not None
+                else (
+                    edit.get("target")
+                    if edit.get("target") is not None
+                    else (
+                        edit.get("search")
+                        if edit.get("search") is not None
+                        else (
+                            edit.get("old_content")
+                            if edit.get("old_content") is not None
+                            else edit.get("oldContent")
+                        )
+                    )
+                )
+            )
+            r_content = (
+                edit.get("replacement_content")
+                if edit.get("replacement_content") is not None
+                else (
+                    edit.get("replacement")
+                    if edit.get("replacement") is not None
+                    else (
+                        edit.get("replace")
+                        if edit.get("replace") is not None
+                        else (
+                            edit.get("new_content")
+                            if edit.get("new_content") is not None
+                            else (edit.get("newContent") or "")
+                        )
+                    )
+                )
+            )
+            allow_mult = bool(edit.get("allow_multiple", edit.get("allowMultiple", False)))
 
-            if not f_path or not isinstance(f_path, str):
+            if not f_path or not isinstance(f_path, str) or not f_path.strip():
                 return {"error": f"Edit at index {idx} missing valid 'file_path'"}
             if t_content is None or not isinstance(t_content, str) or not t_content:
                 return {"error": f"Edit at index {idx} ('{f_path}') missing 'target_content'"}
 
-            target_file = (ws_root / f_path).resolve()
+            target_file = (ws_root / f_path.strip().lstrip("/")).resolve()
             if not target_file.is_relative_to(ws_root):
                 return {"error": f"Access denied: '{f_path}' is outside workspace"}
             if not target_file.exists() or not target_file.is_file():
@@ -709,6 +781,368 @@ class WorkspaceTools:
                         "signature": line.strip(),
                         "docstring": ""
                     })
+        elif ext in {".hs", ".lhs"}:
+            for idx, line in enumerate(lines, start=1):
+                m_mod = re.match(r'^\s*module\s+([A-Za-z0-9_.]+)', line)
+                if m_mod:
+                    symbols.append({
+                        "name": m_mod.group(1),
+                        "type": "module",
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip(),
+                        "docstring": ""
+                    })
+                    continue
+                m_data = re.match(r'^\s*(data|newtype|type)\s+(?:family\s+)?([A-Za-z0-9_]+)', line)
+                if m_data:
+                    kind, name = m_data.group(1), m_data.group(2)
+                    symbols.append({
+                        "name": name,
+                        "type": kind,
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip(),
+                        "docstring": ""
+                    })
+                    continue
+                m_cls = re.match(r'^\s*(class|instance)\s+(?:.*=>\s*)?([A-Za-z0-9_]+)', line)
+                if m_cls:
+                    kind, name = m_cls.group(1), m_cls.group(2)
+                    symbols.append({
+                        "name": name,
+                        "type": kind,
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip(),
+                        "docstring": ""
+                    })
+                    continue
+                m_sig = re.match(r'^\s*([a-z_][A-Za-z0-9_\']*)\s*::\s*(.+)', line)
+                if m_sig:
+                    name, sig = m_sig.group(1), m_sig.group(2)
+                    symbols.append({
+                        "name": name,
+                        "type": "function",
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": f"{name} :: {sig.strip()}",
+                        "docstring": ""
+                    })
+        elif ext in {".cs"}:
+            for idx, line in enumerate(lines, start=1):
+                m_cls = re.match(r'^\s*(?:(?:public|private|protected|internal|abstract|sealed|static|partial|readonly)\s+)*(class|interface|struct|record|enum)\s+([A-Za-z0-9_]+)', line)
+                if m_cls:
+                    symbols.append({
+                        "name": m_cls.group(2),
+                        "type": m_cls.group(1),
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip(),
+                        "docstring": ""
+                    })
+                    continue
+                m_fn = re.match(r'^\s*(?:(?:public|private|protected|internal|abstract|sealed|static|async|override|virtual)\s+)+[A-Za-z0-9_<>\[\],\s?]+\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)', line)
+                if m_fn and not any(k in line for k in ["class ", "interface ", "struct ", "record ", "enum ", "namespace "]):
+                    symbols.append({
+                        "name": m_fn.group(1),
+                        "type": "function",
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip().rstrip("{;"),
+                        "docstring": ""
+                    })
+        elif ext in {".swift"}:
+            for idx, line in enumerate(lines, start=1):
+                m_cls = re.match(r'^\s*(?:(?:public|private|fileprivate|internal|open|final)\s+)*(struct|class|protocol|enum|actor|extension)\s+([A-Za-z0-9_]+)', line)
+                if m_cls:
+                    symbols.append({
+                        "name": m_cls.group(2),
+                        "type": m_cls.group(1),
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip().rstrip("{"),
+                        "docstring": ""
+                    })
+                    continue
+                m_fn = re.match(r'^\s*(?:(?:public|private|fileprivate|internal|open|static|class|override|mutating|async)\s+)*func\s+([A-Za-z0-9_]+)\s*(?:<[^>]+>)?\s*\(([^)]*)\)', line)
+                if m_fn:
+                    symbols.append({
+                        "name": m_fn.group(1),
+                        "type": "function",
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip().rstrip("{"),
+                        "docstring": ""
+                    })
+        elif ext in {".dart"}:
+            for idx, line in enumerate(lines, start=1):
+                m_cls = re.match(r'^\s*(?:(?:abstract|sealed|base|interface|final)\s+)*(class|mixin|enum|extension)\s+([A-Za-z0-9_]+)', line)
+                if m_cls:
+                    symbols.append({
+                        "name": m_cls.group(2),
+                        "type": m_cls.group(1),
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip().rstrip("{"),
+                        "docstring": ""
+                    })
+                    continue
+                m_fn = re.match(r'^\s*(?:(?:static|@override|Future|Stream|void|[A-Za-z0-9_<>?]+)\s+)+([A-Za-z0-9_]+)\s*\(([^)]*)\)\s*(?:async\s*)?(?:\{|=>)', line)
+                if m_fn and not any(k in line for k in ["class ", "mixin ", "enum ", "extension "]):
+                    symbols.append({
+                        "name": m_fn.group(1),
+                        "type": "function",
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip().rstrip("{=>"),
+                        "docstring": ""
+                    })
+        elif ext in {".scala", ".sc"}:
+            for idx, line in enumerate(lines, start=1):
+                m_cls = re.match(r'^\s*(?:(?:sealed|abstract|final|case|implicit|lazy)\s+)*(case\s+class|class|object|trait|enum)\s+([A-Za-z0-9_]+)', line)
+                if m_cls:
+                    symbols.append({
+                        "name": m_cls.group(2),
+                        "type": m_cls.group(1),
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip().rstrip("{"),
+                        "docstring": ""
+                    })
+                    continue
+                m_fn = re.match(r'^\s*(?:(?:override|private|protected|implicit|inline)\s+)*def\s+([A-Za-z0-9_+=:<>!?-]+)', line)
+                if m_fn:
+                    symbols.append({
+                        "name": m_fn.group(1),
+                        "type": "function",
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip().rstrip("{="),
+                        "docstring": ""
+                    })
+        elif ext in {".lua"}:
+            for idx, line in enumerate(lines, start=1):
+                m_fn = re.match(r'^\s*(?:local\s+)?function\s+([A-Za-z0-9_.:]+)\s*\(([^)]*)\)', line)
+                if m_fn:
+                    symbols.append({
+                        "name": m_fn.group(1),
+                        "type": "function",
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": f"function {m_fn.group(1)}({m_fn.group(2)})",
+                        "docstring": ""
+                    })
+        elif ext in {".c", ".cpp", ".h", ".hpp", ".cc", ".cxx"}:
+            for idx, line in enumerate(lines, start=1):
+                m_cls = re.match(r'^\s*(?:typedef\s+)?(struct|class|enum|union)\s+([A-Za-z0-9_]+)', line)
+                if m_cls:
+                    symbols.append({
+                        "name": m_cls.group(2),
+                        "type": m_cls.group(1),
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip().rstrip("{;"),
+                        "docstring": ""
+                    })
+                    continue
+                m_fn = re.match(r'^\s*(?:(?:inline|static|virtual|explicit|constexpr|extern\s+"C")\s+)*(?:(?:const|unsigned|signed|struct|enum)\s+)*[A-Za-z0-9_<>:*&]+\s+([A-Za-z0-9_:]+)\s*\(([^)]*)\)\s*(?:const)?\s*(?:\{|;)', line)
+                if m_fn and not any(k in line for k in ["struct ", "class ", "enum ", "union ", "return ", "typedef "]):
+                    symbols.append({
+                        "name": m_fn.group(1),
+                        "type": "function",
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip().rstrip("{;"),
+                        "docstring": ""
+                    })
+        elif ext in {".tf", ".hcl"}:
+            for idx, line in enumerate(lines, start=1):
+                m_block = re.match(r'^\s*(resource|module|variable|output|data|provider|locals)\s+(?:"([^"]+)"|([A-Za-z0-9_-]+))(?:\s+"([^"]+)")?', line)
+                if m_block:
+                    kind = m_block.group(1)
+                    first_arg = m_block.group(2) or m_block.group(3) or ""
+                    second_arg = m_block.group(4) or ""
+                    sym_name = f"{first_arg}.{second_arg}" if second_arg else first_arg
+                    symbols.append({
+                        "name": sym_name,
+                        "type": kind,
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip().rstrip("{"),
+                        "docstring": ""
+                    })
+        elif ext in {".sol"}:
+            for idx, line in enumerate(lines, start=1):
+                m_cls = re.match(r'^\s*(contract|interface|library)\s+([A-Za-z0-9_]+)', line)
+                if m_cls:
+                    symbols.append({
+                        "name": m_cls.group(2),
+                        "type": m_cls.group(1),
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip().rstrip("{"),
+                        "docstring": ""
+                    })
+                    continue
+                m_fn = re.match(r'^\s*(function|event|modifier|error)\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)', line)
+                if m_fn:
+                    symbols.append({
+                        "name": m_fn.group(2),
+                        "type": m_fn.group(1),
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip().rstrip("{;"),
+                        "docstring": ""
+                    })
+        elif ext in {".zig"}:
+            for idx, line in enumerate(lines, start=1):
+                m_cls = re.match(r'^\s*(?:pub\s+)?const\s+([A-Za-z0-9_]+)\s*=\s*(struct|enum|union)', line)
+                if m_cls:
+                    symbols.append({
+                        "name": m_cls.group(1),
+                        "type": m_cls.group(2),
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip().rstrip("{"),
+                        "docstring": ""
+                    })
+                    continue
+                m_fn = re.match(r'^\s*(?:pub\s+)?(?:export\s+)?fn\s+([A-Za-z0-9_]+)\s*\(([^)]*)\)', line)
+                if m_fn:
+                    symbols.append({
+                        "name": m_fn.group(1),
+                        "type": "function",
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip().rstrip("{"),
+                        "docstring": ""
+                    })
+        elif ext in {".clj", ".cljs", ".cljc", ".edn"}:
+            for idx, line in enumerate(lines, start=1):
+                m_ns = re.match(r'^\s*\(\s*ns\s+([A-Za-z0-9_.-]+)', line)
+                if m_ns:
+                    symbols.append({
+                        "name": m_ns.group(1),
+                        "type": "namespace",
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip(),
+                        "docstring": ""
+                    })
+                    continue
+                m_def = re.match(r"^\s*\(\s*(defn|defn-|defmacro|defmulti|defmethod|defprotocol|defrecord|deftype|def)\s+([A-Za-z0-9_.*+!?'<>=/-]+)", line)
+                if m_def:
+                    symbols.append({
+                        "name": m_def.group(2),
+                        "type": m_def.group(1),
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip(),
+                        "docstring": ""
+                    })
+        elif ext in {".erl", ".hrl"}:
+            for idx, line in enumerate(lines, start=1):
+                m_mod = re.match(r'^\s*-module\s*\(\s*([A-Za-z0-9_]+)\s*\)\.', line)
+                if m_mod:
+                    symbols.append({
+                        "name": m_mod.group(1),
+                        "type": "module",
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip(),
+                        "docstring": ""
+                    })
+                    continue
+                m_rec = re.match(r'^\s*-record\s*\(\s*([A-Za-z0-9_]+)', line)
+                if m_rec:
+                    symbols.append({
+                        "name": m_rec.group(1),
+                        "type": "record",
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip(),
+                        "docstring": ""
+                    })
+                    continue
+                m_fn = re.match(r'^\s*([a-z][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*(?:when.*)?->', line)
+                if m_fn:
+                    symbols.append({
+                        "name": m_fn.group(1),
+                        "type": "function",
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip(),
+                        "docstring": ""
+                    })
+        elif ext in {".ml", ".mli"}:
+            for idx, line in enumerate(lines, start=1):
+                m_mod = re.match(r'^\s*module\s+([A-Z][A-Za-z0-9_]*)', line)
+                if m_mod:
+                    symbols.append({
+                        "name": m_mod.group(1),
+                        "type": "module",
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip(),
+                        "docstring": ""
+                    })
+                    continue
+                m_typ = re.match(r'^\s*type\s+(?:nonrec\s+)?([a-z_][A-Za-z0-9_\']*)', line)
+                if m_typ:
+                    symbols.append({
+                        "name": m_typ.group(1),
+                        "type": "type",
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip(),
+                        "docstring": ""
+                    })
+                    continue
+                m_let = re.match(r'^\s*let\s+(?:rec\s+)?([a-z_][A-Za-z0-9_\']*)', line)
+                if m_let:
+                    symbols.append({
+                        "name": m_let.group(1),
+                        "type": "function",
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip(),
+                        "docstring": ""
+                    })
+        elif ext in {".fs", ".fsi", ".fsx"}:
+            for idx, line in enumerate(lines, start=1):
+                m_mod = re.match(r'^\s*(?:module|namespace)\s+([A-Za-z0-9_.]+)', line)
+                if m_mod:
+                    symbols.append({
+                        "name": m_mod.group(1),
+                        "type": "module",
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip(),
+                        "docstring": ""
+                    })
+                    continue
+                m_typ = re.match(r'^\s*type\s+([A-Za-z0-9_]+)', line)
+                if m_typ:
+                    symbols.append({
+                        "name": m_typ.group(1),
+                        "type": "type",
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip(),
+                        "docstring": ""
+                    })
+                    continue
+                m_let = re.match(r'^\s*let\s+(?:rec\s+)?([A-Za-z0-9_]+)', line)
+                if m_let:
+                    symbols.append({
+                        "name": m_let.group(1),
+                        "type": "function",
+                        "file_path": file_path,
+                        "line_number": idx,
+                        "signature": line.strip(),
+                        "docstring": ""
+                    })
 
         return symbols
 
@@ -754,10 +1188,10 @@ class WorkspaceTools:
             return {"error": str(e)}
 
     @staticmethod
-    def run_command(workspace_path: Path, command: str) -> Dict[str, Any]:
+    def run_command(workspace_path: Path, command: str, bypass_safety: bool = False) -> Dict[str, Any]:
         from app.core.sandboxes.jailer import jailer
         try:
-            is_safe, safety_err = jailer.validate_command_safety(command, workspace_path)
+            is_safe, safety_err = jailer.validate_command_safety(command, workspace_path, bypass_safety=bypass_safety)
             if not is_safe:
                 return {
                     "command": command,
@@ -838,15 +1272,56 @@ class WorkspaceTools:
                 # 2. Apply hypothesis edits to the fork
                 applied_edits = 0
                 for edit in hyp.get("edits", []):
-                    f_path = edit.get("file_path", "")
-                    tc = edit.get("target_content", "")
-                    rc = edit.get("replacement_content", "")
+                    f_path = (
+                        edit.get("file_path")
+                        or edit.get("path")
+                        or edit.get("filePath")
+                        or edit.get("target_file")
+                        or edit.get("filename")
+                        or edit.get("file")
+                        or ""
+                    )
+                    tc = (
+                        edit.get("target_content")
+                        if edit.get("target_content") is not None
+                        else (
+                            edit.get("target")
+                            if edit.get("target") is not None
+                            else (
+                                edit.get("search")
+                                if edit.get("search") is not None
+                                else (
+                                    edit.get("old_content")
+                                    if edit.get("old_content") is not None
+                                    else edit.get("oldContent")
+                                )
+                            )
+                        )
+                    )
+                    rc = (
+                        edit.get("replacement_content")
+                        if edit.get("replacement_content") is not None
+                        else (
+                            edit.get("replacement")
+                            if edit.get("replacement") is not None
+                            else (
+                                edit.get("replace")
+                                if edit.get("replace") is not None
+                                else (
+                                    edit.get("new_content")
+                                    if edit.get("new_content") is not None
+                                    else edit.get("newContent")
+                                )
+                            )
+                        )
+                    )
+                    c = edit.get("content") if edit.get("content") is not None else (edit.get("code") if edit.get("code") is not None else edit.get("text"))
                     if f_path and tc and rc is not None:
                         rep_res = WorkspaceTools.replace_file_content(fork_ws, f_path, tc, rc)
                         if rep_res.get("status") == "replaced":
                             applied_edits += 1
-                    elif f_path and "content" in edit:
-                        WorkspaceTools.edit_file(fork_ws, f_path, edit["content"])
+                    elif f_path and c:
+                        WorkspaceTools.edit_file(fork_ws, f_path, c)
                         applied_edits += 1
 
                 # 3. Run test command in the isolated fork
@@ -1187,7 +1662,11 @@ class WorkspaceTools:
         }
         supported_exts = {
             ".py", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
-            ".ex", ".exs", ".go", ".rs", ".rb", ".java", ".kt", ".php", ".c", ".cpp", ".h", ".hpp"
+            ".ex", ".exs", ".go", ".rs", ".rb", ".java", ".kt", ".php",
+            ".c", ".cpp", ".h", ".hpp", ".cc", ".cxx",
+            ".hs", ".lhs", ".cs", ".swift", ".dart", ".scala", ".sc",
+            ".lua", ".tf", ".hcl", ".sol", ".zig", ".clj", ".cljs",
+            ".erl", ".hrl", ".ml", ".mli", ".fs", ".fsx"
         }
         MAX_AST_FILE_SIZE = 500 * 1024
 

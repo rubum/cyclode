@@ -19,6 +19,9 @@ class ImageResolver:
         "rust": "rust:1.80-slim-bookworm",
         "go": "golang:1.22-bookworm",
         "python": "python:3.11-slim-bookworm",
+        "elixir": "elixir:1.16-slim",
+        "ruby": "ruby:3.3-slim-bookworm",
+        "php": "php:8.3-cli-bookworm",
         "default": "debian:bookworm-slim",
     }
 
@@ -39,6 +42,12 @@ class ImageResolver:
             return self.IMAGE_MAP["rust"]
         if (workspace_path / "go.mod").exists():
             return self.IMAGE_MAP["go"]
+        if (workspace_path / "mix.exs").exists():
+            return self.IMAGE_MAP["elixir"]
+        if (workspace_path / "Gemfile").exists():
+            return self.IMAGE_MAP["ruby"]
+        if (workspace_path / "composer.json").exists():
+            return self.IMAGE_MAP["php"]
         if (workspace_path / "package.json").exists() or (workspace_path / "client" / "package.json").exists():
             return self.IMAGE_MAP["node"]
         if (workspace_path / "requirements.txt").exists() or (workspace_path / "pyproject.toml").exists():

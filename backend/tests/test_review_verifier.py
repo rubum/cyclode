@@ -449,3 +449,75 @@ diff --git a/backend/main.py b/backend/main.py
             assert any("Command Injection" in h.title for h in hypotheses)
 
 
+def test_format_review_markdown_gfm_alerts_and_causal_chains():
+    # 1. Test formatting with both Critical Blocker and Defensive Suggestion
+    critical_finding = VerifiedFinding(
+        id="vf-1",
+        category="SECURITY_CRITICAL",
+        severity="CRITICAL",
+        file_path="lib/waylo/commerce/stores.ex",
+        line_start=45,
+        line_end=52,
+        title="Tenant SSO Origin Bypass via Local Docker Driver Default",
+        violation_summary="Missing production environment configuration causes resolve_admin_url/1 to default to local validator, bypassing canonical tenant domain checks.",
+        verification_evidence="Adversarially verified: config/runtime.exs fails to set driver when variable is omitted.",
+        reproduction_steps="1. Deploy to production with COMMERCE_PROVISIONER_DRIVER unset.\n2. Call SSOController redirect endpoint.\n3. Request redirects to arbitrary un-validated origin.",
+        suggested_diff="```elixir\n# lib/waylo/commerce/stores.ex\n-defp local_docker_provisioner? do\n+defp local_docker_provisioner? do\n+  Application.get_env(:waylo, :environment) in [:dev, :test] and ...\n```",
+        confidence_score=0.98,
+        cluster_tags=["security", "sso"]
+    )
+
+    defensive_finding = VerifiedFinding(
+        id="vf-2",
+        category="LOGIC_BUG",
+        severity="MEDIUM",
+        file_path="lib/waylo/commerce/provisioner/drivers/docker.ex",
+        line_start=617,
+        line_end=620,
+        title="Unchecked Pattern Match on Credential-less Database URI",
+        violation_summary="URI string split on uri.userinfo raises MatchError when connection string omits credentials.",
+        verification_evidence="Bare postgres://host/db results in userinfo == nil.",
+        reproduction_steps="Supply database URL without user:password.",
+        suggested_diff="```elixir\n- [user, pass] = uri.userinfo |> String.split(\":\")\n+ case uri.userinfo do ...\n```",
+        confidence_score=0.92,
+        cluster_tags=["resilience"]
+    )
+
+    md = ReviewVerifier.format_review_markdown([critical_finding, defensive_finding], pr_meta={"title": "Local Docker Provisioner", "number": 1198})
+
+    # Assertions for GFM Callouts and Structured Sections
+    assert "# Verified Code Review: Local Docker Provisioner #1198" in md
+    assert "### Verified Findings Summary" in md
+    assert "🔴 CRITICAL" in md
+    assert "🟡 MEDIUM" in md
+    assert "### 🔴 Blocking Findings (Must Fix Before Merge)" in md
+    assert "> [!CAUTION]" in md
+    assert "**Impact Assessment**:" in md
+    assert "**Causal Sequence & Reproduction**:" in md
+    assert "### 🟡 Non-Blocking Defensive Improvements" in md
+    assert "> [!NOTE]" in md
+    assert "**Observation**:" in md
+
+    # Assert complete absence of internal AI machinery and sandbox excuses
+    banned_phrases = [
+        "this sandbox has no",
+        "I grepped",
+        "I ran git log",
+        "I initially suspected",
+        "PR-only diff (",
+        "taken on trust",
+        "in this local environment"
+    ]
+    for phrase in banned_phrases:
+        assert phrase.lower() not in md.lower()
+
+
+def test_format_review_markdown_zero_findings_clean_executive_summary():
+    md = ReviewVerifier.format_review_markdown([], pr_meta={"title": "Fix Typo in README", "number": 42})
+    assert "# Verified Code Review: Fix Typo in README #42" in md
+    assert "### Executive Summary" in md
+    assert "All Invariant Verification Checks Passed with Zero Flaws Detected." in md
+    assert "> [!NOTE]" in md
+    assert "Zero-Style Invariant" in md
+
+

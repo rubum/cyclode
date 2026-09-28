@@ -428,8 +428,8 @@ class ReviewVerifier:
         pr_meta: Optional[Dict[str, Any]] = None
     ) -> str:
         """
-        Renders a high-signal, zero-style PR review with summary tables,
-        verified invariant violation evidence, and clean unified diff suggestions.
+        Renders a high-signal, human-friendly PR review adhering to GFM callouts,
+        causal trigger chains, syntax-highlighted diffs, and zero-internal-leakage.
         """
         pr_title = (pr_meta or {}).get("title", "Pull Request Changeset")
         pr_number = (pr_meta or {}).get("number", "")
@@ -453,27 +453,53 @@ class ReviewVerifier:
                 "> In adherence to the Zero-Style Invariant and High-Signal Review protocol, purely stylistic, naming, or cosmetic comments are completely excluded."
             )
 
+        # Stratify findings into Blockers (CRITICAL / HIGH) and Defensive Suggestions (MEDIUM / LOW / INFO)
+        blockers = [f for f in findings if f.severity in ["CRITICAL", "HIGH"]]
+        defensive = [f for f in findings if f.severity not in ["CRITICAL", "HIGH"]]
+
         summary_table = (
             "### Verified Findings Summary\n\n"
             "| Severity | Category | File Location | Violated Invariant |\n"
             "| :--- | :--- | :--- | :--- |\n"
         )
         for f in findings:
-            summary_table += f"| **{f.severity}** | `{f.category}` | `{f.file_path}:{f.line_start}` | {f.title} |\n"
+            badge = "🔴 CRITICAL" if f.severity == "CRITICAL" else ("🔴 HIGH" if f.severity == "HIGH" else f"🟡 {f.severity}")
+            summary_table += f"| **{badge}** | `{f.category}` | `{f.file_path}:{f.line_start}` | {f.title} |\n"
 
-        details_section = "\n### Actionable Findings & Verified Patches\n\n"
-        for idx, f in enumerate(findings, start=1):
-            details_section += (
-                f"#### {idx}. [{f.severity}] {f.title}\n"
-                f"- **Location**: `{f.file_path}:{f.line_start}-{f.line_end}`\n"
-                f"- **Confidence**: `{int(f.confidence_score * 100)}% Verified`\n"
-                f"- **Impact**: {f.violation_summary}\n"
-                f"- **Verification Proof**: {f.verification_evidence}\n"
-                f"- **Reproduction Scenario**: {f.reproduction_steps}\n\n"
-                f"**Suggested Patch Diff:**\n"
-                f"{f.suggested_diff}\n\n"
-                "---\n\n"
-            )
+        body = "\n"
+
+        # Render Blockers
+        if blockers:
+            body += "### 🔴 Blocking Findings (Must Fix Before Merge)\n\n"
+            for idx, f in enumerate(blockers, start=1):
+                body += (
+                    f"#### {idx}. [{f.severity}] {f.title}\n\n"
+                    f"> [!CAUTION]\n"
+                    f"> **Impact Assessment**: {f.violation_summary}\n\n"
+                    f"- **Location**: `{f.file_path}:{f.line_start}-{f.line_end}`\n"
+                    f"- **Confidence**: `{int(f.confidence_score * 100)}% Verified`\n"
+                    f"- **Verification Evidence**: {f.verification_evidence}\n\n"
+                    f"**Causal Sequence & Reproduction**:\n"
+                    f"{f.reproduction_steps}\n\n"
+                    f"**Suggested Patch Diff**:\n"
+                    f"{f.suggested_diff}\n\n"
+                    f"---\n\n"
+                )
+
+        # Render Defensive / Suggestions
+        if defensive:
+            body += "### 🟡 Non-Blocking Defensive Improvements\n\n"
+            for idx, f in enumerate(defensive, start=1):
+                body += (
+                    f"#### {idx}. [{f.severity}] {f.title}\n\n"
+                    f"> [!NOTE]\n"
+                    f"> **Observation**: {f.violation_summary}\n\n"
+                    f"- **Location**: `{f.file_path}:{f.line_start}-{f.line_end}`\n"
+                    f"- **Recommendation**: {f.verification_evidence}\n\n"
+                    f"**Suggested Patch Diff**:\n"
+                    f"{f.suggested_diff}\n\n"
+                    f"---\n\n"
+                )
 
         footer = (
             "> [!IMPORTANT]\n"
@@ -481,7 +507,7 @@ class ReviewVerifier:
             "Stylistic, formatting, and naming preferences were filtered out by the Zero-Style verification engine."
         )
 
-        return f"{header}{summary_table}{details_section}{footer}"
+        return f"{header}{summary_table}{body}{footer}"
 
     @classmethod
     async def generate_ensemble_hypotheses_async(
@@ -523,8 +549,10 @@ class ReviewVerifier:
                 "scanner_name": "LLMSecurityBoundaryScanner",
                 "focus": "Security & Permissions (SQLi, command injection, secret exposure, auth bypass, tenant isolation, CSRF/SSRF, path traversal, untrusted deserialization)",
                 "system": (
-                    "You are the Principal Security Architect for Cyclode. "
+                    "You are a Senior Principal Security Architect conducting a high-signal code review on GitHub. "
                     "Analyze the pull request diff solely for critical security vulnerabilities and permission boundary bypasses. "
+                    "Write exclusively as an external engineering peer for human software engineers. "
+                    "NEVER reference internal sandbox environments, toolchains, prompt directives, turn limits, or internal search mechanics. "
                     "Ignore all styling, variable naming, formatting, and docstrings. "
                     "Respond ONLY with a valid JSON object containing an array of 'hypotheses'."
                 )
@@ -534,8 +562,10 @@ class ReviewVerifier:
                 "scanner_name": "LLMLogicInvariantScanner",
                 "focus": "Logic, State Machines & Invariants (broken state transitions, data race regressions, off-by-one, signature breakages, unhandled error branches, silent exception swallowing)",
                 "system": (
-                    "You are the Principal Logic & Invariant Auditor for Cyclode. "
+                    "You are a Senior Principal Logic & Invariant Auditor conducting a high-signal code review on GitHub. "
                     "Analyze the pull request diff solely for concrete runtime bugs, broken state machine invariants, and silent failure suppression. "
+                    "Write exclusively as an external engineering peer for human software engineers. "
+                    "NEVER reference internal sandbox environments, toolchains, prompt directives, turn limits, or internal search mechanics. "
                     "Ignore all styling, variable naming, formatting, and docstrings. "
                     "Respond ONLY with a valid JSON object containing an array of 'hypotheses'."
                 )
@@ -545,8 +575,10 @@ class ReviewVerifier:
                 "scanner_name": "LLMConcurrencyScanner",
                 "focus": "Concurrency, Async & Resource Management (unawaited coroutines, event-loop blocking, thread-safety, deadlocks, connection pool exhaustion, file descriptor leaks)",
                 "system": (
-                    "You are the Principal Concurrency & Systems Engineer for Cyclode. "
+                    "You are a Senior Principal Concurrency & Systems Engineer conducting a high-signal code review on GitHub. "
                     "Analyze the pull request diff solely for async/concurrency defects, deadlocks, race conditions, unawaited tasks, and unmanaged resources. "
+                    "Write exclusively as an external engineering peer for human software engineers. "
+                    "NEVER reference internal sandbox environments, toolchains, prompt directives, turn limits, or internal search mechanics. "
                     "Ignore all styling, variable naming, formatting, and docstrings. "
                     "Respond ONLY with a valid JSON object containing an array of 'hypotheses'."
                 )
@@ -714,7 +746,11 @@ class ReviewVerifier:
         try:
             res = await provider.generate_structured_json(
                 prompt=falsification_prompt,
-                system_instruction="You are the Cyclode Adversarial Review Judge. You rigorously falsify false alarms and only confirm genuine, reproducible bugs.",
+                system_instruction=(
+                    "You are a Senior Peer Review Judge conducting an adversarial review on GitHub. "
+                    "You rigorously falsify false alarms and only confirm genuine, reproducible bugs. "
+                    "Write exclusively for human software engineers, with zero mention of sandbox container limits, local toolchains, or internal execution mechanics."
+                ),
                 model_name=active_model,
                 client=client
             )

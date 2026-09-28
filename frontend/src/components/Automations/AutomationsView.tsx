@@ -576,6 +576,7 @@ export const AutomationsView: React.FC<AutomationsViewProps> = ({
                     onChange={(e) => setNewRule({ ...newRule, persona: e.target.value })}
                     className="w-full bg-onedark-bg border border-onedark-border rounded-lg px-3 py-1.5 text-xs text-onedark-fgBright focus:outline-none focus:border-onedark-accent"
                   >
+                    <option value="General">General</option>
                     <option value="CodeReviewer">CodeReviewer</option>
                     <option value="SoftwareEngineer">SoftwareEngineer</option>
                     <option value="IssueResolver">IssueResolver</option>

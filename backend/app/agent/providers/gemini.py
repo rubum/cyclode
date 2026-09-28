@@ -5,7 +5,7 @@ from typing import Dict, Any, List, Optional
 import httpx
 
 from app.config import settings
-from app.agent.providers.base import BaseLLMProvider, ProviderResponse, ToolCallRequest
+from app.agent.providers.base import BaseLLMProvider, ProviderResponse, ToolCallRequest, parse_lenient_tool_arguments
 
 logger = logging.getLogger("cyclode.providers.gemini")
 
@@ -136,7 +136,7 @@ class GeminiProvider(BaseLLMProvider):
                 if "functionCall" in part:
                     fc = part["functionCall"]
                     fn_name = fc.get("name", "")
-                    fn_args = fc.get("args", {})
+                    fn_args = parse_lenient_tool_arguments(fc.get("args", {}))
                     call_id = fc.get("id") or f"call_{len(tool_calls)+1}_{fn_name}"
                     tool_calls.append(ToolCallRequest(
                         call_id=call_id,

@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 from typing import Dict, Any, Callable, Optional, List, Tuple
 from datetime import datetime, timezone
+import uuid
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -444,7 +445,7 @@ class AntigravityHarness:
             or any(cleaned_title.startswith(prefix) for prefix in ["what is", "what are", "how does", "how do", "how to", "why is", "why does", "explain", "describe", "tell me about", "compare", "contrast", "overview of", "summarize"])
             or "research" in cleaned_title.split()
         )
-        has_code_file = any(ext in combined for ext in [".py", ".html", ".css", ".js", ".ts", ".tsx", ".jsx", ".json", ".sql", ".rs", ".go", ".c", ".cpp", ".h", "dockerfile"])
+        has_code_file = bool(re.search(r'\b[\w\-\./]+\.(py|html|css|jsx?|tsx?|json|sql|rs|go|c|cpp|h)\b|\bdockerfile\b', combined, re.IGNORECASE))
 
         if is_qa_prefix and not has_code_file:
             return "qa_research"
@@ -509,7 +510,7 @@ class AntigravityHarness:
         return plan_data
 
     @staticmethod
-    def sanitize_plan_phases(raw_phases: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def sanitize_plan_phases(raw_phases: List[Dict[str, Any]], intent_category: str = "") -> List[Dict[str, Any]]:
         phases = []
         for p in raw_phases:
             p_copy = dict(p)
@@ -518,6 +519,9 @@ class AntigravityHarness:
                 p_copy["title"] = "Phase 1: Environment & Path Configuration Alignment"
                 p_copy["objective"] = "Align pyproject.toml, PYTHONPATH, and test paths without deleting codebase directory trees."
                 p_copy["file_touchpoints"] = ["pyproject.toml: Configure pythonpath and test runner options"]
+            if intent_category == "qa_research":
+                p_copy["file_touchpoints"] = []
+                p_copy["verification_criteria"] = "Factual verification in direct chat response."
             phases.append(p_copy)
         return phases
 
@@ -557,6 +561,77 @@ class AntigravityHarness:
 
         return changed
 
+    @staticmethod
+    def is_dangling_action_intent(text: str) -> bool:
+        """
+        Determines whether an agent response contains in-flight transitional action promises
+        (e.g., "Now let me update...", "Next I will...", "Let me rewrite...", ending in a colon or ellipsis)
+        rather than a completed terminal summary.
+        Evaluates full text, sentence structure, and punctuation with filename-aware boundary splitting.
+        """
+        if not text or not isinstance(text, str):
+            return False
+
+        cleaned = text.strip()
+        if not cleaned:
+            return False
+
+        # Trailing colons, ellipses, or arrows indicate an intro without subsequent payload
+        if cleaned.endswith(":") or cleaned.endswith("...") or cleaned.endswith("->"):
+            return True
+
+        text_lower = cleaned.lower()
+
+        # Raw tool call markup tokens leaked into text indicate incomplete tool execution
+        if any(tok in text_lower for tok in [
+            "dsml", "tool_call", "tool_calls", "function_call", "invoke name=",
+            "< | dsml", "<|dsml", "<｜dsml", "<tool_call>", "</tool_call>", "<invoke", "</invoke>"
+        ]):
+            return True
+
+        forward_phrases = [
+            "now let me", "now let us", "now let's", "now i will", "now i'll",
+            "let me ", "let us ", "let's ", "i will now", "i'll now", "i will proceed",
+            "i am going to", "next, i will", "next, let's", "next step is to",
+            "next up", "next i'll", "next we will", "next we'll",
+            "i will update", "i'll update", "i will add", "i'll add",
+            "i will create", "i'll create", "i will implement", "i'll implement",
+            "i will fix", "i'll fix", "i will edit", "i'll edit",
+            "i will modify", "i'll modify", "i will test", "i'll test",
+            "i will run", "i'll run", "i will execute", "i'll execute",
+            "i will check", "i'll check", "i will examine", "i'll examine",
+            "i will inspect", "i'll inspect", "i will verify", "i'll verify",
+            "i need to update", "i need to add", "i need to create", "i need to complete",
+            "i need to fix", "i need to edit", "i need to implement",
+            "proceeding to update", "proceeding to implement", "proceeding to add",
+            "going to update", "going to implement", "going to create",
+            "let me rewrite", "let me verify", "let me confirm", "let me check",
+            "let me inspect", "let me read", "let me examine",
+            "plus check whether", "plus check if", "also verify", "also check",
+            "confirm whether", "confirm if", "verify whether", "verify if"
+        ]
+
+        # Sentence-boundary splitting that preserves filename periods (.js, .py, .html, .ts, etc.)
+        # Splits strictly on punctuation followed by whitespace or line breaks
+        sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+|(?:\n|\r|;)+', text_lower) if s.strip()]
+
+        if sentences:
+            last_sentence = sentences[-1]
+            for p in forward_phrases:
+                if p in last_sentence:
+                    return True
+            for s in sentences:
+                for p in forward_phrases:
+                    if p in s and not any(comp in s for comp in ["have completed", "successfully", "all tests pass", "verified in live preview", "now fully built"]):
+                        return True
+
+        if len(text_lower) < 450:
+            for p in forward_phrases:
+                if p in text_lower and not any(comp in text_lower for comp in ["have completed", "successfully", "all tests pass", "verified in live preview", "now fully built"]):
+                    return True
+
+        return False
+
     async def _generate_dynamic_plan(
         self,
         client: httpx.AsyncClient,
@@ -565,7 +640,8 @@ class AntigravityHarness:
         title: str,
         prompt: str,
         persona_name: str,
-        history: Optional[List[Dict[str, Any]]] = None
+        history: Optional[List[Dict[str, Any]]] = None,
+        workspace_path: Optional[Path] = None
     ) -> Dict[str, Any]:
         """
         Dynamically synthesizes a bespoke execution plan and classifies task intent
@@ -592,6 +668,11 @@ class AntigravityHarness:
                     "summary": "Conversational greeting acknowledged."
                 }
             }
+
+        # Ground affirmative / continuation turns in existing workspace state
+        affirmative_prompts = {"proceed", "continue", "go ahead", "next", "yes", "approved", "ok", "okay", "do it"}
+        if cleaned_prompt in affirmative_prompts or cleaned_title in affirmative_prompts:
+            prompt = f"The user approved with '{prompt}'. Continue the active task by inspecting and building on the current workspace files."
 
         # Fast path: Detect Plan Mode activation triggers
         planning_phrases = [
@@ -624,6 +705,31 @@ class AntigravityHarness:
                     history_snippets.append(f"[{sender}]: {clean_content}")
             if history_snippets:
                 conversation_context = "Preceding Conversation Context:\n" + "\n\n".join(history_snippets) + "\n\n"
+
+        # Extract active workspace filesystem tree to ground planning against real files
+        workspace_grounding = ""
+        if workspace_path and workspace_path.exists():
+            try:
+                ignored_dirs = {".git", "node_modules", "__pycache__", ".venv", ".pytest_cache", "dist", "build", ".antigravity", ".gemini"}
+                found_files = []
+                for p in sorted(workspace_path.rglob("*")):
+                    if any(part in ignored_dirs for part in p.parts):
+                        continue
+                    if p.is_file():
+                        rel = p.relative_to(workspace_path)
+                        if len(rel.parts) <= 3:
+                            sz_kb = max(1, p.stat().st_size // 1024)
+                            found_files.append(f"{rel} ({sz_kb}KB)")
+                    if len(found_files) >= 25:
+                        break
+                if found_files:
+                    workspace_grounding = (
+                        "Active Workspace Files Ground Truth:\n"
+                        + "\n".join(f"- {f}" for f in found_files)
+                        + "\nCRITICAL PLANNING MANDATE: Ground all plan steps strictly against the REAL files above! If the workspace is a single-file application (e.g. index.html), plan modifications directly on index.html. NEVER invent non-existent React/modular directories (such as src/components/...) when the project is self-contained.\n\n"
+                    )
+            except Exception as e:
+                logger.debug(f"Workspace ground truth scan notice: {e}")
 
         # Infer heuristic task intent
         inferred_intent = Harness.infer_task_intent(title, prompt, persona_name)
@@ -663,18 +769,17 @@ class AntigravityHarness:
             f"Task Title: {title}\n"
             f"Persona: {persona_name}\n"
             f"Prompt: {prompt}\n\n"
+            f"{workspace_grounding}"
             f"{conversation_context}"
             f"Allowed intent_category values: ['planning', 'qa_research', 'app_building', 'code_modification', 'review_audit', 'debugging', 'devops']\n"
             f"Guidelines:\n"
             f"- If the prompt asks for a plan, roadmap, proposal, architecture proposal, or says 'what\\'s the plan', 'so what\\'s the plan', 'plan this', set intent_category='planning'.\n"
-            f"- CRITICAL FOR PLANNING INTENT: Ground your plan directly in the specific technical decisions, proposals, files, and code samples discussed in the preceding conversation context! Do NOT generate generic abstract placeholders (e.g. NEVER just say 'Establish core requirements' or 'Decompose development phases'). Name exact files (e.g. backend/app/agent/tools.py, backend/app/main.py), exact function/class names, and concrete verification commands!\n"
-            f"- For each phase, provide:\n"
-            f"  1. A descriptive title and a 1-sentence objective.\n"
-            f"  2. Specific file touchpoints with bulleted action items under each file.\n"
-            f"  3. Concrete verification criteria (e.g. exact pytest or build commands).\n"
-            f"- If the prompt is asking a question, conceptual explanation, or research (e.g. 'What is Redis LangCache', 'Explain grafana alert rules'), set intent_category='qa_research'. Do NOT scaffold web apps for Q&A queries.\n"
+            f"- CRITICAL FOR PLANNING INTENT: Ground your plan directly in the specific technical decisions, proposals, files, and code samples discussed in the preceding conversation context! Do NOT generate generic abstract placeholders. Name exact files, exact function/class names, and concrete verification commands!\n"
+            f"- If the prompt is asking a question, conceptual explanation, web research, or URL summarization (e.g. 'Summarize this https://...', 'What is Redis LangCache', 'Explain grafana alert rules'), set intent_category='qa_research'.\n"
+            f"  CRITICAL FOR QA & RESEARCH INTENT: The plan milestones must represent research/reading steps (e.g. Step 1: Retrieve external intelligence / URL, Step 2: Synthesize comprehensive analytical briefing with hyperlinked citations directly in chat). 'file_touchpoints' MUST be an empty array []! NEVER propose creating workspace files (such as source.md, summary.md, notes.txt), NEVER propose git log audits, and NEVER propose bash unit testing for text research!\n"
+            f"- For engineering/coding phases, provide descriptive title, 1-sentence objective, specific file touchpoints with bulleted action items under each file, and concrete verification criteria (e.g. exact pytest or build commands).\n"
             f"- If the prompt asks to build an interactive web app, frontend, UI, dashboard, game, landing page, or calculator, set intent_category='app_building'.\n"
-            f"  CRITICAL FOR APP BUILDING: Formulate the implementation plan specifically for Cyclode's Instant Live Preview Sandbox! Target self-contained HTML/CSS/JS or Vite/React components (e.g. index.html with Tailwind CSS, responsive layout, theme tokens, interactive DOM sections, and verify_app_preview). Do NOT propose non-executable cloud deployment pipelines (such as 'Deploy to Vercel', 'AWS setup', or serverless hosting) or multi-container server dependencies when creating client-side apps or landing pages!\n"
+            f"  CRITICAL FOR APP BUILDING: Formulate the implementation plan specifically for Cyclode's Instant Live Preview Sandbox! Target self-contained HTML/CSS/JS or Vite/React components (e.g. index.html with Tailwind CSS, responsive layout, theme tokens, interactive DOM sections, and verify_app_preview). Do NOT propose non-executable cloud deployment pipelines or multi-container server dependencies when creating client-side apps or landing pages!\n"
             f"- If the prompt asks to review PR, diff, or code audit, set intent_category='review_audit'.\n"
             f"- If the prompt asks to fix an error or debug code, set intent_category='debugging'.\n"
             f"- If the prompt asks to configure Docker, CI/CD, or deployment, set intent_category='devops'.\n"
@@ -720,12 +825,15 @@ class AntigravityHarness:
                 intent_cat = "planning"
             elif intent_cat not in ["planning", "qa_research", "app_building", "code_modification", "review_audit", "debugging", "devops"]:
                 intent_cat = inferred_intent
-            elif intent_cat == "qa_research" and inferred_intent in ["code_modification", "app_building", "debugging", "devops"]:
-                intent_cat = inferred_intent
+            elif inferred_intent == "app_building" and intent_cat != "app_building":
+                intent_cat = "app_building"
 
             obj = parsed.get("objective") or objective
             raw_phases = parsed.get("phases", [])
             phases = Harness.sanitize_plan_phases(raw_phases)
+            if intent_cat == "qa_research":
+                for p in phases:
+                    p["file_touchpoints"] = []
             overview = parsed.get("overview") or obj
             plan_title = parsed.get("title") or title
             raw_steps = parsed.get("steps", [])
@@ -904,7 +1012,7 @@ class AntigravityHarness:
                     },
                     {
                         "name": "read_file",
-                        "description": "Read file contents from the workspace. Supports start_line and end_line for token-efficient sliced views.",
+                        "description": "Read file contents from the workspace. Prefer omitting start_line and end_line to inspect the full file in a single turn. Only specify start_line/end_line if the file is massive (>500KB).",
                         "parameters": {
                             "type": "OBJECT",
                             "properties": {
@@ -1305,7 +1413,7 @@ class AntigravityHarness:
         # Note: Semantic caching is strictly reserved for standalone single-turn knowledge lookups.
         # It must NEVER intercept multi-turn conversations where prompts are contextual follow-ups.
         is_potential_qa = (
-            persona_name in ["IssueResolver", "SoftwareEngineer", "PairProgrammer"]
+            persona_name in ["General", "IssueResolver", "SoftwareEngineer", "PairProgrammer"]
             and not (history and len(history) > 1)
             and any(
                 (prompt or "").lower().strip().startswith(prefix)
@@ -1386,6 +1494,27 @@ class AntigravityHarness:
                 if text and not msg.get("thought"):
                     contents.append({"role": role, "parts": [{"text": text}]})
 
+            # Working Memory: If active files exist in workspace, inject situational awareness
+            if workspace_path and workspace_path.exists():
+                try:
+                    ignored_dirs = {".git", "node_modules", "__pycache__", ".venv", ".pytest_cache", "dist", "build"}
+                    active_files = [
+                        p.relative_to(workspace_path).as_posix()
+                        for p in sorted(workspace_path.rglob("*"))
+                        if p.is_file() and not any(part in ignored_dirs for part in p.parts)
+                    ][:15]
+                    if active_files:
+                        contents.append({
+                            "role": "user",
+                            "parts": [{"text": f"[System Working Memory]: Active workspace files on disk: {', '.join(active_files)}. Ground all inspections and tool calls in these real files."}]
+                        })
+                        contents.append({
+                            "role": "model",
+                            "parts": [{"text": "Understood. I have verified the active workspace files on disk and will ground my actions in the actual files."}]
+                        })
+                except Exception as e:
+                    logger.debug(f"Working memory injection notice: {e}")
+
         if not contents or contents[-1].get("role") != "user":
             contents.append({"role": "user", "parts": [{"text": prompt}]})
 
@@ -1402,7 +1531,8 @@ class AntigravityHarness:
                 title=title,
                 prompt=prompt,
                 persona_name=persona_name,
-                history=history
+                history=history,
+                workspace_path=workspace_path
             )
             current_plan = dynamic_plan
             await self._emit_plan(current_plan, on_plan)
@@ -1420,9 +1550,9 @@ class AntigravityHarness:
                     break
                 active_provider = get_provider_for_model(active_model)
                 turn = 0
-                max_turns = 45
+                max_turns = 80
                 guardrail_corrections = 0
-                max_guardrail_corrections = 3
+                max_guardrail_corrections = 8
                 model_succeeded = False
                 final_agent_text = ""
 
@@ -1743,13 +1873,6 @@ class AntigravityHarness:
 
                             if cont_resp.content:
                                 text_parts.append(cont_resp.content)
-                                if on_stream_chunk:
-                                    try:
-                                        res_chunk = on_stream_chunk(task_id, "agent", cont_resp.content, "agent_turn")
-                                        if inspect.iscoroutine(res_chunk):
-                                            await res_chunk
-                                    except Exception:
-                                        pass
 
                             provider_resp = cont_resp
                             if provider_resp.tool_calls:
@@ -1757,43 +1880,78 @@ class AntigravityHarness:
                                 break
 
                         combined_text = "\n".join(text_parts).strip() if text_parts else ""
+
+                        # Fallback Markup Tool Call Extraction (DSML, XML, special tokens)
+                        if not function_calls and combined_text and ("<" in combined_text or "｜" in combined_text or "```tool_call" in combined_text or "＜" in combined_text):
+                            from app.agent.providers.base import extract_markup_tool_calls
+                            cleaned_c, extracted_tcs = extract_markup_tool_calls(combined_text)
+                            if extracted_tcs:
+                                combined_text = cleaned_c
+                                function_calls = [{"name": tc.tool_name, "args": tc.tool_args, "id": tc.call_id} for tc in extracted_tcs]
+                                provider_resp.tool_calls = extracted_tcs
+                                provider_resp.content = cleaned_c
+
                         if combined_text and function_calls:
                             await self._emit_streamed_thought(
                                 combined_text, on_thought, on_stream_start, on_stream_chunk, on_stream_end
                             )
 
                         if not function_calls:
-                            # 0. Autonomous Dangling Intent & Auto-Continuation Guardrail
-                            # If the model emitted a forward-looking transitional promise (e.g. ending in a colon or "let me fix..."),
-                            # prompt it to execute the tool calls rather than halting the session prematurely.
                             intent_category = current_plan.get("intent_category", "app_building" if persona_name == "AppBuilder" else "code_modification")
                             prompt_title_lower = (prompt + " " + title).lower()
                             is_exploration = any(k in prompt_title_lower for k in ["explore", "analyze", "explain", "review", "audit", "summarize", "investigate", "read", "check"])
-                            is_app_keyword = not is_exploration and any(k in prompt_title_lower for k in ["build a", "build an", "create a", "create an", "make a", "make an", "game", "minecraft", "voxel", "arcade", "canvas", "dashboard", "calculator", "storefront", "web app", "frontend", "ui component"])
+                            is_app_keyword = not is_exploration and any(k in prompt_title_lower for k in [
+                                "build a", "build an", "create a", "create an", "make a", "make an", "game", "minecraft",
+                                "voxel", "arcade", "canvas", "dashboard", "calculator", "storefront", "web app", "frontend",
+                                "ui component", "designed app", "motion app", "toy app", "robot app", "simulation", "3d app",
+                                "interactive app", "animation app", "landing page", "web tool", "client app"
+                            ])
                             is_app_task = (intent_category == "app_building" or persona_name == "AppBuilder" or is_app_keyword)
 
+                            # Autonomous Markdown Code Block Extraction
+                            # If the model emitted full file implementations inside markdown code fences instead of calling edit_file,
+                            # parse and author the files directly to the workspace before evaluating preview or halting.
+                            if (is_app_task or intent_category in ["app_building", "code_modification"]) and combined_text:
+                                extracted_writes = 0
+                                fence_pattern = re.compile(r"```(?:[a-zA-Z0-9_\-+]+)?(?:\s+([a-zA-Z0-9_\-./\\]+\.[a-zA-Z0-9]+))?\n([\s\S]*?)```")
+                                for m in fence_pattern.finditer(combined_text):
+                                    fname = m.group(1)
+                                    fcode = m.group(2)
+                                    if not fname and fcode:
+                                        first_line = fcode.strip().split("\n")[0].strip()
+                                        comment_match = re.match(r"^(?:<!--|//|/\*|#)\s*([a-zA-Z0-9_\-./\\]+\.[a-zA-Z0-9]+)", first_line)
+                                        if comment_match:
+                                            fname = comment_match.group(1)
+                                            fcode = "\n".join(fcode.strip().split("\n")[1:]).strip()
+                                        elif is_app_task and ("<!DOCTYPE html>" in fcode or "<html" in fcode):
+                                            fname = "index.html"
+                                    if fname and fcode and not fname.endswith((".md", ".txt", ".jsonl", ".log")):
+                                        res_write = WorkspaceTools.edit_file(workspace_path, fname, fcode)
+                                        if "error" not in res_write:
+                                            mutating_tool_count += 1
+                                            extracted_writes += 1
+                                            logger.info(f"Auto-extracted code block written to '{fname}' ({len(fcode)} bytes)")
+                                if extracted_writes > 0:
+                                    diffs = worktree_manager.get_git_diff(workspace_path)
+                                    if diffs:
+                                        await on_diff_updated(diffs)
+                                    await self._emit_streamed_thought(
+                                        f"**Autonomous Scaffolding**: Automatically extracted and authored {extracted_writes} workspace file{'s' if extracted_writes > 1 else ''} from response payload.",
+                                        on_thought, on_stream_start, on_stream_chunk, on_stream_end
+                                    )
+
+                            # 0. Autonomous Dangling Intent & Auto-Continuation Guardrail
+                            # If the model emitted a forward-looking transitional promise (e.g. ending in a colon or "let me fix..."),
+                            # prompt it to execute the tool calls rather than halting the session prematurely.
                             raw_text_stripped = combined_text.strip()
-                            has_unfinished_steps = any(s.get("status") in ["pending", "in_progress"] for s in current_plan.get("steps", []))
-                            is_dangling_intent = False
+                            is_dangling_intent = Harness.is_dangling_action_intent(raw_text_stripped) if raw_text_stripped else False
 
-                            if raw_text_stripped and guardrail_corrections < max_guardrail_corrections:
-                                ends_with_colon = raw_text_stripped.endswith(":")
-                                tail_lower = raw_text_stripped.lower()[-120:]
-                                forward_phrases = [
-                                    "let me ", "let us ", "let's ", "i will now", "i'll now", "i will proceed",
-                                    "i am going to", "now let me", "next, i will", "next, let's", "next step is to",
-                                    "let me fix", "let me implement", "let me update", "let me create", "let me add",
-                                    "let me confirm", "let me inspect", "let me check", "let me examine", "let me verify",
-                                    "i will check", "i will inspect", "i will examine", "i will verify", "i will confirm"
-                                ]
-                                if ends_with_colon or any(p in tail_lower for p in forward_phrases):
-                                    is_dangling_intent = True
-
-                            if is_dangling_intent:
+                            if is_dangling_intent and guardrail_corrections < max_guardrail_corrections:
                                 guardrail_corrections += 1
-                                logger.info(f"Triggering Dangling Intent Auto-Continuation on task {task_id} (correction {guardrail_corrections})")
+                                logger.info(f"Triggering Dangling Intent Auto-Continuation on task {task_id} (correction {guardrail_corrections}/{max_guardrail_corrections})")
+                                preview_snip = raw_text_stripped[:60] + "..." if len(raw_text_stripped) > 60 else raw_text_stripped
                                 await self._emit_streamed_thought(
-                                    f"**Auto-Continuation**: Detected in-flight action intent ({raw_text_stripped[-50:] if len(raw_text_stripped) > 50 else raw_text_stripped}). Continuing tool execution to complete task...",
+                                    f"**Auto-Continuation**: Detected in-flight action intent ({preview_snip}). Continuing tool execution to complete task...",
                                     on_thought, on_stream_start, on_stream_chunk, on_stream_end
                                 )
                                 if provider_resp.raw_parts:
@@ -1816,7 +1974,7 @@ class AntigravityHarness:
                                 })
                                 contents.append({
                                     "role": "user",
-                                    "parts": [{"text": "Please proceed with your planned actions and execute the required tool calls (e.g. `read_file`, `list_dir`, `edit_file`, `replace_file_content`, `run_command`, `create_pull_request`) to complete the remaining tasks."}]
+                                    "parts": [{"text": "CRITICAL DIRECTIVE: You emitted a transitional action promise without tool execution. Execute the required tool call (`edit_file`, `replace_file_content`, `run_command`, `read_file`) NOW in this turn to carry out your planned change. Do not output text without a tool call payload."}]
                                 })
                                 continue
 
@@ -1824,7 +1982,10 @@ class AntigravityHarness:
                             from app.api.preview import verify_workspace_preview
                             verification = verify_workspace_preview(workspace_path, task_id)
                             status_val = verification.get("status")
-                            needs_preview_correction = status_val in ["missing_entry_point", "missing_workspace", "needs_build", "uncompiled_css", "unlinked_assets", "empty_ui", "dom_css_mismatch", "issues_found"]
+                            needs_preview_correction = (
+                                status_val in ["missing_entry_point", "missing_workspace", "needs_build", "uncompiled_css", "unlinked_assets", "empty_ui", "dom_css_mismatch", "js_dom_mismatch", "dead_buttons", "runtime_exception", "issues_found"]
+                                or bool(verification.get("issues"))
+                            )
 
                             if is_app_task and needs_preview_correction and guardrail_corrections < max_guardrail_corrections:
                                 guardrail_corrections += 1
@@ -1913,10 +2074,10 @@ class AntigravityHarness:
                                 })
                                 continue
 
-                            checks = [{"name": "Workspace State", "passed": True}]
                             if is_app_task:
+                                checks = [{"name": "Workspace State", "passed": True}]
                                 verification = verify_workspace_preview(workspace_path, task_id)
-                                preview_ok = verification.get("status") in ["ready", "compiled", "static"]
+                                preview_ok = verification.get("status") in ["ready", "compiled", "static"] and not verification.get("issues")
                                 checks.append({
                                     "name": "Live Application Preview",
                                     "passed": preview_ok
@@ -1927,21 +2088,21 @@ class AntigravityHarness:
                                 })
                             elif intent_category == "qa_research":
                                 has_synthesis = bool(combined_text and len(combined_text.strip()) > 30)
-                                checks.append({
+                                checks = [{
                                     "name": "Analytical Synthesis",
                                     "passed": has_synthesis
-                                })
+                                }]
                                 if tool_call_count > 0:
                                     checks.append({
-                                        "name": "Tool Execution",
+                                        "name": "Information Retrieval",
                                         "passed": True
                                     })
                             elif intent_category == "planning":
                                 has_synthesis = bool(combined_text and len(combined_text.strip()) > 30)
-                                checks.append({
+                                checks = [{
                                     "name": "Plan Formulation",
                                     "passed": has_synthesis
-                                })
+                                }]
                                 checks.append({
                                     "name": "Specification Available in Web & Docs",
                                     "passed": True
@@ -1952,6 +2113,7 @@ class AntigravityHarness:
                                         "passed": True
                                     })
                             else:
+                                checks = [{"name": "Workspace State", "passed": True}]
                                 checks.append({
                                     "name": "Tool Execution",
                                     "passed": tool_call_count > 0 or bool(combined_text)
@@ -2068,14 +2230,14 @@ class AntigravityHarness:
                                 if intent_category == "qa_research" and mutating_tool_count == 0:
                                     for s in current_plan.get("steps", []):
                                         if s.get("status") != "failed":
-                                            s["status"] = "completed"
-                                    eval_status = "accomplished" if all_checks_passed else "needs_revision"
-                                    eval_summary = "All execution plan steps verified successfully against workspace state." if all_checks_passed else "Plan execution requires revision."
+                                            s["status"] = "completed" if not is_dangling_intent else "failed"
+                                    eval_status = "accomplished" if (all_checks_passed and not is_dangling_intent) else "needs_revision"
+                                    eval_summary = "Research and analytical synthesis delivered successfully." if (all_checks_passed and not is_dangling_intent) else "Plan execution requires revision or concluded with in-flight actions."
                                 else:
-                                    if is_app_task and mutating_tool_count > 0:
+                                    if is_app_task and mutating_tool_count > 0 and not is_dangling_intent:
                                         from app.api.preview import verify_workspace_preview
                                         preview_verification = verify_workspace_preview(workspace_path, task_id)
-                                        if preview_verification.get("status") in ["ready", "compiled", "static"]:
+                                        if preview_verification.get("status") in ["ready", "compiled", "static"] and not preview_verification.get("issues"):
                                             for s in current_plan.get("steps", []):
                                                 if s.get("status") != "failed":
                                                     s["status"] = "completed"
@@ -2083,15 +2245,49 @@ class AntigravityHarness:
                                     any_pending_or_failed = False
                                     for s in current_plan.get("steps", []):
                                         if s.get("status") == "in_progress":
-                                            if all_checks_passed:
+                                            if all_checks_passed and not is_dangling_intent:
                                                 s["status"] = "completed"
                                             else:
                                                 s["status"] = "failed"
                                         elif s.get("status") in ["pending", "failed"]:
                                             any_pending_or_failed = True
 
-                                    eval_status = "accomplished" if (all_checks_passed and not any_pending_or_failed) else "needs_revision"
-                                    eval_summary = "All execution plan steps verified successfully against workspace state." if (all_checks_passed and not any_pending_or_failed) else "Plan execution concluded with remaining pending steps or revisions needed."
+                                    eval_status = "accomplished" if (all_checks_passed and not any_pending_or_failed and not is_dangling_intent) else "needs_revision"
+                                    eval_summary = "All execution plan steps verified successfully against workspace state." if (all_checks_passed and not any_pending_or_failed and not is_dangling_intent) else "Plan execution concluded with remaining pending steps or revisions needed."
+
+                                if is_dangling_intent and active_provider:
+                                    terminal_synth_instruction = (
+                                        system_instruction +
+                                        "\n\nCRITICAL DIRECTIVE: Execution limit reached with in-flight transitional scratchpad thoughts. Provide your final concise executive summary, deliverables, and current workspace status to the user now. Do NOT promise further actions, future checks, or tool calls."
+                                    )
+                                    synth_contents = list(contents)
+                                    synth_contents.append({
+                                        "role": "user",
+                                        "parts": [{"text": "Execution limit reached. Provide your final concise executive delivery summary to the user now. Do not promise further actions."}]
+                                    })
+                                    try:
+                                        synth_resp = await active_provider.generate_response(
+                                            messages=synth_contents,
+                                            tools=None,
+                                            system_instruction=terminal_synth_instruction,
+                                            model_name=active_model,
+                                            client=client
+                                        )
+                                        if synth_resp.is_success and synth_resp.content and synth_resp.content.strip():
+                                            candidate_term = synth_resp.content.strip()
+                                            if not Harness.is_dangling_action_intent(candidate_term):
+                                                final_agent_text = candidate_term
+                                            else:
+                                                final_agent_text = (
+                                                    f"Applied modifications across {mutating_tool_count} workspace action{'s' if mutating_tool_count != 1 else ''}. "
+                                                    f"Execution concluded with in-flight actions."
+                                                )
+                                    except Exception as term_err:
+                                        logger.warning(f"Forced terminal synthesis notice: {term_err}")
+                                        final_agent_text = (
+                                            f"Applied modifications across {mutating_tool_count} workspace action{'s' if mutating_tool_count != 1 else ''}."
+                                        )
+
                                 current_plan["markdown"] = generate_plan_markdown(current_plan, title, prompt)
 
                                 current_plan["evaluation"] = {
@@ -2147,6 +2343,7 @@ class AntigravityHarness:
                         for call in function_calls:
                             fn_name = call.get("name")
                             args = call.get("args", {})
+                            call_id = call.get("id") or f"call_{fn_name}_{uuid.uuid4().hex[:8]}"
 
                             # Monotonic Dynamic Plan Step Transitions
                             plan_steps = current_plan.get("steps", [])
@@ -2169,12 +2366,21 @@ class AntigravityHarness:
                                         await self._emit_plan(current_plan, on_plan)
 
                             if on_tool_start:
-                                if inspect.iscoroutinefunction(on_tool_start):
-                                    await on_tool_start(fn_name, args)
+                                sig_start = inspect.signature(on_tool_start)
+                                if "call_id" in sig_start.parameters or len(sig_start.parameters) >= 3:
+                                    if inspect.iscoroutinefunction(on_tool_start):
+                                        await on_tool_start(fn_name, args, call_id)
+                                    else:
+                                        res = on_tool_start(fn_name, args, call_id)
+                                        if asyncio.iscoroutine(res):
+                                            await res
                                 else:
-                                    res = on_tool_start(fn_name, args)
-                                    if asyncio.iscoroutine(res):
-                                        await res
+                                    if inspect.iscoroutinefunction(on_tool_start):
+                                        await on_tool_start(fn_name, args)
+                                    else:
+                                        res = on_tool_start(fn_name, args)
+                                        if asyncio.iscoroutine(res):
+                                            await res
 
                             start_time = asyncio.get_event_loop().time()
                             tool_result: Dict[str, Any] = {}
@@ -2183,7 +2389,7 @@ class AntigravityHarness:
                             tool_call_count += 1
 
                             if fn_name == "list_dir":
-                                subpath = args.get("subpath", ".")
+                                subpath = args.get("subpath") or args.get("path") or args.get("directory") or args.get("dir") or "."
                                 tool_result = WorkspaceTools.list_dir(workspace_path, subpath)
                                 items = tool_result.get("items", [])
                                 if items:
@@ -2195,16 +2401,16 @@ class AntigravityHarness:
                                 else:
                                     out_str = f"Directory '{subpath}' is empty."
                             elif fn_name == "read_file":
-                                file_path = args.get("file_path", "")
-                                start_line = args.get("start_line")
-                                end_line = args.get("end_line")
+                                file_path = args.get("file_path") or args.get("path") or args.get("filePath") or args.get("target_file") or args.get("filename") or args.get("file") or ""
+                                start_line = args.get("start_line") or args.get("startLine")
+                                end_line = args.get("end_line") or args.get("endLine")
                                 tool_result = WorkspaceTools.read_file(workspace_path, file_path, start_line=start_line, end_line=end_line)
                                 if "content" in tool_result:
                                     out_str = tool_result["content"]
                                 else:
                                     out_str = tool_result.get("error", "Error reading file")
                             elif fn_name == "get_file_outline":
-                                file_path = args.get("file_path", "")
+                                file_path = args.get("file_path") or args.get("path") or args.get("filePath") or args.get("target_file") or args.get("filename") or args.get("file") or ""
                                 tool_result = WorkspaceTools.get_file_outline(workspace_path, file_path)
                                 if "outline" in tool_result:
                                     out_str = tool_result["outline"]
@@ -2212,10 +2418,10 @@ class AntigravityHarness:
                                     out_str = tool_result.get("error", "Error extracting file outline")
                             elif fn_name == "replace_file_content":
                                 mutating_tool_count += 1
-                                file_path = args.get("file_path", "")
-                                target_content = args.get("target_content", "")
-                                replacement_content = args.get("replacement_content", "")
-                                allow_multiple = bool(args.get("allow_multiple", False))
+                                file_path = args.get("file_path") or args.get("path") or args.get("filePath") or args.get("target_file") or args.get("filename") or args.get("file") or ""
+                                target_content = args.get("target_content") if args.get("target_content") is not None else (args.get("target") if args.get("target") is not None else (args.get("search") if args.get("search") is not None else (args.get("old_content") if args.get("old_content") is not None else (args.get("oldContent") or ""))))
+                                replacement_content = args.get("replacement_content") if args.get("replacement_content") is not None else (args.get("replacement") if args.get("replacement") is not None else (args.get("replace") if args.get("replace") is not None else (args.get("new_content") if args.get("new_content") is not None else (args.get("newContent") or ""))))
+                                allow_multiple = bool(args.get("allow_multiple", args.get("allowMultiple", False)))
                                 tool_result = WorkspaceTools.replace_file_content(
                                     workspace_path=workspace_path,
                                     file_path=file_path,
@@ -2227,50 +2433,65 @@ class AntigravityHarness:
                                 if diffs:
                                     await on_diff_updated(diffs)
                                 if "error" in tool_result:
+                                    exit_code = 1
                                     out_str = f"Error replacing content: {tool_result['error']}"
                                 else:
+                                    mutating_tool_count += 1
+                                    guardrail_corrections = max(0, guardrail_corrections - 1)
+                                    diffs = worktree_manager.get_git_diff(workspace_path)
+                                    if diffs:
+                                        await on_diff_updated(diffs)
                                     out_str = f"Successfully replaced target content in '{file_path}' ({tool_result.get('replacements_count', 1)} replacement(s))."
                             elif fn_name == "batch_replace_content":
-                                mutating_tool_count += 1
                                 edits = args.get("edits", [])
                                 tool_result = WorkspaceTools.batch_replace_content(
                                     workspace_path=workspace_path,
                                     edits=edits
                                 )
-                                diffs = worktree_manager.get_git_diff(workspace_path)
-                                if diffs:
-                                    await on_diff_updated(diffs)
                                 if "error" in tool_result:
+                                    exit_code = 1
                                     out_str = f"Error in batch edit: {tool_result['error']}"
                                 else:
+                                    mutating_tool_count += 1
+                                    guardrail_corrections = max(0, guardrail_corrections - 1)
+                                    diffs = worktree_manager.get_git_diff(workspace_path)
+                                    if diffs:
+                                        await on_diff_updated(diffs)
                                     f_count = tool_result.get("modified_files_count", 0)
                                     r_count = tool_result.get("total_replacements", 0)
                                     f_list = ", ".join(tool_result.get("modified_files", []))
                                     out_str = f"Batch edit successfully applied {r_count} replacement(s) across {f_count} file(s) [{f_list}]."
                             elif fn_name == "apply_unified_patch":
-                                mutating_tool_count += 1
                                 patch_content = args.get("patch_content", "")
                                 tool_result = WorkspaceTools.apply_unified_patch(
                                     workspace_path=workspace_path,
                                     patch_content=patch_content
                                 )
-                                diffs = worktree_manager.get_git_diff(workspace_path)
-                                if diffs:
-                                    await on_diff_updated(diffs)
                                 if "error" in tool_result:
+                                    exit_code = 1
                                     out_str = f"Error applying patch: {tool_result['error']}"
                                 else:
+                                    mutating_tool_count += 1
+                                    guardrail_corrections = max(0, guardrail_corrections - 1)
+                                    diffs = worktree_manager.get_git_diff(workspace_path)
+                                    if diffs:
+                                        await on_diff_updated(diffs)
                                     m_files = ", ".join(tool_result.get("modified_files", []))
                                     out_str = f"Unified patch successfully applied to: {m_files}."
                             elif fn_name == "edit_file":
-                                mutating_tool_count += 1
-                                file_path = args.get("file_path", "")
-                                content = args.get("content", "")
+                                file_path = args.get("file_path") or args.get("path") or args.get("filePath") or args.get("target_file") or args.get("filename") or args.get("file") or ""
+                                content = args.get("content") if args.get("content") is not None else (args.get("code") if args.get("code") is not None else (args.get("text") if args.get("text") is not None else (args.get("body") if args.get("body") is not None else (args.get("source") or ""))))
                                 tool_result = WorkspaceTools.edit_file(workspace_path, file_path, content)
-                                diffs = worktree_manager.get_git_diff(workspace_path)
-                                if diffs:
-                                    await on_diff_updated(diffs)
-                                out_str = f"Successfully updated '{file_path}' ({len(content)} bytes)."
+                                if "error" in tool_result:
+                                    exit_code = 1
+                                    out_str = f"Error updating file: {tool_result['error']}"
+                                else:
+                                    mutating_tool_count += 1
+                                    guardrail_corrections = max(0, guardrail_corrections - 1)
+                                    diffs = worktree_manager.get_git_diff(workspace_path)
+                                    if diffs:
+                                        await on_diff_updated(diffs)
+                                    out_str = f"Successfully updated '{tool_result.get('file_path', file_path)}' ({len(content)} bytes)."
                             elif fn_name == "speculative_branch_test":
                                 hypotheses = args.get("hypotheses", [])
                                 test_cmd = args.get("test_command", "")
@@ -2603,6 +2824,13 @@ class AntigravityHarness:
                                 exit_code = 1
                                 out_str = f"Unknown tool: {fn_name}"
 
+                            is_resp_truncated = provider_resp.finish_reason in ["length", "MAX_TOKENS", "max_tokens"]
+                            if is_resp_truncated and fn_name in ["edit_file", "replace_file_content", "batch_replace_content", "apply_unified_patch", "run_command"]:
+                                trunc_warn = "[WARNING: Model generation reached token ceiling (finish_reason=length). Tool arguments may be truncated. Verify file completeness or decompose code into modular files.]"
+                                out_str = f"{out_str}\n{trunc_warn}" if out_str else trunc_warn
+                                if isinstance(tool_result, dict):
+                                    tool_result["_warning"] = "Model generation reached token ceiling (finish_reason=length)."
+
                             elapsed_ms = int((asyncio.get_event_loop().time() - start_time) * 1000)
                             collector.record_tool_invocation(
                                 tool_name=fn_name,
@@ -2614,18 +2842,27 @@ class AntigravityHarness:
                             )
                             if on_tool_end:
                                 sig = inspect.signature(on_tool_end)
-                                if inspect.iscoroutinefunction(on_tool_end):
-                                    if len(sig.parameters) >= 5:
+                                if "call_id" in sig.parameters or len(sig.parameters) >= 6:
+                                    if inspect.iscoroutinefunction(on_tool_end):
+                                        await on_tool_end(fn_name, out_str, exit_code, elapsed_ms, args, call_id)
+                                    else:
+                                        res = on_tool_end(fn_name, out_str, exit_code, elapsed_ms, args, call_id)
+                                        if asyncio.iscoroutine(res):
+                                            await res
+                                elif len(sig.parameters) >= 5:
+                                    if inspect.iscoroutinefunction(on_tool_end):
                                         await on_tool_end(fn_name, out_str, exit_code, elapsed_ms, args)
                                     else:
-                                        await on_tool_end(fn_name, out_str, exit_code, elapsed_ms)
-                                else:
-                                    if len(sig.parameters) >= 5:
                                         res = on_tool_end(fn_name, out_str, exit_code, elapsed_ms, args)
+                                        if asyncio.iscoroutine(res):
+                                            await res
+                                else:
+                                    if inspect.iscoroutinefunction(on_tool_end):
+                                        await on_tool_end(fn_name, out_str, exit_code, elapsed_ms)
                                     else:
                                         res = on_tool_end(fn_name, out_str, exit_code, elapsed_ms)
-                                    if asyncio.iscoroutine(res):
-                                        await res
+                                        if asyncio.iscoroutine(res):
+                                            await res
 
                             response_parts.append({
                                 "functionResponse": {
@@ -3036,7 +3273,121 @@ class AntigravityHarness:
                         f"CRITICAL DIRECTIVE: Ground your response strictly in the verified preview status above. Only report that the application is compiled and renderable if status is 'ready' or 'compiled'. Direct the user to the Preview tab."
                     )
 
-                    # Autonomous Plan Self-Evaluation Audit via EvaluationRunner
+                    # 1. Guaranteed Terminal Synthesis Turn via active_provider (Strictly tools=None)
+                    final_synth_text = ""
+                    if model_succeeded:
+                        synth_instruction = (
+                            system_instruction + preview_status_note +
+                            "\n\nCRITICAL DIRECTIVE: You have completed all workspace tool executions. Synthesize your comprehensive, fluid analytical final response answering the user directly in rich markdown format with clickable citations and file links. Do NOT state forward-looking transitional promises (e.g. 'Now let me add...', 'Next I will...'), scratchpad thoughts, or tool intentions. Summarize what has been completed and current status."
+                        )
+                        try:
+                            synth_resp = await active_provider.generate_response(
+                                messages=contents,
+                                tools=None,
+                                system_instruction=synth_instruction,
+                                model_name=active_model,
+                                client=client
+                            )
+                            if synth_resp.is_success and synth_resp.content:
+                                candidate_synth = synth_resp.content.strip()
+                                if candidate_synth:
+                                    if Harness.is_dangling_action_intent(candidate_synth):
+                                        logger.info(f"Terminal synthesis candidate emitted dangling intent. Sanitizing terminal delivery...")
+                                        candidate_synth = (
+                                            f"Applied modifications across {mutating_tool_count} workspace action{'s' if mutating_tool_count != 1 else ''}. "
+                                            f"Execution concluded with in-flight actions."
+                                        )
+                                        model_succeeded = False
+                                    final_synth_text = candidate_synth
+                        except Exception as synth_err:
+                            logger.error(f"Synthesis turn error: {synth_err}")
+
+                        # 2. Fallback text transcript synthesis via active_provider
+                        if not final_synth_text:
+                            try:
+                                text_contents = []
+                                for c in contents:
+                                    role = c.get("role", "user")
+                                    parts = c.get("parts", [])
+                                    text_chunks = []
+                                    for p in parts:
+                                        if "text" in p:
+                                            text_chunks.append(p["text"])
+                                        elif "functionCall" in p:
+                                            fc = p["functionCall"]
+                                            fn_name = fc.get("name", "tool")
+                                            args = fc.get("args", {})
+                                            if fn_name == "edit_file":
+                                                text_chunks.append(f"• Modified file `{args.get('file_path', '')}`")
+                                            elif fn_name == "read_file":
+                                                text_chunks.append(f"• Inspected `{args.get('file_path', '')}`")
+                                            elif fn_name == "run_command":
+                                                text_chunks.append(f"• Ran `{args.get('command', '')}`")
+                                            elif fn_name == "verify_app_preview":
+                                                text_chunks.append("• Verified live application preview")
+                                            elif fn_name in ["grep_search", "search_code"]:
+                                                text_chunks.append(f"• Searched for `{args.get('query', '')}`")
+                                            elif fn_name == "find_symbols":
+                                                text_chunks.append(f"• Searched symbols `{args.get('name_pattern', '')}`")
+                                            elif fn_name == "search_web":
+                                                text_chunks.append(f"• Web search for `{args.get('query', '')}`")
+                                            elif fn_name == "fetch_url":
+                                                text_chunks.append(f"• Fetched URL `{args.get('url', '')}`")
+                                            elif fn_name == "list_dir":
+                                                text_chunks.append(f"• Listed directory `{args.get('subpath', '.')}`")
+                                            else:
+                                                text_chunks.append(f"• Executed tool {fn_name}")
+                                        elif "functionResponse" in p:
+                                            fr = p["functionResponse"]
+                                            resp_val = fr.get("response", {})
+                                            resp_str = json.dumps(resp_val) if isinstance(resp_val, (dict, list)) else str(resp_val)
+                                            if len(resp_str) > 2000:
+                                                resp_str = resp_str[:2000] + "... (truncated)"
+                                            text_chunks.append(f"Observation for {fr.get('name')}:\n{resp_str}\n")
+                                    if text_chunks:
+                                        text_contents.append({
+                                            "role": role,
+                                            "parts": [{"text": "\n\n".join(text_chunks)}]
+                                        })
+                                text_contents.append({
+                                    "role": "user",
+                                    "parts": [{
+                                        "text": "CRITICAL INSTRUCTION: All workspace actions have been performed. Provide your complete, comprehensive analytical final answer summarizing what was built, any changes made, and preview verification results in rich markdown with clickable file links. Do NOT output internal action traces, tool call syntax, or 'Action:' prefixes."
+                                    }]
+                                })
+                                flat_resp = await active_provider.generate_response(
+                                    messages=text_contents,
+                                    tools=None,
+                                    system_instruction=system_instruction + preview_status_note,
+                                    model_name=active_model,
+                                    client=client
+                                )
+                                if flat_resp.is_success and flat_resp.content:
+                                    flat_synth_text = flat_resp.content.strip()
+                                    if re.match(r"^(?:Action:\s+|•\s+(?:Modified|Ran|Inspected|Executed|Listed|Searched))", flat_synth_text.strip(), re.IGNORECASE):
+                                        flat_synth_text = (
+                                            "All requested components and workspace modifications have been applied and verified."
+                                        )
+                                    if Harness.is_dangling_action_intent(flat_synth_text):
+                                        flat_synth_text = (
+                                            f"Applied modifications across {mutating_tool_count} workspace action{'s' if mutating_tool_count != 1 else ''}. "
+                                            f"Execution concluded with in-flight actions."
+                                        )
+                                        model_succeeded = False
+                                    final_synth_text = flat_synth_text
+                            except Exception as flat_err:
+                                logger.error(f"Flat text synthesis error: {flat_err}")
+
+                    final_agent_text = final_synth_text or final_agent_text or "Task execution concluded."
+                    is_dangling_post = Harness.is_dangling_action_intent(final_agent_text)
+                    if is_dangling_post:
+                        final_agent_text = (
+                            f"Applied modifications across {mutating_tool_count} workspace action{'s' if mutating_tool_count != 1 else ''}. "
+                            f"Execution concluded with in-flight actions."
+                        )
+                        model_succeeded = False
+
+                    # 3. Autonomous Plan Self-Evaluation Audit via EvaluationRunner (Auditing actual delivered text!)
                     scorecard = await evaluation_runner.evaluate_task(
                         workspace_path=workspace_path,
                         intent_category=intent_category,
@@ -3044,11 +3395,11 @@ class AntigravityHarness:
                         preview_info=post_verification,
                         tool_call_count=tool_call_count,
                         final_agent_text=final_agent_text,
-                        model_succeeded=model_succeeded
+                        model_succeeded=(model_succeeded and not is_dangling_post)
                     )
                     task_evaluations[task_id] = scorecard
 
-                    if scorecard.status == "accomplished":
+                    if scorecard.status == "accomplished" and not is_dangling_post:
                         for s in current_plan.get("steps", []):
                             if s.get("status") != "failed":
                                 s["status"] = "completed"
@@ -3060,136 +3411,67 @@ class AntigravityHarness:
                     current_plan["evaluation"] = scorecard.model_dump(mode="json")
                     await self._emit_plan(current_plan, on_plan)
 
-                    if model_succeeded:
-                        # 1. Guaranteed synthesis turn via active_provider
-                        synth_instruction = (
-                            system_instruction + preview_status_note +
-                            "\n\nCRITICAL DIRECTIVE: You have completed all tool executions. Synthesize your comprehensive, fluid analytical response answering the user directly in rich markdown format with clickable citations. Do not call any further tools."
-                        )
-                        try:
-                            synth_resp = await active_provider.generate_response(
-                                messages=contents,
-                                tools=tools_def,
-                                system_instruction=synth_instruction,
-                                model_name=active_model,
-                                client=client
-                            )
-                            if synth_resp.is_success and synth_resp.content:
-                                final_synth_text = synth_resp.content.strip()
-                                if final_synth_text:
-                                    collector.end_turn(agent_response=final_synth_text)
-                                    task_trajectories[task_id] = collector.build_trajectory(status="COMPLETED")
-                                    await self._emit_streamed_message(
-                                        "agent", final_synth_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
-                                    )
-                                    return {"status": "COMPLETED", "summary": final_synth_text[:120]}
-                        except Exception as synth_err:
-                            logger.error(f"Synthesis turn error: {synth_err}")
-
-                        # 2. Fallback text transcript synthesis via active_provider
-                        try:
-                            text_contents = []
-                            for c in contents:
-                                role = c.get("role", "user")
-                                parts = c.get("parts", [])
-                                text_chunks = []
-                                for p in parts:
-                                    if "text" in p:
-                                        text_chunks.append(p["text"])
-                                    elif "functionCall" in p:
-                                        fc = p["functionCall"]
-                                        fn_name = fc.get("name", "tool")
-                                        args = fc.get("args", {})
-                                        if fn_name == "edit_file":
-                                            text_chunks.append(f"• Modified file `{args.get('file_path', '')}`")
-                                        elif fn_name == "read_file":
-                                            text_chunks.append(f"• Inspected `{args.get('file_path', '')}`")
-                                        elif fn_name == "run_command":
-                                            text_chunks.append(f"• Ran `{args.get('command', '')}`")
-                                        elif fn_name == "verify_app_preview":
-                                            text_chunks.append("• Verified live application preview")
-                                        elif fn_name in ["grep_search", "search_code"]:
-                                            text_chunks.append(f"• Searched for `{args.get('query', '')}`")
-                                        elif fn_name == "find_symbols":
-                                            text_chunks.append(f"• Searched symbols `{args.get('name_pattern', '')}`")
-                                        elif fn_name == "search_web":
-                                            text_chunks.append(f"• Web search for `{args.get('query', '')}`")
-                                        elif fn_name == "fetch_url":
-                                            text_chunks.append(f"• Fetched URL `{args.get('url', '')}`")
-                                        elif fn_name == "list_dir":
-                                            text_chunks.append(f"• Listed directory `{args.get('subpath', '.')}`")
-                                        else:
-                                            text_chunks.append(f"• Executed tool {fn_name}")
-                                    elif "functionResponse" in p:
-                                        fr = p["functionResponse"]
-                                        resp_val = fr.get("response", {})
-                                        resp_str = json.dumps(resp_val) if isinstance(resp_val, (dict, list)) else str(resp_val)
-                                        if len(resp_str) > 2000:
-                                            resp_str = resp_str[:2000] + "... (truncated)"
-                                        text_chunks.append(f"Observation for {fr.get('name')}:\n{resp_str}\n")
-                                if text_chunks:
-                                    text_contents.append({
-                                        "role": role,
-                                        "parts": [{"text": "\n\n".join(text_chunks)}]
-                                    })
-                            text_contents.append({
-                                "role": "user",
-                                "parts": [{
-                                    "text": "CRITICAL INSTRUCTION: All workspace actions have been performed. Provide your complete, comprehensive analytical final answer summarizing what was built, any changes made, and preview verification results in rich markdown with clickable file links. Do NOT output internal action traces, tool call syntax, or 'Action:' prefixes."
-                                }]
-                            })
-                            flat_resp = await active_provider.generate_response(
-                                messages=text_contents,
-                                tools=None,
-                                system_instruction=system_instruction + preview_status_note,
-                                model_name=active_model,
-                                client=client
-                            )
-                            if flat_resp.is_success and flat_resp.content:
-                                flat_synth_text = flat_resp.content.strip()
-                                if re.match(r"^(?:Action:\s+|•\s+(?:Modified|Ran|Inspected|Executed|Listed|Searched))", flat_synth_text.strip(), re.IGNORECASE):
-                                    flat_synth_text = (
-                                        "All requested components and workspace modifications have been applied and verified."
-                                    )
-                                collector.end_turn(agent_response=flat_synth_text)
-                                task_trajectories[task_id] = collector.build_trajectory(status="COMPLETED")
-                                await self._emit_streamed_message(
-                                    "agent", flat_synth_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
-                                )
-                                return {"status": "COMPLETED", "summary": flat_synth_text[:120]}
-                        except Exception as flat_err:
-                            logger.error(f"Flat text synthesis error: {flat_err}")
-
-                    if model_succeeded and final_agent_text:
-                        collector.end_turn(agent_response=final_agent_text)
-                        task_trajectories[task_id] = collector.build_trajectory(status="COMPLETED")
-                        await self._emit_streamed_message(
-                            "agent", final_agent_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
-                        )
-                        return {"status": "COMPLETED", "summary": final_agent_text[:120]}
+                    collector.end_turn(agent_response=final_agent_text)
+                    task_trajectories[task_id] = collector.build_trajectory(status="COMPLETED")
+                    await self._emit_streamed_message(
+                        "agent", final_agent_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
+                    )
+                    return {"status": "COMPLETED", "summary": final_agent_text[:120]}
 
                 except Exception as e:
                     logger.error(f"Gemini execution notice: {str(e)}")
                     continue
 
-        if mutating_tool_count > 0:
+        has_pending_steps = any(s.get("status") in ["pending", "in_progress"] for s in current_plan.get("steps", []))
+        plan_eval = current_plan.get("evaluation", {})
+        is_accomplished = plan_eval.get("status") == "accomplished"
+
+        # Check preview status for app tasks
+        from app.api.preview import verify_workspace_preview
+        preview_verif = verify_workspace_preview(workspace_path, task_id)
+        has_preview_missing = is_app_task and preview_verif.get("status") in ["missing_entry_point", "missing_workspace", "needs_build", "uncompiled_css", "unlinked_assets", "empty_ui", "dom_css_mismatch", "issues_found"]
+
+        if mutating_tool_count > 0 and not has_preview_missing and not has_pending_steps:
             fallback_msg = (
                 f"Successfully completed {tool_call_count} workspace action{'s' if tool_call_count > 1 else ''}. "
                 f"All requested components and changes have been applied to the workspace."
             )
             return_status = "COMPLETED"
+        elif mutating_tool_count > 0:
+            if has_preview_missing:
+                fallback_msg = (
+                    f"Applied modifications across {mutating_tool_count} tool action{'s' if mutating_tool_count > 1 else ''}. "
+                    f"However, live application preview indicates {preview_verif.get('status')}: {preview_verif.get('recommendation', 'Please verify root index.html')}"
+                )
+                return_status = "FAILED"
+            elif has_pending_steps:
+                pending_cnt = sum(1 for s in current_plan.get("steps", []) if s.get("status") in ["pending", "in_progress"])
+                fallback_msg = (
+                    f"Applied modifications across {mutating_tool_count} workspace action{'s' if mutating_tool_count > 1 else ''}. "
+                    f"Execution completed with {pending_cnt} milestone{'s' if pending_cnt > 1 else ''} pending."
+                )
+                return_status = "COMPLETED"
+            else:
+                fallback_msg = (
+                    f"Successfully applied {mutating_tool_count} workspace action{'s' if mutating_tool_count > 1 else ''}."
+                )
+                return_status = "COMPLETED"
         elif tool_call_count > 0:
-            plan_eval = current_plan.get("evaluation", {})
-            is_ok = plan_eval.get("status") == "accomplished"
-            if is_ok:
+            if is_accomplished and not has_preview_missing:
                 fallback_msg = f"Completed {tool_call_count} workspace inspection action{'s' if tool_call_count > 1 else ''}."
                 return_status = "COMPLETED"
             else:
                 eval_sum = plan_eval.get("summary", "Plan execution requires revision.")
-                fallback_msg = (
-                    f"Completed {tool_call_count} workspace inspection action{'s' if tool_call_count > 1 else ''}. "
-                    f"Execution halted before generating the required application files ({eval_sum})."
-                )
+                if has_preview_missing:
+                    fallback_msg = (
+                        f"Completed {tool_call_count} workspace inspection action{'s' if tool_call_count > 1 else ''}. "
+                        f"Execution halted before generating the required application files ({preview_verif.get('status')}: {preview_verif.get('recommendation', 'No index.html found')})."
+                    )
+                else:
+                    fallback_msg = (
+                        f"Completed {tool_call_count} workspace inspection action{'s' if tool_call_count > 1 else ''}. "
+                        f"Execution halted before generating the required application files ({eval_sum})."
+                    )
                 return_status = "FAILED"
         else:
             if last_api_error_text:

@@ -13,6 +13,7 @@ import { FileTreeExplorer, FileNode, ExternalSearchRequest } from '../Files/File
 import { CodeViewer, LineContext } from '../Files/CodeViewer';
 import { FileAgentPopover } from '../Files/FileAgentPopover';
 import { useNavigationHistory } from '../../hooks/useNavigationHistory';
+import { useWebSocketContext } from '../../contexts/WebSocketContext';
 
 interface FilesExplorerTabProps {
   task: Task;
@@ -151,6 +152,29 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
     }
   };
 
+  const { subscribe } = useWebSocketContext();
+
+  useEffect(() => {
+    if (!subscribe) return;
+    const unsubToolEnd = subscribe('TOOL_END', (event: any) => {
+      if (event.task_id === task.id) {
+        const mutatingTools = ['edit_file', 'replace_file_content', 'batch_replace_content', 'apply_unified_patch', 'run_command', 'git_clone'];
+        if (mutatingTools.includes(event.tool_name)) {
+          fetchFilesystem(true);
+        }
+      }
+    });
+    const unsubDiff = subscribe('DIFF_UPDATED', (event: any) => {
+      if (event.task_id === task.id) {
+        fetchFilesystem(true);
+      }
+    });
+    return () => {
+      unsubToolEnd();
+      unsubDiff();
+    };
+  }, [subscribe, task.id]);
+
   useEffect(() => {
     const isNewTask = prevTaskIdRef.current !== task.id;
     prevTaskIdRef.current = task.id;
@@ -281,13 +305,13 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
       <div className="h-full flex flex-col items-center justify-center p-6 text-center text-onedark-muted font-mono select-none space-y-2">
         <Box className="w-8 h-8 text-onedark-border mb-1 stroke-[1.2]" />
         <div className="text-xs font-semibold text-onedark-fg">
-          {isNoRepo ? 'No Files in Session' : isDestroyed ? 'Sandbox Cleaned Up' : 'Workspace Empty'}
+          {isDestroyed ? 'Sandbox Cleaned Up' : isNoRepo ? 'Live Sandbox Ready' : 'Workspace Empty'}
         </div>
         <div className="text-[11px] text-onedark-muted max-w-xs leading-relaxed">
-          {isNoRepo
-            ? 'This is a conversational session without a connected repository.'
-            : isDestroyed
+          {isDestroyed
             ? 'The ephemeral sandbox workspace was safely cleaned up upon task completion.'
+            : isNoRepo
+            ? 'Ephemeral sandbox initialized. Workspace files will appear here as they are created by the agent.'
             : data?.exists_on_disk
             ? 'The sandbox workspace directory is currently empty.'
             : 'Sandbox workspace has not been initialized or is no longer present on disk.'}

@@ -244,3 +244,46 @@ def test_get_file_outline(temp_workspace):
     assert "UserPayload" in ts_res["outline"]
     assert "fetchHealth" in ts_res["outline"]
 
+
+def test_edit_file_validation(temp_workspace):
+    # Empty path rejected
+    res_empty_path = WorkspaceTools.edit_file(temp_workspace, "", "content")
+    assert "error" in res_empty_path
+    assert "file_path cannot be empty" in res_empty_path["error"]
+
+    # Empty content rejected
+    res_empty_content = WorkspaceTools.edit_file(temp_workspace, "empty.txt", "")
+    assert "error" in res_empty_content
+    assert "content cannot be empty" in res_empty_content["error"]
+
+    # Whitespace-only content rejected
+    res_ws_content = WorkspaceTools.edit_file(temp_workspace, "ws.txt", "   \n\t  ")
+    assert "error" in res_ws_content
+    assert "content cannot be empty" in res_ws_content["error"]
+
+    # Valid write succeeds
+    res_valid = WorkspaceTools.edit_file(temp_workspace, "valid.txt", "Hello World")
+    assert res_valid["status"] == "written"
+    assert res_valid["bytes"] == 11
+    assert (temp_workspace / "valid.txt").read_text(encoding="utf-8") == "Hello World"
+
+
+def test_batch_replace_content_aliasing(temp_workspace):
+    # Test batch replacement with aliased keys and single dictionary auto-coercion
+    edit_op = {
+        "path": "server.py",
+        "target": 'host: str = "localhost"',
+        "replacement": 'host: str = "127.0.0.1"',
+        "allowMultiple": False
+    }
+
+    res = WorkspaceTools.batch_replace_content(
+        workspace_path=temp_workspace,
+        edits=edit_op
+    )
+    assert res["status"] == "success"
+    assert res["total_replacements"] == 1
+    content = (temp_workspace / "server.py").read_text(encoding="utf-8")
+    assert 'host: str = "127.0.0.1"' in content
+
+

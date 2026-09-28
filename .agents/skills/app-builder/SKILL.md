@@ -45,6 +45,14 @@ Use this skill whenever asked to build, scaffold, prototype, or code complete we
 4. **UI/UX Design Craft Standard**:
    - Consult the `ui-ux-design` skill ([`SKILL.md`](file:///Users/macken/Documents/antigravity/epic-rutherford/.agents/skills/ui-ux-design/SKILL.md)) for curated theme palettes (Obsidian Dark, OneDark Pro, Crisp SaaS Light), shimmer loading skeletons, rich empty states, and responsive touch targets (≥40px). Ensure interfaces feel handcrafted and production-grade.
 
+5. **Modular Architecture & Token Safety (Anti-Monolith Invariant)**:
+   - For applications with complex subsystems (e.g. audio synthesizers, 3D engines, complex calculators, multi-stage wizards) or code exceeding ~300 lines, **decompose into clean modular files**:
+     - `index.html`: DOM shell, CDN script tags, semantic mount containers, modal roots.
+     - `app.js` / `main.js`: Core state controllers, event listeners, view navigation.
+     - `styles.css`: Custom animations, keyframes, theme token variables.
+     - `engine.js` / `audio.js`: Headless logic, synthesizers, physics, or algorithmic modules.
+   - Authoring separate modular files via distinct `edit_file` calls eliminates LLM completion token ceiling truncations (`finish_reason="length"`), ensuring reliable generation and cleaner maintenance.
+
 ---
 
 ## 2. Standard Single-File SPA Template Pattern (`index.html`)

@@ -3,7 +3,7 @@ import re
 import mimetypes
 import logging
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Set, Tuple
 from fastapi import APIRouter, HTTPException, Depends, Request, Response
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select
@@ -172,6 +172,187 @@ def _inject_html_telemetry_and_base(html_text: str, base_href: str) -> str:
 
 
 inject_preview_telemetry = _inject_html_telemetry_and_base
+
+
+def _extract_declared_html_ids(html_text: str) -> Set[str]:
+    """
+    Extracts all declared element IDs from HTML markup.
+    """
+    ids: Set[str] = set()
+    for m in re.finditer(r'\bid=["\']([a-zA-Z0-9_\-]+)["\']', html_text, re.IGNORECASE):
+        ids.add(m.group(1))
+    return ids
+
+
+def _extract_js_queried_ids(js_text: str) -> Set[str]:
+    """
+    Extracts all element IDs queried by JavaScript via getElementById, querySelector('#...'), etc.
+    """
+    queried: Set[str] = set()
+    # document.getElementById('id') or container.getElementById("id")
+    for m in re.finditer(r'\b(?:document|window|el|container|parent|root)\.getElementById\s*\(\s*["\'`]([a-zA-Z0-9_\-]+)["\'`]\s*\)', js_text):
+        queried.add(m.group(1))
+    # querySelector('#id') or querySelectorAll('#id')
+    for m in re.finditer(r'\.querySelector(?:All)?\s*\(\s*["\'`]#([a-zA-Z0-9_\-]+)["\'`]\s*\)', js_text):
+        queried.add(m.group(1))
+    # $('#id') or jQuery('#id')
+    for m in re.finditer(r'\b(?:\$|jQuery)\s*\(\s*["\'`]#([a-zA-Z0-9_\-]+)["\'`]\s*\)', js_text):
+        queried.add(m.group(1))
+    return queried
+
+
+def _validate_dom_js_contract(html_text: str, combined_js: str, primary_entry: str) -> List[str]:
+    """
+    Cross-validates element IDs queried in JavaScript against element IDs declared in HTML.
+    Detects selector drift and missing DOM nodes that cause null pointer crashes at runtime.
+    """
+    issues: List[str] = []
+    if not html_text or not combined_js:
+        return issues
+
+    declared_ids = _extract_declared_html_ids(html_text)
+
+    # Include IDs created inside JS string/template literals (e.g. innerHTML = `<div id="xyz">`)
+    for m in re.finditer(r'\bid=["\']([a-zA-Z0-9_\-]+)["\']', combined_js):
+        declared_ids.add(m.group(1))
+    for m in re.finditer(r'\.id\s*=\s*["\'`]([a-zA-Z0-9_\-]+)["\'`]', combined_js):
+        declared_ids.add(m.group(1))
+    for m in re.finditer(r'setAttribute\s*\(\s*["\'`]id["\'`]\s*,\s*["\'`]([a-zA-Z0-9_\-]+)["\'`]\s*\)', combined_js):
+        declared_ids.add(m.group(1))
+
+    queried_ids = _extract_js_queried_ids(combined_js)
+
+    # Standard browser / framework synthetic root IDs that might be dynamically generated
+    whitelisted_ids = {"app", "root", "container", "main", "canvas", "game", "viewport"}
+
+    for q_id in sorted(queried_ids):
+        if q_id not in declared_ids and q_id not in whitelisted_ids:
+            issues.append(
+                f"DOM Contract Violation: JavaScript references element ID '#{q_id}' via getElementById/querySelector, but no element with id='{q_id}' exists in '{primary_entry}'."
+            )
+
+    return issues
+
+
+def _validate_interactive_buttons(html_text: str, combined_js: str, primary_entry: str) -> List[str]:
+    """
+    Checks whether interactive button and form elements in HTML have corresponding event listeners or handlers wired in JavaScript.
+    Flags dead/unresponsive UI buttons.
+    """
+    issues: List[str] = []
+    if not html_text:
+        return issues
+
+    # If framework detected (Vue, React, Alpine, Svelte), bindings are handled by components
+    has_framework = bool(re.search(r'createApp|createRoot|React|ReactDOM|Alpine|Vue|svelte', combined_js, re.IGNORECASE))
+    if has_framework:
+        return issues
+
+    # Global delegation listener in JS (e.g. document.addEventListener('click', ...)) covers all buttons
+    has_global_click_delegation = bool(re.search(r'\b(?:document|window)\.addEventListener\s*\(\s*["\'`]click["\'`]', combined_js, re.IGNORECASE))
+    if has_global_click_delegation:
+        return issues
+
+    # Extract all button tags
+    button_matches = re.finditer(r'<button\b([^>]*)>(.*?)</button>', html_text, re.IGNORECASE | re.DOTALL)
+    for m in button_matches:
+        attrs = m.group(1)
+        inner = m.group(2)
+        btn_text = re.sub(r'<[^>]+>', '', inner).strip() or "Action"
+
+        # Check inline handlers
+        has_inline_handler = bool(re.search(r'\b(?:onclick|@click|v-on:click|onClick|data-action)\s*=', attrs, re.IGNORECASE))
+        if has_inline_handler:
+            continue
+
+        # Check if type="submit" or type="reset" inside a form
+        btn_type = re.search(r'\btype=["\']([^"\']+)["\']', attrs, re.IGNORECASE)
+        if btn_type and btn_type.group(1).lower() in ("submit", "reset"):
+            has_form_submit = bool(re.search(r'addEventListener\s*\(\s*["\'`]submit["\'`]|onsubmit\s*=', combined_js, re.IGNORECASE))
+            if has_form_submit:
+                continue
+
+        # Extract ID
+        btn_id_match = re.search(r'\bid=["\']([^"\']+)["\']', attrs, re.IGNORECASE)
+        btn_id = btn_id_match.group(1) if btn_id_match else None
+
+        # Extract classes
+        btn_class_match = re.search(r'\bclass=["\']([^"\']+)["\']', attrs, re.IGNORECASE)
+        btn_classes = btn_class_match.group(1).split() if btn_class_match else []
+
+        # Check if button ID is referenced in JS
+        is_id_handled = False
+        if btn_id and combined_js:
+            is_id_handled = bool(re.search(rf'\b{re.escape(btn_id)}\b', combined_js))
+
+        # Check if button class is queried in JS
+        is_class_handled = False
+        if combined_js:
+            for c in btn_classes:
+                if len(c) > 2 and not c.startswith(("px-", "py-", "bg-", "text-", "font-", "rounded", "flex", "grid", "border", "hover:", "active:", "focus:")):
+                    if re.search(rf'\.{re.escape(c)}\b|getElementsByClassName\s*\(\s*["\'`]{re.escape(c)}["\'`]', combined_js):
+                        is_class_handled = True
+                        break
+
+        if not is_id_handled and not is_class_handled:
+            btn_desc = f"#{btn_id}" if btn_id else f"'{btn_text[:25]}'"
+            issues.append(
+                f"Dead UI Button Detected: Button {btn_desc} in '{primary_entry}' has no event listeners or click handlers wired in JavaScript."
+            )
+
+    return issues
+
+
+def _validate_canvas_and_state(html_text: str, combined_js: str, primary_entry: str) -> List[str]:
+    """
+    Validates that canvas elements have 2D/WebGL context initialization and animation loops.
+    """
+    issues: List[str] = []
+    if "<canvas" in html_text.lower():
+        has_canvas_ctx = bool(re.search(r'\.getContext\s*\(\s*["\'`](2d|webgl|webgl2|bitmaprenderer)["\'`]\s*\)|THREE\.|PIXI\.|createCanvas|new\s+p5\b', combined_js, re.IGNORECASE))
+        has_loop = bool(re.search(r'requestAnimationFrame|setInterval|render\s*\(|animate\s*\(', combined_js, re.IGNORECASE))
+
+        if not has_canvas_ctx:
+            issues.append(
+                f"Canvas Context Issue: '<canvas>' element is declared in '{primary_entry}', but no 2D/WebGL rendering context (.getContext('2d')) is initialized in JavaScript."
+            )
+        elif not has_loop:
+            issues.append(
+                f"Canvas Animation Loop Issue: '<canvas>' rendering context initialized in JavaScript, but no render/animation loop (requestAnimationFrame) is started."
+            )
+    return issues
+
+
+def _validate_script_syntax_balance(combined_js: str, primary_entry: str) -> List[str]:
+    """
+    Validates bracket and parenthesis balance in JavaScript to catch truncation and syntax breaks.
+    """
+    issues: List[str] = []
+    if not combined_js:
+        return issues
+
+    # Strip string literals and comments to count structural braces
+    sanitized = re.sub(r'//.*', '', combined_js)
+    sanitized = re.sub(r'/\*[\s\S]*?\*/', '', sanitized)
+    sanitized = re.sub(r'"(?:[^"\\]|\\.)*"', '""', sanitized)
+    sanitized = re.sub(r"'(?:[^'\\]|\\.)*'", "''", sanitized)
+    sanitized = re.sub(r'`(?:[^`\\]|\\.)*`', '``', sanitized)
+
+    open_curly = sanitized.count('{')
+    close_curly = sanitized.count('}')
+    open_paren = sanitized.count('(')
+    close_paren = sanitized.count(')')
+
+    if abs(open_curly - close_curly) >= 2:
+        issues.append(
+            f"JavaScript Syntax Warning: Unmatched curly braces in '{primary_entry}' scripts (opened {open_curly}, closed {close_curly}). Verify complete function closures."
+        )
+    if abs(open_paren - close_paren) >= 2:
+        issues.append(
+            f"JavaScript Syntax Warning: Unmatched parentheses in '{primary_entry}' scripts (opened {open_paren}, closed {close_paren}). Verify complete function calls."
+        )
+
+    return issues
 
 
 def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict[str, Any]:
@@ -595,27 +776,94 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
     if not has_css_engine and len(stripped_dom) > 60:
         issues.append("HTML document contains DOM layout elements but no CSS stylesheets, <style> tags, or Tailwind CSS CDN scripts (<script src='https://cdn.tailwindcss.com'></script>) are linked. The page will render unstyled default browser HTML.")
 
-    if any("Canvas container" in iss or "HTML elements use class='hidden'" in iss or "Canvas mount container" in iss or "no CSS stylesheets" in iss for iss in issues):
-        return {
-            "status": "uncompiled_css" if any("no CSS stylesheets" in iss for iss in issues) else "dom_css_mismatch",
-            "has_preview": True,
-            "entry_point": primary_entry,
-            "available_entry_points": available_entry_points,
-            "assets_count": assets_count,
-            "title": extracted_title or "App Preview",
-            "framework": framework,
-            "build_status": "uncompiled_css" if any("no CSS stylesheets" in iss for iss in issues) else "dom_css_mismatch",
-            "is_stale": is_stale,
-            "build_timestamp": build_timestamp,
-            "issues": issues,
-            "recommendation": "Link Tailwind CSS (<script src='https://cdn.tailwindcss.com'></script>) or embed comprehensive modern dark theme CSS tokens in <style> to render a styled, professional page." if any("no CSS stylesheets" in iss for iss in issues) else "Harmonize DOM element IDs and CSS selectors between index.html and stylesheets, add missing '.hidden { display: none !important; }' utility, and ensure canvas containers are styled with width: 100%; height: 100%; position: absolute;."
-        }
+    # Gather combined JavaScript text from inline <script> tags, linked scripts, and workspace JS files
+    all_js_chunks = []
+    for inline_scr in re.findall(r'<script\b[^>]*>([\s\S]*?)</script>', html_text, re.IGNORECASE):
+        if inline_scr.strip():
+            all_js_chunks.append(inline_scr)
+
+    for js_ref in js_scripts:
+        clean_ref = js_ref.split('?')[0].lstrip('./').lstrip('/')
+        js_path = entry_file.parent / clean_ref
+        if not js_path.exists():
+            js_path = ws_path / clean_ref
+        if js_path.exists() and js_path.is_file():
+            try:
+                all_js_chunks.append(js_path.read_text(encoding="utf-8", errors="ignore"))
+            except Exception:
+                pass
+
+    if not has_dist:
+        js_folder = ws_path / "js"
+        if js_folder.exists() and js_folder.is_dir():
+            for f in js_folder.glob("*.js"):
+                try:
+                    all_js_chunks.append(f.read_text(encoding="utf-8", errors="ignore"))
+                except Exception:
+                    pass
+        for f in ws_path.glob("*.js"):
+            if f.name not in ("vite.config.js", "tailwind.config.js", "postcss.config.js"):
+                try:
+                    all_js_chunks.append(f.read_text(encoding="utf-8", errors="ignore"))
+                except Exception:
+                    pass
+
+    combined_js = "\n".join(all_js_chunks)
+
+    # 4. DOM-to-JS Element Contract Cross-Validation
+    if not has_dist and combined_js:
+        dom_contract_issues = _validate_dom_js_contract(html_text, combined_js, primary_entry)
+        issues.extend(dom_contract_issues)
+
+        # 5. Interactive Button & Event Wiring Validation
+        dead_button_issues = _validate_interactive_buttons(html_text, combined_js, primary_entry)
+        issues.extend(dead_button_issues)
+
+        # 6. Canvas Mount & Animation Loop Validation
+        canvas_issues = _validate_canvas_and_state(html_text, combined_js, primary_entry)
+        issues.extend(canvas_issues)
+
+        # 7. Script Syntax Balance Check
+        syntax_issues = _validate_script_syntax_balance(combined_js, primary_entry)
+        issues.extend(syntax_issues)
+
+    has_dom_css_issues = any("Canvas container" in iss or "HTML elements use class='hidden'" in iss or "Canvas mount container" in iss for iss in issues)
+    has_uncompiled_css = any("no CSS stylesheets" in iss or "uncompiled '@tailwind'" in iss for iss in issues)
+    has_js_dom_mismatch = any("DOM Contract Violation" in iss for iss in issues)
+    has_dead_buttons = any("Dead UI Button" in iss for iss in issues)
+    has_canvas_issues = any("Canvas Context Issue" in iss or "Canvas Animation Loop" in iss for iss in issues)
+    has_syntax_issues = any("JavaScript Syntax" in iss for iss in issues)
+
+    if has_uncompiled_css:
+        status_code = "uncompiled_css"
+        recommendation = "Link Tailwind CSS (<script src='https://cdn.tailwindcss.com'></script>) or embed comprehensive modern dark theme CSS tokens in <style> to render a styled, professional page."
+    elif has_js_dom_mismatch:
+        status_code = "js_dom_mismatch"
+        recommendation = "Harmonize DOM element IDs between HTML and JavaScript: add missing IDs to HTML elements or update querySelector/getElementById calls in JavaScript."
+    elif has_dead_buttons:
+        status_code = "dead_buttons"
+        recommendation = "Wire up active click event listeners (addEventListener('click', ...)) or inline onclick handlers for all interactive buttons in the application."
+    elif has_dom_css_issues or has_canvas_issues:
+        status_code = "dom_css_mismatch"
+        recommendation = "Harmonize DOM element IDs and CSS selectors between index.html and stylesheets, add missing '.hidden { display: none !important; }' utility, and ensure canvas containers are styled with width: 100%; height: 100%; position: absolute;."
+    elif has_syntax_issues:
+        status_code = "runtime_exception"
+        recommendation = "Fix unclosed brackets or syntax errors in JavaScript files and inline script blocks."
+    elif issues:
+        status_code = "issues_found"
+        recommendation = "Resolve the detected workspace preview issues to ensure a fully functional application."
+    else:
+        status_code = "ready"
 
     if has_dist:
         build_status = "compiled"
+    elif status_code != "ready":
+        build_status = status_code
+    else:
+        build_status = "static"
 
     return {
-        "status": "ready" if not issues else "issues_found",
+        "status": status_code,
         "has_preview": True,
         "entry_point": primary_entry,
         "available_entry_points": available_entry_points,
@@ -623,7 +871,7 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
         "title": extracted_title or "App Preview",
         "framework": framework,
         "build_status": build_status,
-        "is_stale": False,
+        "is_stale": is_stale,
         "build_timestamp": build_timestamp,
         "issues": issues,
         "recommendation": recommendation
@@ -986,13 +1234,20 @@ async def serve_preview_file(task_id: str, file_path: str = "", db: AsyncSession
     )
 
 
+@router.api_route("/{task_id}/preview/proxy/{port}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 @router.api_route("/{task_id}/preview/proxy/{port}/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 async def proxy_preview_dev_server(task_id: str, port: int, path: str = "", request: Request = None, db: AsyncSession = Depends(get_db)):
     """
     Reverse proxies HTTP requests to a development server running inside the task container or host port.
+    Resolves the container's private bridge IP if container isolation is active.
     """
     import httpx
-    target_url = f"http://127.0.0.1:{port}/{path}"
+    from app.core.sandboxes.container.lifecycle import container_lifecycle
+
+    container_ip = await container_lifecycle.get_container_ip(task_id)
+    host_target = container_ip if container_ip else "127.0.0.1"
+    clean_path = path.lstrip("/") if path else ""
+    target_url = f"http://{host_target}:{port}/{clean_path}" if clean_path else f"http://{host_target}:{port}/"
     if request and request.url.query:
         target_url = f"{target_url}?{request.url.query}"
 
@@ -1026,7 +1281,7 @@ async def proxy_preview_dev_server(task_id: str, port: int, path: str = "", requ
     except httpx.ConnectError:
         raise HTTPException(
             status_code=502,
-            detail=f"Unable to connect to development server on port {port}. Please ensure the server is running."
+            detail=f"Unable to connect to development server on {host_target}:{port}. Please ensure the server is running."
         )
     except Exception as e:
         logger.error(f"Dev server proxy error on port {port}: {e}")

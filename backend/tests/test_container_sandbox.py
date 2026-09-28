@@ -55,12 +55,33 @@ def test_image_resolver_manifest_detection(temp_workspace: Path):
     assert "node" in resolver.resolve_image_for_workspace(temp_workspace)
 
     # Rust
+    (temp_workspace / "package.json").unlink()
     (temp_workspace / "Cargo.toml").write_text("[package]", encoding="utf-8")
     assert "rust" in resolver.resolve_image_for_workspace(temp_workspace)
 
     # Flutter
+    (temp_workspace / "Cargo.toml").unlink()
     (temp_workspace / "pubspec.yaml").write_text("name: test", encoding="utf-8")
     assert "cyclode-mobile" in resolver.resolve_image_for_workspace(temp_workspace) or "flutter" in resolver.resolve_image_for_workspace(temp_workspace)
+
+    # Elixir
+    (temp_workspace / "pubspec.yaml").unlink()
+    (temp_workspace / "mix.exs").write_text("defmodule Test do\nend", encoding="utf-8")
+    assert "elixir" in resolver.resolve_image_for_workspace(temp_workspace)
+
+
+def test_container_lifecycle_resolve_bind_source():
+    mgr = ContainerLifecycleManager()
+    with patch("app.core.sandboxes.container.lifecycle.settings.HOST_WORKSPACE_ROOT", "/Users/test/Codev/Cyclode/workspaces"), \
+         patch("app.core.sandboxes.container.lifecycle.settings.WORKSPACE_ROOT", "/workspaces"):
+        p = Path("/workspaces/sandbox-abc-123")
+        bind = mgr.resolve_bind_source(p)
+        assert bind == "/Users/test/Codev/Cyclode/workspaces/sandbox-abc-123"
+
+    with patch("app.core.sandboxes.container.lifecycle.settings.HOST_WORKSPACE_ROOT", None):
+        p = Path("/tmp/local-workspace")
+        bind = mgr.resolve_bind_source(p)
+        assert bind == str(p.resolve())
 
 
 @pytest.mark.asyncio

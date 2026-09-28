@@ -11,7 +11,11 @@ def test_app_builder_persona_registered():
     assert "5-STAGE" in persona["system_instructions"] or "5-Stage" in persona["system_instructions"]
     assert "index.html" in persona["system_instructions"]
     assert "FastAPI" in persona["system_instructions"]
+    assert "Modular Architecture & Token Safety" in persona["system_instructions"]
     assert "Communication & Synthesis Standards" in persona["system_instructions"]
+
+    swe = get_persona("SoftwareEngineer")
+    assert "Modular Architecture & Token Safety Invariant" in swe["system_instructions"]
 
 
 def test_app_builder_title_heuristics():
@@ -20,3 +24,4 @@ def test_app_builder_title_heuristics():
 
     title2 = generate_heuristic_title("Please create a real-time cryptocurrency analytics dashboard")
     assert "Cryptocurrency" in title2 or "Dashboard" in title2 or "Create" in title2
+

@@ -1,6 +1,8 @@
+import os
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any
+from app.config import settings
 from app.core.sandboxes.container.client import container_client
 from app.core.sandboxes.container.policies import default_security_policy, ContainerSecurityPolicy
 from app.core.sandboxes.container.images import image_resolver
@@ -21,6 +23,25 @@ class ContainerLifecycleManager:
         clean_id = task_id.replace(" ", "-").replace("/", "-")[:32]
         return f"cyclode-sb-{clean_id}"
 
+    def resolve_bind_source(self, workspace_path: Path) -> str:
+        """
+        Translates a workspace path (which may be container-internal if running in DooD)
+        to the host machine filesystem path expected by the host container daemon.
+        """
+        resolved = workspace_path.resolve()
+        host_root = settings.HOST_WORKSPACE_ROOT or os.environ.get("HOST_WORKSPACE_ROOT")
+        if host_root:
+            try:
+                rel = resolved.relative_to(Path(settings.WORKSPACE_ROOT).resolve())
+                return str(Path(host_root) / rel)
+            except Exception:
+                try:
+                    rel = resolved.relative_to(settings.WORKSPACE_ROOT)
+                    return str(Path(host_root) / rel)
+                except Exception:
+                    return f"{host_root.rstrip('/')}/{resolved.name}"
+        return str(resolved)
+
     async def ensure_container_running(
         self,
         task_id: str,
@@ -35,8 +56,11 @@ class ContainerLifecycleManager:
         container_name = self.get_container_name(task_id)
         if task_id in self._active_containers:
             # Check if still running
-            code, _, _ = await self.client.run_cli(["inspect", container_name], timeout=5.0)
-            if code == 0:
+            code, out, _ = await self.client.run_cli(
+                ["inspect", "--format", "{{.State.Running}}", container_name],
+                timeout=5.0
+            )
+            if code == 0 and out.strip().lower() == "true":
                 return container_name
 
         effective_image = image or image_resolver.resolve_image_for_workspace(workspace_path)
@@ -45,11 +69,14 @@ class ContainerLifecycleManager:
         # Clean up stale container with same name if any
         await self.client.run_cli(["rm", "-f", container_name], timeout=5.0)
 
+        # Translate workspace path to host path if running in Docker-out-of-Docker / sibling setup
+        bind_source = self.resolve_bind_source(workspace_path)
+
         # Prepare run arguments
         run_args = [
             "run", "-d",
             "--name", container_name,
-            "-v", f"{workspace_path.resolve()}:/workspace:rw",
+            "-v", f"{bind_source}:/workspace:rw",
             "-w", "/workspace"
         ]
         run_args.extend(effective_policy.to_cli_args())
@@ -70,6 +97,19 @@ class ContainerLifecycleManager:
         code, _, _ = await self.client.run_cli(["rm", "-f", container_name], timeout=8.0)
         return code == 0
 
+    async def get_container_ip(self, task_id: str) -> Optional[str]:
+        """
+        Retrieves the private IP address of the task's container if running.
+        """
+        container_name = self.get_container_name(task_id)
+        code, out, _ = await self.client.run_cli(
+            ["inspect", "-f", "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}", container_name],
+            timeout=3.0
+        )
+        if code == 0 and out.strip():
+            return out.strip()
+        return None
+
     async def get_container_telemetry(self, task_id: str, workspace_path: Optional[Path] = None) -> Dict[str, Any]:
         """
         Retrieves real-time telemetry and isolation metrics for the task's companion container.
@@ -81,9 +121,13 @@ class ContainerLifecycleManager:
 
         is_running = False
         if is_available:
-            if task_id in self._active_containers:
-                code, _, _ = await self.client.run_cli(["inspect", container_name], timeout=3.0)
-                is_running = (code == 0)
+            code, out, _ = await self.client.run_cli(
+                ["inspect", "--format", "{{.State.Running}}", container_name],
+                timeout=3.0
+            )
+            is_running = (code == 0 and out.strip().lower() == "true")
+            if is_running and task_id not in self._active_containers:
+                self._active_containers[task_id] = container_name
 
         status_str = "RUNNING" if is_running else ("READY" if is_available else "OFFLINE")
 
