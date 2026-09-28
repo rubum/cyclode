@@ -1876,49 +1876,6 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   <Paperclip className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0 group-hover:scale-110 transition-transform" />
                   <span>Attach</span>
                 </button>
-
-                {/* Quick Mention Repository Pills or Connect Repo CTA */}
-                {effectiveRepos.length > 0 ? (
-                  <div className="flex items-center space-x-1.5 min-w-0 flex-shrink-0">
-                    {effectiveRepos.slice(0, 3).map((r) => {
-                      const tag = `@${r.full_name || r.name}`;
-                      const isIncluded = inputValue.includes(tag);
-                      return (
-                        <button
-                          key={r.id || r.full_name}
-                          type="button"
-                          onClick={() => {
-                            if (!isIncluded) {
-                              setInputValue((prev) => prev ? `${prev.trim()} ${tag} ` : `${tag} `);
-                            }
-                            emptyStateTextareaRef.current?.focus();
-                          }}
-                          className={`h-8 px-2.5 rounded-lg text-[11px] font-mono transition-all flex items-center space-x-1.5 cursor-pointer flex-shrink-0 max-w-[170px] shadow-2xs ${
-                            isIncluded
-                              ? 'bg-onedark-accent/20 border border-onedark-accent/40 text-onedark-accent font-semibold'
-                              : 'bg-onedark-darker/60 hover:bg-onedark-darker border border-onedark-borderSubtle/80 hover:border-onedark-border text-onedark-muted hover:text-onedark-fgBright'
-                          }`}
-                          title={`Click to reference ${tag}`}
-                        >
-                          <FolderGit2 className="w-3 h-3 text-onedark-folder flex-shrink-0" />
-                          <span className="truncate">{tag}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  onNavigateToRepos && (
-                    <button
-                      type="button"
-                      onClick={onNavigateToRepos}
-                      className="h-8 px-2.5 rounded-lg bg-onedark-darker/60 hover:bg-onedark-darker border border-dashed border-onedark-borderSubtle hover:border-onedark-border text-[11px] font-mono text-onedark-muted hover:text-onedark-fgBright transition-all flex items-center space-x-1.5 cursor-pointer flex-shrink-0 shadow-2xs"
-                      title="Connect a GitHub/GitLab repository"
-                    >
-                      <Plus className="w-3 h-3 text-onedark-accent flex-shrink-0" />
-                      <span>Connect Repo</span>
-                    </button>
-                  )
-                )}
               </div>
 
               {/* Submit Button */}
@@ -1941,6 +1898,92 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               </button>
             </div>
           </form>
+
+          {/* Recent Repositories Tray Below Input Area */}
+          {effectiveRepos.length > 0 ? (
+            <div className="space-y-2 pt-0.5 px-0.5">
+              <div className="flex items-center justify-between text-xs font-mono text-onedark-muted select-none">
+                <div className="flex items-center space-x-1.5">
+                  <FolderGit2 className="w-3.5 h-3.5 text-onedark-folder" />
+                  <span className="font-semibold uppercase tracking-wider text-[11px] text-onedark-fg/80">Recent Repositories</span>
+                  <span className="text-[10px] text-onedark-muted/70">({effectiveRepos.length})</span>
+                </div>
+                {onNavigateToRepos && (
+                  <button
+                    type="button"
+                    onClick={onNavigateToRepos}
+                    className="hover:text-onedark-accent transition-colors flex items-center space-x-1 cursor-pointer text-[11px]"
+                    title="Manage connected repositories in Vault"
+                  >
+                    <span>Manage Repos</span>
+                    <ArrowRight className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden py-0.5 flex-wrap sm:flex-nowrap">
+                {effectiveRepos.map((r) => {
+                  const tag = `@${r.full_name || r.name}`;
+                  const isIncluded = inputValue.includes(tag);
+                  return (
+                    <button
+                      key={r.id || r.full_name}
+                      type="button"
+                      onClick={() => {
+                        if (!isIncluded) {
+                          setInputValue((prev) => prev ? `${prev.trim()} ${tag} ` : `${tag} `);
+                        }
+                        emptyStateTextareaRef.current?.focus();
+                      }}
+                      className={`h-8 px-3 rounded-lg text-xs font-mono transition-all flex items-center space-x-2 cursor-pointer flex-shrink-0 border shadow-2xs group ${
+                        isIncluded
+                          ? 'bg-onedark-accent/20 border-onedark-accent text-onedark-accent font-semibold'
+                          : 'bg-onedark-surface/30 hover:bg-onedark-surface/70 border-onedark-borderSubtle/70 hover:border-onedark-accent/50 text-onedark-fg hover:text-onedark-fgBright'
+                      }`}
+                      title={`Click to reference ${tag} in prompt`}
+                    >
+                      <FolderGit2 className="w-3.5 h-3.5 text-onedark-folder flex-shrink-0 group-hover:scale-110 transition-transform" />
+                      <span className="font-medium truncate max-w-[220px]">{r.full_name || r.name}</span>
+                      {r.default_branch && (
+                        <span className="text-[10px] text-onedark-muted font-normal px-1.5 py-0.5 rounded bg-onedark-darker/60 border border-onedark-borderSubtle/40 hidden md:inline">
+                          {r.default_branch}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+
+                {onNavigateToRepos && (
+                  <button
+                    type="button"
+                    onClick={onNavigateToRepos}
+                    className="h-8 px-3 rounded-lg bg-onedark-surface/20 hover:bg-onedark-surface/50 border border-dashed border-onedark-borderSubtle/80 hover:border-onedark-accent/50 text-xs font-mono text-onedark-muted hover:text-onedark-fg transition-all flex items-center space-x-1.5 cursor-pointer flex-shrink-0 shadow-2xs"
+                    title="Connect another GitHub or GitLab repository"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
+                    <span>Connect Repo</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            onNavigateToRepos && (
+              <div className="flex items-center justify-between px-3.5 py-2 rounded-xl bg-onedark-surface/20 border border-dashed border-onedark-borderSubtle/60 text-xs font-mono text-onedark-muted">
+                <div className="flex items-center space-x-2">
+                  <FolderGit2 className="w-3.5 h-3.5 text-onedark-muted" />
+                  <span>No repositories connected yet. Connect repositories to reference them with <kbd className="px-1.5 py-0.5 rounded bg-onedark-darker/60 text-onedark-yellow text-[10.5px]">@</kbd></span>
+                </div>
+                <button
+                  type="button"
+                  onClick={onNavigateToRepos}
+                  className="px-2.5 py-1 rounded-lg bg-onedark-surface/40 hover:bg-onedark-surface border border-onedark-borderSubtle hover:border-onedark-accent/50 text-onedark-fg hover:text-onedark-accent transition-all flex items-center space-x-1 cursor-pointer"
+                >
+                  <Plus className="w-3 h-3 text-onedark-accent" />
+                  <span>Connect</span>
+                </button>
+              </div>
+            )
+          )}
 
           {/* Starter Templates */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-2">
