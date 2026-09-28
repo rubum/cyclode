@@ -104,7 +104,12 @@ class ClaudeProvider(BaseLLMProvider):
                         fr = p["functionResponse"]
                         call_id = fr.get("id") or f"call_{fr.get('name')}"
                         resp_obj = fr.get("response", {})
-                        content_str = resp_obj.get("output") or resp_obj.get("stdout") or (json.dumps(resp_obj) if isinstance(resp_obj, (dict, list)) else str(resp_obj))
+                        if isinstance(resp_obj, dict):
+                            content_str = resp_obj.get("output") or resp_obj.get("stdout") or resp_obj.get("result") or json.dumps(resp_obj)
+                        elif isinstance(resp_obj, list):
+                            content_str = json.dumps(resp_obj)
+                        else:
+                            content_str = str(resp_obj)
                         content_blocks.append({
                             "type": "tool_result",
                             "tool_use_id": call_id,

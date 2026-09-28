@@ -1532,6 +1532,16 @@ class AntigravityHarness:
 
         # 1. Initialize and stream First-Class Execution Plan Lifecycle
         current_plan = self._generate_initial_plan(title, prompt, persona_name)
+        intent_category = current_plan.get("intent_category", "app_building" if persona_name == "AppBuilder" else "code_modification")
+        prompt_title_lower = (prompt + " " + title).lower()
+        is_exploration = any(k in prompt_title_lower for k in ["explore", "analyze", "explain", "review", "audit", "summarize", "investigate", "read", "check"])
+        is_app_keyword = not is_exploration and any(k in prompt_title_lower for k in [
+            "build a", "build an", "create a", "create an", "make a", "make an", "game", "minecraft",
+            "voxel", "arcade", "canvas", "dashboard", "calculator", "storefront", "web app", "frontend",
+            "ui component", "designed app", "motion app", "toy app", "robot app", "simulation", "3d app",
+            "interactive app", "animation app", "landing page", "web tool", "client app"
+        ])
+        is_app_task = (intent_category == "app_building" or persona_name == "AppBuilder" or is_app_keyword)
         await self._emit_plan(current_plan, on_plan)
 
         if history:
@@ -1691,8 +1701,8 @@ class AntigravityHarness:
                                                 else:
                                                     compacted_val = val[:500] + f"\n\n... [Historical output compacted ({len(val)} chars)] ...\n\n" + val[-500:]
                                                 resp_copy[key] = compacted_val
-                                        # Compact large list results (symbols, search matches, dir items)
-                                        for list_key in ["matches", "symbols", "items", "entries"]:
+                                        # Compact large list results (symbols, search matches, dir items, issues, PRs)
+                                        for list_key in ["matches", "symbols", "items", "entries", "issues", "pull_requests"]:
                                             list_val = resp_copy.get(list_key)
                                             if isinstance(list_val, list) and len(list_val) > 8:
                                                 resp_copy[list_key] = list_val[:5] + [{
@@ -1701,8 +1711,10 @@ class AntigravityHarness:
                                                 }]
                                         fr["response"] = resp_copy
                                         new_parts.append({"functionResponse": fr})
+                                    elif isinstance(resp_data, list):
+                                        new_parts.append({"functionResponse": {"name": fr.get("name", "tool"), "response": {"items": resp_data[:5], "total_found": len(resp_data)}, "id": fr.get("id")}})
                                     else:
-                                        new_parts.append(p)
+                                        new_parts.append({"functionResponse": {"name": fr.get("name", "tool"), "response": {"output": str(resp_data)}, "id": fr.get("id")}})
                                 else:
                                     new_parts.append(p)
                             optimized_contents.append({"role": entry.get("role", "user"), "parts": new_parts})
@@ -2943,10 +2955,17 @@ class AntigravityHarness:
                                         if asyncio.iscoroutine(res):
                                             await res
 
+                            if isinstance(tool_result, dict):
+                                formatted_response = tool_result
+                            elif isinstance(tool_result, list):
+                                formatted_response = {"items": tool_result, "total_found": len(tool_result)}
+                            else:
+                                formatted_response = {"output": str(tool_result)}
+
                             response_parts.append({
                                 "functionResponse": {
                                     "name": fn_name,
-                                    "response": tool_result,
+                                    "response": formatted_response,
                                     "id": call.get("id") or f"call_{fn_name}"
                                 }
                             })

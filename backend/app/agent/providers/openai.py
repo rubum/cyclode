@@ -149,7 +149,12 @@ class OpenAIProvider(BaseLLMProvider):
                         fn_name = fr.get("name", "")
                         call_id = fr.get("id") or f"call_{fn_name}"
                         resp_data = fr.get("response", {})
-                        out_str = resp_data.get("output") or resp_data.get("stdout") or (json.dumps(resp_data) if isinstance(resp_data, (dict, list)) else str(resp_data))
+                        if isinstance(resp_data, dict):
+                            out_str = resp_data.get("output") or resp_data.get("stdout") or resp_data.get("result") or json.dumps(resp_data)
+                        elif isinstance(resp_data, list):
+                            out_str = json.dumps(resp_data)
+                        else:
+                            out_str = str(resp_data)
                         tool_responses.append({
                             "role": "tool",
                             "tool_call_id": call_id,

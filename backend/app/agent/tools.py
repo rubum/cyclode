@@ -2658,7 +2658,7 @@ class WorkspaceTools:
         }
 
     @classmethod
-    async def search_linear_issues(cls, query: str) -> List[Dict[str, Any]]:
+    async def search_linear_issues(cls, query: str) -> Dict[str, Any]:
         """
         Searches Linear issues matching a query string.
         """
@@ -2667,7 +2667,12 @@ class WorkspaceTools:
 
         lin_token = integration_manager.get_custom_credential("linear", "token") or integration_manager.get_custom_credential("linear", "api_key")
 
-        return await linear_client.search_issues(query, custom_token=lin_token)
+        issues = await linear_client.search_issues(query, custom_token=lin_token)
+        return {
+            "query": query,
+            "issues": issues or [],
+            "total_found": len(issues or [])
+        }
 
     @classmethod
     async def post_linear_comment(cls, issue_key: str, comment: str) -> Dict[str, Any]:

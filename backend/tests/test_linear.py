@@ -98,7 +98,8 @@ async def test_workspace_tools_linear_methods():
         assert "PD-1198" in err_res["error"]
 
         search_res = await WorkspaceTools.search_linear_issues("auth")
-        assert search_res == []
+        assert search_res.get("issues") == []
+        assert search_res.get("total_found") == 0
 
         comment_res = await WorkspaceTools.post_linear_comment("PD-1198", "Fixing bug")
         assert comment_res.get("success") is False
@@ -126,8 +127,9 @@ async def test_workspace_tools_linear_methods():
         assert issue["title"] == "Fix tenant SSO origin allowlist"
 
         search = await WorkspaceTools.search_linear_issues("SSO")
-        assert len(search) == 1
-        assert search[0]["identifier"] == "PD-1198"
+        assert search.get("total_found") == 1
+        assert len(search.get("issues", [])) == 1
+        assert search["issues"][0]["identifier"] == "PD-1198"
 
         comment = await WorkspaceTools.post_linear_comment("PD-1198", "PR opened at #42")
         assert comment.get("success") is True

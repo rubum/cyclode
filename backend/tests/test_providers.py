@@ -875,6 +875,54 @@ def test_unescape_json_string():
     assert _unescape_json_string("plain text") == "plain text"
 
 
+def test_provider_message_conversion_with_list_and_dict_responses():
+    """Verify that OpenAI, DeepSeek, and Claude message converters handle list, dict, and scalar tool responses without crashing."""
+    claude = ClaudeProvider(api_key="mock")
+    openai = OpenAIProvider(api_key="mock")
+    deepseek = DeepSeekProvider(api_key="mock")
+
+    history_with_list_response = [
+        {
+            "role": "model",
+            "parts": [{"functionCall": {"name": "search_linear_issues", "id": "call_1", "args": {"query": "auth"}}}]
+        },
+        {
+            "role": "user",
+            "parts": [{"functionResponse": {"name": "search_linear_issues", "id": "call_1", "response": [{"id": "iss_1", "identifier": "PD-1210"}]}}]
+        }
+    ]
+
+    history_with_dict_response = [
+        {
+            "role": "model",
+            "parts": [{"functionCall": {"name": "get_linear_issue", "id": "call_2", "args": {"issue_key": "PD-1210"}}}]
+        },
+        {
+            "role": "user",
+            "parts": [{"functionResponse": {"name": "get_linear_issue", "id": "call_2", "response": {"identifier": "PD-1210", "title": "SSO"}}}]
+        }
+    ]
+
+    # Claude
+    c_msgs_list = claude._convert_messages(history_with_list_response)
+    assert any(b.get("type") == "tool_result" for m in c_msgs_list for b in m.get("content", []))
+    c_msgs_dict = claude._convert_messages(history_with_dict_response)
+    assert any(b.get("type") == "tool_result" for m in c_msgs_dict for b in m.get("content", []))
+
+    # OpenAI
+    o_msgs_list = openai._convert_messages(history_with_list_response, system_instruction="sys")
+    assert any(m.get("role") == "tool" for m in o_msgs_list)
+    o_msgs_dict = openai._convert_messages(history_with_dict_response, system_instruction="sys")
+    assert any(m.get("role") == "tool" for m in o_msgs_dict)
+
+    # DeepSeek
+    d_msgs_list = deepseek._convert_messages(history_with_list_response, system_instruction="sys")
+    assert any(m.get("role") == "tool" for m in d_msgs_list)
+    d_msgs_dict = deepseek._convert_messages(history_with_dict_response, system_instruction="sys")
+    assert any(m.get("role") == "tool" for m in d_msgs_dict)
+
+
+
 
 
 
