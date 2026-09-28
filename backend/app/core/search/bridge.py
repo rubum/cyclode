@@ -114,6 +114,10 @@ class SearchBridge:
                 if proc.returncode == 0 and proc.stdout.strip():
                     data = json.loads(proc.stdout)
                     data["engine"] = "rust_native"
+                    if "files_matched" not in data:
+                        seen_files = list(dict.fromkeys(m["file_path"] for m in data.get("matches", [])))
+                        data["files_matched"] = seen_files
+                        data["total_files_matched"] = len(seen_files)
                     return data
             except Exception as e:
                 logger.debug(f"Native Rust search fallback triggered: {e}")
@@ -212,11 +216,20 @@ class SearchBridge:
             except Exception:
                 continue
 
-        combined = (current_file_matches + workspace_matches)[:max_results]
+        all_raw = current_file_matches + workspace_matches
+        files_matched = list(dict.fromkeys([m["file_path"] for m in all_raw]))
+        
+        # Balance results: cap at a high limit rather than prematurely dropping files
+        effective_limit = max(max_results, 500)
+        combined = all_raw[:effective_limit]
+        is_capped = len(all_raw) > len(combined)
+
         return {
             "query": query,
             "total_matches": len(combined),
-            "capped": len(combined) >= max_results,
+            "total_files_matched": len(files_matched),
+            "files_matched": files_matched,
+            "capped": is_capped,
             "matches": combined
         }
 
@@ -259,6 +272,10 @@ class SearchBridge:
                 if proc.returncode == 0 and proc.stdout.strip():
                     data = json.loads(proc.stdout)
                     data["engine"] = "rust_native"
+                    if "files_matched" not in data:
+                        seen_files = list(dict.fromkeys(m["file_path"] for m in data.get("matches", [])))
+                        data["files_matched"] = seen_files
+                        data["total_files_matched"] = len(seen_files)
                     return data
             except Exception as e:
                 logger.debug(f"Native Rust AST search fallback triggered: {e}")

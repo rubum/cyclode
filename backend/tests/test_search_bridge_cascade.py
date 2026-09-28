@@ -153,6 +153,8 @@ def test_workspace_tools_delegation(sample_workspace: Path):
     )
     assert "matches" in res_code
     assert res_code.get("total_matches") == 2
+    assert res_code.get("total_files_matched") == 2
+    assert len(res_code.get("files_matched", [])) == 2
 
     res_ast = WorkspaceTools.tgrep_ast(
         sample_workspace,
@@ -161,6 +163,8 @@ def test_workspace_tools_delegation(sample_workspace: Path):
     )
     assert "matches" in res_ast
     assert res_ast.get("total_matches") >= 1
+    assert res_ast.get("total_files_matched") >= 1
+    assert len(res_ast.get("files_matched", [])) >= 1
 
 
 def test_empty_query_error_handling(sample_workspace: Path):

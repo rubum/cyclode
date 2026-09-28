@@ -1391,12 +1391,15 @@ class WorkspaceTools:
             max_results=max_results,
             current_file=current_file
         )
-        if file_pattern and "matches" in res:
-            res["matches"] = [
-                m for m in res["matches"]
-                if fnmatch.fnmatch(m.get("file_path", ""), file_pattern) or fnmatch.fnmatch(Path(m.get("file_path", "")).name, file_pattern)
-            ]
-            res["total_matches"] = len(res["matches"])
+        if "matches" in res:
+            if file_pattern:
+                res["matches"] = [
+                    m for m in res["matches"]
+                    if fnmatch.fnmatch(m.get("file_path", ""), file_pattern) or fnmatch.fnmatch(Path(m.get("file_path", "")).name, file_pattern)
+                ]
+                res["total_matches"] = len(res["matches"])
+            res["files_matched"] = list(dict.fromkeys([m.get("file_path", "") for m in res["matches"] if m.get("file_path")]))
+            res["total_files_matched"] = len(res["files_matched"])
         return res
 
     @staticmethod
@@ -1476,6 +1479,7 @@ class WorkspaceTools:
 
                 full_path = Path(root) / f
                 try:
+                    file_matches_count = 0
                     with open(full_path, "r", encoding="utf-8", errors="ignore") as file_obj:
                         for line_idx, line in enumerate(file_obj, start=1):
                             if pattern.search(line):
@@ -1484,20 +1488,24 @@ class WorkspaceTools:
                                     "line_number": line_idx,
                                     "line_content": line.rstrip("\r\n")
                                 })
-                                if len(current_file_matches) + len(workspace_matches) >= max_results:
+                                file_matches_count += 1
+                                if file_matches_count >= 50:
                                     break
                 except Exception:
                     continue
-                if len(current_file_matches) + len(workspace_matches) >= max_results:
-                    break
-            if len(current_file_matches) + len(workspace_matches) >= max_results:
-                break
 
-        combined_matches = (current_file_matches + workspace_matches)[:max_results]
+        all_raw = current_file_matches + workspace_matches
+        files_matched = list(dict.fromkeys([m["file_path"] for m in all_raw]))
+        effective_limit = max(max_results, 500)
+        combined_matches = all_raw[:effective_limit]
+        is_capped = len(all_raw) > len(combined_matches)
+
         return {
             "query": query,
             "total_matches": len(combined_matches),
-            "capped": len(combined_matches) >= max_results,
+            "total_files_matched": len(files_matched),
+            "files_matched": files_matched,
+            "capped": is_capped,
             "matches": combined_matches
         }
 
@@ -1788,7 +1796,7 @@ class WorkspaceTools:
         pattern_clean = pattern.strip()
         matches = []
 
-        symbols_res = WorkspaceTools.find_symbols(workspace_path, max_results=250)
+        symbols_res = WorkspaceTools.find_symbols(workspace_path, max_results=10000)
         symbols = symbols_res.get("symbols", [])
 
         if pattern_clean.startswith("@"):
@@ -1804,8 +1812,6 @@ class WorkspaceTools:
                         "signature": s["signature"],
                         "decorators": decs
                     })
-                    if len(matches) >= max_results * 2:
-                        break
 
         elif pattern_clean.startswith("class:") or pattern_clean.startswith("extends:"):
             base_query = pattern_clean.split(":", 1)[1].strip().lower()
@@ -1821,8 +1827,6 @@ class WorkspaceTools:
                             "signature": s["signature"],
                             "bases": s.get("bases", [])
                         })
-                        if len(matches) >= max_results * 2:
-                            break
 
         if not matches:
             for s in symbols:
@@ -1834,8 +1838,6 @@ class WorkspaceTools:
                         "type": s["type"],
                         "signature": s["signature"]
                     })
-                    if len(matches) >= max_results * 2:
-                        break
 
         # Fallback to code references if AST index has 0 matches for this identifier
         if not matches:
@@ -1844,7 +1846,7 @@ class WorkspaceTools:
                 pattern_clean,
                 is_regex=False,
                 case_sensitive=False,
-                max_results=max_results,
+                max_results=max(max_results, 500),
                 current_file=current_file
             )
             for gm in grep_res.get("matches", []):
@@ -1857,18 +1859,23 @@ class WorkspaceTools:
                 })
 
         # Prioritize current_file matches if provided
+        effective_limit = max(max_results, 500)
         if current_file:
             norm_curr = current_file.strip().lstrip("/")
             curr_matches = [m for m in matches if m["file_path"] == norm_curr or m["file_path"].endswith(norm_curr)]
             other_matches = [m for m in matches if m not in curr_matches]
-            matches = (curr_matches + other_matches)[:max_results]
+            combined_matches = (curr_matches + other_matches)[:effective_limit]
         else:
-            matches = matches[:max_results]
+            combined_matches = matches[:effective_limit]
+
+        files_matched = list(dict.fromkeys([m["file_path"] for m in matches]))
 
         return {
             "pattern": pattern,
-            "total_matches": len(matches),
-            "matches": matches
+            "total_matches": len(combined_matches),
+            "total_files_matched": len(files_matched),
+            "files_matched": files_matched,
+            "matches": combined_matches
         }
 
     @staticmethod

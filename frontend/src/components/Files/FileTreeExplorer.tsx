@@ -43,6 +43,8 @@ export interface SearchResponse {
   total_matches: number;
   capped: boolean;
   matches: SearchMatch[];
+  total_files_matched?: number;
+  files_matched?: string[];
 }
 
 export type SearchMode = 'files' | 'grep' | 'ast';
@@ -201,7 +203,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
           mode: modeParam,
           is_regex: String(isRegex),
           case_sensitive: String(caseSensitive),
-          max_results: '100',
+          max_results: '500',
         });
         if (selectedFile) {
           params.set('current_file', selectedFile);
@@ -333,6 +335,71 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
 
     return tree.map(filterNode).filter(Boolean) as FileNode[];
   }, [tree, filter, searchMode]);
+
+  // Summary list of all matching files across codebase
+  const matchedFilesSummary = useMemo(() => {
+    if (!searchResults) return [];
+
+    const countMap = new Map<string, number>();
+    (searchResults.matches || []).forEach((m) => {
+      countMap.set(m.file_path, (countMap.get(m.file_path) || 0) + 1);
+    });
+
+    const allFilesSet = new Set<string>([
+      ...Array.from(countMap.keys()),
+      ...(searchResults.files_matched || []),
+    ]);
+
+    const list = Array.from(allFilesSet).map((filePath) => {
+      const parts = filePath.split('/');
+      const fileName = parts[parts.length - 1] || filePath;
+      const isCurrent =
+        Boolean(selectedFile) &&
+        (filePath === selectedFile || filePath.endsWith(`/${selectedFile}`) || (selectedFile || '').endsWith(`/${filePath}`));
+      const count = countMap.get(filePath) || 0;
+      return {
+        filePath,
+        fileName,
+        isCurrent,
+        count,
+      };
+    });
+
+    list.sort((a, b) => {
+      if (a.isCurrent && !b.isCurrent) return -1;
+      if (!a.isCurrent && b.isCurrent) return 1;
+      if (b.count !== a.count) return b.count - a.count;
+      return a.filePath.localeCompare(b.filePath);
+    });
+
+    return list;
+  }, [searchResults, selectedFile]);
+
+  const expandAllSearchFiles = () => {
+    setCollapsedSearchFiles({});
+  };
+
+  const collapseAllSearchFiles = () => {
+    const collapsed: Record<string, boolean> = {};
+    displayedGroups.forEach((g) => {
+      collapsed[g.filePath] = true;
+    });
+    setCollapsedSearchFiles(collapsed);
+  };
+
+  const scrollToSearchFile = (filePath: string) => {
+    setCollapsedSearchFiles((prev) => ({
+      ...prev,
+      [filePath]: false,
+    }));
+    setTimeout(() => {
+      const safeId = `search-file-${filePath.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+      const el = document.getElementById(safeId);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+    }, 50);
+  };
 
   const toggleSearchFileCollapse = (filePath: string) => {
     setCollapsedSearchFiles((prev) => ({
@@ -694,23 +761,81 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
         ) : (
           /* Grouped Search Results */
           <div className="space-y-2">
+            {/* Search Results Summary & Actions Bar */}
             <div className="px-1 text-[10.5px] text-onedark-muted flex items-center justify-between">
-              <span>
-                {totalMatchesCount} match{totalMatchesCount === 1 ? '' : 'es'} in {displayedGroups.length} file{displayedGroups.length === 1 ? '' : 's'}
-              </span>
-              {searchResults?.capped && (
-                <span className="text-onedark-yellow font-semibold">(Results capped)</span>
+              <div className="flex items-center space-x-1.5">
+                <span>
+                  {totalMatchesCount} match{totalMatchesCount === 1 ? '' : 'es'} in{' '}
+                  {searchResults?.total_files_matched || displayedGroups.length} file{((searchResults?.total_files_matched || displayedGroups.length) === 1 ? '' : 's')}
+                </span>
+                {searchResults?.capped && (
+                  <span className="text-onedark-yellow font-semibold text-[10px] px-1 py-0.2 rounded bg-onedark-yellow/10 border border-onedark-yellow/30">
+                    Capped
+                  </span>
+                )}
+              </div>
+
+              {displayedGroups.length > 1 && (
+                <div className="flex items-center space-x-1 text-[10px]">
+                  <button
+                    type="button"
+                    onClick={expandAllSearchFiles}
+                    className="px-1.5 py-0.5 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg cursor-pointer transition-colors"
+                    title="Expand all file matches"
+                  >
+                    Expand all
+                  </button>
+                  <span className="text-onedark-borderSubtle">·</span>
+                  <button
+                    type="button"
+                    onClick={collapseAllSearchFiles}
+                    className="px-1.5 py-0.5 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg cursor-pointer transition-colors"
+                    title="Collapse all file matches"
+                  >
+                    Collapse all
+                  </button>
+                </div>
               )}
             </div>
+
+            {/* Matched Files Quick Chip Strip */}
+            {matchedFilesSummary.length > 1 && (
+              <div className="flex items-center gap-1.5 overflow-x-auto py-1 px-1 bg-onedark-surface/30 rounded-lg border border-onedark-borderSubtle/60 no-scrollbar">
+                <div className="flex items-center space-x-1 text-[10px] text-onedark-muted font-medium flex-shrink-0 pr-1 pl-0.5">
+                  <Layers className="w-3 h-3 text-onedark-accent" />
+                  <span>Files:</span>
+                </div>
+                {matchedFilesSummary.map((item) => (
+                  <button
+                    key={item.filePath}
+                    type="button"
+                    onClick={() => scrollToSearchFile(item.filePath)}
+                    className={`px-2 py-0.5 rounded-md text-[10.5px] font-mono flex items-center space-x-1.5 flex-shrink-0 transition-all cursor-pointer border ${
+                      item.isCurrent
+                        ? 'bg-onedark-purple/20 border-onedark-purple/50 text-onedark-purple font-semibold shadow-xs'
+                        : 'bg-onedark-surface/60 border-onedark-borderSubtle hover:border-onedark-accent/50 text-onedark-fg hover:text-onedark-fgBright'
+                    }`}
+                    title={`${item.filePath} (${item.count} matches)`}
+                  >
+                    <span className="truncate max-w-[130px]">{item.fileName}</span>
+                    <span className="px-1 py-0.2 rounded-full bg-onedark-darker text-[9px] text-onedark-muted font-mono">
+                      {item.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
 
             {displayedGroups.map(({ filePath, matches }) => {
               const isCollapsed = !!collapsedSearchFiles[filePath];
               const isCurrent = currentFileGroup?.filePath === filePath;
+              const fileElemId = `search-file-${filePath.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
 
               return (
                 <div
                   key={filePath}
-                  className={`rounded-lg border overflow-hidden text-xs shadow-xs transition-all ${
+                  id={fileElemId}
+                  className={`rounded-lg border overflow-hidden text-xs shadow-xs transition-all scroll-mt-2 ${
                     isCurrent
                       ? 'border-onedark-purple/40 bg-onedark-purple/5 ring-1 ring-onedark-purple/20'
                       : 'border-onedark-borderSubtle bg-onedark-surface/20'

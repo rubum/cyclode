@@ -1599,13 +1599,13 @@ async def search_sandbox_files(
     mode: str = Query("text", description="Search mode: 'text' (grep) or 'ast' (tgrep)"),
     is_regex: bool = Query(False, description="Whether query is regex"),
     case_sensitive: bool = Query(False, description="Case sensitive matching"),
-    max_results: int = Query(80, description="Max matches to return"),
+    max_results: int = Query(200, description="Max matches to return"),
     current_file: Optional[str] = Query(None, description="Optional relative path of active file to prioritize"),
     db: AsyncSession = Depends(get_db)
 ):
     """
     Searches files within the task sandbox workspace using either regex/text grep or AST structural search,
-    prioritizing matches from current_file at the top.
+    prioritizing matches from current_file at the top and returning all matched files.
     """
     stmt = select(TaskModel).where(TaskModel.id == task_id)
     result = await db.execute(stmt)
@@ -1624,6 +1624,8 @@ async def search_sandbox_files(
             "query": query,
             "mode": mode,
             "total_matches": 0,
+            "total_files_matched": 0,
+            "files_matched": [],
             "capped": False,
             "matches": []
         }
@@ -1634,11 +1636,14 @@ async def search_sandbox_files(
         if mode == "ast":
             res = WorkspaceTools.tgrep_ast(ws_path, query, max_results=max_results, current_file=current_file)
             matches = res.get("matches", [])
+            files_matched = res.get("files_matched") or list(dict.fromkeys([m.get("file_path", "") for m in matches if m.get("file_path")]))
             return {
                 "query": query,
                 "mode": "ast",
                 "total_matches": len(matches),
-                "capped": len(matches) >= max_results,
+                "total_files_matched": len(files_matched),
+                "files_matched": files_matched,
+                "capped": res.get("capped", False) or len(matches) >= max_results,
                 "matches": matches
             }
         else:
@@ -1655,16 +1660,22 @@ async def search_sandbox_files(
                     "query": query,
                     "mode": "text",
                     "total_matches": 0,
+                    "total_files_matched": 0,
+                    "files_matched": [],
                     "capped": False,
                     "matches": [],
                     "error": res.get("error")
                 }
+            matches = res.get("matches", [])
+            files_matched = res.get("files_matched") or list(dict.fromkeys([m.get("file_path", "") for m in matches if m.get("file_path")]))
             return {
                 "query": query,
                 "mode": "text",
-                "total_matches": res.get("total_matches", len(res.get("matches", []))),
+                "total_matches": res.get("total_matches", len(matches)),
+                "total_files_matched": res.get("total_files_matched", len(files_matched)),
+                "files_matched": files_matched,
                 "capped": res.get("capped", False),
-                "matches": res.get("matches", [])
+                "matches": matches
             }
     except Exception as e:
         logger.exception(f"Error executing file search for task {task_id}: {e}")
