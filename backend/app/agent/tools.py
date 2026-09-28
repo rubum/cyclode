@@ -11,10 +11,15 @@ import subprocess
 import html
 import httpx
 import asyncio
+import base64
+import mimetypes
+import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timezone
 import urllib.parse
+
+logger = logging.getLogger("cyclode.tools")
 
 
 ANSI_ESCAPE_RE = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
@@ -2990,5 +2995,149 @@ class WorkspaceTools:
             "compression_ratio": ratio,
             "entries": entries[:2000]
         }
+
+    @staticmethod
+    async def view_image(
+        workspace_path: Path,
+        file_path: str,
+        prompt: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Inspects and visually analyzes an image file (PNG, JPG, WEBP, GIF, SVG, BMP) from the workspace or attachments.
+        Extracts dimensions, format, file size, and uses multimodal AI vision to return OCR text, layout descriptions,
+        and visual inspection answers.
+        """
+        if not file_path or not str(file_path).strip():
+            return {"error": "file_path cannot be empty"}
+        clean_rel = str(file_path).strip().lstrip("/\\")
+        ws_root = workspace_path.resolve()
+        target_file = (ws_root / clean_rel).resolve()
+
+        # If not found directly, check inside .cyclode/attachments/
+        if not target_file.exists():
+            alt_target = (ws_root / ".cyclode" / "attachments" / Path(clean_rel).name).resolve()
+            if alt_target.exists():
+                target_file = alt_target
+                clean_rel = str(target_file.relative_to(ws_root))
+
+        try:
+            target_file.relative_to(ws_root)
+        except ValueError:
+            return {"error": "Access denied outside workspace"}
+
+        if not target_file.exists() or not target_file.is_file():
+            return {"error": f"Image file '{clean_rel}' not found"}
+
+        file_size = target_file.stat().st_size
+        mime_type, _ = mimetypes.guess_type(target_file.name)
+        if not mime_type:
+            ext = target_file.suffix.lower()
+            if ext == ".png":
+                mime_type = "image/png"
+            elif ext in {".jpg", ".jpeg"}:
+                mime_type = "image/jpeg"
+            elif ext == ".webp":
+                mime_type = "image/webp"
+            elif ext == ".gif":
+                mime_type = "image/gif"
+            elif ext == ".svg":
+                mime_type = "image/svg+xml"
+            else:
+                mime_type = "image/png"
+
+        # Image properties
+        width, height, img_format, mode = None, None, target_file.suffix.lstrip(".").upper(), "RGB"
+        try:
+            from PIL import Image as PILImage
+            with PILImage.open(target_file) as im:
+                width, height = im.size
+                img_format = im.format or img_format
+                mode = im.mode
+        except Exception:
+            pass
+
+        # SVG special handling (extract text elements directly)
+        if target_file.suffix.lower() == ".svg":
+            try:
+                svg_text = target_file.read_text(encoding="utf-8", errors="replace")
+                return {
+                    "file_path": clean_rel,
+                    "name": target_file.name,
+                    "mime_type": "image/svg+xml",
+                    "size_bytes": file_size,
+                    "format": "SVG",
+                    "svg_preview": svg_text[:2000],
+                    "visual_analysis": f"Vector SVG graphics file with {len(svg_text)} bytes.",
+                }
+            except Exception as e:
+                return {"error": f"Failed to read SVG file: {str(e)}"}
+
+        # Base64 encode for vision inspection
+        raw_bytes = target_file.read_bytes()
+        b64_data = base64.b64encode(raw_bytes).decode("utf-8")
+
+        analysis_prompt = prompt.strip() if prompt and prompt.strip() else (
+            "Analyze this image in detail. Extract all visible text and code (OCR), identify UI layout, "
+            "components, dialog boxes, errors, buttons, and state indicators."
+        )
+
+        visual_analysis = None
+        # Attempt Gemini vision inspection if key is available
+        try:
+            from app.config import settings
+            api_key = settings.get_api_key()
+            if api_key:
+                clean_model = "gemini-2.5-flash"
+                api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent?key={api_key}"
+                payload = {
+                    "contents": [
+                        {
+                            "role": "user",
+                            "parts": [
+                                {"text": analysis_prompt},
+                                {
+                                    "inlineData": {
+                                        "mimeType": mime_type,
+                                        "data": b64_data
+                                    }
+                                }
+                            ]
+                        }
+                    ],
+                    "system_instruction": {
+                        "parts": [{"text": "You are Cyclode's high-precision multimodal vision analysis engine. Provide accurate OCR, UI element descriptions, visual hierarchy, and diagnose any errors shown in screenshots or diagrams."}]
+                    },
+                    "generationConfig": {"temperature": 0.2}
+                }
+                async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
+                    resp = await client.post(api_url, json=payload)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        candidates = data.get("candidates", [])
+                        if candidates:
+                            parts = candidates[0].get("content", {}).get("parts", [])
+                            text_parts = [p.get("text", "") for p in parts if "text" in p]
+                            visual_analysis = "\n".join(text_parts).strip()
+        except Exception as e:
+            logger.debug(f"Vision API call notice: {e}")
+
+        task_id = workspace_path.name.replace("sandbox-", "")
+        result: Dict[str, Any] = {
+            "file_path": clean_rel,
+            "name": target_file.name,
+            "mime_type": mime_type,
+            "size_bytes": file_size,
+            "dimensions": f"{width}x{height} px" if width and height else "unknown",
+            "format": img_format,
+            "color_mode": mode,
+            "raw_url": f"/api/tasks/{task_id}/files/raw?path={urllib.parse.quote(clean_rel)}"
+        }
+        if visual_analysis:
+            result["visual_analysis"] = visual_analysis
+        else:
+            result["visual_analysis"] = f"Image metadata: {img_format} {width}x{height} ({mode}), {file_size} bytes. (Visual model inspection offline/unconfigured)."
+
+        return result
+
 
 

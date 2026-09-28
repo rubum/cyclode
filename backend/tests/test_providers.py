@@ -922,6 +922,47 @@ def test_provider_message_conversion_with_list_and_dict_responses():
     assert any(m.get("role") == "tool" for m in d_msgs_dict)
 
 
+def test_multimodal_image_conversion_across_providers():
+    claude = ClaudeProvider(api_key="mock")
+    openai = OpenAIProvider(api_key="mock")
+
+    sample_multimodal_turn = [
+        {
+            "role": "user",
+            "parts": [
+                {"text": "Look at this screenshot and find the bug"},
+                {
+                    "inlineData": {
+                        "mimeType": "image/png",
+                        "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+                    }
+                }
+            ]
+        }
+    ]
+
+    # Test Claude conversion
+    c_msgs = claude._convert_messages(sample_multimodal_turn)
+    assert len(c_msgs) == 1
+    content_blocks = c_msgs[0]["content"]
+    assert any(b.get("type") == "text" for b in content_blocks)
+    img_block = next((b for b in content_blocks if b.get("type") == "image"), None)
+    assert img_block is not None
+    assert img_block["source"]["type"] == "base64"
+    assert img_block["source"]["media_type"] == "image/png"
+
+    # Test OpenAI conversion
+    o_msgs = openai._convert_messages(sample_multimodal_turn, system_instruction="sys")
+    user_msg = next((m for m in o_msgs if m.get("role") == "user"), None)
+    assert user_msg is not None
+    assert isinstance(user_msg["content"], list)
+    assert any(c.get("type") == "text" for c in user_msg["content"])
+    img_part = next((c for c in user_msg["content"] if c.get("type") == "image_url"), None)
+    assert img_part is not None
+    assert "data:image/png;base64," in img_part["image_url"]["url"]
+
+
+
 
 
 

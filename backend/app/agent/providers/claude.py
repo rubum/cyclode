@@ -122,6 +122,19 @@ class ClaudeProvider(BaseLLMProvider):
                             "tool_use_id": call_id,
                             "content": str(p.get("content", ""))
                         })
+                    elif "inlineData" in p or "inline_data" in p:
+                        data_dict = p.get("inlineData") or p.get("inline_data") or {}
+                        mime_type = data_dict.get("mimeType") or data_dict.get("mime_type") or "image/png"
+                        b64_data = data_dict.get("data") or ""
+                        if b64_data:
+                            content_blocks.append({
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": mime_type,
+                                    "data": b64_data
+                                }
+                            })
 
                 if content_blocks:
                     anthropic_role = "assistant" if role in ["model", "assistant"] else "user"

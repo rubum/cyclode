@@ -5,6 +5,8 @@ import logging
 import os
 import re
 import subprocess
+import base64
+import mimetypes
 from pathlib import Path
 from typing import Dict, Any, Callable, Optional, List, Tuple
 from datetime import datetime, timezone
@@ -1426,6 +1428,18 @@ class AntigravityHarness:
                             },
                             "required": ["file_path"]
                         }
+                    },
+                    {
+                        "name": "view_image",
+                        "description": "Inspect and visually analyze an image file (PNG, JPG, WEBP, GIF, SVG) in the workspace or attachments. Returns dimensions, format, layout structure, and rich OCR/visual scene analysis.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "file_path": {"type": "STRING", "description": "Relative path to image file (e.g. .cyclode/attachments/screenshot.png or static/logo.png)"},
+                                "prompt": {"type": "STRING", "description": "Optional specific question or focus for visual inspection (e.g. 'Read the error message and UI buttons from this screenshot')"}
+                            },
+                            "required": ["file_path"]
+                        }
                     }
                 ]
             }
@@ -1600,8 +1614,36 @@ class AntigravityHarness:
                 except Exception as e:
                     logger.debug(f"Working memory injection notice: {e}")
 
+        user_parts: List[Dict[str, Any]] = [{"text": prompt}]
+        if workspace_path and workspace_path.exists():
+            try:
+                att_dir = workspace_path / ".cyclode" / "attachments"
+                if att_dir.exists() and att_dir.is_dir():
+                    for att_file in sorted(att_dir.iterdir()):
+                        if att_file.is_file():
+                            ext = att_file.suffix.lower()
+                            if ext in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+                                mime_type, _ = mimetypes.guess_type(att_file.name)
+                                if not mime_type:
+                                    mime_type = "image/png" if ext == ".png" else "image/jpeg"
+                                b64_str = base64.b64encode(att_file.read_bytes()).decode("utf-8")
+                                user_parts.append({
+                                    "inlineData": {
+                                        "mimeType": mime_type,
+                                        "data": b64_str
+                                    }
+                                })
+            except Exception as e:
+                logger.debug(f"Multimodal attachment ingestion notice: {e}")
+
         if not contents or contents[-1].get("role") != "user":
-            contents.append({"role": "user", "parts": [{"text": prompt}]})
+            contents.append({"role": "user", "parts": user_parts})
+        elif contents and contents[-1].get("role") == "user":
+            existing_parts = contents[-1].get("parts", [])
+            for p in user_parts:
+                if p not in existing_parts:
+                    existing_parts.append(p)
+            contents[-1]["parts"] = existing_parts
 
         logger.info(f"Connecting to {provider_label} API using model {self.model_name}...")
 
@@ -2960,6 +3002,11 @@ class AntigravityHarness:
                             elif fn_name == "inspect_archive":
                                 fp = args.get("file_path", "")
                                 tool_result = WorkspaceTools.inspect_archive(workspace_path, file_path=fp)
+                                out_str = json.dumps(tool_result, indent=2)
+                            elif fn_name == "view_image":
+                                fp = args.get("file_path") or args.get("path") or ""
+                                prompt_arg = args.get("prompt")
+                                tool_result = await WorkspaceTools.view_image(workspace_path, file_path=fp, prompt=prompt_arg)
                                 out_str = json.dumps(tool_result, indent=2)
                             else:
                                 tool_result = {"error": f"Unknown tool: {fn_name}"}

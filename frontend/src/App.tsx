@@ -835,8 +835,23 @@ const MainApp: React.FC = () => {
     }
   };
 
-  const handleSendMessage = async (content: string, modelName?: string) => {
+  const handleSendMessage = async (content: string, modelName?: string, files?: File[]) => {
     if (!activeTaskId) return;
+
+    if (files && files.length > 0) {
+      try {
+        const formData = new FormData();
+        files.forEach((f) => formData.append('files', f));
+        formData.append('target_type', 'attachment');
+        await fetch(`${API_BASE}/api/tasks/${activeTaskId}/files/upload`, {
+          method: 'POST',
+          body: formData,
+        });
+      } catch (uploadErr) {
+        console.error('Failed to upload message attachments:', uploadErr);
+      }
+    }
+
     const optMsgId = `opt-user-${Date.now()}`;
     const optimisticMsg: TaskMessage = {
       id: optMsgId,

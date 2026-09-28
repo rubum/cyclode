@@ -223,3 +223,45 @@ def test_workspace_tools_tabular_and_archive(tmp_path):
     assert arch_res["total_files"] == 2
     entry_names = [e["name"] for e in arch_res["entries"]]
     assert "index.js" in entry_names or "module/index.js" in [e["path"] for e in arch_res["entries"]]
+
+
+@pytest.mark.asyncio
+async def test_workspace_tools_view_image(tmp_path):
+    from PIL import Image
+
+    # 1. Create a synthetic test PNG image
+    img_path = tmp_path / "test_screenshot.png"
+    img = Image.new("RGB", (120, 80), color=(73, 109, 137))
+    img.save(img_path, format="PNG")
+
+    res = await WorkspaceTools.view_image(tmp_path, "test_screenshot.png")
+    assert "error" not in res
+    assert res["name"] == "test_screenshot.png"
+    assert res["mime_type"] == "image/png"
+    assert res["format"] == "PNG"
+    assert res["dimensions"] == "120x80 px"
+    assert "visual_analysis" in res
+
+    # 2. Test SVG image inspection
+    svg_path = tmp_path / "diagram.svg"
+    svg_path.write_text('<svg width="100" height="100"><circle cx="50" cy="50" r="40" stroke="green" /></svg>', encoding="utf-8")
+
+    svg_res = await WorkspaceTools.view_image(tmp_path, "diagram.svg")
+    assert "error" not in svg_res
+    assert svg_res["mime_type"] == "image/svg+xml"
+    assert "svg_preview" in svg_res
+
+    # 3. Test attachment fallback in .cyclode/attachments/
+    att_dir = tmp_path / ".cyclode" / "attachments"
+    att_dir.mkdir(parents=True, exist_ok=True)
+    att_img = att_dir / "uploaded_ui.png"
+    img.save(att_img, format="PNG")
+
+    att_res = await WorkspaceTools.view_image(tmp_path, "uploaded_ui.png")
+    assert "error" not in att_res
+    assert att_res["name"] == "uploaded_ui.png"
+
+    # 4. Nonexistent file test
+    err_res = await WorkspaceTools.view_image(tmp_path, "nonexistent.png")
+    assert "error" in err_res
+
