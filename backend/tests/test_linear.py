@@ -83,3 +83,55 @@ async def test_reader_linear_url_interception():
         assert data.get("is_linear") is True
         assert "PD-1236" in data.get("title", "")
         assert "Unable to retrieve ticket `PD-1236`" in data.get("content_markdown", "")
+
+
+@pytest.mark.asyncio
+async def test_workspace_tools_linear_methods():
+    from app.agent.tools import WorkspaceTools
+
+    # 1. Unconfigured
+    linear_client.token = None
+    with patch.object(integration_manager, "get_custom_credential", return_value=None), \
+         patch.object(linear_client, "is_configured", return_value=False):
+        err_res = await WorkspaceTools.get_linear_issue("PD-1198")
+        assert "error" in err_res
+        assert "PD-1198" in err_res["error"]
+
+        search_res = await WorkspaceTools.search_linear_issues("auth")
+        assert search_res == []
+
+        comment_res = await WorkspaceTools.post_linear_comment("PD-1198", "Fixing bug")
+        assert comment_res.get("success") is False
+
+        status_res = await WorkspaceTools.update_linear_issue_status("PD-1198", "Done")
+        assert status_res.get("success") is False
+
+    # 2. Configured with mocked responses
+    mock_ticket = {
+        "id": "iss_pd1198",
+        "identifier": "PD-1198",
+        "title": "Fix tenant SSO origin allowlist",
+        "description": "Fix local_docker_provisioner?/0 branching",
+        "state": {"id": "st_in_progress", "name": "In Progress"}
+    }
+
+    with patch.object(integration_manager, "get_custom_credential", return_value="lin_vault_key"), \
+         patch("app.integrations.linear_client.linear_client.get_issue", return_value=mock_ticket), \
+         patch("app.integrations.linear_client.linear_client.search_issues", return_value=[mock_ticket]), \
+         patch("app.integrations.linear_client.linear_client.post_comment", return_value={"success": True, "comment": {"id": "cmt_1"}}), \
+         patch("app.integrations.linear_client.linear_client.update_issue_status", return_value={"success": True, "issue": {"id": "iss_pd1198", "state": {"name": "In Review"}}}):
+
+        issue = await WorkspaceTools.get_linear_issue("PD-1198")
+        assert issue["identifier"] == "PD-1198"
+        assert issue["title"] == "Fix tenant SSO origin allowlist"
+
+        search = await WorkspaceTools.search_linear_issues("SSO")
+        assert len(search) == 1
+        assert search[0]["identifier"] == "PD-1198"
+
+        comment = await WorkspaceTools.post_linear_comment("PD-1198", "PR opened at #42")
+        assert comment.get("success") is True
+
+        status = await WorkspaceTools.update_linear_issue_status("PD-1198", "In Review")
+        assert status.get("success") is True
+

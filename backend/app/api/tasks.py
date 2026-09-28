@@ -923,7 +923,12 @@ async def get_task_sandbox_info(task_id: str, depth: int = 3, db: AsyncSession =
             return "rust_ast", "host:rust_search_bridge"
         elif t_name in ["search_web", "fetch_url"]:
             return "web_gateway", "external:web_gateway"
-        elif t_name in ["github_pr_action", "create_github_pr", "slack_notify", "linear_issue_tracker", "appsignal_trace"]:
+        elif t_name in [
+            "github_pr_action", "create_github_pr", "slack_notify", "linear_issue_tracker", "appsignal_trace",
+            "get_linear_issue", "search_linear_issues", "post_linear_comment", "update_linear_issue_status",
+            "get_pull_request_details", "get_pull_request_diff", "list_pull_requests", "post_pull_request_review",
+            "post_pull_request_line_comment", "create_pull_request", "connect_repository"
+        ]:
             return "saas_vault", "cloud:saas_vault"
         elif t_name in ["run_verified_code_review", "verify_code_hypothesis"]:
             return "review_cascade", "cloud:adversarial_verifier"

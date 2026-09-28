@@ -2636,4 +2636,65 @@ class WorkspaceTools:
             "logs": logs[:1000]
         }
 
+    # =========================================================================
+    # Linear Issue Tracking Tools
+    # =========================================================================
+
+    @classmethod
+    async def get_linear_issue(cls, issue_key: str) -> Dict[str, Any]:
+        """
+        Fetches full Linear ticket details, description, comments, and priority by issue key (e.g. 'PD-1198', 'ENG-402').
+        """
+        from app.integrations.linear_client import linear_client
+        from app.integrations.manager import integration_manager
+
+        lin_token = integration_manager.get_custom_credential("linear", "token") or integration_manager.get_custom_credential("linear", "api_key")
+
+        issue = await linear_client.get_issue(issue_key, custom_token=lin_token)
+        if issue:
+            return issue
+        return {
+            "error": f"Linear issue '{issue_key}' not found or Linear integration is not configured with an active API key."
+        }
+
+    @classmethod
+    async def search_linear_issues(cls, query: str) -> List[Dict[str, Any]]:
+        """
+        Searches Linear issues matching a query string.
+        """
+        from app.integrations.linear_client import linear_client
+        from app.integrations.manager import integration_manager
+
+        lin_token = integration_manager.get_custom_credential("linear", "token") or integration_manager.get_custom_credential("linear", "api_key")
+
+        return await linear_client.search_issues(query, custom_token=lin_token)
+
+    @classmethod
+    async def post_linear_comment(cls, issue_key: str, comment: str) -> Dict[str, Any]:
+        """
+        Posts a progress update or PR resolution comment to a Linear issue.
+        """
+        from app.integrations.linear_client import linear_client
+        from app.integrations.manager import integration_manager
+
+        lin_token = integration_manager.get_custom_credential("linear", "token") or integration_manager.get_custom_credential("linear", "api_key")
+
+        issue = await linear_client.get_issue(issue_key, custom_token=lin_token)
+        issue_id = issue.get("id", issue_key) if issue else issue_key
+        return await linear_client.post_comment(issue_id, comment, custom_token=lin_token)
+
+    @classmethod
+    async def update_linear_issue_status(cls, issue_key: str, state_id: str) -> Dict[str, Any]:
+        """
+        Transitions a Linear issue workflow status (e.g. 'In Progress', 'Done', or state ID).
+        """
+        from app.integrations.linear_client import linear_client
+        from app.integrations.manager import integration_manager
+
+        lin_token = integration_manager.get_custom_credential("linear", "token") or integration_manager.get_custom_credential("linear", "api_key")
+
+        issue = await linear_client.get_issue(issue_key, custom_token=lin_token)
+        issue_id = issue.get("id", issue_key) if issue else issue_key
+        return await linear_client.update_issue_status(issue_id, state_id, custom_token=lin_token)
+
 

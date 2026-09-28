@@ -1352,6 +1352,52 @@ class AntigravityHarness:
                             },
                             "required": ["file_path", "line_range", "invariant_violated"]
                         }
+                    },
+                    {
+                        "name": "get_linear_issue",
+                        "description": "Fetch Linear issue details, title, description, team, state/status, priority, assignee, and comments by issue identifier (e.g. 'PD-1198', 'ENG-402').",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "issue_key": {"type": "STRING", "description": "Linear issue identifier or key (e.g. 'PD-1198', 'ENG-402')"}
+                            },
+                            "required": ["issue_key"]
+                        }
+                    },
+                    {
+                        "name": "search_linear_issues",
+                        "description": "Search for Linear issues and tickets matching a query string.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "query": {"type": "STRING", "description": "Search query or keywords"}
+                            },
+                            "required": ["query"]
+                        }
+                    },
+                    {
+                        "name": "post_linear_comment",
+                        "description": "Post a comment or progress update to a Linear issue.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "issue_key": {"type": "STRING", "description": "Linear issue identifier (e.g. 'PD-1198') or issue ID"},
+                                "comment": {"type": "STRING", "description": "Comment body in Markdown"}
+                            },
+                            "required": ["issue_key", "comment"]
+                        }
+                    },
+                    {
+                        "name": "update_linear_issue_status",
+                        "description": "Update or transition the state/status of a Linear issue.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "issue_key": {"type": "STRING", "description": "Linear issue identifier (e.g. 'PD-1198') or issue ID"},
+                                "state_id": {"type": "STRING", "description": "Target workflow state name or UUID (e.g. 'In Progress', 'Done', 'In Review')"}
+                            },
+                            "required": ["issue_key", "state_id"]
+                        }
                     }
                 ]
             }
@@ -1376,6 +1422,7 @@ class AntigravityHarness:
             f"1. DIRECT TOOL INVOCATION & REASONING:\n"
             f"   - When listing pull requests: call `list_pull_requests`. ALWAYS present all discovered PRs in your response with an itemized Markdown table or list including direct clickable links ([#<number>: <title>](https://github.com/<owner>/<repo>/pull/<number>)), author (@<author>), status (OPEN/MERGED), branch flow (<head> ➔ <base>), and diff stats (+add / -del).\n"
             f"   - When reviewing PRs or summarizing changes: call `get_pull_request_diff` and `get_pull_request_details` to analyze the exact code hunks.\n"
+            f"   - When referencing, tracking, or resolving Linear tickets (e.g. 'PD-1198'): call Linear tools directly (`get_linear_issue`, `search_linear_issues`, `post_linear_comment`, `update_linear_issue_status`).\n"
             f"   - When answering user questions about the workspace: use `read_file`, `search_code`, `find_symbols`, and `run_command`.\n"
             f"   - When asked to search the web: call `search_web` or `fetch_url`. Formulate clean, concise keyword queries without redundant boolean operators or nested quotes. Complete web research in 1–3 focused tool queries and promptly deliver your full analytical synthesis.\n"
             f"2. ANALYTICAL PROSE & RICH CITATIONS:\n"
@@ -2819,6 +2866,38 @@ class AntigravityHarness:
                                     client=client
                                 )
                                 out_str = json.dumps(tool_result, indent=2)
+                            elif fn_name == "get_linear_issue":
+                                issue_k = args.get("issue_key", "")
+                                tool_result = await WorkspaceTools.get_linear_issue(issue_k)
+                                out_str = json.dumps(tool_result, indent=2)
+                            elif fn_name == "search_linear_issues":
+                                q_arg = args.get("query", "")
+                                tool_result = await WorkspaceTools.search_linear_issues(q_arg)
+                                out_str = json.dumps(tool_result, indent=2)
+                            elif fn_name == "post_linear_comment":
+                                issue_k = args.get("issue_key", "")
+                                cmt_arg = args.get("comment", "")
+                                tool_result = await WorkspaceTools.post_linear_comment(issue_k, cmt_arg)
+                                out_str = json.dumps(tool_result, indent=2)
+                                asyncio.create_task(event_dispatcher.record_and_broadcast(
+                                    task_id=task_id,
+                                    action_type="linear_comment",
+                                    target=f"linear:{issue_k}",
+                                    payload={"issue_key": issue_k, "comment": cmt_arg},
+                                    status_code=200 if tool_result.get("success", True) else 400
+                                ))
+                            elif fn_name == "update_linear_issue_status":
+                                issue_k = args.get("issue_key", "")
+                                state_arg = args.get("state_id", "")
+                                tool_result = await WorkspaceTools.update_linear_issue_status(issue_k, state_arg)
+                                out_str = json.dumps(tool_result, indent=2)
+                                asyncio.create_task(event_dispatcher.record_and_broadcast(
+                                    task_id=task_id,
+                                    action_type="linear_status_update",
+                                    target=f"linear:{issue_k}",
+                                    payload={"issue_key": issue_k, "state_id": state_arg},
+                                    status_code=200 if tool_result.get("success", True) else 400
+                                ))
                             else:
                                 tool_result = {"error": f"Unknown tool: {fn_name}"}
                                 exit_code = 1
