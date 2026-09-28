@@ -13,6 +13,9 @@ import {
   ChevronUp,
   List, 
   ListTree, 
+  PanelLeft,
+  PanelLeftClose,
+  PanelLeftOpen,
   Search,
   FileText,
   FileCode2,
@@ -1896,6 +1899,174 @@ export interface PRDetailViewProps {
   onAskAboutComment?: (prompt: string) => void;
 }
 
+interface PRDetailSkeletonProps {
+  tab: 'overview' | 'diff' | 'commits' | 'comments' | 'tests' | 'review';
+  prNumber?: number;
+  title?: string;
+}
+
+const PRDetailSkeleton: React.FC<PRDetailSkeletonProps> = ({ tab, prNumber, title }) => {
+  return (
+    <div className="space-y-4 select-none">
+      {/* Top Ambient Loading Spinner Banner */}
+      <div className="flex items-center justify-between p-3.5 rounded-xl border border-onedark-accent/30 bg-onedark-accent/5 shadow-xs">
+        <div className="flex items-center space-x-3">
+          <Loader2 className="w-4 h-4 text-onedark-accent animate-spin flex-shrink-0" />
+          <div className="space-y-0.5">
+            <div className="flex items-center space-x-2">
+              <span className="text-xs font-bold text-onedark-fgBright">
+                {prNumber ? `Loading Pull Request #${prNumber}` : 'Loading Pull Request Telemetry'}
+              </span>
+              <span className="px-1.5 py-0.5 rounded bg-onedark-accent/15 text-onedark-accent text-[10px] font-mono animate-pulse">
+                Fetching Data
+              </span>
+            </div>
+            <p className="text-[11px] text-onedark-muted truncate max-w-lg">
+              {title || 'Retrieving latest commits, branch diffs, and review summary...'}
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center space-x-2">
+          <span className="h-5 w-16 bg-onedark-surface/60 rounded-md animate-pulse"></span>
+          <span className="h-5 w-14 bg-onedark-surface/60 rounded-md animate-pulse"></span>
+        </div>
+      </div>
+
+      {tab === 'overview' && (
+        <div className="space-y-4 animate-pulse">
+          {/* Header Metadata Skeleton */}
+          <div className="p-4 rounded-xl border border-onedark-borderSubtle bg-onedark-surface/20 space-y-3">
+            <div className="h-6 bg-onedark-surface/80 rounded-md w-3/4"></div>
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <div className="h-5 w-20 bg-onedark-surface/70 rounded-md"></div>
+              <div className="h-5 w-28 bg-onedark-surface/60 rounded-md"></div>
+              <div className="h-5 w-36 bg-onedark-surface/60 rounded-md"></div>
+              <div className="h-5 w-16 bg-onedark-surface/60 rounded-md"></div>
+            </div>
+          </div>
+
+          {/* Prose Skeleton */}
+          <div className="p-4 rounded-xl border border-onedark-borderSubtle bg-onedark-surface/10 space-y-3">
+            <div className="h-5 bg-onedark-surface/70 rounded w-1/4"></div>
+            <div className="space-y-2 pt-1">
+              <div className="h-3.5 bg-onedark-surface/60 rounded w-11/12"></div>
+              <div className="h-3.5 bg-onedark-surface/50 rounded w-5/6"></div>
+              <div className="h-3.5 bg-onedark-surface/50 rounded w-4/6"></div>
+            </div>
+
+            {/* Code block placeholder */}
+            <div className="my-3 rounded-lg border border-onedark-borderSubtle bg-onedark-darker/60 overflow-hidden">
+              <div className="h-7 bg-onedark-surface/40 border-b border-onedark-borderSubtle/60 px-3 flex items-center justify-between">
+                <div className="h-3 w-16 bg-onedark-surface/80 rounded"></div>
+                <div className="h-3 w-10 bg-onedark-surface/60 rounded"></div>
+              </div>
+              <div className="p-3 space-y-1.5 font-mono">
+                <div className="h-3 bg-onedark-surface/50 rounded w-2/3"></div>
+                <div className="h-3 bg-onedark-surface/40 rounded w-4/5"></div>
+                <div className="h-3 bg-onedark-surface/30 rounded w-1/2"></div>
+              </div>
+            </div>
+
+            <div className="h-5 bg-onedark-surface/70 rounded w-1/5 pt-2"></div>
+            <div className="space-y-2">
+              <div className="flex items-center space-x-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-onedark-accent/50"></div>
+                <div className="h-3.5 bg-onedark-surface/60 rounded w-4/5"></div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-onedark-accent/50"></div>
+                <div className="h-3.5 bg-onedark-surface/60 rounded w-3/4"></div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <div className="w-1.5 h-1.5 rounded-full bg-onedark-accent/50"></div>
+                <div className="h-3.5 bg-onedark-surface/60 rounded w-5/6"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'diff' && (
+        <div className="grid grid-cols-12 gap-3 h-[480px] animate-pulse">
+          <div className="col-span-4 rounded-xl border border-onedark-borderSubtle bg-onedark-surface/20 p-3 space-y-2 overflow-hidden">
+            <div className="h-4 bg-onedark-surface/80 rounded w-1/2 mb-3"></div>
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="flex items-center justify-between p-2 rounded bg-onedark-surface/40">
+                <div className="flex items-center space-x-2">
+                  <div className="w-3.5 h-3.5 rounded bg-onedark-surface/80"></div>
+                  <div className={`h-3 ${i % 2 === 0 ? 'w-24' : 'w-32'} bg-onedark-surface/70 rounded`}></div>
+                </div>
+                <div className="h-3 w-8 bg-onedark-surface/50 rounded"></div>
+              </div>
+            ))}
+          </div>
+          <div className="col-span-8 rounded-xl border border-onedark-borderSubtle bg-onedark-surface/10 p-4 space-y-2.5 overflow-hidden">
+            <div className="h-5 bg-onedark-surface/80 rounded w-1/3 mb-2"></div>
+            <div className="space-y-1.5 font-mono">
+              {[...Array(12)].map((_, i) => (
+                <div key={i} className={`h-4 rounded flex items-center px-2 space-x-2 ${
+                  i % 4 === 1 ? 'bg-onedark-green/10' : i % 4 === 3 ? 'bg-onedark-red/10' : 'bg-onedark-surface/30'
+                }`}>
+                  <span className="w-6 text-[10px] opacity-40 font-mono">{i + 1}</span>
+                  <div className={`h-2.5 rounded ${i % 3 === 0 ? 'w-3/4' : i % 3 === 1 ? 'w-1/2' : 'w-2/3'} bg-onedark-surface/60`}></div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'commits' && (
+        <div className="space-y-3 animate-pulse">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="p-3.5 rounded-xl border border-onedark-borderSubtle bg-onedark-surface/20 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <div className="w-4 h-4 rounded-full bg-onedark-purple/40"></div>
+                  <div className={`h-4 bg-onedark-surface/80 rounded ${i % 2 === 0 ? 'w-64' : 'w-48'}`}></div>
+                </div>
+                <div className="h-4 bg-onedark-surface/60 rounded w-16"></div>
+              </div>
+              <div className="h-3 bg-onedark-surface/50 rounded w-3/4"></div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab === 'comments' && (
+        <div className="space-y-3 animate-pulse">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="rounded-xl border border-onedark-borderSubtle bg-onedark-surface/20 overflow-hidden">
+              <div className="px-4 py-2.5 bg-onedark-surface/50 border-b border-onedark-borderSubtle/60 flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <div className="w-5 h-5 rounded-full bg-onedark-accent/40"></div>
+                  <div className="h-3.5 bg-onedark-surface/80 rounded w-24"></div>
+                </div>
+                <div className="h-3 bg-onedark-surface/60 rounded w-16"></div>
+              </div>
+              <div className="p-4 space-y-2">
+                <div className="h-3.5 bg-onedark-surface/60 rounded w-5/6"></div>
+                <div className="h-3.5 bg-onedark-surface/50 rounded w-2/3"></div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {(tab === 'tests' || tab === 'review') && (
+        <div className="p-4 rounded-xl border border-onedark-borderSubtle bg-onedark-surface/20 space-y-3 animate-pulse">
+          <div className="h-5 bg-onedark-surface/80 rounded w-1/3"></div>
+          <div className="space-y-2 pt-2">
+            <div className="h-3.5 bg-onedark-surface/60 rounded w-full"></div>
+            <div className="h-3.5 bg-onedark-surface/50 rounded w-5/6"></div>
+            <div className="h-3.5 bg-onedark-surface/50 rounded w-3/4"></div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const PRDetailView: React.FC<PRDetailViewProps> = ({
   url,
   prNumber,
@@ -1921,7 +2092,15 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
   const [isListenerModalOpen, setIsListenerModalOpen] = useState<boolean>(false);
   const [isListening, setIsListening] = useState<boolean>(prRecord?.is_listening || false);
   const [activeLineComment, setActiveLineComment] = useState<LineContext | null>(null);
-  const [isOutlineOpen, setIsOutlineOpen] = useState<boolean>(false);
+  const [isOutlineOpen, setIsOutlineOpen] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('cyclode_pr_outline_open');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+  const [outlineFilterQuery, setOutlineFilterQuery] = useState<string>('');
 
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [isReviewDecisionModalOpen, setIsReviewDecisionModalOpen] = useState<boolean>(false);
@@ -1930,7 +2109,6 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
   const [selectedLinearTicket, setSelectedLinearTicket] = useState<string | null>(null);
 
   const contentScrollRef = useRef<HTMLDivElement>(null);
-  const outlinePopoverRef = useRef<HTMLDivElement>(null);
 
   const detectedLinearTickets = useMemo(() => {
     const textToScan = `${data?.title || prRecord?.title || ''} ${data?.head_branch || prRecord?.head_branch || ''} ${data?.overview_markdown || ''} ${data?.content_markdown || ''}`;
@@ -2177,21 +2355,14 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
     const target = contentScrollRef.current.querySelector(`[id="${id}"]`);
     if (target) {
       target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      setIsOutlineOpen(false);
     }
   };
 
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (outlinePopoverRef.current && !outlinePopoverRef.current.contains(e.target as Node)) {
-        setIsOutlineOpen(false);
-      }
-    };
-    if (isOutlineOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
-  }, [isOutlineOpen]);
+  const filteredHeadings = useMemo(() => {
+    if (!outlineFilterQuery.trim()) return headings;
+    const q = outlineFilterQuery.toLowerCase();
+    return headings.filter(h => h.title.toLowerCase().includes(q));
+  }, [headings, outlineFilterQuery]);
 
   const effectiveTitle = data?.title || prRecord?.title || `Pull Request #${data?.pr_number || prNumber || prRecord?.pr_number || ''}`;
   const effectiveState = (data?.state || prRecord?.status || 'OPEN').toUpperCase();
@@ -2227,55 +2398,29 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
         </div>
 
         <div className="flex items-center space-x-1 flex-shrink-0">
-          {/* Table of Contents / Outline Popover */}
-          {headings.length > 1 && (
-            <div className="relative" ref={outlinePopoverRef}>
-              <button
-                onClick={() => setIsOutlineOpen(!isOutlineOpen)}
-                className={`flex items-center space-x-1 px-2 py-1 rounded text-xs transition-all border cursor-pointer whitespace-nowrap flex-shrink-0 ${
-                  isOutlineOpen
-                    ? 'bg-onedark-accent/20 border-onedark-accent/40 text-onedark-accent font-semibold'
-                    : 'bg-onedark-surface/60 border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fg'
-                }`}
-                title="Table of Contents (Jump to section)"
-              >
-                <List className="w-3.5 h-3.5 flex-shrink-0" />
-                <span className="hidden md:inline text-[11px] whitespace-nowrap">Outline</span>
-                <span className="px-1 py-0.2 rounded-full bg-onedark-surface text-[10px] text-onedark-muted font-mono">
-                  {headings.length}
-                </span>
-              </button>
-
-              {isOutlineOpen && (
-                <div className="absolute right-0 mt-1.5 w-64 max-h-80 overflow-y-auto rounded-xl border border-onedark-border bg-onedark-bg shadow-xl z-50 p-2 space-y-0.5">
-                  <div className="flex items-center justify-between px-2 py-1 border-b border-onedark-borderSubtle mb-1 text-[11px] font-semibold text-onedark-fgBright">
-                    <span>Table of Contents</span>
-                    <button
-                      onClick={() => setIsOutlineOpen(false)}
-                      className="text-onedark-muted hover:text-onedark-fg p-0.5 rounded cursor-pointer"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                  {headings.map((h, idx) => (
-                    <button
-                      key={`${h.id}-${idx}`}
-                      onClick={() => scrollToHeading(h.id)}
-                      className={`w-full text-left truncate py-1 px-2 rounded hover:bg-onedark-surface transition-colors text-xs cursor-pointer ${
-                        h.level === 1
-                          ? 'font-bold text-onedark-fgBright'
-                          : h.level === 2
-                          ? 'pl-3.5 font-medium text-onedark-fg'
-                          : 'pl-6 text-onedark-muted text-[11px]'
-                      }`}
-                      title={h.title}
-                    >
-                      {h.title}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+          {/* Collapsible Left Outline Toggle Button */}
+          {headings.length > 0 && viewMode === 'reader' && (
+            <button
+              onClick={() => {
+                setIsOutlineOpen(prev => {
+                  const next = !prev;
+                  try { localStorage.setItem('cyclode_pr_outline_open', String(next)); } catch {}
+                  return next;
+                });
+              }}
+              className={`flex items-center space-x-1.5 px-2 py-1 rounded text-xs transition-all border cursor-pointer whitespace-nowrap flex-shrink-0 ${
+                isOutlineOpen
+                  ? 'bg-onedark-accent/20 border-onedark-accent/40 text-onedark-accent font-semibold'
+                  : 'bg-onedark-surface/60 border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fg'
+              }`}
+              title={isOutlineOpen ? 'Collapse Table of Contents Sidebar' : 'Expand Table of Contents Sidebar'}
+            >
+              <PanelLeft className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className="hidden md:inline text-[11px] whitespace-nowrap">Outline</span>
+              <span className="px-1.5 py-0.2 rounded-full bg-onedark-surface border border-onedark-borderSubtle text-[10px] text-onedark-muted font-mono">
+                {headings.length}
+              </span>
+            </button>
           )}
 
           {/* Mode Switcher */}
@@ -2610,122 +2755,198 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
         </div>
       </div>
 
-      {/* Main PR Body Viewport */}
-      <div ref={contentScrollRef} className="flex-1 overflow-y-auto p-4 select-text">
-        {isLoading && (
-          <div className="space-y-4 animate-pulse pt-2">
-            <div className="h-5 bg-onedark-surface/80 rounded w-1/2"></div>
-            <div className="h-3 bg-onedark-surface/60 rounded w-5/6"></div>
-            <div className="h-3 bg-onedark-surface/50 rounded w-4/6"></div>
-            <div className="h-24 bg-onedark-surface/40 rounded-lg"></div>
-            <div className="h-3 bg-onedark-surface/50 rounded w-full"></div>
-            <div className="h-3 bg-onedark-surface/50 rounded w-3/4"></div>
-          </div>
-        )}
-
-        {error && !isLoading && (
-          <div className="p-4 rounded-xl border border-onedark-red/30 bg-onedark-red/10 text-xs text-onedark-fg space-y-2">
-            <div className="flex items-center space-x-2 text-onedark-red font-semibold">
-              <AlertCircle className="w-4 h-4" />
-              <span>Failed to preview PR</span>
-            </div>
-            <p className="text-onedark-muted leading-relaxed">{error}</p>
-            {targetUrl && (
-              <a
-                href={targetUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center space-x-1 text-onedark-accent hover:underline font-medium pt-1"
-              >
-                <span>Open directly on GitHub</span>
-                <ExternalLink className="w-3 h-3" />
-              </a>
-            )}
-          </div>
-        )}
-
-        {!isLoading && !error && viewMode === 'reader' && (
-          prTab === 'overview' ? (
-            <div className="max-w-none text-onedark-fg text-[14px] leading-[1.7]">
-              <MarkdownRenderer
-                content={data?.overview_markdown || data?.content_markdown || prRecord?.body || 'No description provided for this pull request.'}
-              />
-            </div>
-          ) : prTab === 'diff' ? (
-            <PRDiffSection 
-              files={data?.files || []} 
-              diffText={data?.diff_text} 
-              onLineComment={(filename, line, content) => {
-                setActiveLineComment({ filename, line, content });
-                setIsReviewPopoverOpen(true);
-              }}
-            />
-          ) : prTab === 'commits' ? (
-            <PRCommitsSection 
-              commits={data?.commits || []} 
-              repoName={data?.repo_name || task?.repo_name}
-              onLineComment={(filename, line, content) => {
-                setActiveLineComment({ filename, line, content });
-                setIsReviewPopoverOpen(true);
-              }}
-            />
-          ) : prTab === 'comments' ? (
-            <PRCommentsSection
-              comments={comments}
-              prNumber={effectivePrNum}
-              task={task}
-              isSyncing={isSyncingComments}
-              lastSyncedAt={lastSyncedAt}
-              onRefreshComments={fetchCommentsOnly}
-              onAskAboutComment={onAskAboutComment}
-              onJumpToDiff={() => {
-                setPrTab('diff');
-              }}
-            />
-          ) : prTab === 'tests' ? (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between px-3 py-2 bg-onedark-surface/50 border border-onedark-borderSubtle rounded-xl text-xs select-none">
-                <span className="font-semibold text-onedark-fgBright">
-                  Sandbox Test Execution Logs
+      {/* Main Content Area with Collapsible Left Outline Rail */}
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Collapsible Document Outline Left Sidebar */}
+        {!isLoading && !error && viewMode === 'reader' && isOutlineOpen && headings.length > 0 && (
+          <aside className="w-60 xl:w-64 border-r border-onedark-borderSubtle bg-onedark-bg/95 flex flex-col flex-shrink-0 z-10 select-none transition-all duration-200">
+            {/* Outline Header */}
+            <div className="p-2.5 px-3 border-b border-onedark-borderSubtle flex items-center justify-between bg-onedark-surface/30">
+              <div className="flex items-center space-x-2">
+                <ListTree className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
+                <span className="text-xs font-semibold text-onedark-fgBright">Outline</span>
+                <span className="px-1.5 py-0.2 rounded-full bg-onedark-surface border border-onedark-borderSubtle text-[10px] text-onedark-muted font-mono">
+                  {headings.length}
                 </span>
               </div>
-              <pre className="p-3 rounded-xl bg-onedark-bg border border-onedark-border text-onedark-fg font-mono text-xs overflow-x-auto whitespace-pre-wrap leading-relaxed">
-                {prRecord?.test_output || 'No test output recorded yet. Click "Run Tests" above to execute tests.'}
-              </pre>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between px-3 py-2 bg-onedark-surface/50 border border-onedark-borderSubtle rounded-xl text-xs select-none">
-                <span className="font-semibold text-onedark-fgBright">
-                  AI Review Report
-                </span>
-              </div>
-              <div className="p-4 rounded-xl bg-onedark-bg border border-onedark-border text-onedark-fg text-[13.5px] font-sans leading-[1.7]">
-                <MarkdownRenderer content={prRecord?.review_summary || 'No review summary generated yet. Click "AI Review" above to analyze.'} />
-              </div>
-            </div>
-          )
-        )}
-
-        {!isLoading && !error && viewMode === 'webview' && targetUrl && (
-          <div className="h-full flex flex-col -m-4">
-            <div className="px-3 py-1.5 bg-onedark-surface/80 border-b border-onedark-borderSubtle text-[11px] text-onedark-muted flex items-center justify-between">
-              <span>Embedded webview</span>
               <button
-                onClick={() => setViewMode('reader')}
-                className="text-onedark-accent hover:underline font-medium cursor-pointer"
+                onClick={() => {
+                  setIsOutlineOpen(false);
+                  try { localStorage.setItem('cyclode_pr_outline_open', 'false'); } catch {}
+                }}
+                className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-colors cursor-pointer"
+                title="Collapse Outline"
               >
-                Switch to Reader
+                <PanelLeftClose className="w-3.5 h-3.5" />
               </button>
             </div>
-            <iframe
-              src={targetUrl}
-              title={effectiveTitle}
-              className="flex-1 w-full border-none bg-white min-h-[500px]"
-              sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
-            />
-          </div>
+
+            {/* Quick Filter (when > 4 headings) */}
+            {headings.length > 4 && (
+              <div className="p-2 border-b border-onedark-borderSubtle/60">
+                <div className="flex items-center space-x-1.5 bg-onedark-surface/60 rounded px-2 py-1 border border-onedark-borderSubtle">
+                  <Search className="w-3 h-3 text-onedark-muted shrink-0" />
+                  <input
+                    type="text"
+                    value={outlineFilterQuery}
+                    onChange={(e) => setOutlineFilterQuery(e.target.value)}
+                    placeholder="Filter sections..."
+                    className="w-full bg-transparent border-none text-[11px] text-onedark-fg focus:outline-none placeholder:text-onedark-muted/60"
+                  />
+                  {outlineFilterQuery && (
+                    <button onClick={() => setOutlineFilterQuery('')} className="text-onedark-muted hover:text-onedark-fg cursor-pointer">
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Headings List */}
+            <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5 [scrollbar-width:thin]">
+              {filteredHeadings.length === 0 ? (
+                <div className="p-3 text-center text-xs text-onedark-muted">
+                  No matching sections
+                </div>
+              ) : (
+                filteredHeadings.map((h, idx) => (
+                  <button
+                    key={`${h.id}-${idx}`}
+                    onClick={() => scrollToHeading(h.id)}
+                    className={`w-full text-left truncate py-1.5 px-2 rounded-md hover:bg-onedark-surface/70 transition-all text-xs cursor-pointer flex items-center group ${
+                      h.level === 1
+                        ? 'font-bold text-onedark-fgBright hover:text-onedark-accent'
+                        : h.level === 2
+                        ? 'pl-3.5 font-medium text-onedark-fg hover:text-onedark-fgBright'
+                        : 'pl-6 text-onedark-muted text-[11.5px] hover:text-onedark-fg'
+                    }`}
+                    title={h.title}
+                  >
+                    <span className={`w-1 h-1 rounded-full mr-2 flex-shrink-0 transition-colors ${
+                      h.level === 1 ? 'bg-onedark-accent' : h.level === 2 ? 'bg-onedark-muted/60 group-hover:bg-onedark-accent' : 'bg-transparent'
+                    }`} />
+                    <span className="truncate">{h.title}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          </aside>
         )}
+
+        {/* Main PR Body Viewport */}
+        <div ref={contentScrollRef} className="flex-1 overflow-y-auto p-4 select-text relative">
+          {isLoading && (
+            <PRDetailSkeleton
+              tab={prTab}
+              prNumber={data?.pr_number || prNumber || prRecord?.pr_number}
+              title={effectiveTitle}
+            />
+          )}
+
+          {error && !isLoading && (
+            <div className="p-4 rounded-xl border border-onedark-red/30 bg-onedark-red/10 text-xs text-onedark-fg space-y-2">
+              <div className="flex items-center space-x-2 text-onedark-red font-semibold">
+                <AlertCircle className="w-4 h-4" />
+                <span>Failed to preview PR</span>
+              </div>
+              <p className="text-onedark-muted leading-relaxed">{error}</p>
+              {targetUrl && (
+                <a
+                  href={targetUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center space-x-1 text-onedark-accent hover:underline font-medium pt-1"
+                >
+                  <span>Open directly on GitHub</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
+            </div>
+          )}
+
+          {!isLoading && !error && viewMode === 'reader' && (
+            prTab === 'overview' ? (
+              <div className="max-w-none text-onedark-fg text-[14px] leading-[1.7]">
+                <MarkdownRenderer
+                  content={data?.overview_markdown || data?.content_markdown || prRecord?.body || 'No description provided for this pull request.'}
+                />
+              </div>
+            ) : prTab === 'diff' ? (
+              <PRDiffSection 
+                files={data?.files || []} 
+                diffText={data?.diff_text} 
+                onLineComment={(filename, line, content) => {
+                  setActiveLineComment({ filename, line, content });
+                  setIsReviewPopoverOpen(true);
+                }}
+              />
+            ) : prTab === 'commits' ? (
+              <PRCommitsSection 
+                commits={data?.commits || []} 
+                repoName={data?.repo_name || task?.repo_name}
+                onLineComment={(filename, line, content) => {
+                  setActiveLineComment({ filename, line, content });
+                  setIsReviewPopoverOpen(true);
+                }}
+              />
+            ) : prTab === 'comments' ? (
+              <PRCommentsSection
+                comments={comments}
+                prNumber={effectivePrNum}
+                task={task}
+                isSyncing={isSyncingComments}
+                lastSyncedAt={lastSyncedAt}
+                onRefreshComments={fetchCommentsOnly}
+                onAskAboutComment={onAskAboutComment}
+                onJumpToDiff={() => {
+                  setPrTab('diff');
+                }}
+              />
+            ) : prTab === 'tests' ? (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between px-3 py-2 bg-onedark-surface/50 border border-onedark-borderSubtle rounded-xl text-xs select-none">
+                  <span className="font-semibold text-onedark-fgBright">
+                    Sandbox Test Execution Logs
+                  </span>
+                </div>
+                <pre className="p-3 rounded-xl bg-onedark-bg border border-onedark-border text-onedark-fg font-mono text-xs overflow-x-auto whitespace-pre-wrap leading-relaxed">
+                  {prRecord?.test_output || 'No test output recorded yet. Click "Run Tests" above to execute tests.'}
+                </pre>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between px-3 py-2 bg-onedark-surface/50 border border-onedark-borderSubtle rounded-xl text-xs select-none">
+                  <span className="font-semibold text-onedark-fgBright">
+                    AI Review Report
+                  </span>
+                </div>
+                <div className="p-4 rounded-xl bg-onedark-bg border border-onedark-border text-onedark-fg text-[13.5px] font-sans leading-[1.7]">
+                  <MarkdownRenderer content={prRecord?.review_summary || 'No review summary generated yet. Click "AI Review" above to analyze.'} />
+                </div>
+              </div>
+            )
+          )}
+
+          {!isLoading && !error && viewMode === 'webview' && targetUrl && (
+            <div className="h-full flex flex-col -m-4">
+              <div className="px-3 py-1.5 bg-onedark-surface/80 border-b border-onedark-borderSubtle text-[11px] text-onedark-muted flex items-center justify-between">
+                <span>Embedded webview</span>
+                <button
+                  onClick={() => setViewMode('reader')}
+                  className="text-onedark-accent hover:underline font-medium cursor-pointer"
+                >
+                  Switch to Reader
+                </button>
+              </div>
+              <iframe
+                src={targetUrl}
+                title={effectiveTitle}
+                className="flex-1 w-full border-none bg-white min-h-[500px]"
+                sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Review Agent Popover */}

@@ -1783,13 +1783,62 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
         {/* Reader / Webview Viewport */}
         <div ref={contentScrollRef} className="flex-1 overflow-y-auto p-4 select-text">
           {isLoading && (
-            <div className="space-y-4 animate-pulse pt-2">
-              <div className="h-5 bg-onedark-surface/80 rounded w-1/2"></div>
-              <div className="h-3 bg-onedark-surface/60 rounded w-5/6"></div>
-              <div className="h-3 bg-onedark-surface/50 rounded w-4/6"></div>
-              <div className="h-24 bg-onedark-surface/40 rounded-lg"></div>
-              <div className="h-3 bg-onedark-surface/50 rounded w-full"></div>
-              <div className="h-3 bg-onedark-surface/50 rounded w-3/4"></div>
+            <div className="space-y-4 select-none">
+              <div className="flex items-center justify-between p-3.5 rounded-xl border border-onedark-accent/30 bg-onedark-accent/5 shadow-xs">
+                <div className="flex items-center space-x-3">
+                  <Loader2 className="w-4 h-4 text-onedark-accent animate-spin flex-shrink-0" />
+                  <div className="space-y-0.5">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs font-bold text-onedark-fgBright">
+                        {data?.is_pr ? `Loading Pull Request #${data?.pr_number || ''}` : 'Loading Document Content'}
+                      </span>
+                      <span className="px-1.5 py-0.5 rounded bg-onedark-accent/15 text-onedark-accent text-[10px] font-mono animate-pulse">
+                        Fetching Content
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-onedark-muted truncate max-w-lg">
+                      {url || 'Parsing markdown and document outline hierarchy...'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <span className="h-5 w-16 bg-onedark-surface/60 rounded-md animate-pulse"></span>
+                  <span className="h-5 w-14 bg-onedark-surface/60 rounded-md animate-pulse"></span>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-xl border border-onedark-borderSubtle bg-onedark-surface/10 space-y-3 animate-pulse">
+                <div className="h-6 bg-onedark-surface/80 rounded-md w-3/4"></div>
+                <div className="space-y-2 pt-2">
+                  <div className="h-3.5 bg-onedark-surface/60 rounded w-11/12"></div>
+                  <div className="h-3.5 bg-onedark-surface/50 rounded w-5/6"></div>
+                  <div className="h-3.5 bg-onedark-surface/50 rounded w-4/6"></div>
+                </div>
+
+                <div className="my-3 rounded-lg border border-onedark-borderSubtle bg-onedark-darker/60 overflow-hidden">
+                  <div className="h-7 bg-onedark-surface/40 border-b border-onedark-borderSubtle/60 px-3 flex items-center justify-between">
+                    <div className="h-3 w-16 bg-onedark-surface/80 rounded"></div>
+                    <div className="h-3 w-10 bg-onedark-surface/60 rounded"></div>
+                  </div>
+                  <div className="p-3 space-y-1.5 font-mono">
+                    <div className="h-3 bg-onedark-surface/50 rounded w-2/3"></div>
+                    <div className="h-3 bg-onedark-surface/40 rounded w-4/5"></div>
+                    <div className="h-3 bg-onedark-surface/30 rounded w-1/2"></div>
+                  </div>
+                </div>
+
+                <div className="h-5 bg-onedark-surface/70 rounded w-1/5 pt-2"></div>
+                <div className="space-y-2">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-onedark-accent/50"></div>
+                    <div className="h-3.5 bg-onedark-surface/60 rounded w-4/5"></div>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-onedark-accent/50"></div>
+                    <div className="h-3.5 bg-onedark-surface/60 rounded w-3/4"></div>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
