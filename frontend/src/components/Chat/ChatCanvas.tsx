@@ -257,7 +257,7 @@ interface ChatCanvasProps {
   onSendMessage: (content: string, modelName?: string) => void;
   onApprove: (feedback?: string) => void;
   onReject: (feedback?: string) => void;
-  onNewChatWithPrompt?: (prompt: string, persona: string, modelName?: string) => void;
+  onNewChatWithPrompt?: (prompt: string, persona: string, modelName?: string, files?: File[]) => void;
   onEditMessage?: (messageId: string, newContent: string) => void;
   onRetryTask?: (fromMessageId?: string) => void;
   onResetTurn?: (turnIndex?: number) => void;
@@ -1305,7 +1305,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
       if (task) {
         await onSendMessage(promptWithAttachments, selectedModel);
       } else if (onNewChatWithPrompt) {
-        await onNewChatWithPrompt(promptWithAttachments, selectedPersona, selectedModel);
+        await onNewChatWithPrompt(promptWithAttachments, selectedPersona, selectedModel, readyAttachments.map(a => a.file));
       }
       setInputValue('');
       setAttachments([]);
@@ -1704,8 +1704,49 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
           {/* Prompt Launcher Form */}
           <form
             onSubmit={handleSubmit}
-            className="p-3.5 rounded-2xl bg-onedark-surface/90 shadow-md backdrop-blur-md focus-within:ring-2 focus-within:ring-onedark-accent/20 transition-all space-y-3 relative"
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDraggingInput(true);
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              setIsDraggingInput(false);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDraggingInput(false);
+              if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                handleAttachFiles(e.dataTransfer.files);
+              }
+            }}
+            className={`p-3.5 rounded-2xl bg-onedark-surface/90 shadow-md backdrop-blur-md focus-within:ring-2 focus-within:ring-onedark-accent/20 transition-all space-y-3 relative ${
+              isDraggingInput ? 'ring-2 ring-onedark-accent border-onedark-accent bg-onedark-surface' : ''
+            }`}
           >
+            {/* Attachment Pills in Empty State */}
+            {attachments.length > 0 && (
+              <div className="flex items-center gap-1.5 overflow-x-auto py-1 px-1 flex-wrap border-b border-onedark-borderSubtle/60 pb-2">
+                {attachments.map((att) => (
+                  <div
+                    key={att.id}
+                    className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-darker/80 border border-onedark-borderSubtle text-[11px] font-mono text-onedark-fg shadow-2xs"
+                  >
+                    <Paperclip className="w-3 h-3 text-onedark-accent flex-shrink-0" />
+                    <span className="truncate max-w-[150px] font-semibold">{att.name}</span>
+                    <span className="text-onedark-muted/70 text-[10px]">({formatBytes(att.size)})</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveAttachment(att.id)}
+                      className="text-onedark-muted hover:text-onedark-fg cursor-pointer p-0.5"
+                      title="Remove attachment"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             <div className="relative w-full z-20">
               {/* Highlight backdrop overlay */}
               {inputValue && (
@@ -1743,7 +1784,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
             </div>
 
             <div className="flex items-center justify-between pt-2 border-t border-transparent gap-2 flex-wrap sm:flex-nowrap">
-              {/* Persona Selector, Model Selector & Repo Pill */}
+              {/* Persona Selector, Model Selector, Repo Pill & Attach Button */}
               <div className="flex items-center space-x-2 min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden py-0.5">
                 {/* Persona Pill */}
                 <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-darker/60 hover:bg-onedark-darker text-xs text-onedark-fg font-mono shadow-xs flex-shrink-0 transition-colors">
@@ -1780,6 +1821,17 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                     ))}
                   </select>
                 </div>
+
+                {/* Paperclip Attach Button in Empty State */}
+                <button
+                  type="button"
+                  onClick={() => chatFileInputRef.current?.click()}
+                  className="px-2.5 py-1 rounded-lg bg-onedark-darker/60 hover:bg-onedark-darker text-xs text-onedark-fg font-mono shadow-xs flex-shrink-0 transition-colors flex items-center space-x-1.5 cursor-pointer"
+                  title="Attach files (CSV, TSV, Parquet, JSON, Notebooks, Images, Archives, PDFs)"
+                >
+                  <Paperclip className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
+                  <span>Attach</span>
+                </button>
 
                 {/* Quick Mention Repository Pills or Connect Repo CTA */}
                 {effectiveRepos.length > 0 ? (
@@ -1828,7 +1880,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               {/* Submit Button */}
               <button
                 type="submit"
-                disabled={!inputValue.trim() || isSubmitting}
+                disabled={(!inputValue.trim() && attachments.length === 0) || isSubmitting}
                 className="px-4 py-2 rounded-xl bg-onedark-fgBright hover:bg-white text-onedark-darker text-xs font-bold flex items-center space-x-1.5 transition-all duration-150 disabled:opacity-35 disabled:cursor-not-allowed shadow-sm active:scale-95 cursor-pointer flex-shrink-0"
               >
                 {isSubmitting ? (

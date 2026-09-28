@@ -728,7 +728,8 @@ const MainApp: React.FC = () => {
   const handleNewChatWithPrompt = async (
     prompt: string,
     persona: string = 'General',
-    modelName: string = 'auto'
+    modelName: string = 'auto',
+    files?: File[]
   ) => {
     const tempId = `temp-${Date.now()}`;
     const initialTitle = getCleanInitialTitle(prompt);
@@ -785,6 +786,21 @@ const MainApp: React.FC = () => {
           setTasks((prev) =>
             prev.map((t) => (t.id === tempId ? { ...t, ...data, id: createdId } : t))
           );
+
+          if (files && files.length > 0) {
+            try {
+              const formData = new FormData();
+              files.forEach((f) => formData.append('files', f));
+              formData.append('target_type', 'attachment');
+              await fetch(`${API_BASE}/api/tasks/${createdId}/files/upload`, {
+                method: 'POST',
+                body: formData,
+              });
+            } catch (uploadErr) {
+              console.error('Failed to upload initial attachments:', uploadErr);
+            }
+          }
+
           fetchTaskDetails(createdId);
         }
       } else {
