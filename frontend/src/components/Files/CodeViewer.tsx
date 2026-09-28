@@ -26,7 +26,9 @@ import {
   Image as ImageIcon,
   Film,
   Music,
-  FileText
+  FileText,
+  BookOpen,
+  Archive
 } from 'lucide-react';
 import { highlightCode, resolveLanguage, escapeHtml } from '../../utils/syntaxHighlighter';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
@@ -35,6 +37,8 @@ import { DataTableView } from './Viewers/DataTableView';
 import { StructuredDataViewer } from './Viewers/StructuredDataViewer';
 import { MediaViewer } from './Viewers/MediaViewer';
 import { DocumentViewer } from './Viewers/DocumentViewer';
+import { NotebookViewer } from './Viewers/NotebookViewer';
+import { ArchiveViewer } from './Viewers/ArchiveViewer';
 
 export interface LineContext {
   filename: string;
@@ -75,7 +79,7 @@ interface FileContentResponse {
   raw_url?: string;
 }
 
-export type ViewerMode = 'code' | 'preview' | 'table' | 'tree' | 'image' | 'media' | 'pdf';
+export type ViewerMode = 'code' | 'preview' | 'table' | 'tree' | 'image' | 'media' | 'pdf' | 'notebook' | 'archive';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -110,7 +114,21 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
     const lower = filePath.toLowerCase();
     if (lower.endsWith('.md') || lower.endsWith('.markdown') || lower.endsWith('.mdx')) {
       setViewMode('preview');
-    } else if (lower.endsWith('.csv') || lower.endsWith('.tsv')) {
+    } else if (lower.endsWith('.ipynb')) {
+      setViewMode('notebook');
+    } else if (
+      lower.endsWith('.zip') ||
+      lower.endsWith('.tar') ||
+      lower.endsWith('.tar.gz') ||
+      lower.endsWith('.tgz') ||
+      lower.endsWith('.tar.bz2') ||
+      lower.endsWith('.tbz2') ||
+      lower.endsWith('.whl') ||
+      lower.endsWith('.egg') ||
+      lower.endsWith('.jar')
+    ) {
+      setViewMode('archive');
+    } else if (lower.endsWith('.csv') || lower.endsWith('.tsv') || lower.endsWith('.jsonl') || lower.endsWith('.parquet') || lower.endsWith('.pq')) {
       setViewMode('table');
     } else if (
       lower.endsWith('.png') ||
@@ -492,7 +510,9 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
   const isHtml = data?.name.toLowerCase().endsWith('.html') || data?.name.toLowerCase().endsWith('.htm');
   const lowerPath = (filePath || '').toLowerCase();
   const isMarkdown = lowerPath.endsWith('.md') || lowerPath.endsWith('.markdown') || lowerPath.endsWith('.mdx');
-  const isTable = lowerPath.endsWith('.csv') || lowerPath.endsWith('.tsv');
+  const isNotebook = lowerPath.endsWith('.ipynb');
+  const isArchive = lowerPath.endsWith('.zip') || lowerPath.endsWith('.tar') || lowerPath.endsWith('.tar.gz') || lowerPath.endsWith('.tgz') || lowerPath.endsWith('.tar.bz2') || lowerPath.endsWith('.tbz2') || lowerPath.endsWith('.whl') || lowerPath.endsWith('.egg') || lowerPath.endsWith('.jar');
+  const isTable = lowerPath.endsWith('.csv') || lowerPath.endsWith('.tsv') || lowerPath.endsWith('.jsonl') || lowerPath.endsWith('.parquet') || lowerPath.endsWith('.pq');
   const isStructured = lowerPath.endsWith('.json') || lowerPath.endsWith('.jsonc') || lowerPath.endsWith('.yaml') || lowerPath.endsWith('.yml') || lowerPath.endsWith('.toml');
   const isImage = lowerPath.endsWith('.png') || lowerPath.endsWith('.jpg') || lowerPath.endsWith('.jpeg') || lowerPath.endsWith('.gif') || lowerPath.endsWith('.webp') || lowerPath.endsWith('.svg') || lowerPath.endsWith('.ico') || lowerPath.endsWith('.bmp') || lowerPath.endsWith('.avif');
   const isMedia = lowerPath.endsWith('.mp4') || lowerPath.endsWith('.webm') || lowerPath.endsWith('.mov') || lowerPath.endsWith('.mp3') || lowerPath.endsWith('.wav') || lowerPath.endsWith('.ogg') || lowerPath.endsWith('.m4a');
@@ -536,6 +556,10 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
 
           {isImage ? (
             <ImageIcon className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
+          ) : isNotebook ? (
+            <BookOpen className="w-3.5 h-3.5 text-onedark-yellow flex-shrink-0" />
+          ) : isArchive ? (
+            <Archive className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
           ) : isTable ? (
             <Table className="w-3.5 h-3.5 text-onedark-green flex-shrink-0" />
           ) : isStructured ? (
@@ -580,6 +604,45 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
             >
               <Code2 className="w-3 h-3" />
               <span>Code</span>
+            </button>
+          </div>
+        ) : isNotebook ? (
+          <div className="flex items-center space-x-0.5 bg-onedark-surface p-0.5 rounded-lg border border-onedark-borderSubtle font-mono text-[11px] flex-shrink-0">
+            <button
+              onClick={() => setViewMode('notebook')}
+              className={`px-2 py-0.5 rounded-md transition-all cursor-pointer flex items-center space-x-1 ${
+                viewMode === 'notebook'
+                  ? 'bg-onedark-darker text-onedark-yellow font-semibold shadow-xs'
+                  : 'text-onedark-muted hover:text-onedark-fg'
+              }`}
+            >
+              <BookOpen className="w-3 h-3" />
+              <span>Notebook</span>
+            </button>
+            <button
+              onClick={() => setViewMode('code')}
+              className={`px-2 py-0.5 rounded-md transition-all cursor-pointer flex items-center space-x-1 ${
+                viewMode === 'code'
+                  ? 'bg-onedark-darker text-onedark-fgBright font-semibold shadow-xs'
+                  : 'text-onedark-muted hover:text-onedark-fg'
+              }`}
+            >
+              <Code2 className="w-3 h-3" />
+              <span>Raw JSON</span>
+            </button>
+          </div>
+        ) : isArchive ? (
+          <div className="flex items-center space-x-0.5 bg-onedark-surface p-0.5 rounded-lg border border-onedark-borderSubtle font-mono text-[11px] flex-shrink-0">
+            <button
+              onClick={() => setViewMode('archive')}
+              className={`px-2 py-0.5 rounded-md transition-all cursor-pointer flex items-center space-x-1 ${
+                viewMode === 'archive'
+                  ? 'bg-onedark-darker text-onedark-accent font-semibold shadow-xs'
+                  : 'text-onedark-muted hover:text-onedark-fg'
+              }`}
+            >
+              <Archive className="w-3 h-3" />
+              <span>Inspect</span>
             </button>
           </div>
         ) : isHtml ? (
@@ -876,8 +939,22 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
           rawUrl={rawFileUrl}
           svgContent={data.content}
         />
+      ) : viewMode === 'notebook' || isNotebook ? (
+        <NotebookViewer
+          content={data.content}
+          filePath={filePath || ''}
+          rawUrl={rawFileUrl}
+        />
+      ) : viewMode === 'archive' || isArchive || (data.is_binary && isArchive) ? (
+        <ArchiveViewer
+          taskId={taskId}
+          filePath={filePath || ''}
+          fileSize={data.size}
+          rawUrl={rawFileUrl}
+        />
       ) : viewMode === 'table' ? (
         <DataTableView
+          taskId={taskId}
           content={data.content}
           filePath={filePath || ''}
           rawUrl={rawFileUrl}

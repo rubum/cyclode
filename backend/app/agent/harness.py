@@ -1398,6 +1398,34 @@ class AntigravityHarness:
                             },
                             "required": ["issue_key", "state_id"]
                         }
+                    },
+                    {
+                        "name": "query_table",
+                        "description": "Parse and query tabular data files (CSV, TSV, JSONL, Parquet) with column statistics, filtering, sorting, or custom SQL queries on the in-memory 'data_table'.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "file_path": {"type": "STRING", "description": "Relative path to CSV, TSV, JSONL, or Parquet file"},
+                                "sql_query": {"type": "STRING", "description": "Optional SQL SELECT query against 'data_table' (e.g. 'SELECT * FROM data_table WHERE age > 30 ORDER BY score DESC')"},
+                                "filter_query": {"type": "STRING", "description": "Optional substring filter to search across all rows and cells"},
+                                "sort_col": {"type": "STRING", "description": "Optional column name to sort by"},
+                                "sort_dir": {"type": "STRING", "description": "'asc' or 'desc' (default: 'asc')"},
+                                "page": {"type": "INTEGER", "description": "Page number (default: 1)"},
+                                "page_size": {"type": "INTEGER", "description": "Page size (default: 50)"}
+                            },
+                            "required": ["file_path"]
+                        }
+                    },
+                    {
+                        "name": "inspect_archive",
+                        "description": "Safely inspect the contents and hierarchy of an archive file (.zip, .tar, .tar.gz, .tgz, .tar.bz2) in memory without disk extraction.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "file_path": {"type": "STRING", "description": "Relative path to archive file"}
+                            },
+                            "required": ["file_path"]
+                        }
                     }
                 ]
             }
@@ -2910,6 +2938,29 @@ class AntigravityHarness:
                                     payload={"issue_key": issue_k, "state_id": state_arg},
                                     status_code=200 if tool_result.get("success", True) else 400
                                 ))
+                            elif fn_name == "query_table":
+                                fp = args.get("file_path", "")
+                                sql_q = args.get("sql_query")
+                                flt_q = args.get("filter_query")
+                                s_col = args.get("sort_col")
+                                s_dir = args.get("sort_dir", "asc")
+                                pg = args.get("page", 1)
+                                pg_sz = args.get("page_size", 50)
+                                tool_result = WorkspaceTools.query_table(
+                                    workspace_path,
+                                    file_path=fp,
+                                    sql_query=sql_q,
+                                    filter_query=flt_q,
+                                    sort_col=s_col,
+                                    sort_dir=s_dir,
+                                    page=pg,
+                                    page_size=pg_sz
+                                )
+                                out_str = json.dumps(tool_result, indent=2)
+                            elif fn_name == "inspect_archive":
+                                fp = args.get("file_path", "")
+                                tool_result = WorkspaceTools.inspect_archive(workspace_path, file_path=fp)
+                                out_str = json.dumps(tool_result, indent=2)
                             else:
                                 tool_result = {"error": f"Unknown tool: {fn_name}"}
                                 exit_code = 1

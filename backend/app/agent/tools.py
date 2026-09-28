@@ -2,6 +2,10 @@ import os
 import re
 import ast
 import json
+import csv
+import sqlite3
+import zipfile
+import tarfile
 import fnmatch
 import subprocess
 import html
@@ -2708,5 +2712,283 @@ class WorkspaceTools:
         issue = await linear_client.get_issue(issue_key, custom_token=lin_token)
         issue_id = issue.get("id", issue_key) if issue else issue_key
         return await linear_client.update_issue_status(issue_id, state_id, custom_token=lin_token)
+
+    # =========================================================================
+    # Tabular Data & Archive Inspection Tools
+    # =========================================================================
+
+    @staticmethod
+    def query_table(
+        workspace_path: Path,
+        file_path: str,
+        sql_query: Optional[str] = None,
+        filter_query: Optional[str] = None,
+        sort_col: Optional[str] = None,
+        sort_dir: str = "asc",
+        page: int = 1,
+        page_size: int = 50
+    ) -> Dict[str, Any]:
+        """
+        Parses and queries structured tabular files (CSV, TSV, JSONL, Parquet, SQLite) with column statistics,
+        filtering, sorting, and in-memory SQL execution.
+        """
+        if not file_path or not str(file_path).strip():
+            return {"error": "file_path cannot be empty"}
+        clean_rel = str(file_path).strip().lstrip("/\\")
+        ws_root = workspace_path.resolve()
+        target_file = (ws_root / clean_rel).resolve()
+        try:
+            target_file.relative_to(ws_root)
+        except ValueError:
+            return {"error": "Access denied outside workspace"}
+        if not target_file.exists() or not target_file.is_file():
+            return {"error": f"File '{clean_rel}' not found"}
+
+        ext = target_file.suffix.lower()
+        headers: List[str] = []
+        rows: List[List[Any]] = []
+
+        if ext in {".csv", ".tsv", ".txt"}:
+            delim = "\t" if ext == ".tsv" else ","
+            try:
+                with open(target_file, "r", encoding="utf-8", errors="replace") as f:
+                    sample = f.read(4096)
+                    f.seek(0)
+                    if ext != ".tsv" and sample:
+                        counts = {",": sample.count(","), "\t": sample.count("\t"), ";": sample.count(";"), "|": sample.count("|")}
+                        best_delim = max(counts, key=counts.get)
+                        if counts[best_delim] > 0:
+                            delim = best_delim
+                    reader = csv.reader(f, delimiter=delim)
+                    raw_rows = list(reader)
+                    if raw_rows:
+                        headers = [str(h).strip() for h in raw_rows[0]]
+                        rows = raw_rows[1:]
+            except Exception as e:
+                return {"error": f"Failed to parse delimited file: {str(e)}"}
+        elif ext == ".jsonl":
+            try:
+                with open(target_file, "r", encoding="utf-8", errors="replace") as f:
+                    json_objs = []
+                    for line in f:
+                        if line.strip():
+                            json_objs.append(json.loads(line))
+                if json_objs:
+                    all_keys = []
+                    for o in json_objs:
+                        if isinstance(o, dict):
+                            for k in o.keys():
+                                if k not in all_keys:
+                                    all_keys.append(k)
+                    headers = all_keys
+                    for o in json_objs:
+                        if isinstance(o, dict):
+                            rows.append([str(o.get(k, "")) for k in headers])
+                        else:
+                            rows.append([str(o)])
+            except Exception as e:
+                return {"error": f"Failed to parse JSONL file: {str(e)}"}
+        else:
+            try:
+                import pandas as pd
+                if ext in {".parquet", ".pq"}:
+                    df = pd.read_parquet(target_file)
+                elif ext in {".xlsx", ".xls"}:
+                    df = pd.read_excel(target_file)
+                else:
+                    df = pd.read_csv(target_file)
+                headers = [str(c) for c in df.columns]
+                rows = df.astype(str).values.tolist()
+            except Exception as e:
+                return {"error": f"Unsupported tabular format: {str(e)}"}
+
+        # Column statistics & type inference
+        col_types: Dict[str, str] = {}
+        summary_stats: Dict[str, Dict[str, Any]] = {}
+
+        for c_idx, h in enumerate(headers):
+            vals = [r[c_idx] for r in rows if len(r) > c_idx and r[c_idx] != ""]
+            total_vals = len(vals)
+            null_count = len(rows) - total_vals
+            unique_vals = len(set(vals))
+
+            numeric_vals = []
+            is_num = True if total_vals > 0 else False
+            for v in vals[:200]:
+                try:
+                    numeric_vals.append(float(v))
+                except ValueError:
+                    is_num = False
+                    break
+
+            col_type = "number" if is_num else "string"
+            col_types[h] = col_type
+            stat_dict: Dict[str, Any] = {
+                "type": col_type,
+                "count": len(rows),
+                "null_count": null_count,
+                "unique_count": unique_vals,
+            }
+            if is_num and numeric_vals:
+                stat_dict["min"] = min(numeric_vals)
+                stat_dict["max"] = max(numeric_vals)
+            summary_stats[h] = stat_dict
+
+        # SQL Execution
+        if sql_query and sql_query.strip():
+            try:
+                conn = sqlite3.connect(":memory:")
+                sanitized_cols = [re.sub(r"[^\w]", "_", h) or f"col_{i}" for i, h in enumerate(headers)]
+                col_defs = ", ".join([f'"{c}" TEXT' for c in sanitized_cols])
+                conn.execute(f"CREATE TABLE data_table ({col_defs})")
+                placeholders = ", ".join(["?"] * len(sanitized_cols))
+                conn.executemany(
+                    f"INSERT INTO data_table VALUES ({placeholders})",
+                    [[r[i] if i < len(r) else None for i in range(len(sanitized_cols))] for r in rows]
+                )
+                cur = conn.cursor()
+                cur.execute(sql_query.strip())
+                sql_headers = [desc[0] for desc in cur.description] if cur.description else headers
+                sql_rows = [list(r) for r in cur.fetchall()]
+                conn.close()
+
+                total_sql_rows = len(sql_rows)
+                page_start = (page - 1) * page_size
+                page_end = page_start + page_size
+                paginated_sql_rows = sql_rows[page_start:page_end]
+
+                return {
+                    "file_path": clean_rel,
+                    "headers": sql_headers,
+                    "column_types": {h: "string" for h in sql_headers},
+                    "rows": paginated_sql_rows,
+                    "total_rows": total_sql_rows,
+                    "page": page,
+                    "page_size": page_size,
+                    "summary_stats": summary_stats,
+                    "is_sql_result": True
+                }
+            except Exception as e:
+                return {
+                    "file_path": clean_rel,
+                    "headers": headers,
+                    "column_types": col_types,
+                    "rows": [],
+                    "total_rows": 0,
+                    "page": page,
+                    "page_size": page_size,
+                    "summary_stats": summary_stats,
+                    "is_sql_result": True,
+                    "error": f"SQL Error: {str(e)}"
+                }
+
+        filtered_rows = rows
+        if filter_query and filter_query.strip():
+            q = filter_query.strip().lower()
+            filtered_rows = [r for r in rows if any(q in str(cell).lower() for cell in r)]
+
+        if sort_col and sort_col in headers:
+            s_idx = headers.index(sort_col)
+            is_numeric = col_types.get(sort_col) == "number"
+
+            def sort_key(row):
+                val = row[s_idx] if s_idx < len(row) else ""
+                if is_numeric:
+                    try:
+                        return (0, float(val))
+                    except (ValueError, TypeError):
+                        return (1, 0)
+                return (0, str(val).lower())
+
+            filtered_rows = sorted(filtered_rows, key=sort_key, reverse=(sort_dir == "desc"))
+
+        total_filtered = len(filtered_rows)
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        page_rows = filtered_rows[start_idx:end_idx]
+
+        return {
+            "file_path": clean_rel,
+            "headers": headers,
+            "column_types": col_types,
+            "rows": page_rows,
+            "total_rows": total_filtered,
+            "page": page,
+            "page_size": page_size,
+            "summary_stats": summary_stats,
+            "is_sql_result": False
+        }
+
+    @staticmethod
+    def inspect_archive(workspace_path: Path, file_path: str) -> Dict[str, Any]:
+        """
+        Safely inspects archive hierarchy (.zip, .tar, .tar.gz, .tgz, .tar.bz2) in memory without disk extraction.
+        """
+        if not file_path or not str(file_path).strip():
+            return {"error": "file_path cannot be empty"}
+        clean_rel = str(file_path).strip().lstrip("/\\")
+        ws_root = workspace_path.resolve()
+        target_file = (ws_root / clean_rel).resolve()
+        try:
+            target_file.relative_to(ws_root)
+        except ValueError:
+            return {"error": "Access denied outside workspace"}
+        if not target_file.exists() or not target_file.is_file():
+            return {"error": f"Archive file '{clean_rel}' not found"}
+
+        entries = []
+        total_uncompressed = 0
+        name_lower = target_file.name.lower()
+
+        if name_lower.endswith(".zip"):
+            try:
+                with zipfile.ZipFile(target_file, "r") as zf:
+                    for info in zf.infolist():
+                        is_dir = info.is_dir()
+                        total_uncompressed += info.file_size
+                        date_str = f"{info.date_time[0]}-{info.date_time[1]:02d}-{info.date_time[2]:02d} {info.date_time[3]:02d}:{info.date_time[4]:02d}:{info.date_time[5]:02d}"
+                        entries.append({
+                            "name": Path(info.filename).name or info.filename,
+                            "path": info.filename.rstrip("/"),
+                            "is_dir": is_dir,
+                            "size": info.file_size,
+                            "compressed_size": info.compress_size,
+                            "date": date_str
+                        })
+            except Exception as e:
+                return {"error": f"Failed to inspect zip archive: {str(e)}"}
+        elif any(name_lower.endswith(ext) for ext in [".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2"]):
+            try:
+                with tarfile.open(target_file, "r:*") as tf:
+                    for member in tf.getmembers():
+                        is_dir = member.isdir()
+                        total_uncompressed += member.size
+                        date_str = datetime.fromtimestamp(member.mtime, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+                        entries.append({
+                            "name": Path(member.name).name or member.name,
+                            "path": member.name.rstrip("/"),
+                            "is_dir": is_dir,
+                            "size": member.size,
+                            "compressed_size": member.size,
+                            "date": date_str
+                        })
+            except Exception as e:
+                return {"error": f"Failed to inspect tar archive: {str(e)}"}
+        else:
+            return {"error": "Unsupported archive format (expected .zip, .tar, .tar.gz, .tgz, .tar.bz2)"}
+
+        comp_size = target_file.stat().st_size
+        ratio = f"{(total_uncompressed / max(1, comp_size)):.1f}x" if total_uncompressed > 0 else "1.0x"
+
+        return {
+            "file_path": clean_rel,
+            "name": target_file.name,
+            "format": "zip" if name_lower.endswith(".zip") else "tar",
+            "total_files": len(entries),
+            "total_uncompressed_size": total_uncompressed,
+            "total_compressed_size": comp_size,
+            "compression_ratio": ratio,
+            "entries": entries[:2000]
+        }
 
 

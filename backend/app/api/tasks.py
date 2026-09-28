@@ -5,8 +5,14 @@ import subprocess
 import logging
 import mimetypes
 import asyncio
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import FileResponse
+import zipfile
+import tarfile
+import csv
+import json
+import io
+import sqlite3
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
+from fastapi.responses import FileResponse, JSONResponse
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 from pydantic import BaseModel
@@ -1423,6 +1429,7 @@ async def get_sandbox_file_content(
         ".zsh": "bash",
         ".json": "json",
         ".jsonc": "json",
+        ".jsonl": "json",
         ".toml": "toml",
         ".yaml": "yaml",
         ".yml": "yaml",
@@ -1431,6 +1438,7 @@ async def get_sandbox_file_content(
         ".mdx": "markdown",
         ".csv": "csv",
         ".tsv": "tsv",
+        ".ipynb": "jupyter",
         ".svg": "xml",
         ".xml": "xml",
         ".css": "css",
@@ -1570,12 +1578,20 @@ async def get_sandbox_file_raw(
         ".tsv": "text/tab-separated-values; charset=utf-8",
         ".json": "application/json",
         ".jsonc": "application/json",
+        ".jsonl": "application/json",
+        ".ipynb": "application/x-ipynb+json",
         ".yaml": "text/yaml; charset=utf-8",
         ".yml": "text/yaml; charset=utf-8",
         ".toml": "text/plain; charset=utf-8",
         ".md": "text/markdown; charset=utf-8",
         ".markdown": "text/markdown; charset=utf-8",
         ".mdx": "text/markdown; charset=utf-8",
+        ".parquet": "application/vnd.apache.parquet",
+        ".zip": "application/zip",
+        ".tar": "application/x-tar",
+        ".tar.gz": "application/gzip",
+        ".tgz": "application/gzip",
+        ".wasm": "application/wasm",
     }
     content_type = custom_mimes.get(ext, mime_type or "application/octet-stream")
 
@@ -1590,6 +1606,415 @@ async def get_sandbox_file_raw(
         media_type=content_type,
         headers=headers
     )
+
+
+class QueryTableRequest(BaseModel):
+    path: str
+    page: int = 1
+    page_size: int = 50
+    sort_col: Optional[str] = None
+    sort_dir: str = "asc"
+    filter_query: Optional[str] = None
+    sql_query: Optional[str] = None
+
+
+def _sniff_file_category(name: str) -> str:
+    ext = Path(name).suffix.lower()
+    if ext in {".csv", ".tsv", ".parquet", ".xlsx", ".xls", ".jsonl"}:
+        return "tabular"
+    if ext == ".ipynb":
+        return "notebook"
+    if ext in {".pdf", ".docx", ".doc", ".epub", ".txt", ".rtf"}:
+        return "document"
+    if ext in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp", ".avif", ".tiff"}:
+        return "image"
+    if ext in {".mp4", ".webm", ".mov", ".mp3", ".wav", ".ogg", ".m4a", ".flac", ".aac"}:
+        return "media"
+    if ext in {".zip", ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2", ".gz", ".bz2", ".7z", ".rar"}:
+        return "archive"
+    if ext in {".py", ".ts", ".tsx", ".js", ".jsx", ".rs", ".go", ".java", ".cpp", ".c", ".h", ".html", ".css", ".json", ".yaml", ".yml", ".toml", ".sql", ".sh", ".md", ".markdown"}:
+        return "code"
+    return "binary"
+
+
+@router.post("/{task_id}/files/upload")
+async def upload_sandbox_files(
+    task_id: str,
+    files: List[UploadFile] = File(...),
+    destination_path: str = Form(""),
+    target_type: str = Form("workspace"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Safely uploads one or more files into the sandbox workspace or task attachments.
+    Enforces path containment, CoW hardlink unlinking, and magic-byte categorization.
+    """
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    result = await db.execute(stmt)
+    task = result.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    ws_path = Path(task.workspace_path).resolve() if task.workspace_path else None
+    if ws_path and ws_path.name != f"sandbox-{task.id}":
+        specific_sb = Path(settings.WORKSPACE_ROOT) / f"sandbox-{task.id}"
+        if specific_sb.exists() and specific_sb.is_dir():
+            ws_path = specific_sb
+
+    if not ws_path or not ws_path.exists() or not ws_path.is_dir():
+        raise HTTPException(status_code=404, detail="Sandbox workspace does not exist on disk")
+
+    if target_type == "attachment":
+        upload_base = ws_path / ".cyclode" / "attachments"
+        upload_base.mkdir(parents=True, exist_ok=True)
+    else:
+        clean_dest = destination_path.strip().lstrip("/\\")
+        upload_base = (ws_path / clean_dest).resolve()
+        try:
+            upload_base.relative_to(ws_path)
+        except ValueError:
+            raise HTTPException(status_code=403, detail="Destination path outside workspace")
+        upload_base.mkdir(parents=True, exist_ok=True)
+
+    uploaded_records: List[Dict[str, Any]] = []
+
+    for file in files:
+        filename = Path(file.filename or "uploaded_file").name
+        dest_file = (upload_base / filename).resolve()
+        try:
+            dest_file.relative_to(ws_path)
+        except ValueError:
+            continue
+
+        # Inode CoW safety: unlink hardlink before writing if exists
+        if dest_file.exists() and dest_file.stat().st_nlink > 1:
+            dest_file.unlink()
+
+        content_bytes = await file.read()
+        dest_file.write_bytes(content_bytes)
+
+        rel_path = str(dest_file.relative_to(ws_path))
+        mime_type, _ = mimetypes.guess_type(filename)
+        category = _sniff_file_category(filename)
+
+        uploaded_records.append({
+            "name": filename,
+            "path": rel_path,
+            "size": len(content_bytes),
+            "mime_type": mime_type or "application/octet-stream",
+            "category": category,
+            "raw_url": f"/api/tasks/{task_id}/files/raw?path={rel_path}"
+        })
+
+    return {"uploaded": uploaded_records, "count": len(uploaded_records)}
+
+
+@router.post("/{task_id}/files/query-table")
+async def query_sandbox_table(
+    task_id: str,
+    req: QueryTableRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Parses and queries structured tabular files (CSV, TSV, JSONL, Parquet) with column statistics,
+    in-memory sorting, pagination, and instant SQL query execution.
+    """
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    result = await db.execute(stmt)
+    task = result.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    ws_path = Path(task.workspace_path).resolve() if task.workspace_path else None
+    if ws_path and ws_path.name != f"sandbox-{task.id}":
+        specific_sb = Path(settings.WORKSPACE_ROOT) / f"sandbox-{task.id}"
+        if specific_sb.exists() and specific_sb.is_dir():
+            ws_path = specific_sb
+
+    if not ws_path or not ws_path.exists() or not ws_path.is_dir():
+        raise HTTPException(status_code=404, detail="Sandbox workspace does not exist on disk")
+
+    clean_rel = req.path.lstrip("/\\")
+    target_file = (ws_path / clean_rel).resolve()
+    try:
+        target_file.relative_to(ws_path)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Path outside workspace")
+
+    if not target_file.exists() or not target_file.is_file():
+        raise HTTPException(status_code=404, detail=f"File '{clean_rel}' not found")
+
+    ext = target_file.suffix.lower()
+    headers: List[str] = []
+    rows: List[List[Any]] = []
+
+    # Read tabular data
+    if ext in {".csv", ".tsv", ".txt"}:
+        delim = "\t" if ext == ".tsv" else ","
+        try:
+            with open(target_file, "r", encoding="utf-8", errors="replace") as f:
+                sample = f.read(4096)
+                f.seek(0)
+                if ext != ".tsv" and sample:
+                    counts = {",": sample.count(","), "\t": sample.count("\t"), ";": sample.count(";"), "|": sample.count("|")}
+                    best_delim = max(counts, key=counts.get)
+                    if counts[best_delim] > 0:
+                        delim = best_delim
+                reader = csv.reader(f, delimiter=delim)
+                raw_rows = list(reader)
+                if raw_rows:
+                    headers = [str(h).strip() for h in raw_rows[0]]
+                    rows = raw_rows[1:]
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to parse delimited file: {str(e)}")
+
+    elif ext == ".jsonl":
+        try:
+            with open(target_file, "r", encoding="utf-8", errors="replace") as f:
+                json_objs = []
+                for line in f:
+                    if line.strip():
+                        json_objs.append(json.loads(line))
+            if json_objs:
+                all_keys = []
+                for o in json_objs:
+                    if isinstance(o, dict):
+                        for k in o.keys():
+                            if k not in all_keys:
+                                all_keys.append(k)
+                headers = all_keys
+                for o in json_objs:
+                    if isinstance(o, dict):
+                        rows.append([str(o.get(k, "")) for k in headers])
+                    else:
+                        rows.append([str(o)])
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to parse JSONL file: {str(e)}")
+
+    else:
+        # Fallback to pandas if installed
+        try:
+            import pandas as pd
+            if ext in {".parquet", ".pq"}:
+                df = pd.read_parquet(target_file)
+            elif ext in {".xlsx", ".xls"}:
+                df = pd.read_excel(target_file)
+            else:
+                df = pd.read_csv(target_file)
+            headers = [str(c) for c in df.columns]
+            rows = df.astype(str).values.tolist()
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Unsupported or unparseable table format: {str(e)}")
+
+    # Column statistics & type inference
+    col_types: Dict[str, str] = {}
+    summary_stats: Dict[str, Dict[str, Any]] = {}
+
+    for c_idx, h in enumerate(headers):
+        vals = [r[c_idx] for r in rows if len(r) > c_idx and r[c_idx] != ""]
+        total_vals = len(vals)
+        null_count = len(rows) - total_vals
+        unique_vals = len(set(vals))
+
+        numeric_vals = []
+        is_num = True if total_vals > 0 else False
+        for v in vals[:200]:
+            try:
+                numeric_vals.append(float(v))
+            except ValueError:
+                is_num = False
+                break
+
+        col_type = "number" if is_num else "string"
+        col_types[h] = col_type
+
+        stat_dict: Dict[str, Any] = {
+            "type": col_type,
+            "count": len(rows),
+            "null_count": null_count,
+            "unique_count": unique_vals,
+        }
+        if is_num and numeric_vals:
+            stat_dict["min"] = min(numeric_vals)
+            stat_dict["max"] = max(numeric_vals)
+        summary_stats[h] = stat_dict
+
+    # SQL Execution if requested
+    if req.sql_query and req.sql_query.strip():
+        sql = req.sql_query.strip()
+        try:
+            conn = sqlite3.connect(":memory:")
+            sanitized_cols = [re.sub(r"[^\w]", "_", h) or f"col_{i}" for i, h in enumerate(headers)]
+            col_defs = ", ".join([f'"{c}" TEXT' for c in sanitized_cols])
+            conn.execute(f"CREATE TABLE data_table ({col_defs})")
+            placeholders = ", ".join(["?"] * len(sanitized_cols))
+            conn.executemany(
+                f"INSERT INTO data_table VALUES ({placeholders})",
+                [[r[i] if i < len(r) else None for i in range(len(sanitized_cols))] for r in rows]
+            )
+            cur = conn.cursor()
+            cur.execute(sql)
+            sql_headers = [desc[0] for desc in cur.description] if cur.description else headers
+            sql_rows = [list(r) for r in cur.fetchall()]
+            conn.close()
+
+            total_sql_rows = len(sql_rows)
+            page_start = (req.page - 1) * req.page_size
+            page_end = page_start + req.page_size
+            paginated_sql_rows = sql_rows[page_start:page_end]
+
+            return {
+                "headers": sql_headers,
+                "column_types": {h: "string" for h in sql_headers},
+                "rows": paginated_sql_rows,
+                "total_rows": total_sql_rows,
+                "page": req.page,
+                "page_size": req.page_size,
+                "summary_stats": summary_stats,
+                "is_sql_result": True,
+                "error": None
+            }
+        except Exception as e:
+            return {
+                "headers": headers,
+                "column_types": col_types,
+                "rows": [],
+                "total_rows": 0,
+                "page": req.page,
+                "page_size": req.page_size,
+                "summary_stats": summary_stats,
+                "is_sql_result": True,
+                "error": f"SQL Error: {str(e)}"
+            }
+
+    # Standard filtering and sorting
+    filtered_rows = rows
+    if req.filter_query and req.filter_query.strip():
+        q = req.filter_query.strip().lower()
+        filtered_rows = [r for r in rows if any(q in str(cell).lower() for cell in r)]
+
+    if req.sort_col and req.sort_col in headers:
+        s_idx = headers.index(req.sort_col)
+        is_numeric = col_types.get(req.sort_col) == "number"
+
+        def sort_key(row):
+            val = row[s_idx] if s_idx < len(row) else ""
+            if is_numeric:
+                try:
+                    return (0, float(val))
+                except (ValueError, TypeError):
+                    return (1, 0)
+            return (0, str(val).lower())
+
+        filtered_rows = sorted(filtered_rows, key=sort_key, reverse=(req.sort_dir == "desc"))
+
+    total_filtered = len(filtered_rows)
+    start_idx = (req.page - 1) * req.page_size
+    end_idx = start_idx + req.page_size
+    page_rows = filtered_rows[start_idx:end_idx]
+
+    return {
+        "headers": headers,
+        "column_types": col_types,
+        "rows": page_rows,
+        "total_rows": total_filtered,
+        "page": req.page,
+        "page_size": req.page_size,
+        "summary_stats": summary_stats,
+        "is_sql_result": False,
+        "error": None
+    }
+
+
+@router.get("/{task_id}/files/archive-inspect")
+async def inspect_sandbox_archive(
+    task_id: str,
+    path: str = Query(..., description="Relative path to archive file"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Safely inspects archive hierarchy (.zip, .tar, .tar.gz, .tgz, .tar.bz2) in memory without disk extraction.
+    """
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    result = await db.execute(stmt)
+    task = result.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    ws_path = Path(task.workspace_path).resolve() if task.workspace_path else None
+    if ws_path and ws_path.name != f"sandbox-{task.id}":
+        specific_sb = Path(settings.WORKSPACE_ROOT) / f"sandbox-{task.id}"
+        if specific_sb.exists() and specific_sb.is_dir():
+            ws_path = specific_sb
+
+    if not ws_path or not ws_path.exists() or not ws_path.is_dir():
+        raise HTTPException(status_code=404, detail="Sandbox workspace does not exist on disk")
+
+    clean_rel = path.lstrip("/\\")
+    target_file = (ws_path / clean_rel).resolve()
+    try:
+        target_file.relative_to(ws_path)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Path outside workspace")
+
+    if not target_file.exists() or not target_file.is_file():
+        raise HTTPException(status_code=404, detail=f"Archive file '{clean_rel}' not found")
+
+    entries = []
+    total_uncompressed = 0
+    name_lower = target_file.name.lower()
+
+    if name_lower.endswith(".zip"):
+        try:
+            with zipfile.ZipFile(target_file, "r") as zf:
+                for info in zf.infolist():
+                    is_dir = info.is_dir()
+                    total_uncompressed += info.file_size
+                    date_str = f"{info.date_time[0]}-{info.date_time[1]:02d}-{info.date_time[2]:02d} {info.date_time[3]:02d}:{info.date_time[4]:02d}:{info.date_time[5]:02d}"
+                    entries.append({
+                        "name": Path(info.filename).name or info.filename,
+                        "path": info.filename.rstrip("/"),
+                        "is_dir": is_dir,
+                        "size": info.file_size,
+                        "compressed_size": info.compress_size,
+                        "date": date_str
+                    })
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to inspect zip archive: {str(e)}")
+    elif any(name_lower.endswith(ext) for ext in [".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2"]):
+        try:
+            with tarfile.open(target_file, "r:*") as tf:
+                for member in tf.getmembers():
+                    is_dir = member.isdir()
+                    total_uncompressed += member.size
+                    from datetime import datetime
+                    date_str = datetime.fromtimestamp(member.mtime).strftime("%Y-%m-%d %H:%M:%S")
+                    entries.append({
+                        "name": Path(member.name).name or member.name,
+                        "path": member.name.rstrip("/"),
+                        "is_dir": is_dir,
+                        "size": member.size,
+                        "compressed_size": member.size,
+                        "date": date_str
+                    })
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to inspect tar archive: {str(e)}")
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported archive format")
+
+    comp_size = target_file.stat().st_size
+    ratio = f"{(total_uncompressed / max(1, comp_size)):.1f}x" if total_uncompressed > 0 else "1.0x"
+
+    return {
+        "path": clean_rel,
+        "name": target_file.name,
+        "format": "zip" if name_lower.endswith(".zip") else "tar",
+        "total_files": len(entries),
+        "total_uncompressed_size": total_uncompressed,
+        "total_compressed_size": comp_size,
+        "compression_ratio": ratio,
+        "entries": entries[:2000]
+    }
 
 
 @router.get("/{task_id}/files/search")

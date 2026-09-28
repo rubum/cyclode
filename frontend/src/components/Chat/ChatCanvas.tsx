@@ -48,7 +48,8 @@ import {
   ShieldCheck,
   Compass,
   Plus,
-  GitCompare
+  GitCompare,
+  Paperclip
 } from 'lucide-react';
 import { Task, TaskMessage, TaskLog, RepositoryConfig, TaskPR, WorkspacePreviewInfo, TaskPlan, LayoutPreset } from '../../types';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
@@ -56,6 +57,25 @@ import { FormattedLogView } from '../Common/FormattedLogView';
 import { SandboxInspectorModal } from '../Sandbox/SandboxInspectorModal';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+}
+
+export interface ChatAttachment {
+  id: string;
+  file: File;
+  name: string;
+  size: number;
+  status: 'uploading' | 'ready' | 'error';
+  path?: string;
+  category?: string;
+  error?: string;
+}
 
 export function extractPlanHighlightsFromMarkdown(text: string): { title: string; overview: string; phases: string[] } {
   const lines = text.split('\n').map(l => l.trim());
@@ -779,8 +799,61 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const chatFileInputRef = useRef<HTMLInputElement>(null);
   const isAutoScrollEnabledRef = useRef<boolean>(true);
   const scrollRafRef = useRef<number | null>(null);
+
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [isDraggingInput, setIsDraggingInput] = useState<boolean>(false);
+
+  const handleAttachFiles = async (files: FileList | File[]) => {
+    if (!files || files.length === 0) return;
+    const newItems: ChatAttachment[] = Array.from(files).map((f) => ({
+      id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+      file: f,
+      name: f.name,
+      size: f.size,
+      status: task?.id ? 'uploading' : 'ready',
+    }));
+    setAttachments((prev) => [...prev, ...newItems]);
+
+    if (task?.id) {
+      for (const item of newItems) {
+        const formData = new FormData();
+        formData.append('files', item.file);
+        formData.append('target_type', 'attachment');
+        try {
+          const res = await fetch(`${API_BASE}/api/tasks/${task.id}/files/upload`, {
+            method: 'POST',
+            body: formData,
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const rec = data.uploaded?.[0];
+            setAttachments((prev) =>
+              prev.map((a) =>
+                a.id === item.id
+                  ? { ...a, status: 'ready', path: rec?.path, category: rec?.category }
+                  : a
+              )
+            );
+          } else {
+            setAttachments((prev) =>
+              prev.map((a) => (a.id === item.id ? { ...a, status: 'error', error: 'Upload failed' } : a))
+            );
+          }
+        } catch (e: any) {
+          setAttachments((prev) =>
+            prev.map((a) => (a.id === item.id ? { ...a, status: 'error', error: e.message } : a))
+          );
+        }
+      }
+    }
+  };
+
+  const handleRemoveAttachment = (id: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  };
 
   const isRunning = task?.status === 'RUNNING' || task?.status === 'INITIALIZING';
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1219,13 +1292,23 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     scrollToBottom(true);
     setIsSubmitting(true);
 
+    const readyAttachments = attachments.filter((a) => a.status === 'ready');
+    let promptWithAttachments = trimmed;
+    if (readyAttachments.length > 0) {
+      const attachNotes = readyAttachments
+        .map((a) => `[Uploaded Attachment: ${a.path || a.name} (${formatBytes(a.size)})]`)
+        .join('\n');
+      promptWithAttachments = `${trimmed}\n\n${attachNotes}`;
+    }
+
     try {
       if (task) {
-        await onSendMessage(trimmed, selectedModel);
+        await onSendMessage(promptWithAttachments, selectedModel);
       } else if (onNewChatWithPrompt) {
-        await onNewChatWithPrompt(trimmed, selectedPersona, selectedModel);
+        await onNewChatWithPrompt(promptWithAttachments, selectedPersona, selectedModel);
       }
       setInputValue('');
+      setAttachments([]);
     } catch (err) {
       console.error('Error submitting message:', err);
       setIsSubmitting(false);
@@ -3089,7 +3172,80 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               </div>
             </div>
 
-            <div className="flex items-end space-x-2 bg-onedark-darker border border-onedark-border rounded-xl px-3.5 py-2 focus-within:border-onedark-accent/80 focus-within:ring-1 focus-within:ring-onedark-accent/20 transition-all shadow-inner min-h-[46px]">
+            {/* Attachment Pills Container */}
+            {attachments.length > 0 && (
+              <div className="flex items-center gap-1.5 overflow-x-auto py-1 px-1 flex-wrap">
+                {attachments.map((att) => (
+                  <div
+                    key={att.id}
+                    className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-surface/80 border border-onedark-borderSubtle text-[11px] font-mono text-onedark-fg shadow-2xs"
+                  >
+                    <Paperclip className="w-3 h-3 text-onedark-accent flex-shrink-0" />
+                    <span className="truncate max-w-[150px] font-semibold">{att.name}</span>
+                    <span className="text-onedark-muted/70 text-[10px]">({formatBytes(att.size)})</span>
+                    {att.status === 'uploading' ? (
+                      <Loader2 className="w-3 h-3 animate-spin text-onedark-accent" />
+                    ) : att.status === 'error' ? (
+                      <span className="text-onedark-red font-bold text-[10px]" title={att.error}>!</span>
+                    ) : (
+                      <Check className="w-3 h-3 text-onedark-green" />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveAttachment(att.id)}
+                      className="text-onedark-muted hover:text-onedark-fg cursor-pointer p-0.5"
+                      title="Remove attachment"
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Hidden file input for chat attachments */}
+            <input
+              ref={chatFileInputRef}
+              type="file"
+              multiple
+              onChange={(e) => {
+                if (e.target.files && e.target.files.length > 0) {
+                  handleAttachFiles(e.target.files);
+                }
+              }}
+              className="hidden"
+            />
+
+            <div 
+              onDragOver={(e) => {
+                e.preventDefault();
+                setIsDraggingInput(true);
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                setIsDraggingInput(false);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setIsDraggingInput(false);
+                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                  handleAttachFiles(e.dataTransfer.files);
+                }
+              }}
+              className={`flex items-end space-x-2 bg-onedark-darker border border-onedark-border rounded-xl px-3.5 py-2 focus-within:border-onedark-accent/80 focus-within:ring-1 focus-within:ring-onedark-accent/20 transition-all shadow-inner min-h-[46px] relative ${
+                isDraggingInput ? 'ring-2 ring-onedark-accent border-onedark-accent bg-onedark-surface/30' : ''
+              }`}
+            >
+              {/* Paperclip attach button */}
+              <button
+                type="button"
+                onClick={() => chatFileInputRef.current?.click()}
+                className="h-8 w-8 rounded-lg text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/80 flex items-center justify-center transition-colors cursor-pointer mb-0.5 flex-shrink-0"
+                title="Attach file(s) (CSV, TSV, Parquet, JSON, Notebooks, Images, Archives, PDFs)"
+              >
+                <Paperclip className="w-4 h-4" />
+              </button>
+
               <div className="relative flex-1 min-h-[36px] max-h-[220px] flex items-center">
                 {/* Highlight backdrop overlay */}
                 {inputValue && (
@@ -3144,7 +3300,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               ) : (
                 <button
                   type="submit"
-                  disabled={!inputValue.trim()}
+                  disabled={!inputValue.trim() && attachments.length === 0}
                   className="h-9 w-9 rounded-xl bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-sm flex items-center justify-center flex-shrink-0 active:scale-95 cursor-pointer mb-0.5"
                   title="Send message (Enter ↵)"
                 >

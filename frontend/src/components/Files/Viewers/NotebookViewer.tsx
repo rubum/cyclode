@@ -1,0 +1,502 @@
+import React, { useState, useMemo } from 'react';
+import { 
+  BookOpen, 
+  Code2, 
+  FileText, 
+  Play, 
+  Copy, 
+  Check, 
+  Search, 
+  Layers, 
+  AlertCircle, 
+  Image as ImageIcon, 
+  Download, 
+  ChevronRight, 
+  ChevronDown,
+  Terminal,
+  Cpu,
+  Sparkles,
+  Braces
+} from 'lucide-react';
+import { highlightCode } from '../../../utils/syntaxHighlighter';
+import { MarkdownRenderer } from '../../Common/MarkdownRenderer';
+
+interface NotebookViewerProps {
+  content: string;
+  filePath: string;
+  rawUrl: string;
+}
+
+interface NotebookCellOutput {
+  output_type: string;
+  name?: string;
+  text?: string | string[];
+  data?: Record<string, any>;
+  execution_count?: number | null;
+  ename?: string;
+  evalue?: string;
+  traceback?: string[];
+}
+
+interface NotebookCell {
+  cell_type: 'code' | 'markdown' | 'raw';
+  source: string | string[];
+  execution_count?: number | null;
+  outputs?: NotebookCellOutput[];
+  metadata?: Record<string, any>;
+}
+
+interface NotebookData {
+  cells: NotebookCell[];
+  metadata?: {
+    kernelspec?: {
+      display_name?: string;
+      language?: string;
+      name?: string;
+    };
+    language_info?: {
+      name?: string;
+      version?: string;
+    };
+  };
+  nbformat?: number;
+  nbformat_minor?: number;
+}
+
+// Strip ANSI escape sequences for cleaner traceback display
+function cleanAnsi(text: string): string {
+  return text.replace(/\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g, '');
+}
+
+function normalizeSource(source: string | string[] | undefined): string {
+  if (!source) return '';
+  if (Array.isArray(source)) {
+    return source.join('');
+  }
+  return String(source);
+}
+
+export const NotebookViewer: React.FC<NotebookViewerProps> = ({
+  content,
+  filePath,
+  rawUrl,
+}) => {
+  const [filterType, setFilterType] = useState<'all' | 'code' | 'markdown'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showRawJson, setShowRawJson] = useState(false);
+  const [copiedCellIndex, setCopiedCellIndex] = useState<number | null>(null);
+  const [collapsedOutputs, setCollapsedOutputs] = useState<Record<number, boolean>>({});
+
+  // Parse notebook JSON
+  const { notebook, parseError } = useMemo(() => {
+    try {
+      const parsed = JSON.parse(content) as NotebookData;
+      if (!parsed || !Array.isArray(parsed.cells)) {
+        return { notebook: null, parseError: 'Invalid notebook schema: missing cells array' };
+      }
+      return { notebook: parsed, parseError: null };
+    } catch (e: any) {
+      return { notebook: null, parseError: e?.message || 'Failed to parse notebook JSON' };
+    }
+  }, [content]);
+
+  const kernelName = notebook?.metadata?.kernelspec?.display_name || 
+    notebook?.metadata?.language_info?.name || 'Python 3';
+  const language = notebook?.metadata?.language_info?.name || 'python';
+
+  const cells = notebook?.cells || [];
+
+  // Filter cells
+  const filteredCells = useMemo(() => {
+    return cells.map((cell, idx) => ({ cell, originalIndex: idx })).filter(({ cell }) => {
+      if (filterType !== 'all' && cell.cell_type !== filterType) {
+        return false;
+      }
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const src = normalizeSource(cell.source).toLowerCase();
+        const matchesSource = src.includes(q);
+        const matchesOutput = (cell.outputs || []).some(o => {
+          if (o.text) return normalizeSource(o.text).toLowerCase().includes(q);
+          if (o.data) {
+            const plain = o.data['text/plain'] ? normalizeSource(o.data['text/plain']).toLowerCase() : '';
+            return plain.includes(q);
+          }
+          return false;
+        });
+        return matchesSource || matchesOutput;
+      }
+      return true;
+    });
+  }, [cells, filterType, searchQuery]);
+
+  const stats = useMemo(() => {
+    let codeCount = 0;
+    let markdownCount = 0;
+    cells.forEach(c => {
+      if (c.cell_type === 'code') codeCount++;
+      else if (c.cell_type === 'markdown') markdownCount++;
+    });
+    return { codeCount, markdownCount, total: cells.length };
+  }, [cells]);
+
+  const handleCopySource = (text: string, idx: number) => {
+    navigator.clipboard.writeText(text);
+    setCopiedCellIndex(idx);
+    setTimeout(() => setCopiedCellIndex(null), 2000);
+  };
+
+  const toggleOutputCollapse = (idx: number) => {
+    setCollapsedOutputs(prev => ({ ...prev, [idx]: !prev[idx] }));
+  };
+
+  if (parseError) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-onedark-muted font-sans space-y-4">
+        <AlertCircle className="w-12 h-12 text-onedark-red flex-shrink-0" />
+        <div className="max-w-md">
+          <h3 className="text-sm font-semibold text-onedark-fg">Failed to Parse Jupyter Notebook</h3>
+          <p className="text-xs text-onedark-muted mt-1 font-mono">{parseError}</p>
+        </div>
+        <a
+          href={`${rawUrl}&download=true`}
+          download={filePath.split('/').pop()}
+          className="px-3.5 py-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fg text-xs font-semibold transition-colors border border-onedark-borderSubtle"
+        >
+          Download .ipynb file
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full flex flex-col bg-onedark-bg font-sans overflow-hidden select-text">
+      {/* Notebook Toolbar */}
+      <div className="px-3.5 py-2 bg-onedark-darker/90 border-b border-onedark-borderSubtle flex items-center justify-between flex-shrink-0 text-xs gap-3 select-none flex-wrap">
+        {/* Left: Summary & Search */}
+        <div className="flex items-center space-x-3 flex-1 min-w-0">
+          <div className="flex items-center space-x-2 font-mono text-[11.5px] text-onedark-muted flex-shrink-0">
+            <BookOpen className="w-4 h-4 text-onedark-yellow flex-shrink-0" />
+            <span className="font-semibold text-onedark-fg">{stats.total} cells</span>
+            <span className="text-onedark-border">·</span>
+            <span className="text-onedark-blue">{stats.codeCount} code</span>
+            <span className="text-onedark-border">·</span>
+            <span className="text-onedark-purple">{stats.markdownCount} md</span>
+          </div>
+
+          <div className="flex items-center space-x-1.5 bg-onedark-surface/80 px-2 py-0.5 rounded-md border border-onedark-borderSubtle/60 text-[11px] text-onedark-muted font-mono flex-shrink-0">
+            <Cpu className="w-3.5 h-3.5 text-onedark-green" />
+            <span>{kernelName}</span>
+          </div>
+
+          <div className="relative flex items-center flex-1 max-w-xs">
+            <Search className="w-3.5 h-3.5 text-onedark-muted absolute left-2 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Filter cells & outputs..."
+              className="w-full bg-onedark-surface/60 border border-transparent focus:border-onedark-accent/60 rounded-md pl-7 pr-3 py-1 text-[11.5px] text-onedark-fg font-mono focus:outline-none placeholder:text-onedark-muted/60"
+            />
+          </div>
+        </div>
+
+        {/* Right: Filter & Actions */}
+        <div className="flex items-center space-x-2 flex-shrink-0">
+          {/* Cell Type Filter */}
+          <div className="flex items-center space-x-1 bg-onedark-surface/60 p-0.5 rounded-md border border-onedark-borderSubtle/60 text-[11px] font-mono">
+            <button
+              type="button"
+              onClick={() => setFilterType('all')}
+              className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
+                filterType === 'all' ? 'bg-onedark-accent/20 text-onedark-accent font-semibold' : 'text-onedark-muted hover:text-onedark-fg'
+              }`}
+            >
+              All
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterType('code')}
+              className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
+                filterType === 'code' ? 'bg-onedark-accent/20 text-onedark-accent font-semibold' : 'text-onedark-muted hover:text-onedark-fg'
+              }`}
+            >
+              Code
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilterType('markdown')}
+              className={`px-2 py-0.5 rounded transition-colors cursor-pointer ${
+                filterType === 'markdown' ? 'bg-onedark-accent/20 text-onedark-accent font-semibold' : 'text-onedark-muted hover:text-onedark-fg'
+              }`}
+            >
+              Markdown
+            </button>
+          </div>
+
+          {/* Raw JSON toggle */}
+          <button
+            type="button"
+            onClick={() => setShowRawJson(v => !v)}
+            className={`flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-mono transition-colors border border-onedark-borderSubtle cursor-pointer ${
+              showRawJson ? 'bg-onedark-accent/20 text-onedark-accent border-onedark-accent/40 font-semibold' : 'bg-onedark-surface/60 text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface'
+            }`}
+            title="Toggle raw JSON view"
+          >
+            <Braces className="w-3.5 h-3.5" />
+            <span>JSON</span>
+          </button>
+
+          {/* Download Raw */}
+          <a
+            href={`${rawUrl}&download=true`}
+            download={filePath.split('/').pop()}
+            className="p-1 rounded-md bg-onedark-surface/60 hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg border border-onedark-borderSubtle transition-colors cursor-pointer"
+            title="Download notebook file"
+          >
+            <Download className="w-3.5 h-3.5" />
+          </a>
+        </div>
+      </div>
+
+      {/* Notebook Content Container */}
+      {showRawJson ? (
+        <div className="flex-1 overflow-auto p-4 font-mono text-[12px] bg-onedark-bg">
+          <pre className="text-onedark-fg leading-relaxed">
+            <code>{content}</code>
+          </pre>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-auto p-4 md:p-6 space-y-4 [scrollbar-gutter:stable]">
+          {filteredCells.length === 0 ? (
+            <div className="py-16 text-center text-onedark-muted font-mono text-xs">
+              {searchQuery ? 'No matching notebook cells found.' : 'Notebook has no cells.'}
+            </div>
+          ) : (
+            filteredCells.map(({ cell, originalIndex }) => {
+              const sourceText = normalizeSource(cell.source);
+              const isCopied = copiedCellIndex === originalIndex;
+              const isOutputsCollapsed = !!collapsedOutputs[originalIndex];
+
+              if (cell.cell_type === 'markdown') {
+                return (
+                  <div
+                    key={originalIndex}
+                    className="group relative flex rounded-xl border border-onedark-borderSubtle/50 hover:border-onedark-borderSubtle bg-onedark-surface/20 hover:bg-onedark-surface/30 transition-all overflow-hidden p-4 md:p-5"
+                  >
+                    {/* Left Gutter */}
+                    <div className="select-none font-mono text-[11px] text-onedark-muted/40 w-14 flex-shrink-0 pt-0.5 flex items-start space-x-1">
+                      <FileText className="w-3.5 h-3.5 text-onedark-muted/40 group-hover:text-onedark-purple transition-colors" />
+                    </div>
+
+                    {/* Markdown Body */}
+                    <div className="flex-1 min-w-0">
+                      <MarkdownRenderer content={sourceText} />
+                    </div>
+
+                    {/* Copy Button on hover */}
+                    <button
+                      type="button"
+                      onClick={() => handleCopySource(sourceText, originalIndex)}
+                      className="opacity-0 group-hover:opacity-100 transition-opacity absolute top-3 right-3 p-1.5 rounded-lg bg-onedark-darker/90 hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg border border-onedark-borderSubtle/80 cursor-pointer shadow-xs"
+                      title="Copy Markdown Source"
+                    >
+                      {isCopied ? <Check className="w-3.5 h-3.5 text-onedark-green" /> : <Copy className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                );
+              }
+
+              // Code Cell
+              const execCount = cell.execution_count != null ? cell.execution_count : ' ';
+              const hasOutputs = cell.outputs && cell.outputs.length > 0;
+
+              return (
+                <div
+                  key={originalIndex}
+                  className="group relative rounded-xl border border-onedark-borderSubtle/80 bg-onedark-darker/70 overflow-hidden shadow-xs hover:border-onedark-borderSubtle transition-all"
+                >
+                  {/* Code Input Box */}
+                  <div className="flex bg-onedark-surface/30 border-b border-onedark-borderSubtle/40">
+                    {/* In [X]: Execution Badge */}
+                    <div className="select-none font-mono text-[11.5px] text-onedark-blue/80 w-16 min-w-[4rem] text-right pr-3 pt-3.5 font-semibold flex-shrink-0">
+                      In [{execCount}]:
+                    </div>
+
+                    {/* Code Syntax Highlight */}
+                    <div className="flex-1 min-w-0 p-3 pt-3 font-mono text-[12.5px] leading-[20px] overflow-x-auto selection:bg-onedark-accent/30 relative">
+                      <pre className="text-onedark-fg m-0 font-mono">
+                        <code
+                          className={`language-${language}`}
+                          dangerouslySetInnerHTML={{
+                            __html: highlightCode(sourceText, language) || ' ',
+                          }}
+                        />
+                      </pre>
+                    </div>
+
+                    {/* Top Right Copy Button */}
+                    <div className="pt-2 pr-2 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleCopySource(sourceText, originalIndex)}
+                        className="p-1.5 rounded-md bg-onedark-darker/80 hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg border border-onedark-borderSubtle cursor-pointer transition-colors"
+                        title="Copy code cell"
+                      >
+                        {isCopied ? <Check className="w-3.5 h-3.5 text-onedark-green" /> : <Copy className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Cell Outputs */}
+                  {hasOutputs && (
+                    <div className="flex flex-col bg-onedark-bg/80 border-t border-onedark-borderSubtle/30">
+                      {/* Output Header / Collapse Bar if output is large */}
+                      <div className="flex items-center justify-between px-3 py-1 bg-onedark-darker/40 border-b border-onedark-borderSubtle/20 text-[10.5px] font-mono text-onedark-muted select-none">
+                        <div className="flex items-center space-x-2">
+                          <button
+                            type="button"
+                            onClick={() => toggleOutputCollapse(originalIndex)}
+                            className="flex items-center space-x-1 hover:text-onedark-fg cursor-pointer"
+                          >
+                            <ChevronRight className={`w-3 h-3 transition-transform ${!isOutputsCollapsed ? 'rotate-90' : ''}`} />
+                            <span>{isOutputsCollapsed ? 'Show Output' : 'Output'}</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {!isOutputsCollapsed && (
+                        <div className="p-3 md:p-4 space-y-3 font-mono text-[12px]">
+                          {cell.outputs!.map((out, outIdx) => {
+                            // Stream stdout / stderr
+                            if (out.output_type === 'stream') {
+                              const text = normalizeSource(out.text);
+                              const isStderr = out.name === 'stderr';
+                              return (
+                                <div
+                                  key={outIdx}
+                                  className={`rounded-lg p-2.5 overflow-x-auto leading-relaxed ${
+                                    isStderr
+                                      ? 'bg-onedark-red/10 text-onedark-red border border-onedark-red/30'
+                                      : 'bg-onedark-darker/90 text-onedark-fg border border-onedark-borderSubtle/40'
+                                  }`}
+                                >
+                                  <pre className="m-0 font-mono text-[11.5px] whitespace-pre-wrap break-all">
+                                    {cleanAnsi(text)}
+                                  </pre>
+                                </div>
+                              );
+                            }
+
+                            // Error / Traceback
+                            if (out.output_type === 'error') {
+                              const tb = (out.traceback || []).map(cleanAnsi).join('\n');
+                              return (
+                                <div
+                                  key={outIdx}
+                                  className="rounded-lg p-3 bg-onedark-red/10 border border-onedark-red/40 text-onedark-red overflow-x-auto"
+                                >
+                                  <div className="font-bold text-[12px] mb-1">
+                                    {out.ename}: {out.evalue}
+                                  </div>
+                                  <pre className="m-0 font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-all text-onedark-fg/90">
+                                    {tb}
+                                  </pre>
+                                </div>
+                              );
+                            }
+
+                            // Display Data / Execute Result (Images, HTML, Plain text)
+                            if (out.output_type === 'display_data' || out.output_type === 'execute_result') {
+                              const data = out.data || {};
+
+                              // Image (PNG / JPEG / WebP / SVG)
+                              if (data['image/png'] || data['image/jpeg'] || data['image/webp']) {
+                                const mime = data['image/png'] ? 'image/png' : data['image/jpeg'] ? 'image/jpeg' : 'image/webp';
+                                const b64 = data[mime];
+                                const src = `data:${mime};base64,${b64}`;
+                                return (
+                                  <div key={outIdx} className="my-2 bg-white/95 rounded-xl p-3 flex flex-col items-center justify-center border border-onedark-borderSubtle shadow-xs">
+                                    <img
+                                      src={src}
+                                      alt={`Cell Output Plot ${outIdx + 1}`}
+                                      className="max-w-full h-auto rounded object-contain"
+                                    />
+                                    <div className="mt-2 flex items-center justify-end w-full">
+                                      <a
+                                        href={src}
+                                        download={`plot_cell_${originalIndex + 1}_${outIdx + 1}.png`}
+                                        className="flex items-center space-x-1 text-[11px] text-slate-700 hover:text-slate-950 font-mono px-2 py-0.5 bg-slate-100 hover:bg-slate-200 rounded border border-slate-300 transition-colors"
+                                      >
+                                        <Download className="w-3 h-3" />
+                                        <span>Download Plot</span>
+                                      </a>
+                                    </div>
+                                  </div>
+                                );
+                              }
+
+                              if (data['image/svg+xml']) {
+                                const svg = normalizeSource(data['image/svg+xml']);
+                                return (
+                                  <div
+                                    key={outIdx}
+                                    className="my-2 bg-white/95 rounded-xl p-3 overflow-x-auto flex items-center justify-center border border-onedark-borderSubtle"
+                                    dangerouslySetInnerHTML={{ __html: svg }}
+                                  />
+                                );
+                              }
+
+                              // HTML (e.g. Pandas DataFrame)
+                              if (data['text/html']) {
+                                const html = normalizeSource(data['text/html']);
+                                return (
+                                  <div
+                                    key={outIdx}
+                                    className="my-2 overflow-x-auto rounded-lg bg-onedark-surface/40 p-2 border border-onedark-borderSubtle/60 text-onedark-fg [scrollbar-gutter:stable]"
+                                    dangerouslySetInnerHTML={{ __html: html }}
+                                  />
+                                );
+                              }
+
+                              // LaTeX Math
+                              if (data['text/latex']) {
+                                const latex = normalizeSource(data['text/latex']);
+                                return (
+                                  <div key={outIdx} className="my-2">
+                                    <MarkdownRenderer content={`$$${latex}$$`} />
+                                  </div>
+                                );
+                              }
+
+                              // Plain text fallback
+                              if (data['text/plain']) {
+                                const text = normalizeSource(data['text/plain']);
+                                return (
+                                  <div
+                                    key={outIdx}
+                                    className="rounded-lg p-2.5 bg-onedark-darker/90 text-onedark-fg border border-onedark-borderSubtle/40 overflow-x-auto"
+                                  >
+                                    <pre className="m-0 font-mono text-[11.5px] leading-relaxed whitespace-pre-wrap break-all">
+                                      {cleanAnsi(text)}
+                                    </pre>
+                                  </div>
+                                );
+                              }
+                            }
+
+                            return null;
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+      )}
+    </div>
+  );
+};

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Table, 
   Search, 
@@ -10,16 +10,35 @@ import {
   Download,
   Filter,
   Layers,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Terminal,
+  Play,
+  RotateCcw,
+  Sparkles,
+  Info,
+  ChevronDown
 } from 'lucide-react';
 
 interface DataTableViewProps {
+  taskId?: string;
   content: string;
   filePath: string;
   rawUrl: string;
 }
 
+interface ColumnStat {
+  type: string;
+  count: number;
+  null_count: number;
+  unique_count: number;
+  min?: number;
+  max?: number;
+}
+
+const API_BASE = import.meta.env.VITE_API_URL || '';
+
 export const DataTableView: React.FC<DataTableViewProps> = ({
+  taskId,
   content,
   filePath,
   rawUrl,
@@ -30,6 +49,16 @@ export const DataTableView: React.FC<DataTableViewProps> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(50);
   const [manualDelimiter, setManualDelimiter] = useState<string>('auto');
+
+  // SQL Query state
+  const [sqlQuery, setSqlQuery] = useState<string>('');
+  const [isSqlMode, setIsSqlMode] = useState<boolean>(false);
+  const [sqlRunning, setSqlRunning] = useState<boolean>(false);
+  const [sqlHeaders, setSqlHeaders] = useState<string[]>([]);
+  const [sqlRows, setSqlRows] = useState<any[][]>([]);
+  const [sqlError, setSqlError] = useState<string | null>(null);
+  const [serverStats, setServerStats] = useState<Record<string, ColumnStat>>({});
+  const [showStats, setShowStats] = useState<boolean>(false);
 
   // Detect delimiter from content
   const detectedDelimiter = useMemo(() => {
@@ -54,7 +83,7 @@ export const DataTableView: React.FC<DataTableViewProps> = ({
   }, [content, filePath, manualDelimiter]);
 
   // Robust CSV/TSV parser supporting quotes
-  const { headers, rows } = useMemo(() => {
+  const { headers: clientHeaders, rows: clientRows } = useMemo(() => {
     if (!content.trim()) return { headers: [], rows: [] };
     const delim = detectedDelimiter;
 
@@ -94,12 +123,61 @@ export const DataTableView: React.FC<DataTableViewProps> = ({
     };
   }, [content, detectedDelimiter]);
 
+  // Execute SQL Query on backend
+  const handleExecuteSql = async () => {
+    if (!taskId || !sqlQuery.trim()) return;
+    setSqlRunning(true);
+    setSqlError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/tasks/${taskId}/files/query-table`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          path: filePath,
+          sql_query: sqlQuery.trim(),
+          page: 1,
+          page_size: 500,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `Query failed (HTTP ${res.status})`);
+      }
+      const data = await res.json();
+      if (data.error) {
+        setSqlError(data.error);
+      } else {
+        setSqlHeaders(data.headers || []);
+        setSqlRows(data.rows || []);
+        setIsSqlMode(true);
+        if (data.summary_stats) {
+          setServerStats(data.summary_stats);
+        }
+      }
+    } catch (e: any) {
+      setSqlError(e?.message || 'Error executing SQL query');
+    } finally {
+      setSqlRunning(false);
+    }
+  };
+
+  const handleResetSql = () => {
+    setIsSqlMode(false);
+    setSqlQuery('');
+    setSqlError(null);
+    setSqlHeaders([]);
+    setSqlRows([]);
+  };
+
+  const activeHeaders = isSqlMode ? sqlHeaders : clientHeaders;
+  const activeRows = isSqlMode ? sqlRows : clientRows;
+
   // Filter rows
   const filteredRows = useMemo(() => {
-    if (!filterQuery.trim()) return rows;
+    if (!filterQuery.trim()) return activeRows;
     const q = filterQuery.toLowerCase();
-    return rows.filter((r) => r.some((cell) => cell.toLowerCase().includes(q)));
-  }, [rows, filterQuery]);
+    return activeRows.filter((r) => r.some((cell) => String(cell || '').toLowerCase().includes(q)));
+  }, [activeRows, filterQuery]);
 
   // Sort rows
   const sortedRows = useMemo(() => {
@@ -113,7 +191,7 @@ export const DataTableView: React.FC<DataTableViewProps> = ({
       if (!isNaN(numA) && !isNaN(numB)) {
         return sortDir === 'asc' ? numA - numB : numB - numA;
       }
-      return sortDir === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      return sortDir === 'asc' ? String(valA).localeCompare(String(valB)) : String(valB).localeCompare(String(valA));
     });
     return sorted;
   }, [filteredRows, sortCol, sortDir]);
@@ -159,14 +237,19 @@ export const DataTableView: React.FC<DataTableViewProps> = ({
   return (
     <div className="h-full flex flex-col bg-onedark-bg font-sans overflow-hidden select-none">
       {/* Table Toolbar */}
-      <div className="px-3 py-1.5 bg-onedark-darker/80 border-b border-onedark-borderSubtle flex items-center justify-between flex-shrink-0 text-xs gap-3">
+      <div className="px-3.5 py-1.5 bg-onedark-darker/90 border-b border-onedark-borderSubtle flex items-center justify-between flex-shrink-0 text-xs gap-3 flex-wrap">
         {/* Left: Summary & Search */}
         <div className="flex items-center space-x-3 flex-1 min-w-0">
           <div className="flex items-center space-x-1.5 font-mono text-[11px] text-onedark-muted flex-shrink-0">
             <FileSpreadsheet className="w-4 h-4 text-onedark-green flex-shrink-0" />
-            <span className="font-semibold text-onedark-fg">{rows.length} rows</span>
+            <span className="font-semibold text-onedark-fg">{activeRows.length} rows</span>
             <span className="text-onedark-border">·</span>
-            <span>{headers.length} cols</span>
+            <span>{activeHeaders.length} cols</span>
+            {isSqlMode && (
+              <span className="ml-1 px-1.5 py-0.5 rounded bg-onedark-purple/20 text-onedark-purple text-[10px] font-bold">
+                SQL RESULT
+              </span>
+            )}
           </div>
 
           <div className="relative flex items-center flex-1 max-w-xs">
@@ -184,23 +267,38 @@ export const DataTableView: React.FC<DataTableViewProps> = ({
           </div>
         </div>
 
-        {/* Right: Delimiter & Pagination Settings */}
+        {/* Right: Delimiter, Stats & Settings */}
         <div className="flex items-center space-x-2 flex-shrink-0">
+          {/* Stats Toggle */}
+          <button
+            type="button"
+            onClick={() => setShowStats((s) => !s)}
+            className={`flex items-center space-x-1 px-2 py-1 rounded text-[11px] font-mono transition-colors border border-onedark-borderSubtle cursor-pointer ${
+              showStats ? 'bg-onedark-accent/20 text-onedark-accent border-onedark-accent/40 font-semibold' : 'bg-onedark-surface/60 text-onedark-muted hover:text-onedark-fg'
+            }`}
+            title="Toggle column statistics summary"
+          >
+            <Info className="w-3 h-3" />
+            <span>Stats</span>
+          </button>
+
           {/* Delimiter Selector */}
-          <div className="flex items-center space-x-1 text-[11px] font-mono text-onedark-muted">
-            <span>Delim:</span>
-            <select
-              value={manualDelimiter}
-              onChange={(e) => setManualDelimiter(e.target.value)}
-              className="bg-onedark-surface border border-onedark-borderSubtle rounded px-1.5 py-0.5 text-onedark-fg text-[11px] font-mono cursor-pointer focus:outline-none"
-            >
-              <option value="auto">Auto ({detectedDelimiter === '\t' ? 'TSV' : detectedDelimiter})</option>
-              <option value=",">Comma (,)</option>
-              <option value="	">Tab (\t)</option>
-              <option value=";">Semicolon (;)</option>
-              <option value="|">Pipe (|)</option>
-            </select>
-          </div>
+          {!isSqlMode && (
+            <div className="flex items-center space-x-1 text-[11px] font-mono text-onedark-muted">
+              <span>Delim:</span>
+              <select
+                value={manualDelimiter}
+                onChange={(e) => setManualDelimiter(e.target.value)}
+                className="bg-onedark-surface border border-onedark-borderSubtle rounded px-1.5 py-0.5 text-onedark-fg text-[11px] font-mono cursor-pointer focus:outline-none"
+              >
+                <option value="auto">Auto ({detectedDelimiter === '\t' ? 'TSV' : detectedDelimiter})</option>
+                <option value=",">Comma (,)</option>
+                <option value="	">Tab (\t)</option>
+                <option value=";">Semicolon (;)</option>
+                <option value="|">Pipe (|)</option>
+              </select>
+            </div>
+          )}
 
           {/* Page Size */}
           <div className="flex items-center space-x-1 text-[11px] font-mono text-onedark-muted">
@@ -225,22 +323,88 @@ export const DataTableView: React.FC<DataTableViewProps> = ({
             href={`${rawUrl}&download=true`}
             download={filePath.split('/').pop()}
             className="p-1 rounded-md bg-onedark-surface/60 hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg border border-onedark-borderSubtle transition-colors cursor-pointer"
-            title="Download CSV dataset"
+            title="Download dataset"
           >
             <Download className="w-3.5 h-3.5" />
           </a>
         </div>
       </div>
 
+      {/* SQL Query Bar (if taskId is provided) */}
+      {taskId && (
+        <div className="px-3.5 py-2 bg-onedark-surface/40 border-b border-onedark-borderSubtle/60 flex items-center space-x-2 text-xs">
+          <Terminal className="w-4 h-4 text-onedark-purple flex-shrink-0" />
+          <input
+            type="text"
+            value={sqlQuery}
+            onChange={(e) => setSqlQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleExecuteSql();
+            }}
+            placeholder="Run SQL (e.g. SELECT * FROM data_table WHERE score > 50 ORDER BY created_at DESC)..."
+            className="flex-1 bg-onedark-darker/80 border border-onedark-borderSubtle/60 focus:border-onedark-purple rounded px-3 py-1 font-mono text-[11.5px] text-onedark-fg focus:outline-none placeholder:text-onedark-muted/50"
+          />
+          <button
+            type="button"
+            onClick={handleExecuteSql}
+            disabled={sqlRunning || !sqlQuery.trim()}
+            className="flex items-center space-x-1 px-3 py-1 rounded bg-onedark-purple hover:bg-onedark-purple/80 text-white font-semibold text-[11px] cursor-pointer disabled:opacity-40 transition-colors shadow-xs"
+          >
+            <Play className="w-3 h-3 fill-current" />
+            <span>{sqlRunning ? 'Querying...' : 'Run SQL'}</span>
+          </button>
+          {isSqlMode && (
+            <button
+              type="button"
+              onClick={handleResetSql}
+              className="flex items-center space-x-1 px-2.5 py-1 rounded bg-onedark-surface hover:bg-onedark-border text-onedark-muted hover:text-onedark-fg text-[11px] font-mono cursor-pointer border border-onedark-borderSubtle transition-colors"
+              title="Reset to full dataset"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>Reset</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* SQL Error Banner */}
+      {sqlError && (
+        <div className="px-3.5 py-2 bg-onedark-red/10 border-b border-onedark-red/30 text-onedark-red font-mono text-[11.5px] flex items-center space-x-2">
+          <Info className="w-3.5 h-3.5 flex-shrink-0" />
+          <span className="truncate">{sqlError}</span>
+        </div>
+      )}
+
+      {/* Column Statistics Bar */}
+      {showStats && (
+        <div className="px-3.5 py-2.5 bg-onedark-surface/60 border-b border-onedark-borderSubtle overflow-x-auto flex items-center space-x-4 text-[11px] font-mono text-onedark-muted flex-shrink-0">
+          <div className="text-onedark-fgBright font-semibold flex items-center space-x-1 flex-shrink-0">
+            <Sparkles className="w-3.5 h-3.5 text-onedark-yellow" />
+            <span>Column Schema:</span>
+          </div>
+          {activeHeaders.map((h, idx) => (
+            <div key={idx} className="bg-onedark-darker/80 px-2.5 py-1 rounded border border-onedark-borderSubtle/60 flex-shrink-0 space-x-1.5">
+              <span className="text-onedark-fg font-semibold">{h || `Col ${idx + 1}`}</span>
+              <span className="text-onedark-blue text-[10px]">
+                {serverStats[h]?.type || (isNaN(Number(activeRows[0]?.[idx])) ? 'string' : 'number')}
+              </span>
+              {serverStats[h]?.null_count != null && (
+                <span className="text-onedark-muted/60 text-[10px]">({serverStats[h].null_count} nulls)</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Grid Container */}
-      <div className="flex-1 overflow-auto bg-onedark-bg relative">
+      <div className="flex-1 overflow-auto bg-onedark-bg relative [scrollbar-gutter:stable]">
         <table className="w-full text-left border-collapse font-mono text-[11.5px] select-text">
           <thead className="bg-onedark-surface sticky top-0 z-10 border-b border-onedark-borderSubtle shadow-xs">
             <tr>
               <th className="w-12 px-2.5 py-1.5 text-onedark-muted/60 text-right font-normal border-r border-onedark-borderSubtle/60 select-none">
                 #
               </th>
-              {headers.map((h, idx) => (
+              {activeHeaders.map((h, idx) => (
                 <th
                   key={idx}
                   onClick={() => handleHeaderClick(idx)}
@@ -265,7 +429,7 @@ export const DataTableView: React.FC<DataTableViewProps> = ({
           <tbody className="divide-y divide-onedark-borderSubtle/30">
             {paginatedRows.length === 0 ? (
               <tr>
-                <td colSpan={headers.length + 1} className="py-12 text-center text-onedark-muted">
+                <td colSpan={activeHeaders.length + 1} className="py-12 text-center text-onedark-muted">
                   {filterQuery ? 'No matching rows found.' : 'Dataset is empty.'}
                 </td>
               </tr>
@@ -280,13 +444,13 @@ export const DataTableView: React.FC<DataTableViewProps> = ({
                     <td className="px-2.5 py-1 text-onedark-muted/60 text-right border-r border-onedark-borderSubtle/40 select-none font-mono text-[10.5px]">
                       {globalRowIdx}
                     </td>
-                    {headers.map((_, colIdx) => (
+                    {activeHeaders.map((_, colIdx) => (
                       <td
                         key={colIdx}
                         className="px-3 py-1 text-onedark-fg border-r border-onedark-borderSubtle/20 max-w-xs truncate"
-                        title={row[colIdx]}
+                        title={String(row[colIdx] ?? '')}
                       >
-                        {highlightMatch(row[colIdx] || '', filterQuery)}
+                        {highlightMatch(String(row[colIdx] ?? ''), filterQuery)}
                       </td>
                     ))}
                   </tr>
@@ -303,7 +467,7 @@ export const DataTableView: React.FC<DataTableViewProps> = ({
           <div>
             Showing {(currentPage - 1) * pageSize + 1}–
             {Math.min(currentPage * pageSize, sortedRows.length)} of {sortedRows.length} rows
-            {filterQuery && ` (filtered from ${rows.length})`}
+            {filterQuery && ` (filtered from ${activeRows.length})`}
           </div>
 
           <div className="flex items-center space-x-1.5">

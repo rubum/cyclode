@@ -13,7 +13,9 @@ import {
   Layers, 
   Terminal, 
   FileText, 
-  Target 
+  Target,
+  Upload,
+  Plus
 } from 'lucide-react';
 import { createGrepMatcher } from '../../utils/grepMatcher';
 
@@ -64,6 +66,7 @@ interface FileTreeExplorerProps {
   externalSearch?: ExternalSearchRequest | null;
   title?: string;
   subtitle?: string;
+  onRefresh?: () => void;
 }
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -75,7 +78,8 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
   onSelectFile,
   externalSearch,
   title = 'Sandbox Files',
-  subtitle
+  subtitle,
+  onRefresh
 }) => {
   const [filter, setFilter] = useState('');
   const [searchMode, setSearchMode] = useState<SearchMode>('files');
@@ -83,6 +87,9 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
   const [caseSensitive, setCaseSensitive] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResponse | null>(null);
+  const [isUploading, setIsUploading] = useState<boolean>(false);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [scopeFilter, setScopeFilter] = useState<'all' | 'current' | 'workspace'>('all');
   const [collapsedSearchFiles, setCollapsedSearchFiles] = useState<Record<string, boolean>>({});
@@ -521,8 +528,81 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
     );
   };
 
+  const handleUploadFiles = async (files: FileList | File[]) => {
+    if (!taskId || !files || files.length === 0) return;
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      Array.from(files).forEach((f) => {
+        formData.append('files', f);
+      });
+      formData.append('target_type', 'workspace');
+
+      const res = await fetch(`${API_BASE}/api/tasks/${taskId}/files/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.uploaded && data.uploaded.length > 0) {
+          onSelectFile(data.uploaded[0].path);
+        }
+        if (onRefresh) onRefresh();
+      }
+    } catch (err) {
+      console.error('Failed to upload file to workspace:', err);
+    } finally {
+      setIsUploading(false);
+      setIsDragging(false);
+    }
+  };
+
   return (
-    <div className="flex flex-col h-full bg-onedark-darker select-none text-onedark-fg font-sans border-r border-onedark-borderSubtle">
+    <div 
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(true);
+      }}
+      onDragLeave={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+          handleUploadFiles(e.dataTransfer.files);
+        }
+      }}
+      className={`flex flex-col h-full bg-onedark-darker select-none text-onedark-fg font-sans border-r border-onedark-borderSubtle relative transition-colors ${
+        isDragging ? 'ring-2 ring-onedark-accent/60 bg-onedark-surface/40' : ''
+      }`}
+    >
+      {/* Hidden file input for uploads */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) {
+            handleUploadFiles(e.target.files);
+          }
+        }}
+        className="hidden"
+      />
+
+      {/* Drag & Drop Overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 bg-onedark-darker/90 backdrop-blur-xs z-30 flex flex-col items-center justify-center p-4 border-2 border-dashed border-onedark-accent rounded-lg pointer-events-none text-center space-y-2">
+          <Upload className="w-8 h-8 text-onedark-accent animate-bounce" />
+          <div className="text-xs font-semibold text-onedark-fgBright">Drop files to ingest into workspace</div>
+          <div className="text-[10.5px] text-onedark-muted">Files will be saved in workspace root</div>
+        </div>
+      )}
+
       {/* Header Panel */}
       <div className="p-3 border-b border-onedark-borderSubtle flex-shrink-0 space-y-2">
         <div className="flex items-center justify-between">
@@ -531,24 +611,45 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
             <span className="font-semibold text-xs text-onedark-fgBright font-sans">{title}</span>
           </div>
 
-          {searchMode === 'files' && (
-            <div className="flex items-center space-x-1">
+          <div className="flex items-center space-x-1">
+            {taskId && (
               <button
-                onClick={expandAll}
-                className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg text-[10px] font-mono cursor-pointer transition-colors"
-                title="Expand All Folders"
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-accent text-[10px] font-mono cursor-pointer transition-colors flex items-center space-x-1"
+                title="Upload file(s) into workspace"
               >
-                + Expand
+                {isUploading ? (
+                  <Loader2 className="w-3 h-3 animate-spin text-onedark-accent" />
+                ) : (
+                  <>
+                    <Upload className="w-3 h-3" />
+                    <span>Upload</span>
+                  </>
+                )}
               </button>
-              <button
-                onClick={collapseAll}
-                className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg text-[10px] font-mono cursor-pointer transition-colors"
-                title="Collapse All Folders"
-              >
-                - Collapse
-              </button>
-            </div>
-          )}
+            )}
+
+            {searchMode === 'files' && (
+              <>
+                <button
+                  onClick={expandAll}
+                  className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg text-[10px] font-mono cursor-pointer transition-colors"
+                  title="Expand All Folders"
+                >
+                  +
+                </button>
+                <button
+                  onClick={collapseAll}
+                  className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg text-[10px] font-mono cursor-pointer transition-colors"
+                  title="Collapse All Folders"
+                >
+                  -
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Mode Selector Tabs: Files, Grep, AST */}
