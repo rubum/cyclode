@@ -600,11 +600,11 @@ export const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ commits, rep
 
                     {/* Commit Description Body Box */}
                     {(parsed.bodyProse || parsed.trailers.length > 0) && (
-                      <div className="mt-2.5 bg-onedark-bg/95 p-3.5 rounded-lg border border-onedark-borderSubtle text-[12.5px] text-onedark-fg/90 font-sans leading-relaxed shadow-xs select-text">
+                      <div className="mt-2.5 bg-onedark-bg/95 p-3.5 rounded-lg border border-onedark-borderSubtle text-[13.5px] text-onedark-fg/90 font-sans leading-relaxed shadow-xs select-text">
                         {parsed.bodyProse && (
                           <div>
-                            <div className={`max-w-none text-onedark-fg text-[12.5px] leading-relaxed ${!isBodyExpanded && parsed.bodyProse.length > 220 ? 'line-clamp-3' : ''}`}>
-                              <MarkdownRenderer content={parsed.bodyProse} className="text-[12.5px] leading-relaxed text-onedark-fg" />
+                            <div className={`max-w-none text-onedark-fg text-[13.5px] leading-relaxed ${!isBodyExpanded && parsed.bodyProse.length > 220 ? 'line-clamp-3' : ''}`}>
+                              <MarkdownRenderer content={parsed.bodyProse} className="text-[13.5px] leading-relaxed text-onedark-fg" />
                             </div>
 
                             {parsed.bodyProse.length > 220 && (
@@ -1342,7 +1342,7 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
               )}
 
               {/* Comment Body Markdown & Actionable AI Prompt Card */}
-              <div className="px-4 py-3 text-onedark-fg text-xs leading-relaxed select-text space-y-3">
+              <div className="px-4 py-3 text-onedark-fg text-[13.5px] leading-relaxed select-text space-y-3">
                 <MarkdownRenderer content={botMeta.cleanBody || c.body || '*No content provided.*'} />
 
                 {/* Structured AI Agent Prompt Box if present */}
@@ -2646,7 +2646,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
 
         {!isLoading && !error && viewMode === 'reader' && (
           prTab === 'overview' ? (
-            <div className="max-w-none text-onedark-fg text-[13.5px] leading-relaxed">
+            <div className="max-w-none text-onedark-fg text-[14px] leading-[1.7]">
               <MarkdownRenderer
                 content={data?.overview_markdown || data?.content_markdown || prRecord?.body || 'No description provided for this pull request.'}
               />
@@ -2700,7 +2700,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
                   AI Review Report
                 </span>
               </div>
-              <div className="p-4 rounded-xl bg-onedark-bg border border-onedark-border text-onedark-fg text-xs font-sans leading-relaxed">
+              <div className="p-4 rounded-xl bg-onedark-bg border border-onedark-border text-onedark-fg text-[13.5px] font-sans leading-[1.7]">
                 <MarkdownRenderer content={prRecord?.review_summary || 'No review summary generated yet. Click "AI Review" above to analyze.'} />
               </div>
             </div>

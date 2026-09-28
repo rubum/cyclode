@@ -301,7 +301,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                 return (
                   <div
                     key={bIdx}
-                    className={`my-2.5 p-3 rounded-xl border ${alertStyle.border} ${alertStyle.bg} flex items-start space-x-2.5 text-[12.5px] leading-relaxed`}
+                    className={`my-2.5 p-3 rounded-xl border ${alertStyle.border} ${alertStyle.bg} flex items-start space-x-2.5 text-[13px] leading-relaxed`}
                   >
                     <Icon className={`w-3.5 h-3.5 ${alertStyle.text} flex-shrink-0 mt-0.5`} />
                     <div className="space-y-0.5">
@@ -326,14 +326,14 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
                 return (
                   <div key={bIdx} className="my-3 overflow-x-auto rounded-xl bg-onedark-darker/40 shadow-xs [scrollbar-gutter:stable]">
-                    <table className="w-full border-collapse text-[12.5px] table-auto">
+                    <table className="w-full border-collapse text-[13px] table-auto">
                       {block.tableHeaders && block.tableHeaders.length > 0 && (
                         <thead>
                           <tr className="bg-onedark-surface/60 text-onedark-fgBright font-medium">
                             {block.tableHeaders.map((h, hIdx) => (
                               <th
                                 key={hIdx}
-                                className={`px-3.5 py-2 font-mono text-[11.5px] whitespace-nowrap ${getAlignmentClass(hIdx)}`}
+                                className={`px-3.5 py-2 font-mono text-[12px] font-semibold whitespace-nowrap ${getAlignmentClass(hIdx)}`}
                               >
                                 {inline(h)}
                               </th>
@@ -352,7 +352,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                               {cells.map((cell, cIdx) => (
                                 <td
                                   key={cIdx}
-                                  className={`px-3.5 py-2 text-onedark-fg break-words ${getAlignmentClass(cIdx)}`}
+                                  className={`px-3.5 py-2 text-onedark-fg text-[13px] leading-relaxed break-words ${getAlignmentClass(cIdx)}`}
                                 >
                                   {inline(cell)}
                                 </td>
@@ -372,12 +372,12 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                     key={bIdx}
                     className="my-2 rounded-lg bg-onedark-surface/30 overflow-hidden group"
                   >
-                    <summary className="px-3.5 py-2 bg-onedark-surface/50 hover:bg-onedark-surface/80 cursor-pointer text-xs font-semibold text-onedark-fgBright select-none transition-colors flex items-center space-x-1.5 list-none">
+                    <summary className="px-3.5 py-2 bg-onedark-surface/50 hover:bg-onedark-surface/80 cursor-pointer text-[13px] font-semibold text-onedark-fgBright select-none transition-colors flex items-center space-x-1.5 list-none">
                       <ChevronRight className="w-3.5 h-3.5 text-onedark-accent transition-transform group-open:rotate-90 flex-shrink-0" />
                       <span>{inline(block.summary || 'Details')}</span>
                     </summary>
                     {block.content && (
-                      <div className="p-3 text-xs space-y-2">
+                      <div className="p-3 text-[13.5px] leading-relaxed space-y-2">
                         <MarkdownRenderer content={block.content} onLinkClick={onLinkClick} />
                       </div>
                     )}
@@ -412,7 +412,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
               if (block.type === 'h1' && block.content) {
                 const hId = slugify(block.content);
                 return (
-                  <h1 id={hId} key={bIdx} className="text-[17px] font-bold text-onedark-fgBright tracking-tight pt-3.5 pb-1 border-b border-onedark-borderSubtle scroll-mt-4">
+                  <h1 id={hId} key={bIdx} className="text-[17.5px] font-bold text-onedark-fgBright tracking-tight pt-3.5 pb-1 border-b border-onedark-borderSubtle scroll-mt-4">
                     {inline(block.content)}
                     {shouldAttachCursor && renderCursor()}
                   </h1>
@@ -422,7 +422,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
               if (block.type === 'h2' && block.content) {
                 const hId = slugify(block.content);
                 return (
-                  <h2 id={hId} key={bIdx} className="text-[15.5px] font-bold text-onedark-fgBright tracking-tight pt-3 pb-0.5 scroll-mt-4">
+                  <h2 id={hId} key={bIdx} className="text-[16px] font-bold text-onedark-fgBright tracking-tight pt-3 pb-0.5 scroll-mt-4">
                     {inline(block.content)}
                     {shouldAttachCursor && renderCursor()}
                   </h2>
@@ -911,7 +911,7 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
       return (
         <code
           key={i}
-          className="px-1.5 py-0.5 rounded-md bg-onedark-surface/60 text-onedark-accent font-mono text-[12.5px] font-medium tracking-tight mx-0.5 align-baseline select-text"
+          className="px-1.5 py-0.5 rounded-md bg-onedark-surface/80 border border-onedark-borderSubtle text-onedark-accent font-mono text-[13px] font-medium tracking-normal mx-0.5 align-baseline select-text shadow-2xs"
         >
           {codeMatch[2]}
         </code>
@@ -1003,7 +1003,7 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
       return (
         <code
           key={i}
-          className="px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-borderSubtle text-onedark-accent font-mono text-[12px] font-semibold tracking-tight mx-0.5 align-baseline select-text shadow-2xs"
+          className="px-1.5 py-0.5 rounded-md bg-onedark-surface/80 border border-onedark-borderSubtle text-onedark-accent font-mono text-[13px] font-medium tracking-normal mx-0.5 align-baseline select-text shadow-2xs"
         >
           {htmlCodeMatch[1]}
         </code>

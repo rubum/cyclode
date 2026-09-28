@@ -13,10 +13,10 @@
   --color-border-rgb: 62, 68, 81;
   --color-border-subtle: #31363F; /* Soft One Dark divider & card outline */
   --color-border-subtle-rgb: 49, 54, 63;
-  --color-fg: #ABB2BF;
-  --color-fg-rgb: 171, 178, 191;
-  --color-fg-bright: #E5E5E5;
-  --color-fg-bright-rgb: 229, 229, 229;
+  --color-fg: #CBD5E1;
+  --color-fg-rgb: 203, 213, 225;
+  --color-fg-bright: #F1F5F9;
+  --color-fg-bright-rgb: 241, 245, 249;
   --color-muted: #5C6370;
   --color-muted-rgb: 92, 99, 112;
   --color-accent: #E5C07B;
@@ -98,7 +98,7 @@ html.light-theme {
     margin: 1.25rem 0;
   }
   html {
-    font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    font-family: 'Inter', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
@@ -112,7 +112,7 @@ html.light-theme {
   body {
     background-color: var(--color-bg);
     color: var(--color-fg);
-    font-family: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    font-family: 'Inter', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;

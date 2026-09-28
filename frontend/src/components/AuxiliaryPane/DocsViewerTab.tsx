@@ -701,11 +701,11 @@ const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ commits }) => {
                     </div>
 
                     {(parsed.bodyProse || parsed.trailers.length > 0) && (
-                      <div className="mt-2.5 bg-onedark-bg/95 p-3.5 rounded-lg border border-onedark-borderSubtle text-[12.5px] text-onedark-fg/90 font-sans leading-relaxed shadow-xs select-text">
+                      <div className="mt-2.5 bg-onedark-bg/95 p-3.5 rounded-lg border border-onedark-borderSubtle text-[13.5px] text-onedark-fg/90 font-sans leading-relaxed shadow-xs select-text">
                         {parsed.bodyProse && (
                           <div>
-                            <div className={`max-w-none text-onedark-fg text-[12.5px] leading-relaxed ${!isBodyExpanded && parsed.bodyProse.length > 220 ? 'line-clamp-3' : ''}`}>
-                              <MarkdownRenderer content={parsed.bodyProse} className="text-[12.5px] leading-relaxed text-onedark-fg" />
+                            <div className={`max-w-none text-onedark-fg text-[13.5px] leading-relaxed ${!isBodyExpanded && parsed.bodyProse.length > 220 ? 'line-clamp-3' : ''}`}>
+                              <MarkdownRenderer content={parsed.bodyProse} className="text-[13.5px] leading-relaxed text-onedark-fg" />
                             </div>
 
                             {parsed.bodyProse.length > 220 && (
@@ -1815,7 +1815,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
           {!isLoading && !error && viewMode === 'reader' && data && (
             data.is_pr ? (
               prTab === 'overview' ? (
-                <div className="max-w-none text-onedark-fg text-[13.5px] leading-relaxed">
+                <div className="max-w-none text-onedark-fg text-[14px] leading-[1.7]">
                   <MarkdownRenderer
                     content={data.overview_markdown || data.content_markdown}
                     onLinkClick={(nextUrl) => navigateTo(nextUrl)}
@@ -1834,7 +1834,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
                 <PRCommitsSection commits={data.commits || []} />
               )
             ) : (
-              <div className="max-w-none text-onedark-fg text-[13.5px] leading-relaxed">
+              <div className="max-w-none text-onedark-fg text-[14px] leading-[1.7]">
                 <MarkdownRenderer content={data.content_markdown} onLinkClick={(nextUrl) => navigateTo(nextUrl)} />
               </div>
             )
