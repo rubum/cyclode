@@ -89,7 +89,11 @@ class WorkspaceTools:
         if not target.is_relative_to(ws_root):
             return {"error": "Access denied outside workspace"}
         if not target.exists() or not target.is_file():
-            return {"error": f"File '{clean_path}' not found"}
+            alt_target = (ws_root / ".cyclode" / "attachments" / Path(clean_path).name).resolve()
+            if alt_target.exists() and alt_target.is_file() and alt_target.is_relative_to(ws_root):
+                target = alt_target
+            else:
+                return {"error": f"File '{clean_path}' not found"}
 
         lockfiles = {"package-lock.json", "pnpm-lock.yaml", "yarn.lock", "Cargo.lock", "poetry.lock", "composer.lock", "Pipfile.lock"}
         minified_exts = {".min.js", ".min.css", ".map", ".bundle.js"}
@@ -2747,7 +2751,11 @@ class WorkspaceTools:
         except ValueError:
             return {"error": "Access denied outside workspace"}
         if not target_file.exists() or not target_file.is_file():
-            return {"error": f"File '{clean_rel}' not found"}
+            alt_target = (ws_root / ".cyclode" / "attachments" / Path(clean_rel).name).resolve()
+            if alt_target.exists() and alt_target.is_file() and alt_target.is_relative_to(ws_root):
+                target_file = alt_target
+            else:
+                return {"error": f"File '{clean_rel}' not found"}
 
         ext = target_file.suffix.lower()
         headers: List[str] = []
@@ -2939,7 +2947,11 @@ class WorkspaceTools:
         except ValueError:
             return {"error": "Access denied outside workspace"}
         if not target_file.exists() or not target_file.is_file():
-            return {"error": f"Archive file '{clean_rel}' not found"}
+            alt_target = (ws_root / ".cyclode" / "attachments" / Path(clean_rel).name).resolve()
+            if alt_target.exists() and alt_target.is_file() and alt_target.is_relative_to(ws_root):
+                target_file = alt_target
+            else:
+                return {"error": f"Archive file '{clean_rel}' not found"}
 
         entries = []
         total_uncompressed = 0

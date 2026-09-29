@@ -265,3 +265,33 @@ async def test_workspace_tools_view_image(tmp_path):
     err_res = await WorkspaceTools.view_image(tmp_path, "nonexistent.png")
     assert "error" in err_res
 
+
+def test_attachment_fallback_across_tools(tmp_path):
+    att_dir = tmp_path / ".cyclode" / "attachments"
+    att_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Test read_file attachment fallback
+    (att_dir / "notes.txt").write_text("Attachment content notes", encoding="utf-8")
+    read_res = WorkspaceTools.read_file(tmp_path, "notes.txt")
+    assert "error" not in read_res
+    assert "Attachment content notes" in read_res["content"]
+
+    # 2. Test query_table attachment fallback
+    (att_dir / "data.csv").write_text("item,qty\napple,10\nbanana,20\n", encoding="utf-8")
+    table_res = WorkspaceTools.query_table(tmp_path, "data.csv")
+    assert "error" not in table_res
+    assert table_res["headers"] == ["item", "qty"]
+    assert len(table_res["rows"]) == 2
+
+    # 3. Test inspect_archive attachment fallback
+    zip_bytes = BytesIO()
+    with zipfile.ZipFile(zip_bytes, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("test.txt", "inside zip")
+    (att_dir / "archive.zip").write_bytes(zip_bytes.getvalue())
+
+    arch_res = WorkspaceTools.inspect_archive(tmp_path, "archive.zip")
+    assert "error" not in arch_res
+    assert arch_res["format"] == "zip"
+    assert arch_res["total_files"] == 1
+
+

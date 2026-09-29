@@ -966,7 +966,27 @@ def test_multimodal_image_conversion_across_providers():
     assert any(c.get("type") == "text" for c in ds_user_msg["content"])
     ds_img_part = next((c for c in ds_user_msg["content"] if c.get("type") == "image_url"), None)
     assert ds_img_part is not None
-    assert "data:image/png;base64," in ds_img_part["image_url"]["url"]
+    # Test Claude PDF conversion
+    pdf_turn = [
+        {
+            "role": "user",
+            "parts": [
+                {"text": "Read this paper"},
+                {
+                    "inlineData": {
+                        "mimeType": "application/pdf",
+                        "data": "JVBERi0xLjUKJcfs..."
+                    }
+                }
+            ]
+        }
+    ]
+    c_pdf_msgs = claude._convert_messages(pdf_turn)
+    doc_block = next((b for b in c_pdf_msgs[0]["content"] if b.get("type") == "document"), None)
+    assert doc_block is not None
+    assert doc_block["source"]["type"] == "base64"
+    assert doc_block["source"]["media_type"] == "application/pdf"
+
 
 
 

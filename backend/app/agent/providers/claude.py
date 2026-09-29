@@ -127,14 +127,24 @@ class ClaudeProvider(BaseLLMProvider):
                         mime_type = data_dict.get("mimeType") or data_dict.get("mime_type") or "image/png"
                         b64_data = data_dict.get("data") or ""
                         if b64_data:
-                            content_blocks.append({
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": mime_type,
-                                    "data": b64_data
-                                }
-                            })
+                            if mime_type == "application/pdf":
+                                content_blocks.append({
+                                    "type": "document",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": "application/pdf",
+                                        "data": b64_data
+                                    }
+                                })
+                            else:
+                                content_blocks.append({
+                                    "type": "image",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": mime_type,
+                                        "data": b64_data
+                                    }
+                                })
 
                 if content_blocks:
                     anthropic_role = "assistant" if role in ["model", "assistant"] else "user"

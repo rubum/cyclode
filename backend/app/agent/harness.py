@@ -1633,6 +1633,14 @@ class AntigravityHarness:
                                         "data": b64_str
                                     }
                                 })
+                            elif ext == ".pdf" and getattr(provider, "provider_id", "") in {"google", "anthropic"}:
+                                b64_str = base64.b64encode(att_file.read_bytes()).decode("utf-8")
+                                user_parts.append({
+                                    "inlineData": {
+                                        "mimeType": "application/pdf",
+                                        "data": b64_str
+                                    }
+                                })
             except Exception as e:
                 logger.debug(f"Multimodal attachment ingestion notice: {e}")
 
