@@ -43,6 +43,7 @@ const MainApp: React.FC = () => {
     return 'split';
   });
   const [activeAuxTab, setActiveAuxTab] = useState<'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'docs' | 'preview' | 'changes'>('activity');
+  const [selectedAuxFilePath, setSelectedAuxFilePath] = useState<string | null>(null);
   const [sessionPreviews, setSessionPreviews] = useState<Record<string, { url: string; title?: string } | null>>({});
   const activePreviewTarget = activeTaskId ? (sessionPreviews[activeTaskId] || null) : null;
   const [isClearingAll, setIsClearingAll] = useState<boolean>(false);
@@ -1250,6 +1251,18 @@ const MainApp: React.FC = () => {
     }
   };
 
+  const handleOpenFile = (filePath: string) => {
+    setSelectedAuxFilePath(filePath);
+    setActiveAuxTab('files');
+  };
+
+  const handleOpenDoc = (target: { url: string; title?: string }) => {
+    if (activeTaskId) {
+      setSessionPreviews((prev) => ({ ...prev, [activeTaskId]: target }));
+    }
+    setActiveAuxTab('docs');
+  };
+
   const renderCenterView = () => {
     switch (activeView) {
       case 'chat':
@@ -1272,6 +1285,8 @@ const MainApp: React.FC = () => {
             onSetPreset={handleSetPreset}
             onOpenSandboxModal={() => setIsSandboxModalOpen(true)}
             onSelectAuxTab={handleSelectAuxTab}
+            onOpenFile={handleOpenFile}
+            onOpenDoc={handleOpenDoc}
             onOpenPreview={handleOpenPreview}
             onOpenPlan={handleOpenPlanDocument}
             onNavigateToRepos={() => setActiveView('repositories')}
@@ -1494,6 +1509,8 @@ const MainApp: React.FC = () => {
             activeTab={activeAuxTab} 
             onTabChange={setActiveAuxTab}
             previewTarget={activePreviewTarget}
+            selectedFilePath={selectedAuxFilePath}
+            onClearSelectedFilePath={() => setSelectedAuxFilePath(null)}
             onClearPreview={handleClearPreview}
             onAskAboutRepo={(repoName) => {
               setActiveView('chat');

@@ -102,6 +102,8 @@ export interface ParsedAttachment {
   category: 'image' | 'table' | 'notebook' | 'archive' | 'doc' | 'code' | 'general';
 }
 
+export const localAttachmentBlobUrls = new Map<string, string>();
+
 export const parseUserMessageAttachments = (content: string, taskId?: string): { cleanedText: string; attachments: ParsedAttachment[] } => {
   if (!content) return { cleanedText: '', attachments: [] };
 
@@ -134,7 +136,8 @@ export const parseUserMessageAttachments = (content: string, taskId?: string): {
       ? rawPath
       : `.cyclode/attachments/${name}`;
 
-    const rawUrl = taskId ? `${API_BASE}/api/tasks/${taskId}/files/raw?path=${encodeURIComponent(relPath)}` : undefined;
+    const blobUrl = localAttachmentBlobUrls.get(name);
+    const rawUrl = blobUrl || (taskId && !taskId.startsWith('temp-') ? `${API_BASE}/api/tasks/${taskId}/files/raw?path=${encodeURIComponent(relPath)}` : (blobUrl || undefined));
 
     attachments.push({
       name,
@@ -148,6 +151,124 @@ export const parseUserMessageAttachments = (content: string, taskId?: string): {
   const cleanedText = content.replace(attachmentRegex, '').trim();
 
   return { cleanedText, attachments };
+};
+
+interface AttachmentImagePreviewProps {
+  att: ParsedAttachment;
+  onOpenLightbox: () => void;
+  onViewRight: () => void;
+}
+
+export const AttachmentImagePreview: React.FC<AttachmentImagePreviewProps> = ({
+  att,
+  onOpenLightbox,
+  onViewRight,
+}) => {
+  const [loadState, setLoadState] = useState<'loading' | 'loaded' | 'error'>('loading');
+  const [retryKey, setRetryKey] = useState<number>(0);
+
+  const imgSrc = useMemo(() => {
+    if (!att.rawUrl) return '';
+    if (att.rawUrl.startsWith('blob:')) return att.rawUrl;
+    return retryKey > 0 ? `${att.rawUrl}&_t=${retryKey}` : att.rawUrl;
+  }, [att.rawUrl, retryKey]);
+
+  return (
+    <div className="group/img relative rounded-xl overflow-hidden border border-onedark-borderSubtle bg-onedark-darker/70 hover:border-onedark-accent/60 shadow-md transition-all max-w-xs sm:max-w-sm flex-1 min-w-[200px] flex flex-col">
+      <div 
+        onClick={onOpenLightbox}
+        className="relative aspect-video max-h-48 overflow-hidden bg-onedark-darker/90 flex items-center justify-center cursor-pointer select-none"
+      >
+        {loadState === 'loading' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-onedark-surface/30 animate-pulse text-onedark-muted space-y-1.5 z-0">
+            <Loader2 className="w-5 h-5 animate-spin text-onedark-accent" />
+            <span className="text-[10px] font-mono">Loading image...</span>
+          </div>
+        )}
+
+        {loadState === 'error' ? (
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-3 text-center bg-onedark-surface/40 z-10 space-y-2">
+            <div className="p-2 rounded-lg bg-onedark-darker/80 text-onedark-accent">
+              <ImageIcon className="w-6 h-6" />
+            </div>
+            <div className="flex flex-col items-center">
+              <span className="text-[11px] font-mono text-onedark-fg font-medium truncate max-w-[180px]">{att.name}</span>
+              <span className="text-[10px] text-onedark-muted font-mono">{att.sizeStr || 'Image preview'}</span>
+            </div>
+            <div className="flex items-center space-x-1.5 pt-0.5">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLoadState('loading');
+                  setRetryKey(Date.now());
+                }}
+                className="px-2 py-0.5 rounded bg-onedark-surface hover:bg-onedark-surfaceHighlight text-[10.5px] font-mono text-onedark-fg transition-colors flex items-center space-x-1 cursor-pointer"
+              >
+                <RotateCw className="w-3 h-3" />
+                <span>Retry</span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onViewRight();
+                }}
+                className="px-2 py-0.5 rounded bg-onedark-accent/20 hover:bg-onedark-accent/30 text-onedark-accent text-[10.5px] font-mono font-medium transition-colors flex items-center space-x-1 cursor-pointer"
+              >
+                <ExternalLink className="w-3 h-3" />
+                <span>View</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          imgSrc && (
+            <img
+              src={imgSrc}
+              alt={att.name}
+              loading="lazy"
+              onLoad={() => setLoadState('loaded')}
+              onError={() => setLoadState('error')}
+              className={`w-full h-full object-contain group-hover/img:scale-105 transition-transform duration-200 ${
+                loadState === 'loaded' ? 'opacity-100' : 'opacity-0'
+              }`}
+            />
+          )
+        )}
+
+        {loadState === 'loaded' && (
+          <>
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60 group-hover/img:opacity-40 transition-opacity pointer-events-none" />
+            <div className="absolute top-2 right-2 p-1.5 rounded-lg bg-onedark-darker/80 backdrop-blur-md text-onedark-fg group-hover/img:text-onedark-accent opacity-0 group-hover/img:opacity-100 transition-all shadow-sm">
+              <ZoomIn className="w-3.5 h-3.5" />
+            </div>
+          </>
+        )}
+      </div>
+
+      <div className="px-2.5 py-1.5 flex items-center justify-between text-xs font-mono bg-onedark-surface/90 border-t border-onedark-borderSubtle/60 mt-auto">
+        <div className="flex items-center space-x-1.5 min-w-0 pr-2">
+          <ImageIcon className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
+          <span className="truncate text-onedark-fgBright text-[11.5px] font-semibold">{att.name}</span>
+          {att.sizeStr && (
+            <span className="text-[10px] text-onedark-muted ml-1 flex-shrink-0">{att.sizeStr}</span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onViewRight();
+          }}
+          className="px-2 py-0.5 rounded-md bg-onedark-darker hover:bg-onedark-surfaceHighlight text-[11px] font-mono text-onedark-muted hover:text-onedark-fgBright border border-onedark-borderSubtle/70 transition-all flex items-center space-x-1 flex-shrink-0 cursor-pointer shadow-2xs active:scale-95"
+          title="Open in Files on the right"
+        >
+          <ExternalLink className="w-3 h-3 text-onedark-accent" />
+          <span>View</span>
+        </button>
+      </div>
+    </div>
+  );
 };
 
 export interface ChatAttachment {
@@ -353,6 +474,8 @@ interface ChatCanvasProps {
   onSetPreset?: (preset: LayoutPreset) => void;
   onOpenSandboxModal?: () => void;
   onSelectAuxTab?: (tab: 'docs' | 'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'preview' | 'changes') => void;
+  onOpenFile?: (filePath: string) => void;
+  onOpenDoc?: (target: { url: string; title?: string }) => void;
   onOpenPreview?: (url: string, title?: string) => void;
   onOpenPlan?: (taskId?: string, plan?: TaskPlan | null) => void;
   onNavigateToRepos?: () => void;
@@ -951,6 +1074,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   onSetPreset,
   onOpenSandboxModal,
   onSelectAuxTab,
+  onOpenFile,
+  onOpenDoc,
   onOpenPreview,
   onOpenPlan,
   onNavigateToRepos,
@@ -1043,13 +1168,21 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
   const handleAttachFiles = async (files: FileList | File[]) => {
     if (!files || files.length === 0) return;
-    const newItems: ChatAttachment[] = Array.from(files).map((f) => ({
-      id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-      file: f,
-      name: f.name,
-      size: f.size,
-      status: task?.id ? 'uploading' : 'ready',
-    }));
+    const newItems: ChatAttachment[] = Array.from(files).map((f) => {
+      try {
+        const blobUrl = URL.createObjectURL(f);
+        localAttachmentBlobUrls.set(f.name, blobUrl);
+      } catch {
+        // ignore
+      }
+      return {
+        id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+        file: f,
+        name: f.name,
+        size: f.size,
+        status: task?.id ? 'uploading' : 'ready',
+      };
+    });
     setAttachments((prev) => [...prev, ...newItems]);
 
     if (task?.id) {
@@ -2554,44 +2687,39 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                                 {parsedAttachments.length > 0 && (
                                   <div className={`mt-2.5 pt-2 ${cleanedText ? 'border-t border-onedark-borderSubtle/50' : ''} flex flex-wrap gap-2.5`}>
                                     {parsedAttachments.map((att, attIdx) => {
+                                      const ext = att.name.toLowerCase();
+                                      const isDoc = /\.(pdf|docx?|epub|markdown|md|txt)$/i.test(ext);
+
+                                      const handleOpenAttachment = () => {
+                                        if (isDoc) {
+                                          if (onOpenDoc && att.rawUrl) {
+                                            onOpenDoc({ url: att.rawUrl, title: att.name });
+                                          } else if (onSelectAuxTab) {
+                                            onSelectAuxTab('docs');
+                                          }
+                                        } else {
+                                          if (onOpenFile) {
+                                            onOpenFile(att.path);
+                                          } else if (onSelectAuxTab) {
+                                            onSelectAuxTab('files');
+                                          }
+                                        }
+                                      };
+
                                       if (att.category === 'image') {
                                         return (
-                                          <div
+                                          <AttachmentImagePreview
                                             key={attIdx}
-                                            onClick={() => {
+                                            att={att}
+                                            onOpenLightbox={() => {
                                               if (att.rawUrl) {
                                                 setLightboxImage({ url: att.rawUrl, name: att.name, sizeStr: att.sizeStr });
                                                 setLightboxZoom(1);
                                                 setLightboxRotation(0);
                                               }
                                             }}
-                                            className="group/img relative rounded-xl overflow-hidden border border-onedark-borderSubtle bg-onedark-darker/70 hover:border-onedark-accent/60 shadow-md transition-all cursor-pointer max-w-xs sm:max-w-sm flex-1 min-w-[200px]"
-                                          >
-                                            <div className="relative aspect-video max-h-48 overflow-hidden bg-black/40 flex items-center justify-center">
-                                              <img
-                                                src={att.rawUrl}
-                                                alt={att.name}
-                                                loading="lazy"
-                                                className="w-full h-full object-contain group-hover/img:scale-105 transition-transform duration-200"
-                                                onError={(e) => {
-                                                  (e.target as HTMLElement).style.display = 'none';
-                                                }}
-                                              />
-                                              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60 group-hover/img:opacity-40 transition-opacity" />
-                                              <div className="absolute top-2 right-2 p-1.5 rounded-lg bg-onedark-darker/80 backdrop-blur-md text-onedark-fg group-hover/img:text-onedark-accent opacity-0 group-hover/img:opacity-100 transition-all shadow-sm">
-                                                <ZoomIn className="w-3.5 h-3.5" />
-                                              </div>
-                                            </div>
-                                            <div className="px-2.5 py-1.5 flex items-center justify-between text-xs font-mono bg-onedark-surface/90 border-t border-onedark-borderSubtle/60">
-                                              <div className="flex items-center space-x-1.5 min-w-0">
-                                                <ImageIcon className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
-                                                <span className="truncate text-onedark-fgBright text-[11.5px] font-semibold">{att.name}</span>
-                                              </div>
-                                              {att.sizeStr && (
-                                                <span className="text-[10px] text-onedark-muted ml-2 flex-shrink-0">{att.sizeStr}</span>
-                                              )}
-                                            </div>
-                                          </div>
+                                            onViewRight={handleOpenAttachment}
+                                          />
                                         );
                                       }
 
@@ -2616,20 +2744,18 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                                               <span className="capitalize">{att.category}</span>
                                             </div>
                                           </div>
-                                          {onSelectAuxTab && (
-                                            <button
-                                              type="button"
-                                              onClick={(e) => {
-                                                e.stopPropagation();
-                                                onSelectAuxTab('files');
-                                              }}
-                                              className="px-2 py-1 rounded-md bg-onedark-surface hover:bg-onedark-surfaceHighlight text-[11px] font-mono text-onedark-muted hover:text-onedark-fg transition-colors flex items-center space-x-1"
-                                              title="Open in Files"
-                                            >
-                                              <ExternalLink className="w-3 h-3" />
-                                              <span>View</span>
-                                            </button>
-                                          )}
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleOpenAttachment();
+                                            }}
+                                            className="px-2 py-1 rounded-md bg-onedark-surface hover:bg-onedark-surfaceHighlight text-[11px] font-mono text-onedark-muted hover:text-onedark-fg transition-colors flex items-center space-x-1 ml-auto cursor-pointer"
+                                            title={isDoc ? "Open in Web & Docs" : "Open in Files"}
+                                          >
+                                            <ExternalLink className="w-3 h-3 text-onedark-accent" />
+                                            <span>View</span>
+                                          </button>
                                         </div>
                                       );
                                     })}

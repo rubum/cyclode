@@ -17,6 +17,8 @@ import { useWebSocketContext } from '../../contexts/WebSocketContext';
 
 interface FilesExplorerTabProps {
   task: Task;
+  selectedFilePath?: string | null;
+  onClearSelectedFilePath?: () => void;
 }
 
 interface SandboxInfo {
@@ -38,12 +40,23 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
 // Client-side cache for instant workspace file tree rendering across task switches
 const sandboxCache = new Map<string, SandboxInfo>();
 
-export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ task }) => {
+export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ 
+  task,
+  selectedFilePath,
+  onClearSelectedFilePath,
+}) => {
   const [data, setData] = useState<SandboxInfo | null>(() => (task?.id ? sandboxCache.get(task.id) || null : null));
   const [loading, setLoading] = useState<boolean>(() => !(task?.id && sandboxCache.has(task.id)));
   const [error, setError] = useState<string | null>(null);
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<string | null>(selectedFilePath || null);
   const [targetLine, setTargetLine] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (selectedFilePath) {
+      setSelectedFile(selectedFilePath);
+      setTargetLine(null);
+    }
+  }, [selectedFilePath]);
   const [activeSnippetContext, setActiveSnippetContext] = useState<LineContext | null>(null);
   const [initialAgentPrompt, setInitialAgentPrompt] = useState<string | undefined>(undefined);
   const [isAgentPopoverOpen, setIsAgentPopoverOpen] = useState(false);

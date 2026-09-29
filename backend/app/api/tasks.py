@@ -13,6 +13,7 @@ import io
 import sqlite3
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from fastapi.responses import FileResponse, JSONResponse
+from urllib.parse import unquote
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 from pydantic import BaseModel
@@ -1357,7 +1358,7 @@ async def get_sandbox_file_content(
         raise HTTPException(status_code=404, detail="Sandbox workspace does not exist on disk")
 
     # Sanitize and resolve target path
-    clean_rel = path.lstrip("/\\")
+    clean_rel = unquote(path).lstrip("/\\")
 
     # Strip redundant sandbox folder prefix if path was prefixed with sandbox name
     if clean_rel.startswith(ws_path.name + "/"):
@@ -1378,7 +1379,16 @@ async def get_sandbox_file_content(
         raise HTTPException(status_code=403, detail="Access denied: Path outside sandbox workspace")
 
     if not target_file.exists() or not target_file.is_file():
-        raise HTTPException(status_code=404, detail=f"File '{clean_rel}' not found")
+        alt_target = (ws_path / ".cyclode" / "attachments" / Path(clean_rel).name).resolve()
+        if alt_target.exists() and alt_target.is_file():
+            try:
+                alt_target.relative_to(ws_path)
+                target_file = alt_target
+                clean_rel = str(target_file.relative_to(ws_path))
+            except ValueError:
+                pass
+        if not target_file.exists() or not target_file.is_file():
+            raise HTTPException(status_code=404, detail=f"File '{clean_rel}' not found")
 
     file_stat = target_file.stat()
     file_size = file_stat.st_size
@@ -1534,7 +1544,7 @@ async def get_sandbox_file_raw(
     if not ws_path or not ws_path.exists() or not ws_path.is_dir():
         raise HTTPException(status_code=404, detail="Sandbox workspace does not exist on disk")
 
-    clean_rel = path.lstrip("/\\")
+    clean_rel = unquote(path).lstrip("/\\")
     if clean_rel.startswith(ws_path.name + "/"):
         clean_rel = clean_rel[len(ws_path.name) + 1:]
     elif clean_rel.startswith(ws_path.name + "\\"):
@@ -1552,7 +1562,16 @@ async def get_sandbox_file_raw(
         raise HTTPException(status_code=403, detail="Access denied: Path outside sandbox workspace")
 
     if not target_file.exists() or not target_file.is_file():
-        raise HTTPException(status_code=404, detail=f"File '{clean_rel}' not found")
+        alt_target = (ws_path / ".cyclode" / "attachments" / Path(clean_rel).name).resolve()
+        if alt_target.exists() and alt_target.is_file():
+            try:
+                alt_target.relative_to(ws_path)
+                target_file = alt_target
+                clean_rel = str(target_file.relative_to(ws_path))
+            except ValueError:
+                pass
+        if not target_file.exists() or not target_file.is_file():
+            raise HTTPException(status_code=404, detail=f"File '{clean_rel}' not found")
 
     # Determine MIME type
     mime_type, _ = mimetypes.guess_type(target_file.name)

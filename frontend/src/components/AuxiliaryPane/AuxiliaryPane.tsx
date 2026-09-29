@@ -21,6 +21,8 @@ interface AuxiliaryPaneProps {
   activeTab?: AuxTabType;
   onTabChange?: (tab: AuxTabType) => void;
   previewTarget?: { url: string; title?: string } | null;
+  selectedFilePath?: string | null;
+  onClearSelectedFilePath?: () => void;
   onClearPreview?: () => void;
   onAskAboutRepo?: (repoName: string) => void;
   onCloneToSession?: (repoUrl: string, repoName: string) => void;
@@ -47,6 +49,8 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
   activeTab: controlledTab, 
   onTabChange,
   previewTarget,
+  selectedFilePath,
+  onClearSelectedFilePath,
   onClearPreview,
   onAskAboutRepo,
   onCloneToSession,
@@ -183,7 +187,13 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
               repositories={repositories}
             />
           )}
-          {activeTab === 'files' && task && <FilesExplorerTab task={task} />}
+          {activeTab === 'files' && task && (
+            <FilesExplorerTab 
+              task={task} 
+              selectedFilePath={selectedFilePath} 
+              onClearSelectedFilePath={onClearSelectedFilePath} 
+            />
+          )}
           {activeTab === 'files' && !task && (
             <div className="h-full flex items-center justify-center text-xs text-onedark-muted font-mono">
               No active task selected

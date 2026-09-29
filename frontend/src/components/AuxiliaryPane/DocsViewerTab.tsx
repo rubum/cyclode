@@ -1119,6 +1119,23 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
       return;
     }
 
+    if (targetUrl.includes('/files/raw') && (/\.pdf($|\?)/i.test(targetUrl) || targetUrl.toLowerCase().includes('.pdf'))) {
+      const apiBase = import.meta.env.VITE_API_URL || '';
+      const fullPdfUrl = targetUrl.startsWith('http') ? targetUrl : `${apiBase}${targetUrl}`;
+      const docTitle = initialTitle || targetUrl.split('path=').pop()?.split('/').pop() || 'document.pdf';
+      setData({
+        type: 'pdf',
+        url: targetUrl,
+        title: decodeURIComponent(docTitle),
+        pdf_url: fullPdfUrl,
+        raw_pdf_url: fullPdfUrl,
+        content_markdown: `# ${decodeURIComponent(docTitle)}\n\nViewing attached PDF document in Web & Docs.`
+      });
+      setPdfViewMode('pdf');
+      setIsLoading(false);
+      return;
+    }
+
     try {
       const apiBase = import.meta.env.VITE_API_URL || '';
       const res = await fetch(`${apiBase}/api/reader?url=${encodeURIComponent(targetUrl)}`);
