@@ -143,6 +143,10 @@ async def lookup_semantic_cache(
     if db is None or intent != "qa_research" or not query.strip():
         return None
 
+    # Never serve cached responses for attachment-bearing queries (each image/file payload is unique)
+    if "[Uploaded Attachment:" in query or "[Attached Image:" in query or ".cyclode/attachments/" in query:
+        return None
+
     norm = normalize_query(query)
     
     # 1. Fast exact normalized query check
