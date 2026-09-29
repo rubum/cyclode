@@ -311,7 +311,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
 
   const fileTree = Array.isArray(data?.file_tree) ? data.file_tree : [];
 
-  if (!data || fileTree.length === 0) {
+  if ((!data || fileTree.length === 0) && !selectedFile) {
     const isDestroyed = task.sandbox_status === 'DESTROYED' || data?.sandbox_status === 'DESTROYED';
     const isNoRepo = !task.repo_name && !task.repo_url;
     return (
@@ -336,20 +336,22 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
   return (
     <div className="h-full flex flex-col md:flex-row overflow-hidden font-sans relative">
       {/* Left Tree Explorer */}
-      <div className="w-full md:w-72 lg:w-80 h-1/2 md:h-full border-b md:border-b-0 md:border-r border-onedark-borderSubtle flex-shrink-0">
-        <FileTreeExplorer
-          taskId={task.id}
-          tree={fileTree}
-          selectedFile={selectedFile}
-          onSelectFile={(path, line) => {
-            pushPoint({ filePath: path, line: line || 1 });
-            setSelectedFile(path);
-            setTargetLine(line || null);
-          }}
-          externalSearch={externalSearch}
-          title="Sandbox Files"
-        />
-      </div>
+      {fileTree.length > 0 && (
+        <div className="w-full md:w-72 lg:w-80 h-1/2 md:h-full border-b md:border-b-0 md:border-r border-onedark-borderSubtle flex-shrink-0">
+          <FileTreeExplorer
+            taskId={task.id}
+            tree={fileTree}
+            selectedFile={selectedFile}
+            onSelectFile={(path, line) => {
+              pushPoint({ filePath: path, line: line || 1 });
+              setSelectedFile(path);
+              setTargetLine(line || null);
+            }}
+            externalSearch={externalSearch}
+            title="Sandbox Files"
+          />
+        </div>
+      )}
 
       {/* Center Code Viewer */}
       <div className="flex-1 h-1/2 md:h-full overflow-hidden bg-onedark-bg flex flex-col min-w-0">

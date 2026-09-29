@@ -43,10 +43,11 @@ const MainApp: React.FC = () => {
     return 'split';
   });
   const [activeAuxTab, setActiveAuxTab] = useState<'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'docs' | 'preview' | 'changes'>('activity');
-  const [selectedAuxFilePath, setSelectedAuxFilePath] = useState<string | null>(null);
-  const [globalPreviewTarget, setGlobalPreviewTarget] = useState<{ url: string; title?: string } | null>(null);
   const [sessionPreviews, setSessionPreviews] = useState<Record<string, { url: string; title?: string } | null>>({});
-  const activePreviewTarget = activeTaskId ? (sessionPreviews[activeTaskId] || globalPreviewTarget) : globalPreviewTarget;
+  const [sessionFiles, setSessionFiles] = useState<Record<string, string | null>>({});
+
+  const activePreviewTarget = activeTaskId ? (sessionPreviews[activeTaskId] || null) : (sessionPreviews['draft'] || null);
+  const selectedAuxFilePath = activeTaskId ? (sessionFiles[activeTaskId] || null) : (sessionFiles['draft'] || null);
   const [isClearingAll, setIsClearingAll] = useState<boolean>(false);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
 
@@ -671,6 +672,16 @@ const MainApp: React.FC = () => {
     setActiveTaskId(null);
     setActiveTaskDetails(null);
     setActiveView('chat');
+    setSessionPreviews((prev) => {
+      const next = { ...prev };
+      delete next['draft'];
+      return next;
+    });
+    setSessionFiles((prev) => {
+      const next = { ...prev };
+      delete next['draft'];
+      return next;
+    });
   };
 
   const getCleanInitialTitle = (text: string): string => {
@@ -788,6 +799,24 @@ const MainApp: React.FC = () => {
           setTasks((prev) =>
             prev.map((t) => (t.id === tempId ? { ...t, ...data, id: createdId } : t))
           );
+
+          // Migrate any draft or tempId session previews and file selections
+          setSessionPreviews((prev) => {
+            const draftPreview = prev['draft'] || prev[tempId];
+            if (!draftPreview) return prev;
+            const next = { ...prev, [createdId]: draftPreview };
+            delete next['draft'];
+            delete next[tempId];
+            return next;
+          });
+          setSessionFiles((prev) => {
+            const draftFile = prev['draft'] || prev[tempId];
+            if (!draftFile) return prev;
+            const next = { ...prev, [createdId]: draftFile };
+            delete next['draft'];
+            delete next[tempId];
+            return next;
+          });
 
           if (files && files.length > 0) {
             try {
@@ -1253,15 +1282,14 @@ const MainApp: React.FC = () => {
   };
 
   const handleOpenFile = (filePath: string) => {
-    setSelectedAuxFilePath(filePath);
+    const sessionKey = activeTaskId || 'draft';
+    setSessionFiles((prev) => ({ ...prev, [sessionKey]: filePath }));
     setActiveAuxTab('files');
   };
 
   const handleOpenDoc = (target: { url: string; title?: string }) => {
-    setGlobalPreviewTarget(target);
-    if (activeTaskId) {
-      setSessionPreviews((prev) => ({ ...prev, [activeTaskId]: target }));
-    }
+    const sessionKey = activeTaskId || 'draft';
+    setSessionPreviews((prev) => ({ ...prev, [sessionKey]: target }));
     setActiveAuxTab('docs');
   };
 
@@ -1468,12 +1496,11 @@ const MainApp: React.FC = () => {
   };
 
   const handleClearPreview = () => {
-    if (activeTaskId) {
-      setSessionPreviews((prev) => ({
-        ...prev,
-        [activeTaskId]: null,
-      }));
-    }
+    const sessionKey = activeTaskId || 'draft';
+    setSessionPreviews((prev) => ({
+      ...prev,
+      [sessionKey]: null,
+    }));
   };
 
   return (
@@ -1512,7 +1539,10 @@ const MainApp: React.FC = () => {
             onTabChange={setActiveAuxTab}
             previewTarget={activePreviewTarget}
             selectedFilePath={selectedAuxFilePath}
-            onClearSelectedFilePath={() => setSelectedAuxFilePath(null)}
+            onClearSelectedFilePath={() => {
+              const sessionKey = activeTaskId || 'draft';
+              setSessionFiles((prev) => ({ ...prev, [sessionKey]: null }));
+            }}
             onClearPreview={handleClearPreview}
             onAskAboutRepo={(repoName) => {
               setActiveView('chat');

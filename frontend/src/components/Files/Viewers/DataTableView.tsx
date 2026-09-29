@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { 
   Table, 
   Search, 
@@ -16,7 +16,9 @@ import {
   RotateCcw,
   Sparkles,
   Info,
-  ChevronDown
+  ChevronDown,
+  RefreshCw,
+  AlertCircle
 } from 'lucide-react';
 
 interface DataTableViewProps {
@@ -59,6 +61,59 @@ export const DataTableView: React.FC<DataTableViewProps> = ({
   const [sqlError, setSqlError] = useState<string | null>(null);
   const [serverStats, setServerStats] = useState<Record<string, ColumnStat>>({});
   const [showStats, setShowStats] = useState<boolean>(false);
+
+  // Server table data state for binary files (xlsx, xls, parquet) or server-streamed tables
+  const isBinaryTable = useMemo(() => {
+    const lower = (filePath || '').toLowerCase();
+    return lower.endsWith('.xlsx') || lower.endsWith('.xls') || lower.endsWith('.parquet') || lower.endsWith('.pq');
+  }, [filePath]);
+
+  const [loadingServerData, setLoadingServerData] = useState<boolean>(false);
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [serverHeaders, setServerHeaders] = useState<string[]>([]);
+  const [serverRows, setServerRows] = useState<any[][]>([]);
+
+  const fetchServerTableData = useCallback(async (page: number = 1, currentSqlQuery?: string) => {
+    if (!taskId || !filePath) return;
+    setLoadingServerData(true);
+    setServerError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/tasks/${taskId}/files/query-table`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          path: filePath,
+          page,
+          page_size: pageSize,
+          sql_query: currentSqlQuery || undefined,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || `Failed to read table (HTTP ${res.status})`);
+      }
+      const data = await res.json();
+      if (data.error) {
+        setServerError(data.error);
+      } else {
+        setServerHeaders(data.headers || []);
+        setServerRows(data.rows || []);
+        if (data.summary_stats) {
+          setServerStats(data.summary_stats);
+        }
+      }
+    } catch (e: any) {
+      setServerError(e?.message || 'Error loading table data');
+    } finally {
+      setLoadingServerData(false);
+    }
+  }, [taskId, filePath, pageSize]);
+
+  useEffect(() => {
+    if (isBinaryTable || !content.trim()) {
+      fetchServerTableData(1);
+    }
+  }, [isBinaryTable, content, fetchServerTableData]);
 
   // Detect delimiter from content
   const detectedDelimiter = useMemo(() => {
@@ -169,8 +224,8 @@ export const DataTableView: React.FC<DataTableViewProps> = ({
     setSqlRows([]);
   };
 
-  const activeHeaders = isSqlMode ? sqlHeaders : clientHeaders;
-  const activeRows = isSqlMode ? sqlRows : clientRows;
+  const activeHeaders = isSqlMode ? sqlHeaders : (clientHeaders.length > 0 ? clientHeaders : serverHeaders);
+  const activeRows = isSqlMode ? sqlRows : (clientRows.length > 0 ? clientRows : serverRows);
 
   // Filter rows
   const filteredRows = useMemo(() => {
@@ -233,6 +288,33 @@ export const DataTableView: React.FC<DataTableViewProps> = ({
       )
     );
   };
+
+  if (loadingServerData && activeHeaders.length === 0) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center p-6 text-onedark-muted font-mono space-y-2">
+        <RefreshCw className="w-5 h-5 animate-spin text-onedark-accent" />
+        <span className="text-xs">Loading spreadsheet table data...</span>
+      </div>
+    );
+  }
+
+  if (serverError && activeHeaders.length === 0) {
+    return (
+      <div className="p-4 rounded-xl bg-onedark-red/10 border border-onedark-red/30 text-onedark-red text-xs font-mono m-4 flex items-start space-x-2">
+        <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+        <div>
+          <div className="font-semibold">Failed to read spreadsheet table</div>
+          <div className="text-[11px] opacity-90 mt-0.5">{serverError}</div>
+          <button
+            onClick={() => fetchServerTableData(1)}
+            className="mt-2 px-2.5 py-1 rounded bg-onedark-surface hover:bg-onedark-border text-onedark-fg text-[11px] transition-colors cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-full flex flex-col bg-onedark-bg font-sans overflow-hidden select-none">

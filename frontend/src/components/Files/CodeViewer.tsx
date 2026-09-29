@@ -128,7 +128,15 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
       lower.endsWith('.jar')
     ) {
       setViewMode('archive');
-    } else if (lower.endsWith('.csv') || lower.endsWith('.tsv') || lower.endsWith('.jsonl') || lower.endsWith('.parquet') || lower.endsWith('.pq')) {
+    } else if (
+      lower.endsWith('.csv') ||
+      lower.endsWith('.tsv') ||
+      lower.endsWith('.jsonl') ||
+      lower.endsWith('.parquet') ||
+      lower.endsWith('.pq') ||
+      lower.endsWith('.xlsx') ||
+      lower.endsWith('.xls')
+    ) {
       setViewMode('table');
     } else if (
       lower.endsWith('.png') ||
@@ -512,7 +520,7 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
   const isMarkdown = lowerPath.endsWith('.md') || lowerPath.endsWith('.markdown') || lowerPath.endsWith('.mdx');
   const isNotebook = lowerPath.endsWith('.ipynb');
   const isArchive = lowerPath.endsWith('.zip') || lowerPath.endsWith('.tar') || lowerPath.endsWith('.tar.gz') || lowerPath.endsWith('.tgz') || lowerPath.endsWith('.tar.bz2') || lowerPath.endsWith('.tbz2') || lowerPath.endsWith('.whl') || lowerPath.endsWith('.egg') || lowerPath.endsWith('.jar');
-  const isTable = lowerPath.endsWith('.csv') || lowerPath.endsWith('.tsv') || lowerPath.endsWith('.jsonl') || lowerPath.endsWith('.parquet') || lowerPath.endsWith('.pq');
+  const isTable = lowerPath.endsWith('.csv') || lowerPath.endsWith('.tsv') || lowerPath.endsWith('.jsonl') || lowerPath.endsWith('.parquet') || lowerPath.endsWith('.pq') || lowerPath.endsWith('.xlsx') || lowerPath.endsWith('.xls');
   const isStructured = lowerPath.endsWith('.json') || lowerPath.endsWith('.jsonc') || lowerPath.endsWith('.yaml') || lowerPath.endsWith('.yml') || lowerPath.endsWith('.toml');
   const isImage = lowerPath.endsWith('.png') || lowerPath.endsWith('.jpg') || lowerPath.endsWith('.jpeg') || lowerPath.endsWith('.gif') || lowerPath.endsWith('.webp') || lowerPath.endsWith('.svg') || lowerPath.endsWith('.ico') || lowerPath.endsWith('.bmp') || lowerPath.endsWith('.avif');
   const isMedia = lowerPath.endsWith('.mp4') || lowerPath.endsWith('.webm') || lowerPath.endsWith('.mov') || lowerPath.endsWith('.mp3') || lowerPath.endsWith('.wav') || lowerPath.endsWith('.ogg') || lowerPath.endsWith('.m4a');
@@ -952,7 +960,7 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
           fileSize={data.size}
           rawUrl={rawFileUrl}
         />
-      ) : viewMode === 'table' ? (
+      ) : viewMode === 'table' || isTable || (data.is_binary && isTable) ? (
         <DataTableView
           taskId={taskId}
           content={data.content}

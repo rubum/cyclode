@@ -822,6 +822,17 @@ def _scan_sandbox_filesystem(
 
             if total_files >= MAX_SCANNED_FILES:
                 break
+
+        att_dir = ws_path / ".cyclode" / "attachments"
+        if att_dir.exists() and att_dir.is_dir():
+            for f in att_dir.iterdir():
+                if f.is_file() and not f.name.startswith("."):
+                    try:
+                        fsize = f.stat().st_size
+                    except Exception:
+                        fsize = 0
+                    total_files += 1
+                    total_bytes += fsize
     except Exception:
         pass
 
@@ -879,6 +890,15 @@ def _scan_sandbox_filesystem(
                 p for p in current_path.iterdir()
                 if p.name not in IGNORE_SANDBOX_SCAN_DIRS and not p.name.startswith(".")
             ]
+            if current_path == ws_path:
+                att_dir = ws_path / ".cyclode" / "attachments"
+                if att_dir.exists() and att_dir.is_dir():
+                    try:
+                        has_attachments = any(not f.name.startswith(".") for f in att_dir.iterdir())
+                    except Exception:
+                        has_attachments = False
+                    if has_attachments:
+                        entries.append(att_dir)
             entries.sort(key=lambda x: (not x.is_dir(), x.name.lower()))
             for p in entries[:max_entries]:
                 rel = str(p.relative_to(ws_path))
@@ -1761,7 +1781,16 @@ async def query_sandbox_table(
         raise HTTPException(status_code=403, detail="Path outside workspace")
 
     if not target_file.exists() or not target_file.is_file():
-        raise HTTPException(status_code=404, detail=f"File '{clean_rel}' not found")
+        alt_target = (ws_path / ".cyclode" / "attachments" / Path(clean_rel).name).resolve()
+        if alt_target.exists() and alt_target.is_file():
+            try:
+                alt_target.relative_to(ws_path)
+                target_file = alt_target
+                clean_rel = str(target_file.relative_to(ws_path))
+            except ValueError:
+                pass
+        if not target_file.exists() or not target_file.is_file():
+            raise HTTPException(status_code=404, detail=f"File '{clean_rel}' not found")
 
     ext = target_file.suffix.lower()
     headers: List[str] = []
@@ -1820,6 +1849,7 @@ async def query_sandbox_table(
                 df = pd.read_excel(target_file)
             else:
                 df = pd.read_csv(target_file)
+            df = df.fillna("")
             headers = [str(c) for c in df.columns]
             rows = df.astype(str).values.tolist()
         except Exception as e:
