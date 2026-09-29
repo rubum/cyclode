@@ -108,13 +108,16 @@ export const localAttachmentBlobUrls = new Map<string, string>();
 export const parseUserMessageAttachments = (content: string, taskId?: string): { cleanedText: string; attachments: ParsedAttachment[] } => {
   if (!content) return { cleanedText: '', attachments: [] };
 
-  const attachmentRegex = /\[Uploaded Attachment:\s*([^\](\n]+?)(?:\s*\(([^)\n]+)\))?\]/gi;
+  const attachmentRegex = /\[Uploaded Attachment:\s*([^\]\n]+?)\]/gi;
   const attachments: ParsedAttachment[] = [];
 
   let match;
   while ((match = attachmentRegex.exec(content)) !== null) {
-    const rawPath = match[1].trim();
-    const sizeStr = match[2] ? match[2].trim() : undefined;
+    const inner = match[1].trim();
+    // Parse size suffix if present at end of string, e.g. " (4.8 KB)", " (100 B)", " (1.2 MB)"
+    const sizeMatch = inner.match(/^(.*?)(?:\s*\(([\d.]+\s*(?:B|KB|MB|GB|bytes?|TB))\))$/i);
+    const rawPath = (sizeMatch ? sizeMatch[1] : inner).trim();
+    const sizeStr = sizeMatch ? sizeMatch[2].trim() : undefined;
     const name = rawPath.split('/').pop() || rawPath;
     const lower = name.toLowerCase();
 
