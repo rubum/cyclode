@@ -99,6 +99,7 @@ export interface ParsedAttachment {
   path: string;
   sizeStr?: string;
   rawUrl?: string;
+  blobUrl?: string;
   category: 'image' | 'table' | 'notebook' | 'archive' | 'doc' | 'code' | 'general';
 }
 
@@ -137,13 +138,17 @@ export const parseUserMessageAttachments = (content: string, taskId?: string): {
       : `.cyclode/attachments/${name}`;
 
     const blobUrl = localAttachmentBlobUrls.get(name);
-    const rawUrl = blobUrl || (taskId && !taskId.startsWith('temp-') ? `${API_BASE}/api/tasks/${taskId}/files/raw?path=${encodeURIComponent(relPath)}` : (blobUrl || undefined));
+    const serverUrl = taskId && !taskId.startsWith('temp-')
+      ? `${API_BASE}/api/tasks/${taskId}/files/raw?path=${encodeURIComponent(relPath)}`
+      : undefined;
+    const rawUrl = serverUrl || blobUrl;
 
     attachments.push({
       name,
       path: relPath,
       sizeStr,
       rawUrl,
+      blobUrl,
       category,
     });
   }
@@ -168,10 +173,11 @@ export const AttachmentImagePreview: React.FC<AttachmentImagePreviewProps> = ({
   const [retryKey, setRetryKey] = useState<number>(0);
 
   const imgSrc = useMemo(() => {
+    if (att.blobUrl) return att.blobUrl;
     if (!att.rawUrl) return '';
     if (att.rawUrl.startsWith('blob:')) return att.rawUrl;
     return retryKey > 0 ? `${att.rawUrl}&_t=${retryKey}` : att.rawUrl;
-  }, [att.rawUrl, retryKey]);
+  }, [att.rawUrl, att.blobUrl, retryKey]);
 
   return (
     <div className="group/img relative rounded-xl overflow-hidden border border-onedark-borderSubtle bg-onedark-darker/70 hover:border-onedark-accent/60 shadow-md transition-all max-w-xs sm:max-w-sm flex-1 min-w-[200px] flex flex-col">

@@ -44,8 +44,9 @@ const MainApp: React.FC = () => {
   });
   const [activeAuxTab, setActiveAuxTab] = useState<'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'docs' | 'preview' | 'changes'>('activity');
   const [selectedAuxFilePath, setSelectedAuxFilePath] = useState<string | null>(null);
+  const [globalPreviewTarget, setGlobalPreviewTarget] = useState<{ url: string; title?: string } | null>(null);
   const [sessionPreviews, setSessionPreviews] = useState<Record<string, { url: string; title?: string } | null>>({});
-  const activePreviewTarget = activeTaskId ? (sessionPreviews[activeTaskId] || null) : null;
+  const activePreviewTarget = activeTaskId ? (sessionPreviews[activeTaskId] || globalPreviewTarget) : globalPreviewTarget;
   const [isClearingAll, setIsClearingAll] = useState<boolean>(false);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
 
@@ -1257,6 +1258,7 @@ const MainApp: React.FC = () => {
   };
 
   const handleOpenDoc = (target: { url: string; title?: string }) => {
+    setGlobalPreviewTarget(target);
     if (activeTaskId) {
       setSessionPreviews((prev) => ({ ...prev, [activeTaskId]: target }));
     }

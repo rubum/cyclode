@@ -1238,6 +1238,15 @@ async def get_url_reader(url: str = Query(..., description="Target URL to read")
     Detects GitHub repositories to provide rich README and metadata views.
     """
     clean_url = url.strip()
+    if clean_url.startswith("blob:"):
+        return {
+            "type": "web",
+            "url": clean_url,
+            "title": "Local Document",
+            "description": "Browser in-memory document",
+            "content_markdown": "### Local Document\n\nThis is a client-side in-memory browser document (`blob:`).",
+        }
+
     if not clean_url.startswith(("http://", "https://")):
         clean_url = "https://" + clean_url
 

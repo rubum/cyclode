@@ -1073,9 +1073,12 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
         });
         setHistoryIndex((prev) => prev + 1);
         setCurrentUrl(url);
+      } else {
+        // If re-triggered with the same URL, reload/re-evaluate
+        fetchDoc(url);
       }
     }
-  }, [url]);
+  }, [url, initialTitle]);
 
   const fetchDoc = async (targetUrl: string) => {
     setIsLoading(true);
@@ -1119,20 +1122,50 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
       return;
     }
 
-    if (targetUrl.includes('/files/raw') && (/\.pdf($|\?)/i.test(targetUrl) || targetUrl.toLowerCase().includes('.pdf'))) {
+    const isPdfDoc =
+      Boolean(initialTitle && /\.pdf$/i.test(initialTitle)) ||
+      /\.pdf($|\?)/i.test(targetUrl) ||
+      (targetUrl.includes('/files/raw') && targetUrl.toLowerCase().includes('.pdf')) ||
+      (targetUrl.startsWith('blob:') && (!initialTitle || /\.pdf$/i.test(initialTitle)));
+
+    if (isPdfDoc) {
       const apiBase = import.meta.env.VITE_API_URL || '';
-      const fullPdfUrl = targetUrl.startsWith('http') ? targetUrl : `${apiBase}${targetUrl}`;
-      const docTitle = initialTitle || targetUrl.split('path=').pop()?.split('/').pop() || 'document.pdf';
+      const fullPdfUrl = (targetUrl.startsWith('http') || targetUrl.startsWith('blob:'))
+        ? targetUrl
+        : `${apiBase}${targetUrl}`;
+      const docTitle = initialTitle || (targetUrl.includes('path=') ? targetUrl.split('path=').pop()?.split('/').pop() : '') || 'Document.pdf';
+      const cleanTitle = decodeURIComponent(docTitle);
       setData({
         type: 'pdf',
         url: targetUrl,
-        title: decodeURIComponent(docTitle),
+        title: cleanTitle,
         pdf_url: fullPdfUrl,
         raw_pdf_url: fullPdfUrl,
-        content_markdown: `# ${decodeURIComponent(docTitle)}\n\nViewing attached PDF document in Web & Docs.`
+        content_markdown: `# ${cleanTitle}\n\nViewing attached PDF document in Web & Docs.`
       });
       setPdfViewMode('pdf');
       setIsLoading(false);
+      return;
+    }
+
+    if (targetUrl.startsWith('blob:')) {
+      try {
+        const docTitle = initialTitle || 'Uploaded Document';
+        const cleanTitle = decodeURIComponent(docTitle);
+        const blobRes = await fetch(targetUrl);
+        const blobText = await blobRes.text();
+        setData({
+          type: 'web',
+          url: targetUrl,
+          title: cleanTitle,
+          content_markdown: blobText.startsWith('#') ? blobText : `# ${cleanTitle}\n\n${blobText}`,
+        });
+      } catch (blobErr: any) {
+        console.error('Error reading blob document:', blobErr);
+        setError(`Failed to read local document: ${blobErr.message}`);
+      } finally {
+        setIsLoading(false);
+      }
       return;
     }
 
@@ -1374,7 +1407,11 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
 
   const isGitHub = data?.type === 'github' || Boolean(url && url.includes('github.com'));
   const isArXiv = data?.type === 'arxiv' || Boolean(data?.arxiv_id) || Boolean(currentUrl && /arxiv\.org/i.test(currentUrl)) || Boolean(url && /arxiv\.org/i.test(url));
-  const isPdf = data?.type === 'pdf' || Boolean(data?.pdf_url) || Boolean(currentUrl && /\.pdf($|\?)/i.test(currentUrl)) || Boolean(url && /\.pdf($|\?)/i.test(url));
+  const isPdf = data?.type === 'pdf' || 
+    Boolean(data?.pdf_url) || 
+    Boolean(initialTitle && /\.pdf($|\?)/i.test(initialTitle)) || 
+    Boolean(currentUrl && /\.pdf($|\?)/i.test(currentUrl)) || 
+    Boolean(url && /\.pdf($|\?)/i.test(url));
 
   return (
     <div className="flex flex-col h-full bg-onedark-darker overflow-hidden text-onedark-fg">
