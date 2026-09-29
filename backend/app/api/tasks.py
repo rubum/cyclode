@@ -1748,6 +1748,89 @@ async def upload_sandbox_files(
     return {"uploaded": uploaded_records, "count": len(uploaded_records)}
 
 
+def _read_xlsx_native(file_path: Path) -> Tuple[List[str], List[List[Any]]]:
+    """
+    Zero-dependency pure-Python parser for modern Office Open XML (.xlsx) spreadsheets
+    using standard library zipfile and xml.etree.ElementTree.
+    """
+    import zipfile
+    import xml.etree.ElementTree as ET
+
+    with zipfile.ZipFile(file_path, "r") as z:
+        shared_strings: List[str] = []
+        if "xl/sharedStrings.xml" in z.namelist():
+            tree = ET.fromstring(z.read("xl/sharedStrings.xml"))
+            ns = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+            for si in tree.findall(f"{ns}si"):
+                t = si.find(f"{ns}t")
+                if t is not None and t.text:
+                    shared_strings.append(t.text)
+                else:
+                    r_texts = [r_elem.text or "" for r_elem in si.findall(f".//{ns}t")]
+                    shared_strings.append("".join(r_texts))
+
+        sheet_xml = None
+        for name in z.namelist():
+            if name.startswith("xl/worksheets/sheet") and name.endswith(".xml"):
+                sheet_xml = name
+                break
+        if not sheet_xml:
+            return [], []
+
+        tree = ET.fromstring(z.read(sheet_xml))
+        ns = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
+        rows_data = []
+
+        def col_to_idx(col_str: str) -> int:
+            num = 0
+            for char in col_str:
+                if "A" <= char <= "Z":
+                    num = num * 26 + (ord(char) - ord("A") + 1)
+            return num - 1
+
+        for row in tree.findall(f".//{ns}row"):
+            row_dict = {}
+            max_c = 0
+            for c in row.findall(f"{ns}c"):
+                ref = c.attrib.get("r", "")
+                col_letters = "".join(filter(str.isalpha, ref))
+                c_idx = col_to_idx(col_letters) if col_letters else len(row_dict)
+                cell_type = c.attrib.get("t", "")
+                v = c.find(f"{ns}v")
+                val_text = v.text if v is not None and v.text is not None else ""
+
+                if cell_type == "s":
+                    try:
+                        s_idx = int(val_text)
+                        val = shared_strings[s_idx] if s_idx < len(shared_strings) else ""
+                    except Exception:
+                        val = val_text
+                elif cell_type == "inlineStr":
+                    is_t = c.find(f".//{ns}t")
+                    val = is_t.text if is_t is not None and is_t.text else ""
+                else:
+                    val = val_text
+                row_dict[c_idx] = val
+                if c_idx > max_c:
+                    max_c = c_idx
+
+            if row_dict:
+                row_list = [row_dict.get(i, "") for i in range(max_c + 1)]
+                rows_data.append(row_list)
+
+        if not rows_data:
+            return [], []
+
+        headers = [str(h).strip() for h in rows_data[0]]
+        raw_rows = rows_data[1:]
+        norm_rows = []
+        for r in raw_rows:
+            if len(r) < len(headers):
+                r = r + [""] * (len(headers) - len(r))
+            norm_rows.append(r[:len(headers)])
+        return headers, norm_rows
+
+
 @router.post("/{task_id}/files/query-table")
 async def query_sandbox_table(
     task_id: str,
@@ -1755,7 +1838,7 @@ async def query_sandbox_table(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Parses and queries structured tabular files (CSV, TSV, JSONL, Parquet) with column statistics,
+    Parses and queries structured tabular files (CSV, TSV, JSONL, Parquet, Excel) with column statistics,
     in-memory sorting, pagination, and instant SQL query execution.
     """
     stmt = select(TaskModel).where(TaskModel.id == task_id)
@@ -1840,7 +1923,8 @@ async def query_sandbox_table(
             raise HTTPException(status_code=400, detail=f"Failed to parse JSONL file: {str(e)}")
 
     else:
-        # Fallback to pandas if installed
+        parsed = False
+        # 1. Attempt pandas if installed
         try:
             import pandas as pd
             if ext in {".parquet", ".pq"}:
@@ -1852,8 +1936,34 @@ async def query_sandbox_table(
             df = df.fillna("")
             headers = [str(c) for c in df.columns]
             rows = df.astype(str).values.tolist()
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Unsupported or unparseable table format: {str(e)}")
+            parsed = True
+        except Exception:
+            parsed = False
+
+        # 2. Zero-dependency native XML fallback for .xlsx spreadsheets
+        if not parsed and ext == ".xlsx":
+            try:
+                headers, rows = _read_xlsx_native(target_file)
+                parsed = True
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Failed to parse Excel spreadsheet: {str(e)}")
+
+        if not parsed:
+            if ext in {".xlsx", ".xls"}:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unsupported Excel format ({ext}). Please ensure 'openpyxl' or 'pandas' is installed."
+                )
+            elif ext in {".parquet", ".pq"}:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Parquet files require 'pandas' and 'pyarrow' installed on the backend server."
+                )
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Unsupported or unparseable table format: '{ext}'"
+                )
 
     # Column statistics & type inference
     col_types: Dict[str, str] = {}

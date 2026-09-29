@@ -295,3 +295,110 @@ def test_attachment_fallback_across_tools(tmp_path):
     assert arch_res["total_files"] == 1
 
 
+@pytest.mark.asyncio
+async def test_query_table_excel_spreadsheet_and_attachment_fallback(tmp_path):
+    workspace = tmp_path / "sandbox-task-excel-test"
+    att_dir = workspace / ".cyclode" / "attachments"
+    att_dir.mkdir(parents=True, exist_ok=True)
+
+    task_id = "task-excel-test"
+    async with async_session_factory() as session:
+        task = TaskModel(
+            id=task_id,
+            session_key="excel-key",
+            title="Excel Table Test",
+            persona="IssueResolver",
+            status="RUNNING",
+            workspace_path=str(workspace)
+        )
+        session.add(task)
+        await session.commit()
+
+    # Create dummy xlsx
+    buf = BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("[Content_Types].xml", """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>
+</Types>""")
+        z.writestr("_rels/.rels", """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>""")
+        z.writestr("xl/workbook.xml", """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheets><sheet name="Sheet1" sheetId="1" id="rId1"/></sheets>
+</workbook>""")
+        z.writestr("xl/sharedStrings.xml", """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="4" uniqueCount="4">
+  <si><t>Item</t></si>
+  <si><t>Qty</t></si>
+  <si><t>Widget A</t></si>
+  <si><t>Gadget B</t></si>
+</sst>""")
+        z.writestr("xl/worksheets/sheet1.xml", """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetData>
+    <row r="1">
+      <c r="A1" t="s"><v>0</v></c>
+      <c r="B1" t="s"><v>1</v></c>
+    </row>
+    <row r="2">
+      <c r="A2" t="s"><v>2</v></c>
+      <c r="B2"><v>15</v></c>
+    </row>
+    <row r="3">
+      <c r="A3" t="s"><v>3</v></c>
+      <c r="B3"><v>45</v></c>
+    </row>
+  </sheetData>
+</worksheet>""")
+
+    excel_file = att_dir / "inventory.xlsx"
+    excel_file.write_bytes(buf.getvalue())
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Query by relative attachment path
+        res1 = await client.post(
+            f"/api/tasks/{task_id}/files/query-table",
+            json={"path": ".cyclode/attachments/inventory.xlsx", "page": 1, "page_size": 10}
+        )
+        assert res1.status_code == 200
+        data1 = res1.json()
+        assert data1["headers"] == ["Item", "Qty"]
+        assert data1["total_rows"] == 2
+        assert len(data1["rows"]) == 2
+
+        # 2. Query by basename with fallback resolution
+        res2 = await client.post(
+            f"/api/tasks/{task_id}/files/query-table",
+            json={"path": "inventory.xlsx", "page": 1, "page_size": 10}
+        )
+        assert res2.status_code == 200
+        data2 = res2.json()
+        assert data2["headers"] == ["Item", "Qty"]
+        assert data2["total_rows"] == 2
+
+        # 3. SQL query on Excel data table
+        res_sql = await client.post(
+            f"/api/tasks/{task_id}/files/query-table",
+            json={
+                "path": "inventory.xlsx",
+                "sql_query": "SELECT Item FROM data_table WHERE CAST(Qty AS INT) > 20",
+                "page": 1,
+                "page_size": 10
+            }
+        )
+        assert res_sql.status_code == 200
+        sql_data = res_sql.json()
+        assert sql_data["headers"] == ["Item"]
+        assert len(sql_data["rows"]) == 1
+        assert sql_data["rows"][0] == ["Gadget B"]
+
+
+
