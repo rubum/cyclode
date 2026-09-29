@@ -169,14 +169,26 @@ class DeepSeekProvider(BaseLLMProvider):
                             "tool_call_id": call_id,
                             "content": str(content_val)
                         })
+                    elif "inlineData" in p or "inline_data" in p:
+                        data_dict = p.get("inlineData") or p.get("inline_data") or {}
+                        mime_type = data_dict.get("mimeType") or data_dict.get("mime_type") or "image/png"
+                        b64_data = data_dict.get("data") or ""
+                        if b64_data:
+                            text_parts.append({
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:{mime_type};base64,{b64_data}"
+                                }
+                            })
                     elif "thought" in p and p["thought"]:
                         # Chain-of-thought in assistant turns
                         pass
 
                 if role in ["model", "assistant"]:
                     msg_obj: Dict[str, Any] = {"role": "assistant"}
-                    if text_parts:
-                        msg_obj["content"] = "\n".join(text_parts)
+                    str_texts = [tp for tp in text_parts if isinstance(tp, str)]
+                    if str_texts:
+                        msg_obj["content"] = "\n".join(str_texts)
                     elif tool_calls:
                         msg_obj["content"] = None
                     if tool_calls:
@@ -186,8 +198,20 @@ class DeepSeekProvider(BaseLLMProvider):
                 elif role == "user":
                     if tool_responses:
                         raw_msgs.extend(tool_responses)
-                    if text_parts:
-                        raw_msgs.append({"role": "user", "content": "\n".join(text_parts)})
+                    has_images = any(isinstance(tp, dict) and tp.get("type") == "image_url" for tp in text_parts)
+                    if has_images:
+                        user_content_blocks = []
+                        str_texts = [tp for tp in text_parts if isinstance(tp, str)]
+                        if str_texts:
+                            user_content_blocks.append({"type": "text", "text": "\n".join(str_texts)})
+                        for tp in text_parts:
+                            if isinstance(tp, dict):
+                                user_content_blocks.append(tp)
+                        raw_msgs.append({"role": "user", "content": user_content_blocks})
+                    elif text_parts:
+                        str_texts = [tp for tp in text_parts if isinstance(tp, str)]
+                        if str_texts:
+                            raw_msgs.append({"role": "user", "content": "\n".join(str_texts)})
             else:
                 agent_role = "assistant" if role in ["model", "assistant", "agent"] else "user"
                 content_str = m.get("content", "")

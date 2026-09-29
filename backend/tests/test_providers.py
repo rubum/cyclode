@@ -957,9 +957,16 @@ def test_multimodal_image_conversion_across_providers():
     assert user_msg is not None
     assert isinstance(user_msg["content"], list)
     assert any(c.get("type") == "text" for c in user_msg["content"])
-    img_part = next((c for c in user_msg["content"] if c.get("type") == "image_url"), None)
-    assert img_part is not None
-    assert "data:image/png;base64," in img_part["image_url"]["url"]
+    # Test DeepSeek conversion
+    ds = DeepSeekProvider(api_key="mock")
+    d_msgs = ds._convert_messages(sample_multimodal_turn, system_instruction="sys")
+    ds_user_msg = next((m for m in d_msgs if m.get("role") == "user"), None)
+    assert ds_user_msg is not None
+    assert isinstance(ds_user_msg["content"], list)
+    assert any(c.get("type") == "text" for c in ds_user_msg["content"])
+    ds_img_part = next((c for c in ds_user_msg["content"] if c.get("type") == "image_url"), None)
+    assert ds_img_part is not None
+    assert "data:image/png;base64," in ds_img_part["image_url"]["url"]
 
 
 
