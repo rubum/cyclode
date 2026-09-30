@@ -78,17 +78,19 @@ class OpenAIProvider(BaseLLMProvider):
             })
         return converted
 
-    def _convert_messages(self, messages: List[Dict[str, Any]], system_instruction: str) -> List[Dict[str, Any]]:
+    def _convert_messages(self, messages: List[Dict[str, Any]], system_instruction: str, is_reasoning: bool = False) -> List[Dict[str, Any]]:
         """
         Translates Cyclode/Gemini formatted parts into OpenAI chat completions messages.
         Ensures strict compliance with OpenAI tool calling protocol:
         - Assistant turns with tool_calls must be immediately followed by role: 'tool' messages
           responding to each tool_call_id.
         - Orphaned tool_calls or mismatched tool responses are reconciled automatically.
+        - Uses 'developer' role instead of 'system' for reasoning models (o1, o3, etc.).
         """
         raw_msgs = []
         if system_instruction:
-            raw_msgs.append({"role": "system", "content": system_instruction})
+            role_name = "developer" if is_reasoning else "system"
+            raw_msgs.append({"role": role_name, "content": system_instruction})
 
         tool_id_counter = 0
 
@@ -314,15 +316,14 @@ class OpenAIProvider(BaseLLMProvider):
             )
 
         base_url = self.get_base_url()
-        openai_tools = self._convert_tool_declarations(tools)
-        openai_messages = self._convert_messages(messages, system_instruction)
-
         # Normalize model
         clean_model = model_name.replace("openai:", "").replace("custom:", "").strip() if model_name else "gpt-6-astra"
         if clean_model in ["codex", "openai-codex"]:
             clean_model = "gpt-4o"
 
         is_reasoning_model = any(sub in clean_model.lower() for sub in ["o1", "o3", "reasoning"])
+        openai_tools = self._convert_tool_declarations(tools)
+        openai_messages = self._convert_messages(messages, system_instruction, is_reasoning=is_reasoning_model)
         payload: Dict[str, Any] = {
             "model": clean_model,
             "messages": openai_messages,
@@ -462,8 +463,16 @@ class OpenAIProvider(BaseLLMProvider):
         candidate_models = list(dict.fromkeys([
             model_name,
             "gpt-6-astra",
-            "gpt-4o",
+            "gpt-6.1-sol",
+            "gpt-6-sol",
+            "gpt-5.6-sol",
+            "gpt-5.4-mini",
+            "gpt-5.3-codex",
+            "o3-pro",
+            "o3",
             "o3-mini",
+            "gpt-4.1",
+            "gpt-4o",
             "gpt-4o-mini"
         ]))
 
@@ -486,10 +495,11 @@ class OpenAIProvider(BaseLLMProvider):
                     clean_model = "gpt-4o-mini"
 
                 is_reasoning = any(sub in clean_model.lower() for sub in ["o1", "o3", "reasoning"])
+                role_name = "developer" if is_reasoning else "system"
                 payload = {
                     "model": clean_model,
                     "messages": [
-                        {"role": "system", "content": (system_instruction or "") + "\nRespond ONLY with a valid JSON object."},
+                        {"role": role_name, "content": (system_instruction or "") + "\nRespond ONLY with a valid JSON object."},
                         {"role": "user", "content": prompt}
                     ],
                     "response_format": {"type": "json_object"}

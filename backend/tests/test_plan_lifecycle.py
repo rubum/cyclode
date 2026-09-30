@@ -796,6 +796,56 @@ async def test_get_task_diff_filters_cyclode_cache_and_aligns_branch(tmp_path):
         assert ".cyclode_symbols_cache.json" not in file_paths
 
 
+@pytest.mark.asyncio
+async def test_approval_directive_adopts_existing_plan_and_locks_execution():
+    harness = AntigravityHarness()
+    history = [
+        {"sender": "user", "content": "Plan Bofisapp Business Messaging Prototype"},
+        {"sender": "agent", "content": (
+            "# Implementation Plan: Bofisapp Business Messaging Prototype\n\n"
+            "> [!IMPORTANT]\n"
+            "> **Plan Mode Active**: Architectural implementation plan formulated.\n\n"
+            "## Key Execution Phases\n\n"
+            "### Phase 1: Design and User Interface\n"
+            "**Objective**: Create responsive layout.\n\n"
+            "### Phase 2: Core Messaging Functionality\n"
+            "**Objective**: WebSocket message dispatch.\n\n"
+            "### Phase 3: AI Agent Integration\n"
+            "**Objective**: Context-aware agent suggestions.\n\n"
+            "### Phase 4: Business Features and Analytics\n"
+            "**Objective**: Team inbox and metrics.\n\n"
+            "### Phase 5: Testing and Deployment\n"
+            "**Objective**: E2E and staging verification.\n"
+        )}
+    ]
+
+    # Test multi-word approval variations that previously triggered "execution plan" planning query
+    for prompt_variant in [
+        "Proceed with the execution plan.",
+        "Proceed with the plan",
+        "proceed",
+        "Go ahead with implementation",
+        "Execute the plan"
+    ]:
+        plan = await harness._generate_dynamic_plan(
+            client=None,
+            api_key="mock-key",
+            model_name="gpt-4o",
+            title="Bofisapp Business Messaging Prototype",
+            prompt=prompt_variant,
+            persona_name="SoftwareEngineer",
+            history=history,
+            workspace_path=None
+        )
+
+        assert plan["intent_category"] in ["code_modification", "app_building"], f"Failed on '{prompt_variant}': intent should be execution, got {plan['intent_category']}"
+        assert plan["evaluation"]["status"] == "in_progress", f"Failed on '{prompt_variant}': status should be in_progress, got {plan['evaluation']['status']}"
+        assert len(plan["steps"]) == 5, f"Failed on '{prompt_variant}': all 5 phases must be preserved, got {len(plan['steps'])}"
+        assert plan["steps"][0]["status"] == "in_progress"
+        assert plan["steps"][1]["status"] == "pending"
+        assert "Phase 1: Design and User Interface" in plan["steps"][0]["title"]
+
+
 
 
 

@@ -641,8 +641,15 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                       <option value="claude-3-7-sonnet">Claude 3.7 Sonnet (Hybrid Thinking)</option>
                     </optgroup>
                     <optgroup label="OpenAI / Codex">
-                      <option value="gpt-6-astra">GPT-6 Astra (Frontier Autonomous)</option>
-                      <option value="gpt-4o">GPT-4o (Multimodal)</option>
+                      <option value="gpt-6-astra">GPT-6 Astra (Flagship Autonomous)</option>
+                      <option value="gpt-6.1-sol">GPT-6.1 Sol (Near-Astra Complex Work)</option>
+                      <option value="gpt-6-sol">GPT-6 Sol (Agentic Coding)</option>
+                      <option value="gpt-5.6-sol">GPT-5.6 Sol (Flagship Professional)</option>
+                      <option value="gpt-5.3-codex">GPT-5.3 Codex (Agentic Coding Frontier)</option>
+                      <option value="o3-pro">o3-pro (High-Compute Reasoning)</option>
+                      <option value="o3">o3 (Frontier Reasoning)</option>
+                      <option value="gpt-4.1">GPT-4.1 (Smartest General)</option>
+                      <option value="gpt-4o">GPT-4o (Omni Multimodal)</option>
                     </optgroup>
                   </select>
                   <div className="text-[10.5px] font-mono text-onedark-muted/80 truncate">
@@ -682,8 +689,10 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                       <option value="claude-3-5-haiku">Claude 3.5 Haiku (Fast Sub-agent)</option>
                     </optgroup>
                     <optgroup label="OpenAI / Codex">
-                      <option value="gpt-4o-mini">GPT-4o Mini (Lightweight)</option>
+                      <option value="gpt-5.4-mini">GPT-5.4 Mini (Subagents & Fast Coding)</option>
                       <option value="o3-mini">o3-mini (STEM Reasoning)</option>
+                      <option value="gpt-4.1-mini">GPT-4.1 Mini (Fast Lightweight)</option>
+                      <option value="gpt-4o-mini">GPT-4o Mini (Cost Efficient)</option>
                     </optgroup>
                   </select>
                   <div className="text-[10.5px] font-mono text-onedark-muted/80 truncate">
@@ -1039,11 +1048,20 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                       onChange={(e) => setModelInput(e.target.value)}
                       className="w-full px-3.5 py-2 rounded-lg bg-onedark-bg border border-onedark-border text-xs text-onedark-fgBright font-mono focus:outline-none focus:border-onedark-accent cursor-pointer"
                     >
-                      <option value="gpt-6-astra">GPT-6 Astra (Default / Frontier Autonomous)</option>
-                      <option value="gpt-4o">GPT-4o (Omni Multimodal)</option>
+                      <option value="gpt-6-astra">GPT-6 Astra (Default / Flagship Autonomous)</option>
+                      <option value="gpt-6.1-sol">GPT-6.1 Sol (Near-Astra Complex Work)</option>
+                      <option value="gpt-6-sol">GPT-6 Sol (Agentic Coding)</option>
+                      <option value="gpt-5.6-sol">GPT-5.6 Sol (Flagship Professional)</option>
+                      <option value="gpt-5.4-mini">GPT-5.4 Mini (Subagents & Coding)</option>
+                      <option value="gpt-5.3-codex">GPT-5.3 Codex (Agentic Coding Frontier)</option>
+                      <option value="o3-pro">o3-pro (High-Compute Reasoning)</option>
+                      <option value="o3">o3 (Frontier Reasoning)</option>
                       <option value="o3-mini">o3-mini (STEM Reasoning)</option>
-                      <option value="gpt-4o-mini">GPT-4o Mini</option>
-                      <option value="codex">Codex / GPT-4o</option>
+                      <option value="gpt-4.1">GPT-4.1 (Smartest General)</option>
+                      <option value="gpt-4.1-mini">GPT-4.1 Mini (Fast Lightweight)</option>
+                      <option value="gpt-4o">GPT-4o (Omni Multimodal)</option>
+                      <option value="gpt-4o-mini">GPT-4o Mini (Cost Efficient)</option>
+                      <option value="codex">Codex / GPT-5.3</option>
                     </select>
                   )}
                 </div>

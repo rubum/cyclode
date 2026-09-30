@@ -1954,9 +1954,19 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     {
       group: 'OpenAI / Codex',
       models: [
-        { id: 'gpt-4o', label: 'GPT-4o' },
-        { id: 'o3-mini', label: 'o3-mini' },
-        { id: 'gpt-4o-mini', label: 'GPT-4o Mini' },
+        { id: 'gpt-6-astra', label: 'GPT-6 Astra (Flagship Autonomous)' },
+        { id: 'gpt-6.1-sol', label: 'GPT-6.1 Sol (Complex Work)' },
+        { id: 'gpt-6-sol', label: 'GPT-6 Sol (Agentic Coding)' },
+        { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol (Flagship Professional)' },
+        { id: 'gpt-5.4-mini', label: 'GPT-5.4 Mini (Subagents & Coding)' },
+        { id: 'gpt-5.3-codex', label: 'GPT-5.3 Codex (Agentic Coding)' },
+        { id: 'o3-pro', label: 'o3-pro (High-Compute Reasoning)' },
+        { id: 'o3', label: 'o3 (Frontier Reasoning)' },
+        { id: 'o3-mini', label: 'o3-mini (STEM Reasoning)' },
+        { id: 'gpt-4.1', label: 'GPT-4.1 (Smartest General)' },
+        { id: 'gpt-4.1-mini', label: 'GPT-4.1 Mini (Fast Lightweight)' },
+        { id: 'gpt-4o', label: 'GPT-4o (Omni Multimodal)' },
+        { id: 'gpt-4o-mini', label: 'GPT-4o Mini (Cost Efficient)' },
       ],
     },
   ];

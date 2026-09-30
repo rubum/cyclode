@@ -1574,6 +1574,120 @@ async def get_url_reader(url: str = Query(..., description="Target URL to read")
         }
 
 
+_READER_FILE_CACHE: Dict[str, List[str]] = {}
+_READER_FILE_CACHE_KEYS: List[str] = []
+_MAX_READER_CACHE_ENTRIES = 128
+
+
+def _cache_reader_file_lines(cache_key: str, lines: List[str]):
+    global _READER_FILE_CACHE, _READER_FILE_CACHE_KEYS
+    if cache_key in _READER_FILE_CACHE:
+        if cache_key in _READER_FILE_CACHE_KEYS:
+            _READER_FILE_CACHE_KEYS.remove(cache_key)
+    elif len(_READER_FILE_CACHE_KEYS) >= _MAX_READER_CACHE_ENTRIES:
+        oldest_key = _READER_FILE_CACHE_KEYS.pop(0)
+        _READER_FILE_CACHE.pop(oldest_key, None)
+    _READER_FILE_CACHE[cache_key] = lines
+    _READER_FILE_CACHE_KEYS.append(cache_key)
+
+
+@router.get("/diff/context")
+async def get_reader_diff_context(
+    raw_url: Optional[str] = Query(None, description="Direct raw URL to the file"),
+    repo: Optional[str] = Query(None, description="Owner/Repo identifier (e.g. owner/repo)"),
+    path: Optional[str] = Query(None, description="Clean file path in repository"),
+    ref: Optional[str] = Query("main", description="Git ref (branch or commit sha)"),
+    start_line: int = Query(1, ge=1, description="1-indexed start line"),
+    end_line: int = Query(20, ge=1, description="1-indexed end line"),
+):
+    """
+    On-demand context expansion endpoint for GitHub PRs and remote repositories.
+    Fetches the source file from GitHub raw/API, caches it in memory,
+    and returns the sliced line range for diff expansion.
+    """
+    clean_path = (path or "").replace("\\", "/").lstrip("/")
+    cache_key = raw_url.strip() if raw_url and raw_url.strip() else f"{repo or ''}:{ref or 'main'}:{clean_path}"
+
+    if cache_key in _READER_FILE_CACHE:
+        all_lines = _READER_FILE_CACHE[cache_key]
+    else:
+        raw_text = ""
+        # 1. If raw_url is provided, fetch it directly
+        if raw_url and raw_url.strip():
+            target_url = raw_url.strip()
+            headers = {"User-Agent": "CyclodeReader/1.0"}
+            if "github" in target_url:
+                parsed = urlparse(target_url)
+                parts = [p for p in parsed.path.strip("/").split("/") if p]
+                if len(parts) >= 2:
+                    owner, repo_name = parts[0], parts[1]
+                    token = await _get_github_auth_token(owner, repo_name)
+                    if token:
+                        headers["Authorization"] = f"Bearer {token}"
+            try:
+                async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+                    resp = await client.get(target_url, headers=headers)
+                    if resp.status_code == 200:
+                        raw_text = resp.text
+            except Exception as e:
+                logger.debug(f"Failed to fetch raw_url {target_url}: {e}")
+
+        # 2. If no raw_text yet and repo + clean_path are provided
+        if not raw_text and repo and clean_path:
+            repo_clean = repo.strip()
+            if "/" in repo_clean:
+                owner, repo_name = repo_clean.split("/", 1)
+                token = await _get_github_auth_token(owner, repo_name)
+                headers = {"User-Agent": "CyclodeReader/1.0"}
+                if token:
+                    headers["Authorization"] = f"Bearer {token}"
+
+                target_ref = ref.strip() if ref else "main"
+                raw_gh_url = f"https://raw.githubusercontent.com/{owner}/{repo_name}/{target_ref}/{clean_path}"
+                try:
+                    async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
+                        resp = await client.get(raw_gh_url, headers=headers)
+                        if resp.status_code == 200:
+                            raw_text = resp.text
+                        else:
+                            api_url = f"https://api.github.com/repos/{owner}/{repo_name}/contents/{clean_path}?ref={target_ref}"
+                            api_headers = dict(headers)
+                            api_headers["Accept"] = "application/vnd.github.raw+json"
+                            resp_api = await client.get(api_url, headers=api_headers)
+                            if resp_api.status_code == 200:
+                                raw_text = resp_api.text
+                except Exception as e:
+                    logger.debug(f"Failed to fetch repo file {repo_clean}:{clean_path}: {e}")
+
+        all_lines = raw_text.splitlines() if raw_text else []
+        if all_lines:
+            _cache_reader_file_lines(cache_key, all_lines)
+
+    total_lines = len(all_lines)
+    if total_lines == 0:
+        return {
+            "ok": True,
+            "path": clean_path or raw_url or "",
+            "start_line": 1,
+            "end_line": 0,
+            "total_lines": 0,
+            "lines": []
+        }
+
+    s = max(1, min(start_line, total_lines))
+    e = max(s, min(end_line, total_lines))
+    sliced = all_lines[s - 1:e]
+
+    return {
+        "ok": True,
+        "path": clean_path or raw_url or "",
+        "start_line": s,
+        "end_line": e,
+        "total_lines": total_lines,
+        "lines": sliced
+    }
+
+
 @router.get("/proxy/pdf")
 async def proxy_pdf_stream(url: str = Query(..., description="Target PDF URL to proxy and stream")):
     """

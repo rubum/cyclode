@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { 
   GitPullRequest, 
   ExternalLink, 
@@ -46,7 +46,10 @@ import {
   ArrowRight,
   ShieldAlert,
   Tag,
-  Radio
+  Radio,
+  AlignJustify,
+  Columns,
+  LayoutGrid
 } from 'lucide-react';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { PRReviewAgentPopover, LineContext } from './PRReviewAgentPopover';
@@ -55,6 +58,18 @@ import { PRListenerConfigModal } from './PRListenerConfigModal';
 import { Task, TaskPR, PRCommentItem } from '../../types';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { createGrepMatcher } from '../../utils/grepMatcher';
+import { 
+  parseUnifiedPatchWithGaps, 
+  parseSideBySidePatchWithGaps, 
+  DiffHunkGap, 
+  UnifiedDiffItem, 
+  SideBySideDiffItem,
+  SideBySideRow
+} from '../../utils/diffContextParser';
+import { DiffHunkExpander } from './DiffHunkExpander';
+import { HunkFeedbackInput } from './HunkFeedbackInput';
+
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 export interface PRFileItem {
   filename: string;
@@ -180,6 +195,11 @@ interface PRDiffSectionProps {
   targetFile?: string | null;
   targetLine?: number | null;
   searchQuery?: string;
+  task?: Task | null;
+  repoName?: string;
+  headBranch?: string;
+  baseBranch?: string;
+  onAskAboutComment?: (prompt: string) => void;
 }
 
 export const PRDiffSection: React.FC<PRDiffSectionProps> = ({ 
@@ -189,7 +209,12 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
   title,
   targetFile,
   targetLine,
-  searchQuery 
+  searchQuery,
+  task,
+  repoName,
+  headBranch,
+  baseBranch,
+  onAskAboutComment
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [collapsedFiles, setCollapsedFiles] = useState<Record<string, boolean>>({});
@@ -200,6 +225,135 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
   const [activeFilename, setActiveFilename] = useState<string | null>(null);
   const [pulsingTarget, setPulsingTarget] = useState<{ file: string; line?: number } | null>(null);
   const [currentMatchIndex, setCurrentMatchIndex] = useState<number>(0);
+
+  // Layout mode: auto (responsive split/unified), unified, or split
+  const [layoutPreference, setLayoutPreference] = useState<'auto' | 'unified' | 'split'>('auto');
+  const [containerWidth, setContainerWidth] = useState<number>(1000);
+
+  // Expanded context state by file path -> Record of lineNumber -> lineText
+  const [expandedLinesByFile, setExpandedLinesByFile] = useState<Record<string, Record<number, string>>>({});
+  const [fileTotalLines, setFileTotalLines] = useState<Record<string, number>>({});
+  const [loadingGaps, setLoadingGaps] = useState<Record<string, boolean>>({});
+  const [focusedHunkId, setFocusedHunkId] = useState<string | null>(null);
+  const [commentingGap, setCommentingGap] = useState<DiffHunkGap | null>(null);
+
+  // ResizeObserver for responsive auto layout
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.contentRect.width > 0) {
+          setContainerWidth(entry.contentRect.width);
+        }
+      }
+    });
+    observer.observe(containerRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  const effectiveLayout = useMemo<'unified' | 'split'>(() => {
+    if (layoutPreference === 'split') return 'split';
+    if (layoutPreference === 'unified') return 'unified';
+    return containerWidth >= 768 ? 'split' : 'unified';
+  }, [layoutPreference, containerWidth]);
+
+  const fetchDiffContext = useCallback(async (
+    filePath: string,
+    startLine: number,
+    endLine: number,
+    fileObj?: PRFileItem
+  ) => {
+    const gapKey = `${filePath}:${startLine}-${endLine}`;
+    setLoadingGaps((prev) => ({ ...prev, [gapKey]: true }));
+    try {
+      let resJson: any = null;
+      // 1. Try local task sandbox if task ID is available
+      if (task?.id) {
+        try {
+          const res = await fetch(
+            `${API_BASE}/api/tasks/${task.id}/diff/context?path=${encodeURIComponent(filePath)}&start_line=${startLine}&end_line=${endLine}`
+          );
+          if (res.ok) {
+            const json = await res.json();
+            if (json.ok && json.lines && json.lines.length > 0) {
+              resJson = json;
+            }
+          }
+        } catch {
+          // fallback to reader
+        }
+      }
+
+      // 2. Fallback to reader remote repository context API
+      if (!resJson) {
+        const rawUrl = fileObj?.raw_url || '';
+        const params = new URLSearchParams({
+          path: filePath,
+          start_line: String(startLine),
+          end_line: String(endLine),
+        });
+        if (rawUrl) params.set('raw_url', rawUrl);
+        if (repoName) params.set('repo', repoName);
+        if (headBranch) params.set('ref', headBranch);
+
+        const res = await fetch(`${API_BASE}/api/reader/diff/context?${params.toString()}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.ok && json.lines) {
+            resJson = json;
+          }
+        }
+      }
+
+      if (resJson && resJson.lines) {
+        setExpandedLinesByFile((prev) => {
+          const next = { ...prev };
+          const fileLines = { ...(next[filePath] || {}) };
+          resJson.lines.forEach((lineText: string, idx: number) => {
+            fileLines[resJson.start_line + idx] = lineText;
+          });
+          next[filePath] = fileLines;
+          return next;
+        });
+        if (resJson.total_lines) {
+          setFileTotalLines((prev) => ({
+            ...prev,
+            [filePath]: resJson.total_lines
+          }));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to expand diff context:', err);
+    } finally {
+      setLoadingGaps((prev) => ({ ...prev, [gapKey]: false }));
+    }
+  }, [task?.id, repoName, headBranch]);
+
+  const handleExpandUp = useCallback((gap: DiffHunkGap) => {
+    const fileObj = files.find(f => f.filename === gap.filePath);
+    const stepStart = Math.max(gap.gapStartNew, gap.gapEndNew - 19);
+    fetchDiffContext(gap.filePath, stepStart, gap.gapEndNew, fileObj);
+  }, [files, fetchDiffContext]);
+
+  const handleExpandDown = useCallback((gap: DiffHunkGap) => {
+    const fileObj = files.find(f => f.filename === gap.filePath);
+    const stepEnd = Math.min(gap.gapEndNew, gap.gapStartNew + 19);
+    fetchDiffContext(gap.filePath, gap.gapStartNew, stepEnd, fileObj);
+  }, [files, fetchDiffContext]);
+
+  const handleExpandAll = useCallback((gap: DiffHunkGap) => {
+    const fileObj = files.find(f => f.filename === gap.filePath);
+    fetchDiffContext(gap.filePath, gap.gapStartNew, gap.gapEndNew, fileObj);
+  }, [files, fetchDiffContext]);
+
+  const handleSendHunkFeedback = useCallback((feedback: string, gap: DiffHunkGap) => {
+    if (onAskAboutComment) {
+      onAskAboutComment(`Regarding ${gap.filePath}:${gap.gapStartNew}-${gap.gapEndNew}${gap.symbolContext ? ` (${gap.symbolContext})` : ''}: ${feedback}`);
+    } else if (onLineComment) {
+      onLineComment(gap.filePath, gap.gapStartNew, feedback);
+    }
+    setCommentingGap(null);
+  }, [onAskAboutComment, onLineComment]);
 
   // Sync searchQuery from parent
   useEffect(() => {
@@ -482,6 +636,82 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
     return filteredFiles[activeFileIndex] || filteredFiles[0] || null;
   }, [filteredFiles, activeFileIndex]);
 
+  // Compute all expandable gaps across active files for keyboard navigation
+  const allGaps = useMemo<DiffHunkGap[]>(() => {
+    const gaps: DiffHunkGap[] = [];
+    for (const f of filteredFiles) {
+      if (!f.patch || collapsedFiles[f.filename]) continue;
+      const items = parseUnifiedPatchWithGaps(
+        f.patch,
+        f.filename,
+        expandedLinesByFile[f.filename],
+        fileTotalLines[f.filename]
+      );
+      for (const item of items) {
+        if (item.kind === 'gap') {
+          gaps.push(item.gap);
+        }
+      }
+    }
+    return gaps;
+  }, [filteredFiles, collapsedFiles, expandedLinesByFile, fileTotalLines]);
+
+  // Keyboard navigation shortcuts (0/1/2 for layout, [/] for hunk jumps, z to toggle expand, c to comment)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+        return;
+      }
+
+      if (e.key === '0') {
+        e.preventDefault();
+        setLayoutPreference('auto');
+      } else if (e.key === '1') {
+        e.preventDefault();
+        setLayoutPreference('unified');
+      } else if (e.key === '2') {
+        e.preventDefault();
+        setLayoutPreference('split');
+      } else if (e.key === ']' || e.key === '[') {
+        e.preventDefault();
+        if (allGaps.length === 0) return;
+        const currentIdx = allGaps.findIndex(g => g.id === focusedHunkId);
+        let nextIdx = 0;
+        if (e.key === ']') {
+          nextIdx = currentIdx < allGaps.length - 1 ? currentIdx + 1 : 0;
+        } else {
+          nextIdx = currentIdx > 0 ? currentIdx - 1 : allGaps.length - 1;
+        }
+        const nextGap = allGaps[nextIdx];
+        setFocusedHunkId(nextGap.id);
+        const el = document.getElementById(`diff-hunk-${nextGap.id}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      } else if (e.key === 'z' || e.key === 'Z') {
+        if (focusedHunkId) {
+          const gap = allGaps.find(g => g.id === focusedHunkId);
+          if (gap) {
+            e.preventDefault();
+            handleExpandAll(gap);
+          }
+        }
+      } else if (e.key === 'c' || e.key === 'C') {
+        if (focusedHunkId) {
+          const gap = allGaps.find(g => g.id === focusedHunkId);
+          if (gap) {
+            e.preventDefault();
+            setCommentingGap(gap);
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [allGaps, focusedHunkId, handleExpandAll]);
+
   if (files.length === 0 && !diffText) {
     return (
       <div className="p-8 text-center text-xs text-onedark-muted font-sans leading-relaxed select-none">
@@ -716,6 +946,51 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
             </div>
           )}
 
+          {/* Auto / Unified / Split View Toggle */}
+          <div className="flex items-center rounded-lg bg-onedark-bg p-0.5 border border-onedark-borderSubtle">
+            <button
+              onClick={() => setLayoutPreference('auto')}
+              className={`px-2 py-1 rounded-md text-[10.5px] font-medium transition-all cursor-pointer flex items-center space-x-1 ${
+                layoutPreference === 'auto'
+                  ? 'bg-onedark-surface text-onedark-fgBright shadow-xs'
+                  : 'text-onedark-muted hover:text-onedark-fg'
+              }`}
+              title="Auto responsive layout (hotkey: 0)"
+            >
+              <LayoutGrid className="w-3 h-3" />
+              <span className="hidden sm:inline">Auto</span>
+              {layoutPreference === 'auto' && (
+                <span className="text-[9px] text-onedark-blue font-mono ml-0.5 uppercase">
+                  {effectiveLayout[0]}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setLayoutPreference('unified')}
+              className={`px-2 py-1 rounded-md text-[10.5px] font-medium transition-all cursor-pointer flex items-center space-x-1 ${
+                layoutPreference === 'unified'
+                  ? 'bg-onedark-surface text-onedark-fgBright shadow-xs'
+                  : 'text-onedark-muted hover:text-onedark-fg'
+              }`}
+              title="Unified Diff View (hotkey: 1)"
+            >
+              <AlignJustify className="w-3 h-3" />
+              <span className="hidden sm:inline">Unified</span>
+            </button>
+            <button
+              onClick={() => setLayoutPreference('split')}
+              className={`px-2 py-1 rounded-md text-[10.5px] font-medium transition-all cursor-pointer flex items-center space-x-1 ${
+                layoutPreference === 'split'
+                  ? 'bg-onedark-surface text-onedark-fgBright shadow-xs'
+                  : 'text-onedark-muted hover:text-onedark-fg'
+              }`}
+              title="Side-by-side Split View (hotkey: 2)"
+            >
+              <Columns className="w-3 h-3" />
+              <span className="hidden sm:inline">Split</span>
+            </button>
+          </div>
+
           <button
             onClick={() => {
               const allCollapsed = filteredFiles.every((f) => collapsedFiles[f.filename]);
@@ -741,7 +1016,6 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
         ) : (
           filteredFiles.map((f, idx) => {
             const isCollapsed = collapsedFiles[f.filename] ?? false;
-            const parsedLines = f.patch ? parseUnifiedPatch(f.patch) : [];
             const pathParts = f.filename.split('/');
             const fileNameOnly = pathParts.pop();
             const dirPath = pathParts.join('/');
@@ -757,7 +1031,7 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
                 {/* File Header */}
                 <div
                   onClick={() => toggleFile(f.filename)}
-                  className="px-3 py-2 bg-onedark-surface/40 hover:bg-onedark-surface/60 border-b border-onedark-borderSubtle flex items-center justify-between cursor-pointer select-none gap-2"
+                  className="sticky top-0 z-10 backdrop-blur bg-onedark-surface/90 hover:bg-onedark-surface border-b border-onedark-borderSubtle flex items-center justify-between cursor-pointer select-none gap-2 px-3 py-2 shadow-xs transition-colors"
                 >
                   <div className="flex items-center space-x-2 min-w-0 flex-1">
                     <ChevronDown
@@ -804,86 +1078,237 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
                 {/* File Patch Lines */}
                 {!isCollapsed && (
                   <div className="p-2.5 overflow-x-auto text-[12.5px] leading-relaxed font-mono bg-onedark-bg/60 select-text">
-                    {parsedLines.length > 0 ? (
-                      parsedLines.map((lineObj, lineIdx) => {
-                        const isAddition = lineObj.type === 'addition';
-                        const isDeletion = lineObj.type === 'deletion';
-                        const isHeader = lineObj.type === 'header';
-                        const activeLineNum = lineObj.newLine || lineObj.oldLine || 1;
-                        const isLineGrepMatch = Boolean(fileFilter.trim() && !isHeader && grepMatcher.test(lineObj.text));
-                        const isPulsing = Boolean(
-                          pulsingTarget &&
-                          pulsingTarget.line &&
-                          (pulsingTarget.file === f.filename || pulsingTarget.file.endsWith('/' + f.filename) || f.filename.endsWith('/' + pulsingTarget.file)) &&
-                          pulsingTarget.line === activeLineNum
-                        );
+                    {effectiveLayout === 'split' ? (
+                      /* Side-by-Side (Split) View */
+                      (() => {
+                        const splitItems = f.patch
+                          ? parseSideBySidePatchWithGaps(
+                              f.patch,
+                              f.filename,
+                              expandedLinesByFile[f.filename],
+                              fileTotalLines[f.filename]
+                            )
+                          : [];
+
+                        if (splitItems.length === 0) {
+                          return (
+                            <div className="p-3 text-xs text-onedark-muted italic">
+                              Binary file or no detailed hunk content available.
+                            </div>
+                          );
+                        }
 
                         return (
-                          <div
-                            key={lineIdx}
-                            id={`diff-line-${encodeURIComponent(f.filename)}-${activeLineNum}`}
-                            className={`group/line flex items-center px-1 py-0.5 rounded-xs transition-all relative scroll-mt-20 ${
-                              isPulsing
-                                ? 'bg-onedark-purple/30 ring-2 ring-onedark-purple text-onedark-fgBright font-semibold shadow-xs'
-                                : isLineGrepMatch
-                                ? 'bg-onedark-purple/20 ring-1 ring-onedark-purple/60 text-onedark-fgBright font-semibold'
-                                : isAddition
-                                ? 'bg-onedark-green/10 text-onedark-green hover:bg-onedark-green/15'
-                                : isDeletion
-                                ? 'bg-onedark-red/10 text-onedark-red hover:bg-onedark-red/15'
-                                : isHeader
-                                ? 'text-onedark-purple bg-onedark-surface/40 font-semibold'
-                                : 'text-onedark-fg/90 hover:bg-onedark-surface/30'
-                            }`}
-                          >
-                            {!isHeader ? (
-                              <div className="flex items-center flex-shrink-0 w-20 text-[11px] font-mono text-onedark-muted/40 select-none mr-2 border-r border-onedark-borderSubtle pr-1.5 justify-between">
-                                <span className="w-7 text-right">{lineObj.oldLine ?? ''}</span>
-                                <span className="w-7 text-right">{lineObj.newLine ?? ''}</span>
-                                {onLineComment && (
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      onLineComment(f.filename, activeLineNum, lineObj.text);
-                                    }}
-                                    className="opacity-0 group-hover/line:opacity-100 transition-opacity p-0.5 rounded bg-onedark-accent text-white hover:bg-onedark-accent/90 hover:scale-110 shadow-xs cursor-pointer ml-1"
-                                    title={`Comment on line ${activeLineNum} with Reviewer Agent`}
-                                  >
-                                    <MessageSquarePlus className="w-3 h-3" />
-                                  </button>
-                                )}
-                              </div>
-                            ) : (
-                              <div className="w-20 text-[11px] font-mono text-onedark-purple/60 select-none mr-2 border-r border-onedark-borderSubtle pr-1.5 text-center flex-shrink-0">
-                                @@
-                              </div>
-                            )}
+                          <div className="w-full flex flex-col divide-y divide-onedark-borderSubtle/30">
+                            {/* Split Column Headers */}
+                            <div className="grid grid-cols-2 text-[10px] font-mono font-bold uppercase text-onedark-muted bg-onedark-darker/60 py-1 px-2 border-b border-onedark-borderSubtle/60 select-none">
+                              <div>Original (Before)</div>
+                              <div>Modified (After)</div>
+                            </div>
 
-                            <pre className="font-mono text-[12.5px] leading-relaxed whitespace-pre flex-1 overflow-x-visible">
-                              {isLineGrepMatch ? (
-                                grepMatcher.highlightSegments(lineObj.text || ' ').map((seg, sIdx) =>
-                                  seg.matched ? (
-                                    <mark
-                                      key={sIdx}
-                                      className="bg-onedark-yellow/30 text-onedark-yellow font-bold px-0.5 rounded-xs border border-onedark-yellow/40 shadow-xs"
-                                    >
-                                      {seg.text}
-                                    </mark>
-                                  ) : (
-                                    <span key={sIdx}>{seg.text}</span>
-                                  )
-                                )
-                              ) : (
-                                lineObj.text || ' '
-                              )}
-                            </pre>
+                            {splitItems.map((item, itemIdx) => {
+                              if (item.kind === 'gap') {
+                                return (
+                                  <div key={item.gap.id} id={`diff-hunk-${item.gap.id}`} className="py-0.5">
+                                    <DiffHunkExpander
+                                      gap={item.gap}
+                                      isFocused={focusedHunkId === item.gap.id}
+                                      isLoading={Boolean(loadingGaps[`${item.gap.filePath}:${item.gap.gapStartNew}-${item.gap.gapEndNew}`])}
+                                      onExpandUp={handleExpandUp}
+                                      onExpandDown={handleExpandDown}
+                                      onExpandAll={handleExpandAll}
+                                      onFocus={(id) => setFocusedHunkId(id)}
+                                      onCommentClick={(gap) => setCommentingGap(gap)}
+                                    />
+                                    {commentingGap && commentingGap.id === item.gap.id && (
+                                      <HunkFeedbackInput
+                                        gap={item.gap}
+                                        onSubmit={handleSendHunkFeedback}
+                                        onCancel={() => setCommentingGap(null)}
+                                      />
+                                    )}
+                                  </div>
+                                );
+                              }
+
+                              const { row } = item;
+                              const isDel = row.leftType === 'deletion';
+                              const isAdd = row.rightType === 'addition';
+                              const isExpanded = Boolean(row.isExpanded);
+
+                              return (
+                                <div key={itemIdx} className="grid grid-cols-2 divide-x divide-onedark-borderSubtle/30 font-mono text-[11px]">
+                                  {/* Left (Old / Deletions) */}
+                                  <div
+                                    className={`flex items-start px-1.5 py-0.5 overflow-hidden ${
+                                      isExpanded
+                                        ? 'bg-onedark-surface/20 text-onedark-fg/90'
+                                        : isDel
+                                        ? 'bg-onedark-red/15 text-onedark-red'
+                                        : 'text-onedark-fg/80'
+                                    }`}
+                                  >
+                                    <span className="w-7 flex-shrink-0 text-[10px] text-onedark-muted/60 text-right pr-2 select-none">
+                                      {row.leftLineNum ?? ''}
+                                    </span>
+                                    <span className="w-3 flex-shrink-0 select-none font-bold text-center">
+                                      {isDel ? '-' : ' '}
+                                    </span>
+                                    <span className="whitespace-pre flex-1 truncate">
+                                      {row.leftText.replace(/^[+-]/, '')}
+                                    </span>
+                                  </div>
+
+                                  {/* Right (New / Additions) */}
+                                  <div
+                                    className={`flex items-start px-1.5 py-0.5 overflow-hidden ${
+                                      isExpanded
+                                        ? 'bg-onedark-surface/20 text-onedark-fg/90'
+                                        : isAdd
+                                        ? 'bg-onedark-green/15 text-onedark-green'
+                                        : 'text-onedark-fg/80'
+                                    }`}
+                                  >
+                                    <span className="w-7 flex-shrink-0 text-[10px] text-onedark-muted/60 text-right pr-2 select-none">
+                                      {row.rightLineNum ?? ''}
+                                    </span>
+                                    <span className="w-3 flex-shrink-0 select-none font-bold text-center">
+                                      {isAdd ? '+' : ' '}
+                                    </span>
+                                    <span className="whitespace-pre flex-1 truncate">
+                                      {row.rightText.replace(/^[+-]/, '')}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
                         );
-                      })
+                      })()
                     ) : (
-                      <div className="text-onedark-muted italic py-1 px-2 text-xs font-sans">
-                        Binary file change or empty patch
-                      </div>
+                      /* Unified Diff View */
+                      (() => {
+                        const parsedItems = f.patch
+                          ? parseUnifiedPatchWithGaps(
+                              f.patch,
+                              f.filename,
+                              expandedLinesByFile[f.filename],
+                              fileTotalLines[f.filename]
+                            )
+                          : [];
+
+                        if (parsedItems.length === 0) {
+                          return (
+                            <div className="text-onedark-muted italic py-1 px-2 text-xs font-sans">
+                              Binary file change or empty patch
+                            </div>
+                          );
+                        }
+
+                        return parsedItems.map((item, itemIdx) => {
+                          if (item.kind === 'gap') {
+                            return (
+                              <div key={item.gap.id} id={`diff-hunk-${item.gap.id}`} className="py-0.5">
+                                <DiffHunkExpander
+                                  gap={item.gap}
+                                  isFocused={focusedHunkId === item.gap.id}
+                                  isLoading={Boolean(loadingGaps[`${item.gap.filePath}:${item.gap.gapStartNew}-${item.gap.gapEndNew}`])}
+                                  onExpandUp={handleExpandUp}
+                                  onExpandDown={handleExpandDown}
+                                  onExpandAll={handleExpandAll}
+                                  onFocus={(id) => setFocusedHunkId(id)}
+                                  onCommentClick={(gap) => setCommentingGap(gap)}
+                                />
+                                {commentingGap && commentingGap.id === item.gap.id && (
+                                  <HunkFeedbackInput
+                                    gap={item.gap}
+                                    onSubmit={handleSendHunkFeedback}
+                                    onCancel={() => setCommentingGap(null)}
+                                  />
+                                )}
+                              </div>
+                            );
+                          }
+
+                          const lineObj = item.line;
+                          const isAddition = lineObj.type === 'addition';
+                          const isDeletion = lineObj.type === 'deletion';
+                          const isHeader = lineObj.type === 'header';
+                          const isExpanded = Boolean(lineObj.isExpanded);
+                          const activeLineNum = lineObj.newLine || lineObj.oldLine || 1;
+                          const isLineGrepMatch = Boolean(fileFilter.trim() && !isHeader && grepMatcher.test(lineObj.text));
+                          const isPulsing = Boolean(
+                            pulsingTarget &&
+                            pulsingTarget.line &&
+                            (pulsingTarget.file === f.filename || pulsingTarget.file.endsWith('/' + f.filename) || f.filename.endsWith('/' + pulsingTarget.file)) &&
+                            pulsingTarget.line === activeLineNum
+                          );
+
+                          return (
+                            <div
+                              key={itemIdx}
+                              id={`diff-line-${encodeURIComponent(f.filename)}-${activeLineNum}`}
+                              className={`group/line flex items-center px-1 py-0.5 rounded-xs transition-all relative scroll-mt-20 ${
+                                isPulsing
+                                  ? 'bg-onedark-purple/30 ring-2 ring-onedark-purple text-onedark-fgBright font-semibold shadow-xs'
+                                  : isLineGrepMatch
+                                  ? 'bg-onedark-purple/20 ring-1 ring-onedark-purple/60 text-onedark-fgBright font-semibold'
+                                  : isAddition
+                                  ? 'bg-onedark-green/10 text-onedark-green hover:bg-onedark-green/15'
+                                  : isDeletion
+                                  ? 'bg-onedark-red/10 text-onedark-red hover:bg-onedark-red/15'
+                                  : isExpanded
+                                  ? 'bg-onedark-surface/20 text-onedark-fg/90'
+                                  : isHeader
+                                  ? 'text-onedark-purple bg-onedark-surface/40 font-semibold my-0.5'
+                                  : 'text-onedark-fg/90 hover:bg-onedark-surface/30'
+                              }`}
+                            >
+                              {!isHeader ? (
+                                <div className="flex items-center flex-shrink-0 w-20 text-[11px] font-mono text-onedark-muted/40 select-none mr-2 border-r border-onedark-borderSubtle pr-1.5 justify-between">
+                                  <span className="w-7 text-right">{lineObj.oldLine ?? ''}</span>
+                                  <span className="w-7 text-right">{lineObj.newLine ?? ''}</span>
+                                  {onLineComment && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        onLineComment(f.filename, activeLineNum, lineObj.text);
+                                      }}
+                                      className="opacity-0 group-hover/line:opacity-100 transition-opacity p-0.5 rounded bg-onedark-accent text-white hover:bg-onedark-accent/90 hover:scale-110 shadow-xs cursor-pointer ml-1"
+                                      title={`Comment on line ${activeLineNum} with Reviewer Agent`}
+                                    >
+                                      <MessageSquarePlus className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                </div>
+                              ) : (
+                                <div className="w-20 text-[11px] font-mono text-onedark-purple/60 select-none mr-2 border-r border-onedark-borderSubtle pr-1.5 text-center flex-shrink-0">
+                                  @@
+                                </div>
+                              )}
+
+                              <pre className="font-mono text-[12.5px] leading-relaxed whitespace-pre flex-1 overflow-x-visible">
+                                {isLineGrepMatch ? (
+                                  grepMatcher.highlightSegments(lineObj.text || ' ').map((seg, sIdx) =>
+                                    seg.matched ? (
+                                      <mark
+                                        key={sIdx}
+                                        className="bg-onedark-yellow/30 text-onedark-yellow font-bold px-0.5 rounded-xs border border-onedark-yellow/40 shadow-xs"
+                                      >
+                                        {seg.text}
+                                      </mark>
+                                    ) : (
+                                      <span key={sIdx}>{seg.text}</span>
+                                    )
+                                  )
+                                ) : (
+                                  lineObj.text || ' '
+                                )}
+                              </pre>
+                            </div>
+                          );
+                        });
+                      })()
                     )}
                   </div>
                 )}
@@ -996,10 +1421,18 @@ function parseCommitDetails(c: PRCommitItem): ParsedCommit {
 interface PRCommitsSectionProps {
   commits: PRCommitItem[];
   repoName?: string;
+  task?: Task | null;
+  onAskAboutComment?: (prompt: string) => void;
   onLineComment?: (filename: string, line: number, content: string) => void;
 }
 
-export const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ commits, repoName, onLineComment }) => {
+export const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ 
+  commits, 
+  repoName, 
+  task,
+  onAskAboutComment,
+  onLineComment 
+}) => {
   const [copiedSha, setCopiedSha] = useState<string | null>(null);
   const [expandedBodies, setExpandedBodies] = useState<Record<string, boolean>>({});
   const [expandedDiffs, setExpandedDiffs] = useState<Record<string, boolean>>({});
@@ -1245,6 +1678,10 @@ export const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ commits, rep
                     <PRDiffSection 
                       files={diffFiles} 
                       title={`Commit ${c.short_sha} Changes (${diffFiles.length} files)`}
+                      task={task}
+                      repoName={repoName}
+                      headBranch={c.sha}
+                      onAskAboutComment={onAskAboutComment}
                       onLineComment={onLineComment}
                     />
                   ) : (
@@ -3796,6 +4233,11 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
                 targetFile={targetDiffFile}
                 targetLine={targetDiffLine}
                 searchQuery={outlineFilterQuery}
+                task={task}
+                repoName={data?.repo_name || task?.repo_name}
+                headBranch={data?.head_branch}
+                baseBranch={data?.base_branch}
+                onAskAboutComment={onAskAboutComment}
                 onLineComment={(filename, line, content) => {
                   setActiveLineComment({ filename, line, content });
                   setIsReviewPopoverOpen(true);
@@ -3805,6 +4247,8 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
               <PRCommitsSection 
                 commits={data?.commits || []} 
                 repoName={data?.repo_name || task?.repo_name}
+                task={task}
+                onAskAboutComment={onAskAboutComment}
                 onLineComment={(filename, line, content) => {
                   setActiveLineComment({ filename, line, content });
                   setIsReviewPopoverOpen(true);

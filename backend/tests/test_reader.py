@@ -1,5 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+from httpx import AsyncClient, ASGITransport
 from app.api.reader import _clean_html_to_markdown, _fetch_github_repo_info
 
 
@@ -391,5 +392,44 @@ async def test_proxy_pdf_stream():
         async for chunk in response.body_iterator:
             chunks.append(chunk)
         assert b"".join(chunks) == b"%PDF-1.5 mock pdf content"
+
+
+@pytest.mark.asyncio
+async def test_reader_diff_context():
+    from app.main import app
+    from unittest.mock import AsyncMock, patch, MagicMock
+
+    mock_text = "\n".join([f"def line_{i}(): pass" for i in range(1, 101)])
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.text = mock_text
+
+    mock_client = MagicMock()
+    mock_client.get = AsyncMock(return_value=mock_resp)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    transport = ASGITransport(app=app)
+    with patch("app.api.reader.httpx.AsyncClient", return_value=mock_client):
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.get("/api/reader/diff/context?raw_url=https://raw.githubusercontent.com/owner/repo/main/lib/stores.ex&start_line=10&end_line=15")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["ok"] is True
+            assert data["start_line"] == 10
+            assert data["end_line"] == 15
+            assert data["total_lines"] == 100
+            assert len(data["lines"]) == 6
+            assert data["lines"][0] == "def line_10(): pass"
+            assert data["lines"][-1] == "def line_15(): pass"
+
+            # Test clamping
+            resp_clamp = await client.get("/api/reader/diff/context?raw_url=https://raw.githubusercontent.com/owner/repo/main/lib/stores.ex&start_line=95&end_line=150")
+            assert resp_clamp.status_code == 200
+            data_clamp = resp_clamp.json()
+            assert data_clamp["start_line"] == 95
+            assert data_clamp["end_line"] == 100
+            assert len(data_clamp["lines"]) == 6
+
 
 

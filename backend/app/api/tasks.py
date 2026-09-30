@@ -2351,7 +2351,48 @@ async def get_task_diff(
     }
 
 
+@router.get("/{task_id}/diff/context")
+async def get_task_diff_context(
+    task_id: str,
+    path: str = Query(..., description="Relative file path"),
+    start_line: int = Query(..., ge=1, description="1-indexed starting line"),
+    end_line: int = Query(..., ge=1, description="1-indexed ending line"),
+    mode: str = Query("all", description="Comparison mode: all, working_tree, commit"),
+    commit_sha: Optional[str] = Query(None, description="Commit SHA for commit mode"),
+    side: str = Query("right", description="File side: right (head) or left (base)"),
+    base: str = Query("main", description="Base branch name"),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    res = await db.execute(stmt)
+    task = res.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    workspace_path = Path(task.workspace_path) if task.workspace_path else worktree_manager.get_task_workspace_path(task_id)
+    if not workspace_path.exists():
+        raise HTTPException(status_code=404, detail="Workspace directory does not exist")
+
+    try:
+        data = worktree_manager.get_diff_context(
+            workspace_path=workspace_path,
+            path=path,
+            start_line=start_line,
+            end_line=end_line,
+            mode=mode,
+            commit_sha=commit_sha,
+            side=side,
+            base_branch=base or "main"
+        )
+        return data
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve diff context: {str(e)}")
+
+
 @router.get("/{task_id}/prs/{pr_number}/diff")
+
 async def get_task_pr_diff(task_id: str, pr_number: int, db: AsyncSession = Depends(get_db)):
     stmt = select(TaskModel).where(TaskModel.id == task_id)
     res = await db.execute(stmt)

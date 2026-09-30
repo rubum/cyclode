@@ -830,6 +830,106 @@ class WorktreeManager:
                 "duration_ms": int((time.time() - start_time) * 1000)
             }
 
+    def get_diff_context(
+        self,
+        workspace_path: Path,
+        path: str,
+        start_line: int,
+        end_line: int,
+        mode: str = "all",
+        commit_sha: Optional[str] = None,
+        side: str = "right",
+        base_branch: str = "main"
+    ) -> Dict[str, Any]:
+        """
+        Retrieves line slices for diff context expansion, resolving either
+        from the working tree on disk or via Git object store (`git show <ref>:<path>`).
+        """
+        git_env = self._get_git_env()
+        clean_rel = path.replace("\\", "/").lstrip("/")
+
+        # Check path traversal
+        target_file = (workspace_path / clean_rel).resolve()
+        try:
+            target_file.relative_to(workspace_path.resolve())
+        except ValueError:
+            raise ValueError("Access denied: Path outside workspace")
+
+        raw_text = None
+
+        if commit_sha:
+            # Sourced from specific commit
+            proc = subprocess.run(
+                ["git", "show", f"{commit_sha}:{clean_rel}"],
+                cwd=workspace_path,
+                capture_output=True,
+                text=True,
+                env=git_env,
+                timeout=5
+            )
+            if proc.returncode == 0:
+                raw_text = proc.stdout
+        elif side == "left" and mode == "all":
+            # Sourced from base branch
+            proc = subprocess.run(
+                ["git", "show", f"{base_branch}:{clean_rel}"],
+                cwd=workspace_path,
+                capture_output=True,
+                text=True,
+                env=git_env,
+                timeout=5
+            )
+            if proc.returncode == 0:
+                raw_text = proc.stdout
+
+        if raw_text is None:
+            # Default: read from disk if available
+            if target_file.exists() and target_file.is_file():
+                try:
+                    raw_text = target_file.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    raw_text = ""
+            else:
+                # File might be deleted or staged in git
+                proc = subprocess.run(
+                    ["git", "show", f"HEAD:{clean_rel}"],
+                    cwd=workspace_path,
+                    capture_output=True,
+                    text=True,
+                    env=git_env,
+                    timeout=5
+                )
+                if proc.returncode == 0:
+                    raw_text = proc.stdout
+                else:
+                    raw_text = ""
+
+        all_lines = raw_text.splitlines()
+        total_lines = len(all_lines)
+
+        if total_lines == 0:
+            return {
+                "ok": True,
+                "path": clean_rel,
+                "start_line": 1,
+                "end_line": 0,
+                "total_lines": 0,
+                "lines": []
+            }
+
+        s = max(1, min(start_line, total_lines))
+        e = max(s, min(end_line, total_lines))
+        sliced = all_lines[s - 1:e]
+
+        return {
+            "ok": True,
+            "path": clean_rel,
+            "start_line": s,
+            "end_line": e,
+            "total_lines": total_lines,
+            "lines": sliced
+        }
+
     def cleanup_workspace(self, task_id: str):
         path = self.root_dir / f"task-{task_id}"
         if path.exists():
@@ -842,3 +942,4 @@ class WorktreeManager:
 
 
 worktree_manager = WorktreeManager()
+

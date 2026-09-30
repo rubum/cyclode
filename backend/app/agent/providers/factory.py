@@ -24,7 +24,7 @@ def get_provider_for_model(model_name: Optional[str] = None) -> BaseLLMProvider:
         return ClaudeProvider()
     elif target.startswith("deepseek:") or target.startswith("deepseek"):
         return DeepSeekProvider()
-    elif target.startswith(("openai:", "custom:")) or target.startswith(("gpt-", "o1", "o3", "codex", "openai")):
+    elif target.startswith(("openai:", "custom:")) or target.startswith(("gpt-", "o1", "o3", "chatgpt-", "codex", "openai")):
         return OpenAIProvider()
     elif target.startswith(("google:", "gemini:")) or target.startswith("gemini"):
         return GeminiProvider()
@@ -99,11 +99,20 @@ def get_model_catalog() -> List[Dict[str, Any]]:
             "provider_name": "OpenAI / Codex",
             "configured": has_openai,
             "models": [
-                {"id": "gpt-6-astra", "name": "GPT-6 Astra", "badge": "Frontier Autonomous", "recommended": True},
-                {"id": "gpt-4o", "name": "GPT-4o", "badge": "Omni Multimodal", "recommended": False},
+                {"id": "gpt-6-astra", "name": "GPT-6 Astra", "badge": "Flagship Autonomous", "recommended": True},
+                {"id": "gpt-6.1-sol", "name": "GPT-6.1 Sol", "badge": "Near-Astra Complex Work", "recommended": False},
+                {"id": "gpt-6-sol", "name": "GPT-6 Sol", "badge": "Agentic Coding", "recommended": False},
+                {"id": "gpt-5.6-sol", "name": "GPT-5.6 Sol", "badge": "Flagship Professional", "recommended": False},
+                {"id": "gpt-5.4-mini", "name": "GPT-5.4 Mini", "badge": "Subagents & Coding", "recommended": False},
+                {"id": "gpt-5.3-codex", "name": "GPT-5.3 Codex", "badge": "Agentic Coding Frontier", "recommended": False},
+                {"id": "o3-pro", "name": "o3-pro", "badge": "High-Compute Reasoning", "recommended": False},
+                {"id": "o3", "name": "o3", "badge": "Frontier Reasoning", "recommended": False},
                 {"id": "o3-mini", "name": "o3-mini", "badge": "STEM Reasoning", "recommended": False},
+                {"id": "gpt-4.1", "name": "GPT-4.1", "badge": "Smartest General", "recommended": False},
+                {"id": "gpt-4.1-mini", "name": "GPT-4.1 Mini", "badge": "Fast Lightweight", "recommended": False},
+                {"id": "gpt-4o", "name": "GPT-4o", "badge": "Omni Multimodal", "recommended": False},
                 {"id": "gpt-4o-mini", "name": "GPT-4o Mini", "badge": "Cost Efficient", "recommended": False},
-                {"id": "codex", "name": "Codex / GPT-4o", "badge": "Code Specialized", "recommended": False}
+                {"id": "codex", "name": "Codex / GPT-5.3", "badge": "Code Specialized", "recommended": False}
             ]
         }
     ]

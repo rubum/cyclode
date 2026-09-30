@@ -671,30 +671,44 @@ class AntigravityHarness:
                 }
             }
 
-        # Ground affirmative / continuation turns in existing workspace state
-        affirmative_prompts = {"proceed", "continue", "go ahead", "next", "yes", "approved", "ok", "okay", "do it"}
-        if cleaned_prompt in affirmative_prompts or cleaned_title in affirmative_prompts:
-            prompt = f"The user approved with '{prompt}'. Continue the active task by inspecting and building on the current workspace files."
-
-        # Fast path: Detect Plan Mode activation triggers
-        planning_phrases = [
-            "what's the plan", "whats the plan", "what is the plan",
-            "so what's the plan", "so whats the plan",
-            "plan this", "plan this out", "create a plan", "make a plan",
-            "show me the plan", "give me a plan", "draft a plan", "propose a plan",
-            "plan mode", "execution plan"
+        # Robust multi-word approval, continuation, and execution directive detection
+        approval_patterns = [
+            r"^(?:proceed|continue|go ahead|start|execute|implement|do it|run|approved?|ok|okay)\b",
+            r"\b(?:proceed with|go ahead with|continue with|start with|execute|implement)\s+(?:the\s+)?(?:execution\s+)?(?:plan|phase|steps?|implementation|milestone)\b",
+            r"\bapprove(?:d)?\s+(?:the\s+)?(?:plan|execution)\b",
+            r"\blooks good(?:,\s*proceed)?\b",
         ]
-        is_planning_query = (
-            any(phrase in cleaned_prompt for phrase in planning_phrases)
-            or any(phrase in cleaned_title for phrase in planning_phrases)
-            or cleaned_prompt.startswith("plan ")
-            or cleaned_title.startswith("plan ")
-            or cleaned_prompt == "plan"
-            or cleaned_title == "plan"
+        is_approval_or_proceed = (
+            cleaned_prompt in {"proceed", "continue", "go ahead", "next", "yes", "approved", "ok", "okay", "do it"}
+            or cleaned_title in {"proceed", "continue", "go ahead", "next", "yes", "approved", "ok", "okay", "do it"}
+            or any(bool(re.search(pat, cleaned_prompt, re.IGNORECASE)) for pat in approval_patterns)
+            or any(bool(re.search(pat, cleaned_title, re.IGNORECASE)) for pat in approval_patterns)
         )
 
-        # Extract recent conversation history for rich planning context
+        if is_approval_or_proceed:
+            is_planning_query = False
+            prompt = f"The user approved execution with '{prompt}'. Continue the active task by executing the approved plan and modifying the necessary workspace files."
+        else:
+            # Fast path: Detect Plan Mode activation triggers
+            planning_phrases = [
+                "what's the plan", "whats the plan", "what is the plan",
+                "so what's the plan", "so whats the plan",
+                "plan this", "plan this out", "create a plan", "make a plan",
+                "show me the plan", "give me a plan", "draft a plan", "propose a plan",
+                "plan mode", "execution plan"
+            ]
+            is_planning_query = (
+                any(phrase in cleaned_prompt for phrase in planning_phrases)
+                or any(phrase in cleaned_title for phrase in planning_phrases)
+                or cleaned_prompt.startswith("plan ")
+                or cleaned_title.startswith("plan ")
+                or cleaned_prompt == "plan"
+                or cleaned_title == "plan"
+            )
+
+        # Extract recent conversation history for rich planning context & check for existing approved plan
         conversation_context = ""
+        existing_plan_in_history = None
         if history:
             history_snippets = []
             for m in history[-5:]:
@@ -707,6 +721,40 @@ class AntigravityHarness:
                     history_snippets.append(f"[{sender}]: {clean_content}")
             if history_snippets:
                 conversation_context = "Preceding Conversation Context:\n" + "\n\n".join(history_snippets) + "\n\n"
+
+            for m in reversed(history):
+                c = m.get("content") or ""
+                if ("# Implementation Plan" in c or "## Implementation Plan" in c or "Key Execution Phases" in c) and ("Phase 1" in c or "Step 1" in c):
+                    parsed_existing = extract_plan_from_markdown(c, default_title=title)
+                    if parsed_existing.get("steps") and len(parsed_existing["steps"]) >= 1:
+                        existing_plan_in_history = parsed_existing
+                        break
+
+        # If user explicitly approved execution and an approved plan already exists in history:
+        # Adopt the existing structured plan directly, advance milestone 1 to in_progress, and lock into execution!
+        if is_approval_or_proceed and existing_plan_in_history:
+            adopted_plan = dict(existing_plan_in_history)
+            inferred_intent = Harness.infer_task_intent(title, prompt, persona_name)
+            exec_intent = "app_building" if (inferred_intent == "app_building" or persona_name == "AppBuilder") else "code_modification"
+            adopted_plan["intent_category"] = exec_intent
+
+            first_pending_found = False
+            for s in adopted_plan.get("steps", []):
+                if s.get("status") in ["in_progress", "completed"]:
+                    continue
+                if not first_pending_found and s.get("status") == "pending":
+                    s["status"] = "in_progress"
+                    first_pending_found = True
+
+            adopted_plan["evaluation"] = {
+                "status": "in_progress",
+                "summary": "Execution plan approved. Active milestone in progress.",
+                "checks": [
+                    {"name": "Execution Plan Approved", "passed": True, "message": "Plan adopted and transition to execution active"}
+                ]
+            }
+            adopted_plan["markdown"] = generate_plan_markdown(adopted_plan, title, prompt)
+            return adopted_plan
 
         # Extract active workspace filesystem tree to ground planning against real files
         workspace_grounding = ""
@@ -1485,7 +1533,7 @@ class AntigravityHarness:
             model_candidates = [effective_model, "claude-fable-5-1", "claude-3-7-sonnet", "claude-3-5-sonnet", "claude-3-5-haiku"]
             provider_label = "Anthropic Claude"
         elif provider.provider_id == "openai":
-            model_candidates = [effective_model, "gpt-6-astra", "gpt-4o", "o3-mini", "gpt-4o-mini", "codex"]
+            model_candidates = [effective_model, "gpt-6-astra", "o1", "o3-mini", "o1-mini", "gpt-4.5-preview", "gpt-4o", "chatgpt-4o-latest", "gpt-4o-mini", "codex"]
             provider_label = "OpenAI / Codex"
         else:
             clean_gemini = effective_model.replace("google:", "").replace("gemini:", "").strip()
@@ -1845,6 +1893,21 @@ class AntigravityHarness:
                             )
                         else:
                             active_tools_def = tools_def
+                            if current_plan.get("phases") or (current_plan.get("steps") and len(current_plan["steps"]) > 1):
+                                active_step_title = ""
+                                for s in current_plan.get("steps", []):
+                                    if s.get("status") == "in_progress":
+                                        active_step_title = s.get("title", "")
+                                        break
+                                effective_system_instruction = (
+                                    system_instruction
+                                    + "\n\n4. ACTIVE PLAN EXECUTION MANDATE:\n"
+                                    + f"   - An architectural implementation plan is currently active and approved by the user (Current Target: '{active_step_title or 'Milestone Execution'}').\n"
+                                    + "   - Your role is to EXECUTE the plan by making concrete modifications to workspace files (`edit_file`, `replace_file_content`, `batch_replace_content`, `run_command`).\n"
+                                    + "   - DO NOT formulate another implementation plan or output `# Implementation Plan`.\n"
+                                    + "   - DO NOT halt to ask for permission or confirm before writing code.\n"
+                                    + "   - Inspect necessary files and immediately proceed with implementing the required file modifications in the workspace."
+                                )
 
                         # Execute turn with active provider
                         provider_resp = None
@@ -2306,12 +2369,16 @@ class AntigravityHarness:
 
                             final_agent_text = combined_text or "Task execution completed."
 
+                            # Enforce that is_plan_response can only trigger when intent_category is explicitly planning
+                            # AND the response is a genuine complete architectural plan document.
+                            # Mentioning milestones ("Phase 1:") during execution must NEVER hijack active runs!
                             is_plan_response = (
                                 intent_category == "planning"
-                                or "# Implementation Plan" in final_agent_text
-                                or "## Implementation Plan" in final_agent_text
-                                or "### Phase 1" in final_agent_text
-                                or "Phase 1:" in final_agent_text
+                                and (
+                                    "# Implementation Plan" in final_agent_text
+                                    or "## Implementation Plan" in final_agent_text
+                                    or "Key Execution Phases" in final_agent_text
+                                )
                             )
 
                             if is_plan_response:
@@ -2389,8 +2456,8 @@ class AntigravityHarness:
                                         elif s.get("status") in ["pending", "failed"]:
                                             any_pending_or_failed = True
 
-                                    eval_status = "accomplished" if (all_checks_passed and not any_pending_or_failed and not is_dangling_intent) else "needs_revision"
-                                    eval_summary = "All execution plan steps verified successfully against workspace state." if (all_checks_passed and not any_pending_or_failed and not is_dangling_intent) else "Plan execution concluded with remaining pending steps or revisions needed."
+                                    eval_status = "accomplished" if (all_checks_passed and not any_pending_or_failed and not is_dangling_intent) else ("in_progress" if (all_checks_passed and any_pending_or_failed and not is_dangling_intent) else "needs_revision")
+                                    eval_summary = "All execution plan steps verified successfully against workspace state." if eval_status == "accomplished" else ("Active plan step completed successfully. Advancing remaining milestones." if eval_status == "in_progress" else "Plan execution concluded with remaining pending steps or revisions needed.")
 
                                 if is_dangling_intent and active_provider:
                                     terminal_synth_instruction = (

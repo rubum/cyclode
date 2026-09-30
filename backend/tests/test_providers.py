@@ -28,7 +28,12 @@ def test_provider_factory_routing():
     assert isinstance(get_provider_for_model("gpt-6-astra"), OpenAIProvider)
     assert isinstance(get_provider_for_model("gpt-6"), OpenAIProvider)
     assert isinstance(get_provider_for_model("openai:gpt-6-astra"), OpenAIProvider)
+    assert isinstance(get_provider_for_model("o1"), OpenAIProvider)
+    assert isinstance(get_provider_for_model("o1-mini"), OpenAIProvider)
+    assert isinstance(get_provider_for_model("o1-preview"), OpenAIProvider)
+    assert isinstance(get_provider_for_model("gpt-4.5-preview"), OpenAIProvider)
     assert isinstance(get_provider_for_model("gpt-4o"), OpenAIProvider)
+    assert isinstance(get_provider_for_model("chatgpt-4o-latest"), OpenAIProvider)
     assert isinstance(get_provider_for_model("gpt-4o-mini"), OpenAIProvider)
     assert isinstance(get_provider_for_model("o3-mini"), OpenAIProvider)
     assert isinstance(get_provider_for_model("codex"), OpenAIProvider)
@@ -72,7 +77,18 @@ def test_model_catalog_structure():
     openai_group = next(c for c in catalog if c["provider"] == "openai")
     openai_ids = [m["id"] for m in openai_group["models"]]
     assert "gpt-6-astra" in openai_ids
+    assert "gpt-6.1-sol" in openai_ids
+    assert "gpt-6-sol" in openai_ids
+    assert "gpt-5.6-sol" in openai_ids
+    assert "gpt-5.4-mini" in openai_ids
+    assert "gpt-5.3-codex" in openai_ids
+    assert "o3-pro" in openai_ids
+    assert "o3" in openai_ids
+    assert "o3-mini" in openai_ids
+    assert "gpt-4.1" in openai_ids
+    assert "gpt-4.1-mini" in openai_ids
     assert "gpt-4o" in openai_ids
+    assert "gpt-4o-mini" in openai_ids
 
 
 def test_claude_tool_declaration_conversion():
