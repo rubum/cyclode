@@ -136,7 +136,24 @@ class AgentTaskPool:
         if not event_id and (not title or "http" in title or title == description[:70]):
             initial_title = generate_heuristic_title(description or title, repo_name)
 
-        chosen_model = model_name or settings.ANTIGRAVITY_MODEL
+        # Determine model: prioritize explicit model_name (if not 'auto'/empty)
+        chosen_model = model_name if (model_name and model_name.strip() and model_name.strip() != "auto") else None
+
+        # If subsession or child task without an explicit model, inherit parent session's model
+        if not chosen_model and parent_task_id:
+            try:
+                async with async_session_factory() as session:
+                    parent_res = await session.execute(
+                        select(TaskModel.model_name).where(TaskModel.id == parent_task_id)
+                    )
+                    parent_model = parent_res.scalar_one_or_none()
+                    if parent_model and parent_model.strip() and parent_model.strip() != "auto":
+                        chosen_model = parent_model.strip()
+                        logger.info(f"Subsession automatically inherited parent task ({parent_task_id}) model: '{chosen_model}'")
+            except Exception as pe:
+                logger.debug(f"Parent model inheritance lookup note: {pe}")
+
+        chosen_model = chosen_model or settings.ANTIGRAVITY_MODEL
         init_tokens = estimate_tokens(description or initial_title)
         
         async with async_session_factory() as session:

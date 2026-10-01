@@ -399,6 +399,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
           }}
           taskId={task.id}
           filePath={selectedFile}
+          modelName={task.model_name}
           activeSnippet={activeSnippetContext}
           initialPrompt={initialAgentPrompt}
           onClearActiveSnippet={() => {

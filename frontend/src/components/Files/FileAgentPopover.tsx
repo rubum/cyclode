@@ -28,6 +28,7 @@ interface FileAgentPopoverProps {
   onClose: () => void;
   taskId: string;
   filePath: string | null;
+  modelName?: string;
   activeSnippet?: LineContext | null;
   initialPrompt?: string;
   onClearActiveSnippet?: () => void;
@@ -120,6 +121,7 @@ export const FileAgentPopover: React.FC<FileAgentPopoverProps> = ({
   onClose,
   taskId: parentTaskId,
   filePath,
+  modelName,
   activeSnippet,
   initialPrompt,
   onClearActiveSnippet,
@@ -390,6 +392,7 @@ export const FileAgentPopover: React.FC<FileAgentPopoverProps> = ({
             title: `Code Discussion: ${filePath || "Workspace Files"}`,
             description: finalPrompt,
             persona: "PairProgrammer",
+            model_name: modelName || undefined,
             session_key: sessionKey,
             is_subsession: true,
             parent_task_id: parentTaskId || null,

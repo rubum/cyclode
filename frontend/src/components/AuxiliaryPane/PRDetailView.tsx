@@ -4326,6 +4326,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
         headBranch={effectiveHeadBranch}
         baseBranch={effectiveBaseBranch}
         parentTaskId={task?.id}
+        modelName={task?.model_name}
         activeLineComment={activeLineComment}
         onClearActiveLineComment={() => setActiveLineComment(null)}
         onNavigateToFileLine={(filename, line) => {

@@ -84,6 +84,69 @@ async def test_subsession_creation_and_filtering():
 
 
 @pytest.mark.asyncio
+async def test_subsession_model_inheritance():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Create a parent session configured with a custom model (e.g. deepseek-chat)
+        parent_res = await client.post("/api/tasks", json={
+            "title": "Parent Session with DeepSeek",
+            "description": "Root session using custom LLM provider",
+            "persona": "SoftwareEngineer",
+            "model_name": "deepseek-chat",
+            "is_subsession": False
+        })
+        assert parent_res.status_code == 200
+        parent_id = parent_res.json()["task_id"]
+
+        parent_detail = await client.get(f"/api/tasks/{parent_id}")
+        assert parent_detail.json()["model_name"] == "deepseek-chat"
+
+        # 2. Spawn a subsession without specifying model_name (None / omitted) -> MUST inherit deepseek-chat
+        sub1_res = await client.post("/api/tasks", json={
+            "title": "PR Review Subsession Omitted Model",
+            "description": "Explain this PR",
+            "persona": "CodeReviewer",
+            "is_subsession": True,
+            "parent_task_id": parent_id
+        })
+        assert sub1_res.status_code == 200
+        sub1_id = sub1_res.json()["task_id"]
+
+        sub1_detail = await client.get(f"/api/tasks/{sub1_id}")
+        assert sub1_detail.json()["model_name"] == "deepseek-chat"
+
+        # 3. Spawn a subsession with model_name="auto" -> MUST inherit deepseek-chat
+        sub2_res = await client.post("/api/tasks", json={
+            "title": "File Agent Subsession Auto Model",
+            "description": "Discussing code snippet",
+            "persona": "PairProgrammer",
+            "model_name": "auto",
+            "is_subsession": True,
+            "parent_task_id": parent_id
+        })
+        assert sub2_res.status_code == 200
+        sub2_id = sub2_res.json()["task_id"]
+
+        sub2_detail = await client.get(f"/api/tasks/{sub2_id}")
+        assert sub2_detail.json()["model_name"] == "deepseek-chat"
+
+        # 4. Spawn a subsession with an explicit override model -> MUST use the explicit model
+        sub3_res = await client.post("/api/tasks", json={
+            "title": "Subsession with Explicit Override",
+            "description": "Specialized review model",
+            "persona": "CodeReviewer",
+            "model_name": "openai:gpt-4o",
+            "is_subsession": True,
+            "parent_task_id": parent_id
+        })
+        assert sub3_res.status_code == 200
+        sub3_id = sub3_res.json()["task_id"]
+
+        sub3_detail = await client.get(f"/api/tasks/{sub3_id}")
+        assert sub3_detail.json()["model_name"] == "openai:gpt-4o"
+
+
+@pytest.mark.asyncio
 async def test_task_pr_endpoints_and_actions():
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:

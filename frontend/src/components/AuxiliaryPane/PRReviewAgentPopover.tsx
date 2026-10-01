@@ -46,6 +46,7 @@ interface PRReviewAgentPopoverProps {
   headBranch?: string;
   baseBranch?: string;
   parentTaskId?: string | null;
+  modelName?: string;
   activeLineComment?: LineContext | null;
   onClearActiveLineComment?: () => void;
   onNavigateToFileLine?: (filename: string, line: number) => void;
@@ -142,6 +143,7 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
   headBranch,
   baseBranch,
   parentTaskId,
+  modelName,
   activeLineComment,
   onClearActiveLineComment,
   onNavigateToFileLine
@@ -405,6 +407,7 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
             title: `Code Review: ${repoName} #${prNumber} - ${prTitle}`,
             description: finalPrompt,
             persona: 'CodeReviewer',
+            model_name: modelName || undefined,
             session_key: sessionKey,
             is_subsession: true,
             parent_task_id: parentTaskId || null,
