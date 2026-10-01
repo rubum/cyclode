@@ -617,19 +617,27 @@ class AntigravityHarness:
         # Splits strictly on punctuation followed by whitespace or line breaks
         sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+|(?:\n|\r|;)+', text_lower) if s.strip()]
 
-        if sentences:
+        if not sentences:
+            return False
+
+        # If the text is short (< 350 chars), check if it consists of a forward action promise
+        if len(cleaned) < 350:
             last_sentence = sentences[-1]
             for p in forward_phrases:
-                if p in last_sentence:
+                if p in last_sentence and not any(comp in last_sentence for comp in ["have completed", "successfully", "all tests pass", "verified in live preview", "now fully built", "fixed"]):
                     return True
-            for s in sentences:
+            if len(sentences) == 1:
                 for p in forward_phrases:
-                    if p in s and not any(comp in s for comp in ["have completed", "successfully", "all tests pass", "verified in live preview", "now fully built"]):
+                    if p in sentences[0] and not any(comp in sentences[0] for comp in ["have completed", "successfully", "all tests pass", "verified in live preview", "now fully built", "fixed"]):
                         return True
+            return False
 
-        if len(text_lower) < 450:
-            for p in forward_phrases:
-                if p in text_lower and not any(comp in text_lower for comp in ["have completed", "successfully", "all tests pass", "verified in live preview", "now fully built"]):
+        # For longer, substantive responses (>= 350 chars), only the final sentence indicates dangling intent
+        last_sentence = sentences[-1]
+        for p in forward_phrases:
+            if p in last_sentence and not any(comp in last_sentence for comp in ["have completed", "successfully", "all tests pass", "verified in live preview", "now fully built", "fixed"]):
+                # Ensure the last sentence itself is a short transitional statement, not a substantive closing sentence
+                if len(last_sentence) < 180:
                     return True
 
         return False
@@ -2213,7 +2221,7 @@ class AntigravityHarness:
                                 logger.info(f"Triggering Dangling Intent Auto-Continuation on task {task_id} (correction {guardrail_corrections}/{max_guardrail_corrections})")
                                 preview_snip = raw_text_stripped[:60] + "..." if len(raw_text_stripped) > 60 else raw_text_stripped
                                 await self._emit_streamed_thought(
-                                    f"**Auto-Continuation**: Detected in-flight action intent ({preview_snip}). Continuing tool execution to complete task...",
+                                    "Continuing execution to complete planned workspace actions...",
                                     on_thought, on_stream_start, on_stream_chunk, on_stream_end
                                 )
                                 if provider_resp.raw_parts:

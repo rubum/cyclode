@@ -546,10 +546,24 @@ const ReasoningProcessContainer: React.FC<ReasoningProcessContainerProps> = ({
   const scrollRef = useRef<HTMLDivElement>(null);
   const isUserScrolledUpRef = useRef(false);
 
+  const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    if (e.deltaY < 0) {
+      isUserScrolledUpRef.current = true;
+    } else if (e.deltaY > 0) {
+      const el = scrollRef.current;
+      if (el) {
+        const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 15;
+        if (isAtBottom) {
+          isUserScrolledUpRef.current = false;
+        }
+      }
+    }
+  }, []);
+
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 35;
+    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 20;
     isUserScrolledUpRef.current = !isAtBottom;
   }, []);
 
@@ -575,10 +589,11 @@ const ReasoningProcessContainer: React.FC<ReasoningProcessContainerProps> = ({
     <div
       ref={scrollRef}
       onScroll={handleScroll}
-      className="p-3.5 border-t border-transparent space-y-2 text-xs text-onedark-fg font-mono leading-relaxed bg-onedark-darker/90 max-h-80 overflow-y-auto [scrollbar-width:thin] scroll-smooth"
+      onWheel={handleWheel}
+      className="p-3.5 border-t border-white/[0.04] space-y-2.5 text-xs text-onedark-fg/90 font-mono leading-relaxed bg-onedark-darker/60 max-h-80 overflow-y-auto [scrollbar-width:thin] [overflow-anchor:none]"
     >
       {thoughts.map((m, idx) => (
-        <div key={m.id || idx} className="pl-3 border-l-2 border-onedark-accent/40 py-0.5">
+        <div key={m.id || idx} className="py-0.5">
           <div className="whitespace-pre-wrap">
             {m.thought}
             {m.isStreaming && (
@@ -1466,6 +1481,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const scrollToBottom = useCallback((smooth = true) => {
     const container = scrollContainerRef.current;
     if (!container) return;
+    isAutoScrollEnabledRef.current = true;
+    setShowScrollBottomBtn(false);
     if (smooth) {
       container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
     } else {
@@ -1473,16 +1490,56 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     }
   }, []);
 
-  // Handle user manual scroll: detect if user scrolled away from bottom
+  // Instant user gesture interrupt: If user scrolls up by even 1px, immediately disengage auto-scroll
+  const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    if (e.deltaY < 0) {
+      // Scrolling up - immediate release of auto-scroll grip
+      isAutoScrollEnabledRef.current = false;
+      setShowScrollBottomBtn(true);
+      if (scrollRafRef.current) {
+        cancelAnimationFrame(scrollRafRef.current);
+        scrollRafRef.current = null;
+      }
+    } else if (e.deltaY > 0) {
+      const container = scrollContainerRef.current;
+      if (container) {
+        const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+        if (distanceFromBottom <= 20) {
+          isAutoScrollEnabledRef.current = true;
+          setShowScrollBottomBtn(false);
+        }
+      }
+    }
+  }, []);
+
+  // Handle touch interactions for mobile / trackpad pinch
+  const handleTouchMove = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    if (distanceFromBottom > 25) {
+      isAutoScrollEnabledRef.current = false;
+      setShowScrollBottomBtn(true);
+    } else {
+      isAutoScrollEnabledRef.current = true;
+      setShowScrollBottomBtn(false);
+    }
+  }, []);
+
+  // Handle user manual scroll: detect if user is near bottom
   const handleScroll = useCallback(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
     const { scrollTop, scrollHeight, clientHeight } = container;
     const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-    const isAtBottom = distanceFromBottom <= 90;
+    const isAtBottom = distanceFromBottom <= 20;
 
-    isAutoScrollEnabledRef.current = isAtBottom;
-    setShowScrollBottomBtn(!isAtBottom);
+    if (isAtBottom) {
+      isAutoScrollEnabledRef.current = true;
+      setShowScrollBottomBtn(false);
+    } else {
+      setShowScrollBottomBtn(true);
+    }
   }, []);
 
   // Auto-scroll smoothly ONLY when user has not manually scrolled away
@@ -1498,10 +1555,12 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
       if (!container || !isAutoScrollEnabledRef.current) return;
 
       const targetScrollTop = container.scrollHeight - container.clientHeight;
-      const distance = targetScrollTop - container.scrollTop;
+      if (targetScrollTop <= 0) return;
+
+      const distance = Math.abs(targetScrollTop - container.scrollTop);
 
       // Avoid layout thrashing if already within 2px of target
-      if (Math.abs(distance) <= 2) return;
+      if (distance <= 2) return;
 
       container.scrollTop = targetScrollTop;
     });
@@ -1511,7 +1570,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
         cancelAnimationFrame(scrollRafRef.current);
       }
     };
-  }, [turns, isRunning, task?.approvals]);
+  }, [turns, isRunning, task?.approvals, task?.active_tool]);
 
   // Reset scroll and re-enable auto-scroll when task changes
   useEffect(() => {
@@ -2608,7 +2667,9 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
       <div 
         ref={scrollContainerRef} 
         onScroll={handleScroll}
-        className="flex-1 overflow-y-auto px-4 py-6 relative [overflow-anchor:auto]"
+        onWheel={handleWheel}
+        onTouchMove={handleTouchMove}
+        className="flex-1 overflow-y-auto px-4 py-6 relative [overflow-anchor:none]"
       >
         <div className={`w-full ${contentMaxWidth} mx-auto space-y-6`}>
           {turns.map((turn, tIdx) => {
@@ -2834,8 +2895,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 {hasPlan && (
                   <div className={`rounded-xl overflow-hidden shadow-xs transition-all duration-200 ${
                     isTurnRunning && turn.isLatest 
-                      ? 'bg-onedark-darker/60 border border-onedark-accent/40 animate-cognitive-pulse' 
-                      : 'bg-onedark-darker/40 hover:bg-onedark-darker/60 border border-transparent'
+                      ? 'bg-onedark-darker/60 border border-white/[0.08]' 
+                      : 'bg-onedark-darker/40 hover:bg-onedark-darker/60 border border-white/[0.04]'
                   }`}>
                     <button
                       type="button"
@@ -2864,8 +2925,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                             <span>Evaluating</span>
                           </span>
                         ) : evalStatus === 'needs_revision' ? (
-                          <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-950 border border-amber-300 dark:bg-onedark-yellow/10 dark:text-onedark-yellow dark:border-transparent text-[10px] font-mono flex items-center space-x-1 font-medium">
-                            <AlertCircle className="w-2.5 h-2.5 text-amber-700 dark:text-onedark-yellow" />
+                          <span className="px-1.5 py-0.5 rounded bg-onedark-yellow/10 text-onedark-yellow text-[10px] font-mono flex items-center space-x-1 font-medium">
+                            <AlertCircle className="w-2.5 h-2.5" />
                             <span>Revision</span>
                           </span>
                         ) : null}
@@ -2873,8 +2934,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
                       <div className="flex items-center space-x-2 shrink-0">
                         {isTurnRunning && turn.isLatest ? (
-                          <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-950 border border-amber-300 dark:bg-onedark-yellow/10 dark:text-onedark-yellow dark:border-transparent text-[10.5px] font-mono flex items-center space-x-1.5 font-semibold">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-600 dark:bg-onedark-yellow animate-pulse" />
+                          <span className="px-2 py-0.5 rounded-full bg-onedark-yellow/10 text-onedark-yellow text-[10.5px] font-mono flex items-center space-x-1.5 font-semibold">
+                            <span className="w-1.5 h-1.5 rounded-full bg-onedark-yellow animate-pulse" />
                             <span>Executing...</span>
                           </span>
                         ) : (
@@ -2985,10 +3046,10 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                                 {turn.plan.evaluation.checks.map((chk, cIdx) => (
                                   <span
                                     key={cIdx}
-                                    className={`px-1.5 py-0.2 rounded text-[10px] font-mono border flex items-center space-x-1 ${
+                                    className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 ${
                                       chk.passed
-                                        ? 'bg-onedark-green/10 text-onedark-green border-onedark-green/25'
-                                        : 'bg-onedark-red/10 text-onedark-red border-onedark-red/25'
+                                        ? 'bg-onedark-green/10 text-onedark-green'
+                                        : 'bg-onedark-red/10 text-onedark-red'
                                     }`}
                                   >
                                     {chk.passed ? <Check className="w-2.5 h-2.5" /> : <AlertCircle className="w-2.5 h-2.5" />}
@@ -3008,8 +3069,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 {hasThoughts && (
                   <div className={`rounded-xl overflow-hidden shadow-xs transition-all duration-200 ${
                     isRunning && turn.isLatest
-                      ? 'bg-onedark-darker/60 border border-onedark-accent/40 animate-cognitive-pulse'
-                      : 'bg-onedark-darker/40 hover:bg-onedark-darker/60 border border-transparent'
+                      ? 'bg-onedark-darker/60 border border-white/[0.08]'
+                      : 'bg-onedark-darker/40 hover:bg-onedark-darker/60 border border-white/[0.04]'
                   }`}>
                     <button
                       type="button"
@@ -3028,8 +3089,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
                       <div className="flex items-center space-x-2">
                         {isRunning && turn.isLatest ? (
-                          <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-950 border border-amber-300 dark:bg-onedark-yellow/10 dark:text-onedark-yellow dark:border-transparent text-[10.5px] font-mono flex items-center space-x-1 font-semibold">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-600 dark:bg-onedark-yellow animate-pulse" />
+                          <span className="px-2 py-0.5 rounded-full bg-onedark-yellow/10 text-onedark-yellow text-[10.5px] font-mono flex items-center space-x-1.5 font-semibold">
+                            <span className="w-1.5 h-1.5 rounded-full bg-onedark-yellow animate-pulse" />
                             <span>Thinking...</span>
                           </span>
                         ) : (
@@ -3195,7 +3256,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                         const actionInfo = getToolActionInfo(toolName, toolInput, isRunning);
                         const ActionIcon = actionInfo.icon;
                         const logKey = targetLog ? (targetLog.id || `log-${turn.id}-${turn.logs.length - 1}`) : `active-tool-${turn.id}`;
-                        const isExpanded = expandedLogIds[logKey] !== undefined ? expandedLogIds[logKey] : true;
+                        const isExpanded = expandedLogIds[logKey] !== undefined ? expandedLogIds[logKey] : false;
 
                         const displayLog: TaskLog = targetLog || {
                           id: `active-${task.id}`,
@@ -3210,10 +3271,10 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                         };
 
                         return (
-                          <div className="border-t border-white/[0.04] bg-onedark-darker/60">
+                          <div className="border-t border-white/[0.04] bg-onedark-darker/60 transition-all duration-150 ease-out">
                             <div
                               onClick={() => setExpandedLogIds((prev) => ({ ...prev, [logKey]: !isExpanded }))}
-                              className={`px-3.5 py-2 hover:bg-onedark-darker/80 transition-colors flex items-center justify-between text-xs font-mono cursor-pointer select-none group/peek ${
+                              className={`px-3.5 py-2 hover:bg-onedark-darker/80 transition-colors flex items-center justify-between text-xs font-mono cursor-pointer select-none group/peek min-h-[36px] ${
                                 isRunning
                                   ? 'bg-onedark-accent/10 text-onedark-fgBright'
                                   : targetLog && targetLog.exit_code !== 0
@@ -3663,6 +3724,26 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
         </div>
       </div>
 
+      {/* Floating Jump to Bottom Button */}
+      {showScrollBottomBtn && (
+        <div className="absolute bottom-[90px] sm:bottom-[96px] right-6 sm:right-10 z-30 animate-in fade-in slide-in-from-bottom-2 duration-150">
+          <button
+            type="button"
+            onClick={() => scrollToBottom(true)}
+            className="flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-onedark-accent hover:bg-onedark-accent/90 text-white shadow-xl text-xs font-medium cursor-pointer transition-all active:scale-95 border border-white/20 backdrop-blur-md group select-none"
+            title="Resume auto-scroll & jump to latest responses"
+          >
+            {isRunning ? (
+              <span className="w-2 h-2 rounded-full bg-onedark-yellow animate-pulse shrink-0" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5 group-hover:translate-y-0.5 transition-transform" />
+            )}
+            <span>{isRunning ? 'New activity below' : 'Jump to latest'}</span>
+            <ChevronDown className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Centralized Bottom Chat Input Bar */}
       <div className="p-3 sm:p-4 bg-onedark-darker/90 border-t border-onedark-borderSubtle/60 backdrop-blur-md">
         <div className={`w-full ${contentMaxWidth} mx-auto`}>
@@ -3900,20 +3981,6 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                       );
                     })}
                   </div>
-                )}
-                {showScrollBottomBtn && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      isAutoScrollEnabledRef.current = true;
-                      setShowScrollBottomBtn(false);
-                      scrollToBottom(true);
-                    }}
-                    className="text-onedark-accent hover:text-onedark-fgBright transition-colors flex items-center space-x-1 cursor-pointer font-medium flex-shrink-0"
-                  >
-                    <ChevronDown className="w-3 h-3" />
-                    <span>Jump to latest</span>
-                  </button>
                 )}
               </div>
               {isRunning && (

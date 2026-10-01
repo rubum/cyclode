@@ -163,7 +163,7 @@ export const SubagentsTab: React.FC<SubagentsTabProps> = ({ task }) => {
               key={sub.id} 
               className={`rounded-xl border transition-all duration-200 overflow-hidden shadow-xs ${
                 isRunning
-                  ? 'bg-onedark-darker/90 border-onedark-accent/50 animate-cognitive-pulse'
+                  ? 'bg-onedark-darker/90 border-white/[0.1]'
                   : 'bg-onedark-surface/60 hover:bg-onedark-surface/90 border-onedark-borderSubtle hover:border-onedark-border'
               }`}
             >

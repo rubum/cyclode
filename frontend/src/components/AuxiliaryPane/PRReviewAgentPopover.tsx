@@ -153,7 +153,7 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
   const [inputPrompt, setInputPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
-  const [showThoughts, setShowThoughts] = useState<Record<string, boolean>>({});
+  const [openThoughtTurns, setOpenThoughtTurns] = useState<Record<string, boolean>>({});
   const [isExpanded, setIsExpanded] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [attachedContext, setAttachedContext] = useState<LineContext | null>(null);
@@ -165,6 +165,7 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isAutoScrollEnabledRef = useRef<boolean>(true);
+  const scrollRafRef = useRef<number | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const isSendingRef = useRef<boolean>(false);
   const { subscribe } = useWebSocket();
@@ -215,34 +216,95 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
     }
   }, [activeLineComment]);
 
+  // Instant user gesture interrupt: If user scrolls up by even 1px, immediately disengage auto-scroll
+  const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    if (e.deltaY < 0) {
+      isAutoScrollEnabledRef.current = false;
+      setShowScrollBottomBtn(true);
+      if (scrollRafRef.current) {
+        cancelAnimationFrame(scrollRafRef.current);
+        scrollRafRef.current = null;
+      }
+    } else if (e.deltaY > 0) {
+      const container = scrollContainerRef.current;
+      if (container) {
+        const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+        if (distanceFromBottom <= 20) {
+          isAutoScrollEnabledRef.current = true;
+          setShowScrollBottomBtn(false);
+        }
+      }
+    }
+  }, []);
+
+  // Handle touch interactions for mobile / trackpad pinch
+  const handleTouchMove = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+    if (distanceFromBottom > 25) {
+      isAutoScrollEnabledRef.current = false;
+      setShowScrollBottomBtn(true);
+    } else {
+      isAutoScrollEnabledRef.current = true;
+      setShowScrollBottomBtn(false);
+    }
+  }, []);
+
   // Handle user manual scroll: detect if user scrolled away from bottom
   const handleScroll = useCallback(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
     const { scrollTop, scrollHeight, clientHeight } = container;
     const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-    const isAtBottom = distanceFromBottom <= 60;
-    isAutoScrollEnabledRef.current = isAtBottom;
-    setShowScrollBottomBtn(!isAtBottom);
+    const isAtBottom = distanceFromBottom <= 20;
+    if (isAtBottom) {
+      isAutoScrollEnabledRef.current = true;
+      setShowScrollBottomBtn(false);
+    } else {
+      setShowScrollBottomBtn(true);
+    }
   }, []);
 
   // Jump to bottom helper
-  const scrollToBottom = useCallback((smooth = false) => {
+  const scrollToBottom = useCallback((smooth = true) => {
     const container = scrollContainerRef.current;
     if (!container) return;
+    isAutoScrollEnabledRef.current = true;
+    setShowScrollBottomBtn(false);
     if (smooth) {
       container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
     } else {
       container.scrollTop = container.scrollHeight;
     }
-    isAutoScrollEnabledRef.current = true;
-    setShowScrollBottomBtn(false);
   }, []);
 
   // Auto-scroll on new chunks/messages ONLY if user hasn't scrolled away
   useEffect(() => {
     if (!isAutoScrollEnabledRef.current || !scrollContainerRef.current) return;
-    scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight;
+
+    if (scrollRafRef.current) {
+      cancelAnimationFrame(scrollRafRef.current);
+    }
+
+    scrollRafRef.current = requestAnimationFrame(() => {
+      const container = scrollContainerRef.current;
+      if (!container || !isAutoScrollEnabledRef.current) return;
+
+      const targetScrollTop = container.scrollHeight - container.clientHeight;
+      if (targetScrollTop <= 0) return;
+
+      const distance = Math.abs(targetScrollTop - container.scrollTop);
+      if (distance <= 2) return;
+
+      container.scrollTop = targetScrollTop;
+    });
+
+    return () => {
+      if (scrollRafRef.current) {
+        cancelAnimationFrame(scrollRafRef.current);
+      }
+    };
   }, [messages, isLoading]);
 
   // Handle popover drag resizing
@@ -289,9 +351,6 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
     const unsubStreamStart = subscribe('STREAM_START', (data: any) => {
       if (data.task_id === taskId) {
         setIsLoading(true);
-        if (data.stream_type === 'thought') {
-          setShowThoughts(prev => ({ ...prev, [data.stream_id]: true }));
-        }
         setMessages(prev => {
           const existingIdx = prev.findIndex(m => m.id === data.stream_id);
           if (existingIdx >= 0) {
@@ -333,7 +392,6 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
 
     const unsubStreamEnd = subscribe('STREAM_END', (data: any) => {
       if (data.task_id === taskId) {
-        setIsLoading(false);
         setMessages(prev => {
           return prev.map(m => {
             if (m.id === data.stream_id) {
@@ -350,6 +408,29 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
       }
     });
 
+    const unsubThought = subscribe('AGENT_THOUGHT', (data: any) => {
+      if (data.task_id === taskId) {
+        setMessages(prev => {
+          const thoughtIdx = prev.findIndex(m => m.id === data.id || (m.thought && data.thought && m.thought.trim() === data.thought.trim()));
+          if (thoughtIdx >= 0) {
+            return prev.map((m, idx) => idx === thoughtIdx ? { ...m, thought: data.thought, isStreaming: false } : m);
+          }
+          return [
+            ...prev,
+            {
+              id: data.id || `thought-${Date.now()}`,
+              task_id: taskId,
+              sender: 'agent',
+              content: '',
+              thought: data.thought,
+              isStreaming: false,
+              created_at: data.timestamp || new Date().toISOString()
+            }
+          ];
+        });
+      }
+    });
+
     const unsubStatus = subscribe('TASK_STATUS_CHANGE', (data: any) => {
       if (data.task_id === taskId && ['COMPLETED', 'FAILED', 'IDLE', 'CANCELLED'].includes(data.status)) {
         setIsLoading(false);
@@ -360,6 +441,7 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
       unsubStreamStart();
       unsubStreamChunk();
       unsubStreamEnd();
+      unsubThought();
       unsubStatus();
     };
   }, [taskId, subscribe]);
@@ -474,8 +556,8 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
     setTimeout(() => setCopiedIndex(null), 2000);
   };
 
-  const toggleThought = (msgId: string) => {
-    setShowThoughts(prev => ({ ...prev, [msgId]: !prev[msgId] }));
+  const toggleThought = (turnId: string) => {
+    setOpenThoughtTurns(prev => ({ ...prev, [turnId]: !prev[turnId] }));
   };
 
   // Deduplicate messages by unique ID and remove consecutive identical messages
@@ -506,6 +588,75 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
     }
     return result;
   }, [messages]);
+
+  interface SubsessionTurn {
+    id: string;
+    userMessage?: TaskMessage;
+    thoughts: Array<{ id: string; thought: string; created_at?: string; isStreaming?: boolean }>;
+    agentMessages: TaskMessage[];
+    systemMessages: TaskMessage[];
+    isLatest: boolean;
+  }
+
+  // Aggregate flat message sequence into structured turns (User Prompt -> Consolidated Thoughts -> Response)
+  const turns = useMemo(() => {
+    const result: SubsessionTurn[] = [];
+    let currentTurn: SubsessionTurn = {
+      id: 'turn-init',
+      thoughts: [],
+      agentMessages: [],
+      systemMessages: [],
+      isLatest: false
+    };
+
+    for (let i = 0; i < deduplicatedMessages.length; i++) {
+      const msg = deduplicatedMessages[i];
+      if (msg.sender === 'user') {
+        if (currentTurn.userMessage || currentTurn.thoughts.length > 0 || currentTurn.agentMessages.length > 0 || currentTurn.systemMessages.length > 0) {
+          result.push(currentTurn);
+        }
+        currentTurn = {
+          id: `turn-${msg.id || i}`,
+          userMessage: msg,
+          thoughts: [],
+          agentMessages: [],
+          systemMessages: [],
+          isLatest: false
+        };
+      } else if (msg.sender === 'system') {
+        currentTurn.systemMessages.push(msg);
+      } else {
+        // Agent message
+        if (msg.thought && msg.thought.trim().length > 0) {
+          const cleanThought = msg.thought
+            .replace(/^\*\*Auto-Continuation\*\*:[^\n]+\n?/g, '')
+            .replace(/^\*\*Autonomous Scaffolding\*\*:[^\n]+\n?/g, '')
+            .trim();
+          if (cleanThought && !currentTurn.thoughts.some(t => t.id === msg.id || t.thought === cleanThought)) {
+            currentTurn.thoughts.push({
+              id: msg.id || `thought-${i}`,
+              thought: cleanThought,
+              created_at: msg.created_at,
+              isStreaming: msg.isStreaming && !msg.content
+            });
+          }
+        }
+        if ((msg.content && msg.content.trim().length > 0) || (!msg.thought && msg.isStreaming)) {
+          currentTurn.agentMessages.push(msg);
+        }
+      }
+    }
+
+    if (currentTurn.userMessage || currentTurn.thoughts.length > 0 || currentTurn.agentMessages.length > 0 || currentTurn.systemMessages.length > 0) {
+      result.push(currentTurn);
+    }
+
+    if (result.length > 0) {
+      result[result.length - 1].isLatest = true;
+    }
+
+    return result;
+  }, [deduplicatedMessages]);
 
   if (!isOpen) return null;
 
@@ -644,9 +795,11 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
       <div 
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        className="flex-1 p-3.5 overflow-y-auto space-y-3.5 select-text text-xs leading-relaxed relative"
+        onWheel={handleWheel}
+        onTouchMove={handleTouchMove}
+        className="flex-1 p-3.5 overflow-y-auto space-y-3.5 select-text text-xs leading-relaxed relative [overflow-anchor:none]"
       >
-        {deduplicatedMessages.length === 0 && (
+        {turns.length === 0 && (
           <div className="h-full flex flex-col items-center justify-center text-center p-6 text-onedark-muted select-none space-y-2.5">
             <div className="w-10 h-10 rounded-2xl bg-onedark-surface/60 border border-onedark-border flex items-center justify-center text-onedark-accent">
               <Bot className="w-5 h-5" />
@@ -660,63 +813,105 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
           </div>
         )}
 
-        {deduplicatedMessages.map((msg, index) => {
-          const isAgent = msg.sender === 'agent';
-          const isSystem = msg.sender === 'system';
-          const hasContent = Boolean(msg.content && msg.content.trim().length > 0);
-          const hasThought = Boolean(msg.thought && msg.thought.trim().length > 0);
-
-          if (!hasContent && !hasThought && !msg.isStreaming) {
-            return null;
-          }
-
-          if (isSystem) {
-            return (
-              <div key={msg.id || index} className="p-2 rounded-lg bg-onedark-surface/40 border border-onedark-borderSubtle text-[11px] text-onedark-muted font-mono">
-                {msg.content}
-              </div>
-            );
-          }
+        {turns.map((turn, tIdx) => {
+          const isTurnRunning = isLoading && turn.isLatest && (turn.agentMessages.length === 0 || (turn.agentMessages.length === 1 && !turn.agentMessages[0].content));
+          const hasThoughts = turn.thoughts.length > 0;
+          const isTurnOpen = openThoughtTurns[turn.id] ?? (isTurnRunning && turn.isLatest);
 
           return (
-            <div key={msg.id || index} className={`flex flex-col space-y-1.5 ${isAgent ? 'items-start' : 'items-end'}`}>
-              <div className="flex items-center space-x-1.5 px-1 text-[10.5px] text-onedark-muted font-mono">
-                <span>{isAgent ? 'CodeReviewer' : 'You'}</span>
-                <span>•</span>
-                <span>{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-              </div>
+            <div key={turn.id || tIdx} className="space-y-3.5">
+              {/* User Message in Turn */}
+              {turn.userMessage && (
+                <div className="flex flex-col items-end space-y-1.5">
+                  <div className="flex items-center space-x-1.5 px-1 text-[10.5px] text-onedark-muted font-mono">
+                    <span>You</span>
+                    <span>•</span>
+                    <span>{new Date(turn.userMessage.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                  <div className="p-3 rounded-2xl max-w-[94%] shadow-xs leading-relaxed bg-onedark-accent/20 border border-onedark-accent/40 text-onedark-fgBright">
+                    <UserSnippetMessageBubble
+                      content={turn.userMessage.content}
+                      onLinkClick={(url, text) => {
+                        if (url.startsWith('#') || url.includes('#L')) {
+                          const m = url.match(/(?:#L|:)(\d+)/);
+                          if (m && onNavigateToFileLine) {
+                            onNavigateToFileLine(text, parseInt(m[1], 10));
+                          }
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
 
-              {/* Agent Thought Accordion if present */}
-              {isAgent && hasThought && (
-                <div className="w-full max-w-full rounded-xl border border-onedark-borderSubtle bg-onedark-surface/30 overflow-hidden text-[11px]">
+              {/* System Messages in Turn */}
+              {turn.systemMessages.map((sMsg, sIdx) => (
+                <div key={sMsg.id || sIdx} className="p-2 rounded-lg bg-onedark-surface/40 border border-onedark-borderSubtle text-[11px] text-onedark-muted font-mono">
+                  {sMsg.content}
+                </div>
+              ))}
+
+              {/* Unified Turn Reasoning Process Accordion */}
+              {hasThoughts && (
+                <div className={`w-full max-w-full rounded-xl border overflow-hidden text-xs transition-colors ${
+                  isTurnRunning && turn.isLatest
+                    ? 'border-onedark-accent/30 bg-onedark-surface/40'
+                    : 'border-onedark-borderSubtle bg-onedark-surface/25 hover:bg-onedark-surface/40'
+                }`}>
                   <button
-                    onClick={() => toggleThought(msg.id)}
-                    className="w-full px-2.5 py-1.5 flex items-center justify-between text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/50 transition-colors select-none"
+                    type="button"
+                    onClick={() => toggleThought(turn.id)}
+                    className="w-full px-3 py-2 flex items-center justify-between text-onedark-muted hover:text-onedark-fg transition-colors select-none cursor-pointer"
                   >
-                    <div className="flex items-center space-x-1.5">
-                      <Sparkles className="w-3 h-3 text-onedark-accent animate-pulse" />
-                      <span className="font-mono text-[10.5px] font-medium">Reviewer Reasoning</span>
+                    <div className="flex items-center space-x-2">
+                      <Sparkles className="w-3.5 h-3.5 text-onedark-accent animate-pulse" />
+                      <span className="font-mono text-[11px] font-medium text-onedark-fg">
+                        Reasoning process
+                      </span>
+                      <span className="text-[10.5px] text-onedark-muted font-mono">
+                        ({turn.thoughts.length} step{turn.thoughts.length > 1 ? 's' : ''})
+                      </span>
                     </div>
-                    <ChevronDown className={`w-3 h-3 transition-transform ${showThoughts[msg.id] ? 'rotate-180' : ''}`} />
+
+                    <div className="flex items-center space-x-2">
+                      {isTurnRunning && turn.isLatest ? (
+                        <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-950 border border-amber-300 dark:bg-onedark-yellow/10 dark:text-onedark-yellow dark:border-transparent text-[10px] font-mono flex items-center space-x-1 font-semibold">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-600 dark:bg-onedark-yellow animate-pulse" />
+                          <span>Thinking...</span>
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-md bg-onedark-surface/60 text-onedark-muted text-[10px] font-mono">
+                          {isTurnOpen ? 'Hide' : 'Show details'}
+                        </span>
+                      )}
+                      <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isTurnOpen ? 'rotate-180' : ''}`} />
+                    </div>
                   </button>
-                  {showThoughts[msg.id] && (
-                    <div className="p-2.5 border-t border-onedark-borderSubtle text-[11px] text-onedark-muted font-mono bg-onedark-bg/40 leading-relaxed whitespace-pre-wrap">
-                      {msg.thought}
+
+                  {isTurnOpen && (
+                    <div className="p-3 border-t border-onedark-borderSubtle/60 space-y-2 text-xs text-onedark-fg font-mono leading-relaxed bg-onedark-bg/40 max-h-60 overflow-y-auto [scrollbar-width:thin] [overflow-anchor:none]">
+                      {turn.thoughts.map((t, tIdx) => (
+                        <div key={t.id || tIdx} className="pl-2.5 border-l-2 border-onedark-accent/40 py-0.5 whitespace-pre-wrap">
+                          {t.thought}
+                          {t.isStreaming && (
+                            <span className="inline-block w-1.5 h-3.5 ml-1 bg-onedark-accent animate-pulse align-middle" />
+                          )}
+                        </div>
+                      ))}
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Main Message Bubble (only render if there is text content or active stream) */}
-              {(hasContent || (!hasThought && msg.isStreaming)) && (
-                <div 
-                  className={`p-3 rounded-2xl max-w-[94%] shadow-xs leading-relaxed group relative ${
-                    isAgent
-                      ? 'bg-onedark-surface/80 border border-onedark-border text-onedark-fg'
-                      : 'bg-onedark-accent/20 border border-onedark-accent/40 text-onedark-fgBright'
-                  }`}
-                >
-                  {isAgent ? (
+              {/* Agent Response Messages in Turn */}
+              {turn.agentMessages.map((msg, mIdx) => (
+                <div key={msg.id || mIdx} className="w-full flex flex-col space-y-1.5 items-start">
+                  <div className="flex items-center space-x-1.5 px-1 text-[10.5px] text-onedark-muted font-mono">
+                    <span>CodeReviewer</span>
+                    <span>•</span>
+                    <span>{new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  </div>
+                  <div className="p-3 rounded-2xl max-w-[94%] bg-onedark-surface/80 border border-onedark-border text-onedark-fg shadow-xs leading-relaxed group relative w-full">
                     <MarkdownRenderer 
                       content={msg.content} 
                       isStreaming={msg.isStreaming} 
@@ -729,53 +924,46 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
                         }
                       }}
                     />
-                  ) : (
-                    <UserSnippetMessageBubble
-                      content={msg.content}
-                      onLinkClick={(url, text) => {
-                        if (url.startsWith('#') || url.includes('#L')) {
-                          const m = url.match(/(?:#L|:)(\d+)/);
-                          if (m && onNavigateToFileLine) {
-                            onNavigateToFileLine(text, parseInt(m[1], 10));
-                          }
-                        }
-                      }}
-                    />
-                  )}
+                    {msg.content && (
+                      <button
+                        onClick={() => handleCopyMessage(msg.content, mIdx)}
+                        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-onedark-bg/80 text-onedark-muted hover:text-onedark-fg transition-all cursor-pointer"
+                        title="Copy message"
+                      >
+                        {copiedIndex === mIdx ? <Check className="w-3 h-3 text-onedark-green" /> : <Copy className="w-3 h-3" />}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
 
-                  {/* Copy button */}
-                  {msg.content && (
-                    <button
-                      onClick={() => handleCopyMessage(msg.content, index)}
-                      className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-onedark-bg/80 text-onedark-muted hover:text-onedark-fg transition-all"
-                      title="Copy message"
-                    >
-                      {copiedIndex === index ? <Check className="w-3 h-3 text-onedark-green" /> : <Copy className="w-3 h-3" />}
-                    </button>
-                  )}
+              {/* Live Status Indicator when Turn is Active before Agent Response arrives */}
+              {isTurnRunning && turn.agentMessages.length === 0 && !turn.thoughts.some(t => t.isStreaming) && (
+                <div className="flex items-center space-x-2 text-xs text-onedark-muted font-mono px-1 py-1">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-onedark-accent" />
+                  <span>Reviewer agent is analyzing diffs & preparing response...</span>
                 </div>
               )}
             </div>
           );
         })}
-
-        {isLoading && (
-          <div className="flex items-center space-x-2 text-xs text-onedark-muted font-mono p-2">
-            <Loader2 className="w-3.5 h-3.5 animate-spin text-onedark-accent" />
-            <span>Reviewer agent is analyzing diffs...</span>
-          </div>
-        )}
       </div>
 
       {/* Floating Scroll to Bottom Button */}
       {showScrollBottomBtn && (
-        <div className="absolute bottom-20 right-5 z-20">
+        <div className="absolute bottom-20 right-5 z-20 animate-in fade-in slide-in-from-bottom-2 duration-150">
           <button
             onClick={() => scrollToBottom(true)}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-onedark-accent/90 hover:bg-onedark-accent text-white shadow-lg text-[11px] font-medium transition-all backdrop-blur-xs cursor-pointer animate-in fade-in"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-onedark-accent hover:bg-onedark-accent/90 text-white shadow-lg text-[11px] font-medium transition-all backdrop-blur-xs cursor-pointer active:scale-95 border border-white/20 select-none group"
+            title="Resume auto-scroll & jump to latest responses"
           >
+            {isLoading ? (
+              <span className="w-2 h-2 rounded-full bg-onedark-yellow animate-pulse shrink-0" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5 group-hover:translate-y-0.5 transition-transform" />
+            )}
+            <span>{isLoading ? 'New responses below' : 'Scroll to bottom'}</span>
             <ChevronDown className="w-3.5 h-3.5" />
-            <span>Scroll to bottom</span>
           </button>
         </div>
       )}
