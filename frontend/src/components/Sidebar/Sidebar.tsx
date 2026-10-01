@@ -125,14 +125,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const getStatusDot = (status: string) => {
     switch (status) {
       case 'RUNNING':
-        return 'bg-onedark-yellow animate-pulse';
+        return 'bg-onedark-yellow animate-subagent-pulse';
       case 'COMPLETED':
         return 'bg-onedark-green';
       case 'IDLE':
         return 'bg-onedark-purple';
       case 'AWAITING_APPROVAL':
       case 'AWAITING_INPUT':
-        return 'bg-onedark-accent animate-pulse';
+        return 'bg-onedark-accent animate-subagent-pulse';
       case 'FAILED':
         return 'bg-onedark-red';
       default:
@@ -218,17 +218,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       setActiveView('chat');
                     }}
                     disabled={isBeingDeleted || isClearingAll}
-                    className={`w-9 h-9 rounded-xl relative flex items-center justify-center transition-all cursor-pointer ${
+                    className={`w-9 h-9 rounded-xl relative flex items-center justify-center transition-all duration-150 cursor-pointer btn-tactile ${
                       isBeingDeleted ? 'opacity-40 pointer-events-none' : ''
                     } ${
                       isSelected
-                        ? 'bg-onedark-surface text-onedark-fgBright border border-onedark-accent shadow-xs ring-2 ring-onedark-accent/20'
+                        ? 'bg-onedark-surface text-onedark-fgBright border border-onedark-accent/70 shadow-xs ring-1 ring-onedark-accent/30'
                         : 'bg-onedark-surface/30 hover:bg-onedark-surface/70 text-onedark-muted hover:text-onedark-fgBright border border-transparent hover:border-onedark-borderSubtle'
                     }`}
                   >
                     <MessageSquare className={`w-4 h-4 ${isSelected ? 'text-onedark-accent' : 'text-onedark-muted'}`} />
                     {/* Status Dot */}
-                    <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-onedark-darker ${getStatusDot(task.status)}`} />
+                    <span className={`absolute bottom-0.5 right-0.5 w-2 h-2 rounded-full ring-1.5 ring-onedark-surface ${getStatusDot(task.status)}`} />
                   </button>
 
                   {/* Rich Floating Hover Card Tooltip */}
@@ -483,14 +483,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onSelectTask(task.id);
                   setActiveView('chat');
                 }}
-                className={`group w-full text-left px-2.5 py-1.5 rounded-lg transition-all cursor-pointer relative ${
+                className={`group w-full text-left px-3 py-2 rounded-xl transition-all duration-150 cursor-pointer relative overflow-hidden btn-tactile ${
                   isBeingDeleted ? 'opacity-45 pointer-events-none cursor-not-allowed' : ''
                 } ${
                   isSelected
-                    ? 'bg-onedark-surface/80 text-onedark-fgBright shadow-xs border-l-2 border-onedark-accent'
-                    : 'bg-transparent hover:bg-onedark-surface/50 text-onedark-fg hover:text-onedark-fgBright border-l-2 border-transparent'
+                    ? 'bg-onedark-surface text-onedark-fgBright shadow-xs border border-onedark-accent/40 ring-1 ring-onedark-accent/20'
+                    : 'bg-transparent hover:bg-onedark-surface/40 text-onedark-fg hover:text-onedark-fgBright border border-transparent hover:border-onedark-borderSubtle/50'
                 }`}
               >
+                {isSelected && (
+                  <span className="absolute left-0 top-1.5 bottom-1.5 w-1 bg-onedark-accent rounded-r-full animate-active-tab-glow" />
+                )}
                 <div className="flex items-center justify-between space-x-1.5">
                   {editingTaskId === task.id ? (
                     <div 

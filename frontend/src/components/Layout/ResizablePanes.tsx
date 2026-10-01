@@ -53,6 +53,7 @@ export const ResizablePanes: React.FC<ResizablePanesProps> = ({
   const isSidebarCollapsed = controlledSidebarCollapsed !== undefined ? controlledSidebarCollapsed : internalSidebarCollapsed;
   const toggleSidebar = controlledToggleSidebar || (() => setInternalSidebarCollapsed(!internalSidebarCollapsed));
 
+  const [isResizing, setIsResizing] = useState<boolean>(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const isDraggingSidebar = useRef<boolean>(false);
   const isDraggingAux = useRef<boolean>(false);
@@ -100,6 +101,7 @@ export const ResizablePanes: React.FC<ResizablePanesProps> = ({
       }
       isDraggingSidebar.current = false;
       isDraggingAux.current = false;
+      setIsResizing(false);
       document.body.style.cursor = 'default';
       document.body.style.userSelect = 'auto';
     };
@@ -167,7 +169,9 @@ export const ResizablePanes: React.FC<ResizablePanesProps> = ({
       {/* Left Sidebar */}
       <div
         style={{ width: isSidebarCollapsed ? '56px' : `${sidebarWidth}px` }}
-        className="relative flex-shrink-0 transition-all duration-150 overflow-visible z-30 bg-onedark-darker"
+        className={`relative flex-shrink-0 overflow-visible z-30 bg-onedark-darker ${
+          isResizing ? 'transition-none' : 'transition-[width] duration-200 ease-out-expo'
+        }`}
       >
         <div style={{ width: isSidebarCollapsed ? '56px' : `${sidebarWidth}px` }} className="h-full overflow-visible">
           {React.isValidElement(sidebar)
@@ -184,6 +188,7 @@ export const ResizablePanes: React.FC<ResizablePanesProps> = ({
         <div
           onMouseDown={() => {
             isDraggingSidebar.current = true;
+            setIsResizing(true);
             document.body.style.cursor = 'col-resize';
             document.body.style.userSelect = 'none';
           }}
@@ -211,6 +216,7 @@ export const ResizablePanes: React.FC<ResizablePanesProps> = ({
           <div
             onMouseDown={() => {
               isDraggingAux.current = true;
+              setIsResizing(true);
               document.body.style.cursor = 'col-resize';
               document.body.style.userSelect = 'none';
             }}
@@ -219,7 +225,9 @@ export const ResizablePanes: React.FC<ResizablePanesProps> = ({
 
           <div
             style={{ width: `${auxiliaryWidthPercent}%` }}
-            className="flex-shrink-0 h-full bg-onedark-darker overflow-hidden flex flex-col"
+            className={`flex-shrink-0 h-full bg-onedark-darker overflow-hidden flex flex-col ${
+              isResizing ? 'transition-none' : 'transition-[width] duration-200 ease-out-expo'
+            }`}
           >
             {auxiliary}
           </div>

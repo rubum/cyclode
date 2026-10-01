@@ -142,8 +142,8 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
 
   return (
     <div className="flex flex-col h-full bg-onedark-darker overflow-hidden select-none text-onedark-fg">
-      {/* Tab bar */}
-      <div className="flex items-center bg-onedark-darker px-2.5 py-1.5 space-x-1 overflow-x-auto no-scrollbar">
+      {/* Tab bar with kinetic styling */}
+      <div className="flex items-center bg-onedark-darker px-2 py-1.5 space-x-1 overflow-x-auto no-scrollbar border-b border-onedark-borderSubtle/60">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
@@ -151,29 +151,32 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
             <button
               key={tab.id}
               onClick={() => handleTabClick(tab.id as any)}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium transition-all cursor-pointer flex-shrink-0 rounded-lg ${
+              className={`relative flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium cursor-pointer flex-shrink-0 rounded-lg btn-tactile transition-all duration-150 ${
                 isActive
                   ? 'bg-onedark-surface text-onedark-fgBright shadow-xs font-semibold'
                   : 'text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface/40'
               }`}
             >
-              <Icon className={`w-3.5 h-3.5 ${tab.iconClass || ''}`} />
+              <Icon className={`w-3.5 h-3.5 transition-transform duration-150 ${isActive ? 'scale-105' : ''} ${tab.iconClass || ''}`} />
               <span>{tab.label}</span>
               {tab.badge && (
-                <span className="w-1.5 h-1.5 rounded-full bg-onedark-green animate-pulse ml-0.5" />
+                <span className="w-1.5 h-1.5 rounded-full bg-onedark-green animate-subagent-pulse ml-0.5" />
               )}
               {tab.count !== undefined && tab.count > 0 && (
-                <span className={`ml-1 text-[10px] font-mono ${isActive ? 'text-onedark-accent font-bold' : 'text-onedark-muted'}`}>
+                <span className={`ml-1 text-[10px] font-mono transition-colors duration-150 ${isActive ? 'text-onedark-accent font-bold' : 'text-onedark-muted'}`}>
                   {tab.count}
                 </span>
+              )}
+              {isActive && (
+                <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-onedark-accent rounded-full animate-active-tab-glow" />
               )}
             </button>
           );
         })}
       </div>
 
-      {/* Tab body */}
-      <div className="flex-1 overflow-hidden">
+      {/* Tab body with smooth enter transition */}
+      <div className="flex-1 overflow-hidden animate-stream-fade-in" key={activeTab}>
         <ErrorBoundary key={`${activeTab}-${task?.id || 'none'}`} fallbackTitle={`Error Loading ${activeTab.toUpperCase()} Tab`}>
           {activeTab === 'docs' && (
             <DocsViewerTab

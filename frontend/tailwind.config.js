@@ -49,6 +49,22 @@ export default {
       fontFamily: {
         mono: ['JetBrains Mono', 'Fira Code', 'SF Mono', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', 'monospace'],
         sans: ['Inter', 'Plus Jakarta Sans', '-apple-system', 'BlinkMacSystemFont', 'SF Pro Text', 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', 'sans-serif'],
+      },
+      transitionTimingFunction: {
+        'out-expo': 'var(--ease-out-expo)',
+        'out-spring': 'var(--ease-out-spring)',
+        'smooth': 'var(--ease-in-out-smooth)',
+        'tactile': 'var(--ease-tactile)',
+      },
+      animation: {
+        'cognitive-pulse': 'cognitivePulse 2.4s var(--ease-in-out-smooth) infinite',
+        'modal-enter': 'modalEnter 0.18s var(--ease-out-expo) forwards',
+        'popover-enter': 'popoverEnter 0.15s var(--ease-out-expo) forwards',
+        'stream-fade-in': 'streamFadeIn 0.22s var(--ease-out-expo) forwards',
+        'mutation-flash': 'mutationFlash 0.6s var(--ease-out-expo) forwards',
+        'status-morph': 'statusMorph 0.32s var(--ease-out-spring) forwards',
+        'subagent-pulse': 'subagentPulse 2s var(--ease-in-out-smooth) infinite',
+        'active-tab-glow': 'activeTabGlow 2.5s var(--ease-in-out-smooth) infinite',
       }
     },
   },

@@ -429,8 +429,8 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
   const gitBranch = data?.git_status?.branch || data?.git_branch || task.git_branch || 'main';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-fadeIn">
-      <div className="w-full max-w-5xl bg-onedark-bg border border-onedark-border rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-scaleIn">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 transition-opacity duration-150">
+      <div className="w-full max-w-5xl bg-onedark-bg border border-onedark-border rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-modal-enter">
         
         {/* Header */}
         <div className="p-4 bg-onedark-darker border-b border-onedark-border flex items-center justify-between flex-shrink-0">

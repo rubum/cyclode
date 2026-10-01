@@ -2832,13 +2832,17 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
                 {/* 2. Execution Plan Accordion (Situated ABOVE Reasoning & Activity) */}
                 {hasPlan && (
-                  <div className="rounded-xl bg-onedark-darker/40 hover:bg-onedark-darker/60 overflow-hidden shadow-xs transition-colors">
+                  <div className={`rounded-xl overflow-hidden shadow-xs transition-all duration-200 ${
+                    isTurnRunning && turn.isLatest 
+                      ? 'bg-onedark-darker/60 border border-onedark-accent/40 animate-cognitive-pulse' 
+                      : 'bg-onedark-darker/40 hover:bg-onedark-darker/60 border border-transparent'
+                  }`}>
                     <button
                       type="button"
                       onClick={() => {
                         setUserToggledPlans((prev) => ({ ...prev, [turn.id]: !isPlanOpen }));
                       }}
-                      className="w-full px-3.5 py-2.5 flex items-center justify-between text-xs text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/30 transition-colors cursor-pointer select-none"
+                      className="w-full px-3.5 py-2.5 flex items-center justify-between text-xs text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/30 transition-colors cursor-pointer select-none btn-tactile"
                     >
                       <div className="flex items-center space-x-2 min-w-0 pr-2">
                         <ListOrdered className="w-3.5 h-3.5 text-onedark-accent shrink-0" />
@@ -2919,7 +2923,9 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                                     : 'text-onedark-muted'
                                 }`}
                               >
-                                <div className="absolute -left-6 top-0.5 p-0.5 rounded-full bg-onedark-darker shrink-0 z-10">
+                                <div className={`absolute -left-6 top-0.5 p-0.5 rounded-full bg-onedark-darker shrink-0 z-10 transition-transform duration-200 ${
+                                  isDone ? 'animate-status-morph' : isInProgress ? 'scale-105' : ''
+                                }`}>
                                   {isDone ? (
                                     <CheckCircle2 className="w-3.5 h-3.5 text-onedark-green" />
                                   ) : isInProgress ? (
@@ -3000,11 +3006,15 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
                 {/* 3. Reasoning Process Accordion */}
                 {hasThoughts && (
-                  <div className="rounded-xl bg-onedark-darker/40 hover:bg-onedark-darker/60 overflow-hidden shadow-xs transition-colors">
+                  <div className={`rounded-xl overflow-hidden shadow-xs transition-all duration-200 ${
+                    isRunning && turn.isLatest
+                      ? 'bg-onedark-darker/60 border border-onedark-accent/40 animate-cognitive-pulse'
+                      : 'bg-onedark-darker/40 hover:bg-onedark-darker/60 border border-transparent'
+                  }`}>
                     <button
                       type="button"
                       onClick={() => setOpenThoughts((prev) => ({ ...prev, [turn.id]: !isTurnOpen }))}
-                      className="w-full px-3.5 py-2.5 flex items-center justify-between text-xs text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/30 transition-colors cursor-pointer select-none"
+                      className="w-full px-3.5 py-2.5 flex items-center justify-between text-xs text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/30 transition-colors cursor-pointer select-none btn-tactile"
                     >
                       <div className="flex items-center space-x-2">
                         <Sparkles className="w-3.5 h-3.5 text-onedark-accent" />
@@ -3831,7 +3841,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 <button
                   type="button"
                   onClick={() => onStopTask && onStopTask()}
-                  className="h-8 px-3.5 rounded-lg bg-onedark-red hover:bg-onedark-red/90 text-white text-xs font-bold font-mono flex items-center space-x-1.5 transition-all shadow-sm flex-shrink-0 active:scale-95 animate-pulse cursor-pointer mb-0.5"
+                  className="h-8 px-3.5 rounded-lg bg-onedark-red hover:bg-onedark-red/90 text-white text-xs font-bold font-mono flex items-center space-x-1.5 transition-all shadow-sm flex-shrink-0 btn-tactile animate-pulse cursor-pointer mb-0.5"
                   title="Stop execution (Esc)"
                 >
                   <Square className="w-3.5 h-3.5 fill-current" />
@@ -3850,7 +3860,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 <button
                   type="submit"
                   disabled={!inputValue.trim() && attachments.length === 0}
-                  className="h-8 w-8 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-sm flex items-center justify-center flex-shrink-0 active:scale-95 cursor-pointer mb-0.5"
+                  className="h-8 w-8 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-sm flex items-center justify-center flex-shrink-0 btn-tactile cursor-pointer mb-0.5"
                   title="Send message (Enter ↵)"
                 >
                   <Send className="w-4 h-4 stroke-[2.5]" />

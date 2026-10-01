@@ -505,6 +505,54 @@ def test_deepseek_model_normalization():
     assert ds_custom._normalize_model_name("deepseek-flash") == "deepseek-flash"
 
 
+def test_openai_model_normalization():
+    oa = OpenAIProvider(api_key="mock-key", base_url="https://api.openai.com/v1")
+    assert oa._normalize_model_name("gpt-6-astra") == "gpt-4o"
+    assert oa._normalize_model_name("gpt-6-sol") == "gpt-4o"
+    assert oa._normalize_model_name("gpt-5.4-mini") == "gpt-4o-mini"
+    assert oa._normalize_model_name("o3-pro") == "o3-mini"
+    assert oa._normalize_model_name("o3") == "o3-mini"
+    assert oa._normalize_model_name("gpt-4o") == "gpt-4o"
+    assert oa._normalize_model_name("gpt-4o-mini") == "gpt-4o-mini"
+
+    # Custom gateways retain their specified model identifier
+    oa_custom = OpenAIProvider(api_key="mock-key", base_url="https://my-ollama.local/v1")
+    assert oa_custom._normalize_model_name("gpt-6-sol") == "gpt-6-sol"
+
+
+@pytest.mark.asyncio
+async def test_openai_candidate_fallback_on_404():
+    from unittest.mock import AsyncMock, MagicMock
+    oa = OpenAIProvider(api_key="mock-key", base_url="https://api.openai.com/v1")
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    
+    # First call (e.g. unknown model) returns 404, second call returns 200
+    resp_404 = MagicMock()
+    resp_404.status_code = 404
+    resp_404.json.return_value = {"error": {"message": "The model 'non-existent-model' does not exist"}}
+
+    resp_200 = MagicMock()
+    resp_200.status_code = 200
+    resp_200.json.return_value = {
+        "choices": [{"message": {"role": "assistant", "content": "Hello! How can I assist you today?"}, "finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 15}
+    }
+
+    mock_client.post.side_effect = [resp_404, resp_200]
+
+    resp = await oa.generate_response(
+        messages=[{"role": "user", "parts": [{"text": "Hey"}]}],
+        tools=None,
+        system_instruction="System prompt",
+        model_name="non-existent-model",
+        client=mock_client
+    )
+
+    assert resp.status_code == 200
+    assert "Hello!" in resp.content
+    assert mock_client.post.call_count == 2
+
+
 @pytest.mark.asyncio
 async def test_deepseek_structured_plan_timeout_diagnostics():
     from unittest.mock import AsyncMock

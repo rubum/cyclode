@@ -297,6 +297,24 @@ class OpenAIProvider(BaseLLMProvider):
 
         return reconciled_msgs
 
+    def _normalize_model_name(self, model_name: Optional[str]) -> str:
+        clean = (model_name or "").replace("openai:", "").replace("custom:", "").strip()
+        if not clean:
+            return "gpt-4o"
+        base_url = self.get_base_url()
+        # Official OpenAI API endpoint normalization
+        if "api.openai.com" in base_url:
+            lower = clean.lower()
+            if lower in ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-5.6-sol", "gpt-5.3-codex", "gpt-4.1", "codex", "openai-codex"]:
+                return "gpt-4o"
+            elif lower in ["gpt-5.4-mini", "gpt-4.1-mini"]:
+                return "gpt-4o-mini"
+            elif lower in ["o3-pro", "o3"]:
+                return "o3-mini"
+            elif lower in ["o1-pro"]:
+                return "o1"
+        return clean
+
     async def generate_response(
         self,
         messages: List[Dict[str, Any]],
@@ -316,27 +334,13 @@ class OpenAIProvider(BaseLLMProvider):
             )
 
         base_url = self.get_base_url()
-        # Normalize model
-        clean_model = model_name.replace("openai:", "").replace("custom:", "").strip() if model_name else "gpt-6-astra"
-        if clean_model in ["codex", "openai-codex"]:
-            clean_model = "gpt-4o"
-
-        is_reasoning_model = any(sub in clean_model.lower() for sub in ["o1", "o3", "reasoning"])
-        openai_tools = self._convert_tool_declarations(tools)
-        openai_messages = self._convert_messages(messages, system_instruction, is_reasoning=is_reasoning_model)
-        payload: Dict[str, Any] = {
-            "model": clean_model,
-            "messages": openai_messages,
-        }
-        if is_reasoning_model:
-            payload["max_completion_tokens"] = 8192
-        else:
-            payload["max_tokens"] = 8192
-            payload["temperature"] = temperature
-
-        if openai_tools:
-            payload["tools"] = openai_tools
-            payload["tool_choice"] = "auto"
+        clean_model = self._normalize_model_name(model_name)
+        
+        candidate_models = [clean_model]
+        if "api.openai.com" in base_url:
+            for fallback in ["gpt-4o", "gpt-4o-mini", "o3-mini", "o1", "gpt-4-turbo"]:
+                if fallback not in candidate_models:
+                    candidate_models.append(fallback)
 
         headers = {
             "Authorization": f"Bearer {api_key}",
@@ -349,98 +353,138 @@ class OpenAIProvider(BaseLLMProvider):
             should_close = True
 
         api_url = f"{base_url}/chat/completions"
+        last_error_resp: Optional[ProviderResponse] = None
+
         try:
-            resp = await client.post(api_url, json=payload, headers=headers)
-            if resp.status_code != 200:
-                err_msg = f"HTTP {resp.status_code}"
+            for active_model in candidate_models:
+                is_reasoning_model = any(sub in active_model.lower() for sub in ["o1", "o3", "reasoning"])
+                openai_tools = self._convert_tool_declarations(tools)
+                openai_messages = self._convert_messages(messages, system_instruction, is_reasoning=is_reasoning_model)
+                payload: Dict[str, Any] = {
+                    "model": active_model,
+                    "messages": openai_messages,
+                }
+                if is_reasoning_model:
+                    payload["max_completion_tokens"] = 8192
+                else:
+                    payload["max_tokens"] = 8192
+                    payload["temperature"] = temperature
+
+                if openai_tools:
+                    # Some early reasoning models (o1-mini/preview) do not support function calling
+                    if not (active_model in ["o1-mini", "o1-preview"]):
+                        payload["tools"] = openai_tools
+                        payload["tool_choice"] = "auto"
+
                 try:
-                    err_json = resp.json()
-                    err_msg = err_json.get("error", {}).get("message", getattr(resp, "text", "")[:150])
-                except Exception:
-                    if getattr(resp, "text", None):
-                        err_msg = resp.text[:150]
+                    resp = await client.post(api_url, json=payload, headers=headers)
+                    if resp.status_code != 200:
+                        err_msg = f"HTTP {resp.status_code}"
+                        try:
+                            err_json = resp.json()
+                            err_msg = err_json.get("error", {}).get("message", getattr(resp, "text", "")[:150])
+                        except Exception:
+                            if getattr(resp, "text", None):
+                                err_msg = resp.text[:150]
 
-                raw_resp = None
-                try:
-                    resp_headers = getattr(resp, "headers", {})
-                    if hasattr(resp_headers, "get") and resp_headers.get("content-type", "").startswith("application/json"):
-                        raw_resp = resp.json()
-                    elif not hasattr(resp, "headers"):
-                        raw_resp = resp.json()
-                except Exception:
-                    pass
+                        raw_resp = None
+                        try:
+                            resp_headers = getattr(resp, "headers", {})
+                            if hasattr(resp_headers, "get") and resp_headers.get("content-type", "").startswith("application/json"):
+                                raw_resp = resp.json()
+                            elif not hasattr(resp, "headers"):
+                                raw_resp = resp.json()
+                        except Exception:
+                            pass
 
-                return ProviderResponse(
-                    status_code=resp.status_code,
-                    error_code=resp.status_code,
-                    error_message=f"OpenAI API Error: {err_msg}",
-                    raw_response=raw_resp
-                )
+                        last_error_resp = ProviderResponse(
+                            status_code=resp.status_code,
+                            error_code=resp.status_code,
+                            error_message=f"OpenAI API Error ({active_model}): {err_msg}",
+                            raw_response=raw_resp
+                        )
 
-            data = resp.json()
-            choices = data.get("choices", [])
-            if not choices:
-                return ProviderResponse(
-                    content="",
-                    status_code=200,
-                    raw_response=data
-                )
+                        # If 401/403 or 429, fail immediately to allow user authentication/quota resolution
+                        if resp.status_code in [401, 403, 429]:
+                            return last_error_resp
 
-            choice = choices[0]
-            msg = choice.get("message", {})
-            finish_reason = choice.get("finish_reason")
+                        # If 404 (model not found) or 400 (unsupported model), try fallback candidate
+                        if resp.status_code == 404 or "model" in err_msg.lower():
+                            logger.warning(f"OpenAI model '{active_model}' unavailable ({resp.status_code}: {err_msg}). Trying fallback model...")
+                            continue
+                        return last_error_resp
 
-            thoughts = []
-            if "reasoning_content" in msg and msg["reasoning_content"]:
-                thoughts.append(msg["reasoning_content"])
+                    data = resp.json()
+                    choices = data.get("choices", [])
+                    if not choices:
+                        return ProviderResponse(
+                            content="",
+                            status_code=200,
+                            raw_response=data
+                        )
 
-            content_text = msg.get("content") or ""
-            if "<thought>" in content_text and "</thought>" in content_text:
-                th_match = content_text.split("<thought>")[1].split("</thought>")[0]
-                thoughts.append(th_match.strip())
-                content_text = content_text.replace(f"<thought>{th_match}</thought>", "").strip()
+                    choice = choices[0]
+                    msg = choice.get("message", {})
+                    finish_reason = choice.get("finish_reason")
 
-            tool_calls = []
-            for tc in msg.get("tool_calls", []):
-                call_id = tc.get("id", f"call_{len(tool_calls)+1}")
-                fn = tc.get("function", {})
-                fn_name = fn.get("name", "")
-                raw_args = fn.get("arguments", "{}")
-                parsed_args = parse_lenient_tool_arguments(raw_args)
-                tool_calls.append(ToolCallRequest(
-                    call_id=call_id,
-                    tool_name=fn_name,
-                    tool_args=parsed_args,
-                    raw_part=tc
-                ))
+                    thoughts = []
+                    if "reasoning_content" in msg and msg["reasoning_content"]:
+                        thoughts.append(msg["reasoning_content"])
 
-            # Extract markup tool calls (DSML, XML, special tokens) if present in content_text
-            if "<" in content_text or "｜" in content_text or "```tool_call" in content_text or "＜" in content_text:
-                cleaned_c, extracted_tcs = extract_markup_tool_calls(content_text)
-                if extracted_tcs:
-                    content_text = cleaned_c
-                    tool_calls.extend(extracted_tcs)
+                    content_text = msg.get("content") or ""
+                    if "<thought>" in content_text and "</thought>" in content_text:
+                        th_match = content_text.split("<thought>")[1].split("</thought>")[0]
+                        thoughts.append(th_match.strip())
+                        content_text = content_text.replace(f"<thought>{th_match}</thought>", "").strip()
 
-            usage = data.get("usage", {})
-            input_tokens = usage.get("prompt_tokens", 0)
-            output_tokens = usage.get("completion_tokens", 0)
+                    tool_calls = []
+                    for tc in msg.get("tool_calls", []):
+                        call_id = tc.get("id", f"call_{len(tool_calls)+1}")
+                        fn = tc.get("function", {})
+                        fn_name = fn.get("name", "")
+                        raw_args = fn.get("arguments", "{}")
+                        parsed_args = parse_lenient_tool_arguments(raw_args)
+                        tool_calls.append(ToolCallRequest(
+                            call_id=call_id,
+                            tool_name=fn_name,
+                            tool_args=parsed_args,
+                            raw_part=tc
+                        ))
 
-            return ProviderResponse(
-                content=content_text,
-                thought="\n".join(thoughts),
-                tool_calls=tool_calls,
-                raw_parts=[msg] if msg else None,
-                finish_reason=finish_reason,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                raw_response=data,
-                status_code=200
-            )
-        except Exception as e:
-            return ProviderResponse(
+                    # Extract markup tool calls (DSML, XML, special tokens) if present in content_text
+                    if "<" in content_text or "｜" in content_text or "```tool_call" in content_text or "＜" in content_text:
+                        cleaned_c, extracted_tcs = extract_markup_tool_calls(content_text)
+                        if extracted_tcs:
+                            content_text = cleaned_c
+                            tool_calls.extend(extracted_tcs)
+
+                    usage = data.get("usage", {})
+                    input_tokens = usage.get("prompt_tokens", 0)
+                    output_tokens = usage.get("completion_tokens", 0)
+
+                    return ProviderResponse(
+                        content=content_text,
+                        thought="\n".join(thoughts),
+                        tool_calls=tool_calls,
+                        raw_parts=[msg] if msg else None,
+                        finish_reason=finish_reason,
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        raw_response=data,
+                        status_code=200
+                    )
+                except Exception as model_err:
+                    logger.warning(f"OpenAI error during model {active_model} attempt: {model_err}")
+                    last_error_resp = ProviderResponse(
+                        status_code=500,
+                        error_code=500,
+                        error_message=f"OpenAI connection error: {str(model_err)}"
+                    )
+
+            return last_error_resp or ProviderResponse(
                 status_code=500,
                 error_code=500,
-                error_message=f"OpenAI connection error: {str(e)}"
+                error_message="OpenAI model invocation failed across candidate models."
             )
         finally:
             if should_close:
@@ -461,19 +505,12 @@ class OpenAIProvider(BaseLLMProvider):
             }
 
         candidate_models = list(dict.fromkeys([
-            model_name,
-            "gpt-6-astra",
-            "gpt-6.1-sol",
-            "gpt-6-sol",
-            "gpt-5.6-sol",
-            "gpt-5.4-mini",
-            "gpt-5.3-codex",
-            "o3-pro",
-            "o3",
-            "o3-mini",
-            "gpt-4.1",
+            self._normalize_model_name(model_name),
             "gpt-4o",
-            "gpt-4o-mini"
+            "gpt-4o-mini",
+            "o3-mini",
+            "o1",
+            "gpt-4-turbo"
         ]))
 
         base_url = self.get_base_url()
@@ -490,9 +527,7 @@ class OpenAIProvider(BaseLLMProvider):
         last_error = "Model response unavailable"
         try:
             for active_model in candidate_models:
-                clean_model = active_model.replace("openai:", "").replace("custom:", "").strip() if active_model else "gpt-6-astra"
-                if clean_model in ["codex", "openai-codex"]:
-                    clean_model = "gpt-4o-mini"
+                clean_model = self._normalize_model_name(active_model)
 
                 is_reasoning = any(sub in clean_model.lower() for sub in ["o1", "o3", "reasoning"])
                 role_name = "developer" if is_reasoning else "system"

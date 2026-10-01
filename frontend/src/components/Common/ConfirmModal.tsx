@@ -111,11 +111,11 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
 
   return (
     <div 
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-fadeIn"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 transition-opacity duration-150"
       onClick={onCancel}
     >
       <div 
-        className="w-full max-w-lg bg-onedark-darker border border-onedark-borderSubtle rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-slideUp text-onedark-fg"
+        className="w-full max-w-lg bg-onedark-darker border border-onedark-borderSubtle rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-modal-enter text-onedark-fg"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

@@ -55,7 +55,7 @@ export const DiffHunkExpander: React.FC<DiffHunkExpanderProps> = ({
           <button
             type="button"
             onClick={() => onExpandAll(gap)}
-            className="flex items-center space-x-1 px-2.5 py-0.5 rounded bg-onedark-blue/15 hover:bg-onedark-blue/25 text-onedark-blue font-medium transition-colors cursor-pointer border border-onedark-blue/30 hover:border-onedark-blue/60"
+            className="flex items-center space-x-1 px-2.5 py-0.5 rounded bg-onedark-blue/15 hover:bg-onedark-blue/25 text-onedark-blue font-medium transition-colors cursor-pointer border border-onedark-blue/30 hover:border-onedark-blue/60 btn-tactile"
             title={`Expand all ${gap.gapSize} unchanged lines (or press 'z')`}
           >
             <ChevronsUpDown className="w-3.5 h-3.5" />
@@ -73,7 +73,7 @@ export const DiffHunkExpander: React.FC<DiffHunkExpanderProps> = ({
               <button
                 type="button"
                 onClick={() => onExpandUp(gap)}
-                className="flex items-center space-x-1 px-2 py-0.5 rounded bg-onedark-surface hover:bg-onedark-border/50 text-onedark-fg font-medium transition-colors cursor-pointer border border-onedark-border/40 hover:border-onedark-blue/50"
+                className="flex items-center space-x-1 px-2 py-0.5 rounded bg-onedark-surface hover:bg-onedark-border/50 text-onedark-fg font-medium transition-colors cursor-pointer border border-onedark-border/40 hover:border-onedark-blue/50 btn-tactile"
                 title="Expand 20 lines up"
               >
                 <ChevronUp className="w-3.5 h-3.5 text-onedark-blue" />
@@ -84,7 +84,7 @@ export const DiffHunkExpander: React.FC<DiffHunkExpanderProps> = ({
             <button
               type="button"
               onClick={() => onExpandAll(gap)}
-              className="flex items-center space-x-1 px-2.5 py-0.5 rounded bg-onedark-blue/15 hover:bg-onedark-blue/25 text-onedark-blue font-medium transition-colors cursor-pointer border border-onedark-blue/30 hover:border-onedark-blue/60"
+              className="flex items-center space-x-1 px-2.5 py-0.5 rounded bg-onedark-blue/15 hover:bg-onedark-blue/25 text-onedark-blue font-medium transition-colors cursor-pointer border border-onedark-blue/30 hover:border-onedark-blue/60 btn-tactile"
               title={`Expand all ${gap.gapSize} lines (or press 'z')`}
             >
               <ChevronsUpDown className="w-3.5 h-3.5" />
@@ -95,7 +95,7 @@ export const DiffHunkExpander: React.FC<DiffHunkExpanderProps> = ({
               <button
                 type="button"
                 onClick={() => onExpandDown(gap)}
-                className="flex items-center space-x-1 px-2 py-0.5 rounded bg-onedark-surface hover:bg-onedark-border/50 text-onedark-fg font-medium transition-colors cursor-pointer border border-onedark-border/40 hover:border-onedark-blue/50"
+                className="flex items-center space-x-1 px-2 py-0.5 rounded bg-onedark-surface hover:bg-onedark-border/50 text-onedark-fg font-medium transition-colors cursor-pointer border border-onedark-border/40 hover:border-onedark-blue/50 btn-tactile"
                 title="Expand 20 lines down"
               >
                 <ChevronDown className="w-3.5 h-3.5 text-onedark-blue" />
@@ -110,7 +110,7 @@ export const DiffHunkExpander: React.FC<DiffHunkExpanderProps> = ({
           <button
             type="button"
             onClick={() => onCommentClick(gap)}
-            className="opacity-0 group-hover:opacity-100 flex items-center space-x-1 px-1.5 py-0.5 rounded text-[11px] text-onedark-muted hover:text-onedark-green hover:bg-onedark-green/10 transition-all cursor-pointer ml-2"
+            className="opacity-0 group-hover:opacity-100 flex items-center space-x-1 px-1.5 py-0.5 rounded text-[11px] text-onedark-muted hover:text-onedark-green hover:bg-onedark-green/10 transition-all cursor-pointer ml-2 btn-tactile"
             title="Ask agent about this hunk (or press 'c')"
           >
             <MessageSquare className="w-3 h-3" />

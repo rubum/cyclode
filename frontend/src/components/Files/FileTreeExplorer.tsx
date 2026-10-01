@@ -466,31 +466,29 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
                   className="flex items-center justify-between py-1 px-1.5 rounded-md hover:bg-onedark-surface/60 text-onedark-fg text-xs font-mono cursor-pointer transition-colors group"
                 >
                   <div className="flex items-center space-x-1.5 min-w-0">
-                    <span className="text-onedark-muted hover:text-onedark-fg">
+                    <span className="w-3.5 h-3.5 flex items-center justify-center flex-shrink-0">
                       {isLoading ? (
                         <Loader2 className="w-3 h-3 animate-spin text-onedark-accent" />
-                      ) : isExpanded ? (
-                        <ChevronDown className="w-3 h-3 text-onedark-muted" />
                       ) : (
-                        <ChevronRight className="w-3 h-3 text-onedark-muted" />
+                        <ChevronRight className={`w-3 h-3 text-onedark-muted transition-transform duration-150 ${isExpanded ? 'rotate-90 text-onedark-accent' : ''}`} />
                       )}
                     </span>
                     {isExpanded ? (
-                      <FolderOpen className="w-3.5 h-3.5 text-onedark-folder flex-shrink-0" />
+                      <FolderOpen className="w-3.5 h-3.5 text-onedark-folder flex-shrink-0 transition-transform duration-150 scale-105" />
                     ) : (
-                      <Folder className="w-3.5 h-3.5 text-onedark-folder flex-shrink-0" />
+                      <Folder className="w-3.5 h-3.5 text-onedark-folder flex-shrink-0 transition-transform duration-150" />
                     )}
-                    <span className="truncate group-hover:text-onedark-fgBright">{node.name}</span>
+                    <span className="truncate group-hover:text-onedark-fgBright transition-colors duration-150">{node.name}</span>
                   </div>
                   {node.child_count !== undefined && (
-                    <span className="text-[10px] text-onedark-muted/60 opacity-0 group-hover:opacity-100 pr-1 font-mono">
+                    <span className="text-[10px] text-onedark-muted/60 opacity-0 group-hover:opacity-100 pr-1 font-mono transition-opacity duration-150">
                       {node.child_count}
                     </span>
                   )}
                 </div>
 
                 {isExpanded && (
-                  <div>
+                  <div className="animate-stream-fade-in">
                     {hasChildren && renderNodes(node.children!, depth + 1)}
                     {dynamicList && renderNodes(dynamicList, depth + 1)}
                   </div>
@@ -505,19 +503,19 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
               key={node.path}
               onClick={() => onSelectFile(node.path)}
               style={{ paddingLeft: `${depth * 14 + 20}px` }}
-              className={`flex items-center justify-between py-1 px-1.5 rounded-md text-xs font-mono transition-all cursor-pointer group ${
+              className={`flex items-center justify-between py-1 px-1.5 rounded-md text-xs font-mono cursor-pointer group transition-all duration-150 btn-tactile ${
                 isSelected
                   ? 'bg-onedark-surface text-onedark-fgBright font-semibold shadow-xs border-l-2 border-onedark-accent'
                   : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40 border-l-2 border-transparent'
               }`}
             >
               <div className="flex items-center space-x-1.5 min-w-0">
-                <FileCode className={`w-3.5 h-3.5 flex-shrink-0 ${isSelected ? 'text-onedark-accent' : 'text-onedark-muted'}`} />
-                <span className="truncate">{node.name}</span>
+                <FileCode className={`w-3.5 h-3.5 flex-shrink-0 transition-colors duration-150 ${isSelected ? 'text-onedark-accent' : 'text-onedark-muted'}`} />
+                <span className="truncate transition-colors duration-150">{node.name}</span>
               </div>
 
               {typeof node.size === 'number' && (
-                <span className="text-[10px] text-onedark-muted/50 group-hover:text-onedark-muted pr-1 font-mono flex-shrink-0">
+                <span className="text-[10px] text-onedark-muted/50 group-hover:text-onedark-muted pr-1 font-mono flex-shrink-0 transition-colors duration-150">
                   {formatBytes(node.size)}
                 </span>
               )}

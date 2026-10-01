@@ -1931,7 +1931,41 @@ class AntigravityHarness:
                         if not provider_resp:
                             break
                         if provider_resp.status_code == 404:
-                            break
+                            err_text = provider_resp.error_message or f"Requested model '{active_model}' not found (404)."
+                            logger.warning(f"{provider_label} Model Not Found Notice (404): {err_text}")
+                            not_found_thought = (
+                                f"**{provider_label} Model Not Found Notice (404)**: {err_text}\n\n"
+                                f"*Please select an active model (e.g. GPT-4o, o3-mini) or configure a valid model in Settings > Integrations.*"
+                            )
+                            await self._emit_streamed_thought(
+                                not_found_thought, on_thought, on_stream_start, on_stream_chunk, on_stream_end
+                            )
+
+                            for s in current_plan.get("steps", []):
+                                if s.get("status") == "in_progress":
+                                    s["status"] = "failed"
+                            current_plan["evaluation"] = {
+                                "status": "needs_revision",
+                                "summary": f"Execution halted: {provider_label} Model Not Found (404). {err_text}",
+                                "checks": [
+                                    {"name": "API Connection", "passed": False, "message": f"Model '{active_model}' not found (404)"},
+                                    {"name": "Tool Execution", "passed": False}
+                                ]
+                            }
+                            await self._emit_plan(current_plan, on_plan)
+
+                            not_found_user_msg = (
+                                f"### {provider_label} Model Not Found (404)\n\n"
+                                f"**{err_text}**\n\n"
+                                f"The model `{active_model}` was not recognized by `{provider_label}`.\n\n"
+                                f"To resume autonomous agent execution:\n"
+                                f"1. **Switch Model**: Select **GPT-4o**, **o3-mini**, or **GPT-4o Mini** in the model dropdown.\n"
+                                f"2. **Custom Endpoint**: If using Ollama, vLLM, or LiteLLM, verify the model tag in **Settings > Integrations**."
+                            )
+                            await self._emit_streamed_message(
+                                "agent", not_found_user_msg, on_message, on_stream_start, on_stream_chunk, on_stream_end
+                            )
+                            return {"status": "FAILED", "summary": f"Model Not Found (404): {err_text[:100]}"}
                         if provider_resp.status_code == 429:
                             err_text = provider_resp.error_message or "API quota limit reached or credits depleted."
                             logger.warning(f"{provider_label} Quota Notice (429): {err_text}")
@@ -2010,7 +2044,35 @@ class AntigravityHarness:
                             last_api_error_code = provider_resp.status_code
                             last_api_error_text = err_msg
                             logger.warning(f"API notice on turn {turn} model {active_model} ({provider_resp.status_code}): {err_msg}")
-                            break
+                            
+                            fail_thought = (
+                                f"**{provider_label} API Notice ({provider_resp.status_code})**: {err_msg}\n\n"
+                                f"*Please check your provider configuration or switch to an active model.*"
+                            )
+                            await self._emit_streamed_thought(
+                                fail_thought, on_thought, on_stream_start, on_stream_chunk, on_stream_end
+                            )
+                            for s in current_plan.get("steps", []):
+                                if s.get("status") == "in_progress":
+                                    s["status"] = "failed"
+                            current_plan["evaluation"] = {
+                                "status": "needs_revision",
+                                "summary": f"Execution halted: {provider_label} API Error ({provider_resp.status_code}). {err_msg}",
+                                "checks": [
+                                    {"name": "API Connection", "passed": False, "message": f"API Error ({provider_resp.status_code})"},
+                                    {"name": "Tool Execution", "passed": False}
+                                ]
+                            }
+                            await self._emit_plan(current_plan, on_plan)
+                            fail_user_msg = (
+                                f"### {provider_label} Invocation Notice ({provider_resp.status_code})\n\n"
+                                f"**{err_msg}**\n\n"
+                                f"To resume execution, verify your API settings or switch to an active model in chat."
+                            )
+                            await self._emit_streamed_message(
+                                "agent", fail_user_msg, on_message, on_stream_start, on_stream_chunk, on_stream_end
+                            )
+                            return {"status": "FAILED", "summary": f"API Error ({provider_resp.status_code}): {err_msg[:100]}"}
 
                         model_succeeded = True
                         if provider_resp.thought:
