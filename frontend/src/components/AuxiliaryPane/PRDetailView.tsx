@@ -3220,22 +3220,6 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
     }
   };
 
-  const handleGenerateReview = async () => {
-    const effectivePrNum = data?.pr_number || prNumber || prRecord?.pr_number;
-    if (!task?.id || !effectivePrNum) return;
-    setActionLoading('review');
-    try {
-      const apiBase = import.meta.env.VITE_API_URL || '';
-      await fetch(`${apiBase}/api/tasks/${task.id}/prs/${effectivePrNum}/generate_review`, {
-        method: 'POST'
-      });
-      setPrTab('review');
-    } catch (e) {
-      console.error('Error generating AI review:', e);
-    } finally {
-      setActionLoading(null);
-    }
-  };
 
   const handleSubmitDecision = async (event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT', body: string) => {
     const effectivePrNum = data?.pr_number || prNumber || prRecord?.pr_number;
@@ -3704,20 +3688,6 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
               <span>Run Tests</span>
             </button>
 
-            {/* AI Review Button */}
-            <button
-              onClick={handleGenerateReview}
-              disabled={Boolean(actionLoading)}
-              className="flex items-center space-x-1 px-2.5 py-1 rounded-md bg-onedark-surface hover:bg-onedark-surface/80 text-[11px] text-onedark-fgBright font-medium transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap flex-shrink-0"
-              title="Generate comprehensive AI code review report"
-            >
-              {actionLoading === 'review' ? (
-                <Loader2 className="w-3.5 h-3.5 text-onedark-purple animate-spin" />
-              ) : (
-                <ShieldCheck className="w-3.5 h-3.5 text-onedark-purple" />
-              )}
-              <span>AI Review</span>
-            </button>
 
             {/* Review with Agent Popover Button */}
             <button
@@ -4284,7 +4254,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
                   </span>
                 </div>
                 <div className="p-4 rounded-xl bg-onedark-bg border border-onedark-border text-onedark-fg text-[13.5px] font-sans leading-[1.7]">
-                  <MarkdownRenderer content={prRecord?.review_summary || 'No review summary generated yet. Click "AI Review" above to analyze.'} />
+                  <MarkdownRenderer content={prRecord?.review_summary || 'No review summary recorded yet. Open "Review with Agent" above to run an interactive audit or ensemble review.'} />
                 </div>
               </div>
             )
