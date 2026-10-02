@@ -1,4 +1,5 @@
 import pytest
+import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -593,8 +594,61 @@ async def test_agent_pool_approve_destructive_command_blocked(tmp_path):
         m_res = await session.execute(m_stmt)
         messages = m_res.scalars().all()
         assert len(messages) >= 1
-        assert "Approved Command Executed" in messages[0].content
+        assert "Command executed:" in messages[0].content
         assert "None" not in messages[0].content
+
+
+@pytest.mark.asyncio
+async def test_pr_review_approval_chat_only(tmp_path):
+    from app.db.session import async_session_factory
+    from app.db.models import TaskModel, TaskApprovalModel, TaskMessageModel
+    from app.agent.pool import agent_pool
+    from sqlalchemy import select
+
+    task_id = str(uuid.uuid4())
+
+    async with async_session_factory() as session:
+        task = TaskModel(
+            id=task_id,
+            title="Test PR Review Approval",
+            description="Testing PR review staging",
+            workspace_path=str(tmp_path),
+            status="AWAITING_APPROVAL"
+        )
+        session.add(task)
+        await session.flush()
+
+        approval = TaskApprovalModel(
+            task_id=task_id,
+            action_type="post_pull_request_review",
+            action_details={
+                "repository": "owner/test-repo",
+                "pr_number": 42,
+                "body": "### Automated PR Review\n- Logic looks solid.",
+                "event": "COMMENT"
+            },
+            status="PENDING"
+        )
+        session.add(approval)
+        await session.commit()
+
+    # Approve with chat_only option
+    res = await agent_pool.approve_task(task_id, custom_details={"chat_only": True})
+    assert res["ok"] is True
+    assert res["status"] == "APPROVED"
+
+    async with async_session_factory() as session:
+        t_stmt = select(TaskModel).where(TaskModel.id == task_id)
+        t_res = await session.execute(t_stmt)
+        updated_task = t_res.scalars().first()
+        assert updated_task.status == "COMPLETED"
+        assert "Review Preserved in Chat" in updated_task.result_summary
+
+        m_stmt = select(TaskMessageModel).where(TaskMessageModel.task_id == task_id)
+        m_res = await session.execute(m_stmt)
+        messages = m_res.scalars().all()
+        assert any("Review preserved in chat" in m.content for m in messages)
+
 
 
 

@@ -63,6 +63,7 @@ import { Task, TaskMessage, TaskLog, RepositoryConfig, TaskPR, WorkspacePreviewI
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { FormattedLogView } from '../Common/FormattedLogView';
 import { SandboxInspectorModal } from '../Sandbox/SandboxInspectorModal';
+import { PRReviewApprovalCard } from './PRReviewApprovalCard';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -469,7 +470,7 @@ interface ChatCanvasProps {
   task: Task | null;
   repositories?: RepositoryConfig[];
   onSendMessage: (content: string, modelName?: string, files?: File[]) => Promise<void> | void;
-  onApprove: (feedback?: string) => void;
+  onApprove: (feedback?: string, customDetails?: any) => void;
   onReject: (feedback?: string) => void;
   onNewChatWithPrompt?: (prompt: string, persona: string, modelName?: string, files?: File[]) => void;
   onEditMessage?: (messageId: string, newContent: string) => void;
@@ -657,6 +658,15 @@ interface SystemMessageCardProps {
   onLinkClick?: (url: string, text: string) => void;
 }
 
+const cleanSystemText = (text: string) => {
+  return text
+    .replace(/^🛑\s*(?:\*\*)?Action Rejected by Reviewer\.(?:\*\*)?\s*Reason:\s*/i, 'Action cancelled: ')
+    .replace(/^⏹\s*(?:\*\*)?Task stopped by user\.(?:\*\*)?/i, 'Task stopped by user.')
+    .replace(/^■\s*(?:\*\*)?Task stopped by user\.(?:\*\*)?/i, 'Task stopped by user.')
+    .replace(/^[🛑⏹■⚠️]\s*/, '')
+    .trim();
+};
+
 const SystemMessageCard: React.FC<SystemMessageCardProps> = ({
   content,
   isStreaming,
@@ -670,16 +680,15 @@ const SystemMessageCard: React.FC<SystemMessageCardProps> = ({
     content.includes('Inbound event');
 
   if (!isAwakened) {
+    const cleaned = cleanSystemText(content);
     return (
-      <div className="my-2 px-3.5 py-2.5 rounded-xl bg-onedark-surface/40 border border-onedark-borderSubtle text-xs text-onedark-fg/90 flex items-start space-x-2.5 max-w-2xl shadow-xs">
-        <Sparkles className="w-4 h-4 text-onedark-accent shrink-0 mt-0.5" />
-        <div className="flex-1 min-w-0 text-left">
-          <MarkdownRenderer
-            content={maskSecretsInText(content)}
-            isStreaming={isStreaming}
-            onLinkClick={onLinkClick}
-          />
-        </div>
+      <div className="my-1.5 px-3 py-1.5 rounded-lg bg-onedark-surface/20 border border-onedark-borderSubtle/50 text-xs text-onedark-muted max-w-2xl text-left font-sans">
+        <MarkdownRenderer
+          content={maskSecretsInText(cleaned)}
+          isStreaming={isStreaming}
+          onLinkClick={onLinkClick}
+          className="text-xs text-onedark-muted space-y-1"
+        />
       </div>
     );
   }
@@ -2919,7 +2928,12 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                             <CheckCircle2 className="w-2.5 h-2.5" />
                             <span>Accomplished</span>
                           </span>
-                        ) : evalStatus === 'evaluating' ? (
+                        ) : evalStatus === 'ready_for_review' ? (
+                          <span className="px-1.5 py-0.5 rounded bg-onedark-accent/10 text-onedark-accent text-[10px] font-mono flex items-center space-x-1">
+                            <Sparkles className="w-2.5 h-2.5" />
+                            <span>Ready for Review</span>
+                          </span>
+                        ) : (isTurnRunning && turn.isLatest) && (evalStatus === 'evaluating' || evalStatus === 'in_progress') ? (
                           <span className="px-1.5 py-0.5 rounded bg-onedark-accent/10 text-onedark-accent text-[10px] font-mono flex items-center space-x-1">
                             <Loader2 className="w-2.5 h-2.5 animate-spin" />
                             <span>Evaluating</span>
@@ -2929,7 +2943,12 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                             <AlertCircle className="w-2.5 h-2.5" />
                             <span>Revision</span>
                           </span>
-                        ) : null}
+                        ) : (
+                          <span className="px-1.5 py-0.5 rounded bg-onedark-surface/60 text-onedark-muted text-[10px] font-mono flex items-center space-x-1">
+                            <CheckCircle2 className="w-2.5 h-2.5 text-onedark-green" />
+                            <span>Delivered</span>
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex items-center space-x-2 shrink-0">
@@ -3016,24 +3035,36 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                           <div className={`p-2.5 rounded-lg text-xs font-mono space-y-1.5 ${
                             turn.plan.evaluation.status === 'accomplished'
                               ? 'bg-onedark-green/5 text-onedark-green'
+                              : turn.plan.evaluation.status === 'ready_for_review'
+                              ? 'bg-onedark-accent/5 text-onedark-accent'
                               : turn.plan.evaluation.status === 'needs_revision'
                               ? 'bg-onedark-yellow/5 text-onedark-yellow'
-                              : 'bg-onedark-accent/5 text-onedark-accent'
+                              : isTurnRunning && turn.isLatest
+                              ? 'bg-onedark-accent/5 text-onedark-accent'
+                              : 'bg-onedark-surface/40 text-onedark-fg'
                           }`}>
                             <div className="flex items-center space-x-2">
                               {turn.plan.evaluation.status === 'accomplished' ? (
                                 <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-onedark-green" />
+                              ) : turn.plan.evaluation.status === 'ready_for_review' ? (
+                                <Sparkles className="w-3.5 h-3.5 shrink-0 text-onedark-accent" />
                               ) : turn.plan.evaluation.status === 'needs_revision' ? (
                                 <AlertCircle className="w-3.5 h-3.5 shrink-0 text-onedark-yellow" />
-                              ) : (
+                              ) : isTurnRunning && turn.isLatest ? (
                                 <Loader2 className="w-3.5 h-3.5 shrink-0 text-onedark-accent animate-spin" />
+                              ) : (
+                                <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-onedark-green" />
                               )}
                               <span className="font-semibold font-mono text-[11px]">
                                 {turn.plan.evaluation.status === 'accomplished'
                                   ? 'Plan Evaluation: Accomplished'
+                                  : turn.plan.evaluation.status === 'ready_for_review'
+                                  ? 'Plan Evaluation: Ready for Review'
                                   : turn.plan.evaluation.status === 'needs_revision'
                                   ? 'Plan Evaluation: Revision Required'
-                                  : 'Plan Evaluation: In Progress'}
+                                  : isTurnRunning && turn.isLatest
+                                  ? 'Plan Evaluation: In Progress'
+                                  : 'Plan Evaluation: Concluded'}
                               </span>
                             </div>
                             {turn.plan.evaluation.summary && (
@@ -3256,7 +3287,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                         const actionInfo = getToolActionInfo(toolName, toolInput, isRunning);
                         const ActionIcon = actionInfo.icon;
                         const logKey = targetLog ? (targetLog.id || `log-${turn.id}-${turn.logs.length - 1}`) : `active-tool-${turn.id}`;
-                        const isExpanded = expandedLogIds[logKey] !== undefined ? expandedLogIds[logKey] : false;
+                        const defaultExpanded = Boolean(isTurnRunning && turn.isLatest && isRunning);
+                        const isExpanded = expandedLogIds[logKey] !== undefined ? expandedLogIds[logKey] : defaultExpanded;
 
                         const displayLog: TaskLog = targetLog || {
                           id: `active-${task.id}`,
@@ -3351,7 +3383,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                               (task?.active_tool && !turn.logs.some((l) => l.isRunning)) || !isLatestLogInTurn
                             );
                             const defaultExpanded = Boolean(
-                              log.isRunning || (isLatestLogInTurn && (isTurnRunning || turn.isLatest) && !isNextToolExecuting)
+                              isTurnRunning && turn.isLatest && (log.isRunning || (isLatestLogInTurn && !isNextToolExecuting))
                             );
                             const isExpanded = expandedLogIds[logKey] !== undefined ? expandedLogIds[logKey] : defaultExpanded;
                             const actionInfo = getToolActionInfo(log.tool_name, log.tool_input, log.isRunning);
@@ -3483,9 +3515,9 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                     (m.content.trim().startsWith('# Implementation Plan') || 
                      (m.content.includes('# Implementation Plan') && m.content.length > 250) ||
                      m.content.includes('I have formulated an implementation plan') ||
-                     m.content.includes('Implementation Plan Formulated') ||
-                     (m.content.includes('Key Execution Phases') && m.content.includes('Phase 1'))
-                    )
+                     m.content.includes('Implementation Plan Formulated')
+                    ) &&
+                    (turn.plan?.intent_category === 'planning' || m.content.includes('I have formulated an implementation plan'))
                   );
                   const isRawPlanExpanded = !!expandedRawPlanMsgIds[m.id];
                   const planInfo = isFullPlanDoc ? extractPlanHighlightsFromMarkdown(m.content) : null;
@@ -3668,7 +3700,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
             );
           })}
 
-          {/* Pending Action Approval Card or Interactive Inquiry Card */}
+          {/* Pending Action Approval Card or Interactive Inquiry Card or PR Review Staging Card */}
           {latestApproval && (
             latestApproval.action_type === 'user_inquiry' ? (
               <InquiryCard
@@ -3677,6 +3709,13 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 onResolved={() => {
                   if (onApprove) onApprove();
                 }}
+              />
+            ) : (latestApproval.action_type === 'post_pull_request_review' || latestApproval.action_type === 'post_pull_request_line_comment' || latestApproval.action_type === 'post_pr_review' || latestApproval.action_type === 'post_line_comment') ? (
+              <PRReviewApprovalCard
+                taskId={task.id}
+                approval={latestApproval}
+                onApprove={onApprove}
+                onReject={onReject}
               />
             ) : (
               <div className="rounded-xl border border-onedark-border bg-onedark-surface p-4 space-y-3 shadow-md">
@@ -3703,7 +3742,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 <div className="flex items-center space-x-2.5 pt-1">
                   <button
                     onClick={() => onApprove()}
-                    className="py-2 px-3.5 rounded-lg bg-onedark-green hover:bg-onedark-green/90 text-onedark-darker font-bold text-xs flex items-center space-x-1.5 transition-colors shadow-sm"
+                    className="py-2 px-3.5 rounded-lg bg-onedark-green hover:bg-onedark-green/90 text-onedark-darker font-bold text-xs flex items-center space-x-1.5 transition-colors shadow-sm cursor-pointer"
                   >
                     <CheckCircle2 className="w-4 h-4" />
                     <span>Approve & Execute</span>
@@ -3711,7 +3750,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
                   <button
                     onClick={() => onReject()}
-                    className="py-2 px-3.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-red border border-onedark-border text-xs font-semibold transition-colors"
+                    className="py-2 px-3.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-red border border-onedark-border text-xs font-semibold transition-colors cursor-pointer"
                   >
                     <span>Reject</span>
                   </button>

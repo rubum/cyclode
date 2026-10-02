@@ -28,6 +28,25 @@ class GitHubClient:
             headers["Authorization"] = f"Bearer {token}"
         return headers
 
+    async def get_authenticated_user(self, custom_token: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """
+        Fetches the authenticated GitHub user profile corresponding to the current token.
+        """
+        import os
+        if os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
+            return {"login": "cyclode-tester", "id": 10001, "avatar_url": ""}
+        headers = self._get_headers(custom_token)
+        if "Authorization" not in headers:
+            return None
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            try:
+                resp = await client.get(f"{self.api_base}/user", headers=headers)
+                if resp.status_code == 200:
+                    return resp.json()
+            except Exception as e:
+                logger.debug(f"Failed to fetch authenticated GitHub user: {e}")
+        return None
+
     async def create_pull_request(
         self,
         owner: str,

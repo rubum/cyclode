@@ -68,6 +68,7 @@ import {
 } from '../../utils/diffContextParser';
 import { DiffHunkExpander } from './DiffHunkExpander';
 import { HunkFeedbackInput } from './HunkFeedbackInput';
+import { DiffCodeLine } from '../Diff/DiffCodeLine';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -114,6 +115,8 @@ export interface PRReaderResponse {
   state?: string;
   author?: string;
   author_avatar?: string;
+  viewer_login?: string;
+  viewer_is_author?: boolean;
   head_branch?: string;
   base_branch?: string;
   additions?: number;
@@ -226,8 +229,24 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
   const [pulsingTarget, setPulsingTarget] = useState<{ file: string; line?: number } | null>(null);
   const [currentMatchIndex, setCurrentMatchIndex] = useState<number>(0);
 
-  // Layout mode: auto (responsive split/unified), unified, or split
-  const [layoutPreference, setLayoutPreference] = useState<'auto' | 'unified' | 'split'>('auto');
+  // Layout mode: unified (default), split, or auto
+  const [layoutPreference, setLayoutPreferenceState] = useState<'auto' | 'unified' | 'split'>(() => {
+    try {
+      const saved = localStorage.getItem('cyclode_diff_layout_preference');
+      if (saved && ['auto', 'unified', 'split'].includes(saved)) {
+        return saved as 'auto' | 'unified' | 'split';
+      }
+    } catch {}
+    return 'unified';
+  });
+
+  const setLayoutPreference = useCallback((pref: 'auto' | 'unified' | 'split') => {
+    setLayoutPreferenceState(pref);
+    try {
+      localStorage.setItem('cyclode_diff_layout_preference', pref);
+    } catch {}
+  }, []);
+
   const [containerWidth, setContainerWidth] = useState<number>(1000);
 
   // Expanded context state by file path -> Record of lineNumber -> lineText
@@ -237,7 +256,7 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
   const [focusedHunkId, setFocusedHunkId] = useState<string | null>(null);
   const [commentingGap, setCommentingGap] = useState<DiffHunkGap | null>(null);
 
-  // ResizeObserver for responsive auto layout
+  // ResizeObserver for responsive layout inspection
   useEffect(() => {
     if (!containerRef.current) return;
     const observer = new ResizeObserver((entries) => {
@@ -254,8 +273,8 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
   const effectiveLayout = useMemo<'unified' | 'split'>(() => {
     if (layoutPreference === 'split') return 'split';
     if (layoutPreference === 'unified') return 'unified';
-    return containerWidth >= 768 ? 'split' : 'unified';
-  }, [layoutPreference, containerWidth]);
+    return 'unified';
+  }, [layoutPreference]);
 
   const fetchDiffContext = useCallback(async (
     filePath: string,
@@ -1154,9 +1173,12 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
                                     <span className="w-3 flex-shrink-0 select-none font-bold text-center">
                                       {isDel ? '-' : ' '}
                                     </span>
-                                    <span className="whitespace-pre flex-1 truncate">
-                                      {row.leftText.replace(/^[+-]/, '')}
-                                    </span>
+                                    <DiffCodeLine
+                                      text={row.leftText.replace(/^[+-]/, '')}
+                                      fileName={f.filename}
+                                      grepMatcher={fileFilter.trim() ? grepMatcher : null}
+                                      className="whitespace-pre flex-1 truncate"
+                                    />
                                   </div>
 
                                   {/* Right (New / Additions) */}
@@ -1175,9 +1197,12 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
                                     <span className="w-3 flex-shrink-0 select-none font-bold text-center">
                                       {isAdd ? '+' : ' '}
                                     </span>
-                                    <span className="whitespace-pre flex-1 truncate">
-                                      {row.rightText.replace(/^[+-]/, '')}
-                                    </span>
+                                    <DiffCodeLine
+                                      text={row.rightText.replace(/^[+-]/, '')}
+                                      fileName={f.filename}
+                                      grepMatcher={fileFilter.trim() ? grepMatcher : null}
+                                      className="whitespace-pre flex-1 truncate"
+                                    />
                                   </div>
                                 </div>
                               );
@@ -1287,24 +1312,12 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
                                 </div>
                               )}
 
-                              <pre className="font-mono text-[12.5px] leading-relaxed whitespace-pre flex-1 overflow-x-visible">
-                                {isLineGrepMatch ? (
-                                  grepMatcher.highlightSegments(lineObj.text || ' ').map((seg, sIdx) =>
-                                    seg.matched ? (
-                                      <mark
-                                        key={sIdx}
-                                        className="bg-onedark-yellow/30 text-onedark-yellow font-bold px-0.5 rounded-xs border border-onedark-yellow/40 shadow-xs"
-                                      >
-                                        {seg.text}
-                                      </mark>
-                                    ) : (
-                                      <span key={sIdx}>{seg.text}</span>
-                                    )
-                                  )
-                                ) : (
-                                  lineObj.text || ' '
-                                )}
-                              </pre>
+                              <DiffCodeLine
+                                text={lineObj.text.replace(/^[+-]/, '')}
+                                fileName={f.filename}
+                                grepMatcher={fileFilter.trim() ? grepMatcher : null}
+                                className="font-mono text-[12.5px] leading-relaxed whitespace-pre flex-1 overflow-x-visible"
+                              />
                             </div>
                           );
                         });
@@ -1770,9 +1783,11 @@ export const MiniDiffHunkViewer: React.FC<{
               <span className="w-4 text-center select-none font-bold text-xs flex-shrink-0">
                 {isAddition ? '+' : isDeletion ? '-' : ' '}
               </span>
-              <pre className="font-mono whitespace-pre flex-1 text-[11px] overflow-x-auto pl-1 leading-snug">
-                {line.text.slice(1) || ' '}
-              </pre>
+              <DiffCodeLine
+                text={line.text.slice(1) || ' '}
+                fileName={filePath}
+                className="font-mono whitespace-pre flex-1 text-[11px] overflow-x-auto pl-1 leading-snug"
+              />
             </div>
           );
         })}
@@ -2507,6 +2522,7 @@ export interface PRReviewDecisionModalProps {
   initialEvent?: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
   onSubmitDecision: (event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT', body: string) => Promise<void>;
   isLoading?: boolean;
+  isAuthor?: boolean;
 }
 
 export const PRReviewDecisionModal: React.FC<PRReviewDecisionModalProps> = ({
@@ -2516,17 +2532,20 @@ export const PRReviewDecisionModal: React.FC<PRReviewDecisionModalProps> = ({
   prTitle,
   initialEvent = 'APPROVE',
   onSubmitDecision,
-  isLoading = false
+  isLoading = false,
+  isAuthor = false
 }) => {
-  const [event, setEvent] = useState<'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT'>(initialEvent);
+  const [event, setEvent] = useState<'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT'>(
+    isAuthor ? 'COMMENT' : initialEvent
+  );
   const [body, setBody] = useState<string>('');
 
   useEffect(() => {
     if (isOpen) {
-      setEvent(initialEvent);
+      setEvent(isAuthor ? 'COMMENT' : initialEvent);
       setBody('');
     }
-  }, [isOpen, initialEvent]);
+  }, [isOpen, initialEvent, isAuthor]);
 
   if (!isOpen) return null;
 
@@ -2546,7 +2565,9 @@ export const PRReviewDecisionModal: React.FC<PRReviewDecisionModalProps> = ({
               <ShieldCheck className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-xs font-bold text-onedark-fgBright">Submit Code Review</h3>
+              <h3 className="text-xs font-bold text-onedark-fgBright">
+                {isAuthor ? 'Add Discussion Comment' : 'Submit Code Review'}
+              </h3>
               <p className="text-[11px] text-onedark-muted font-mono truncate max-w-sm">
                 #{prNumber} {prTitle ? `• ${prTitle}` : ''}
               </p>
@@ -2565,16 +2586,20 @@ export const PRReviewDecisionModal: React.FC<PRReviewDecisionModalProps> = ({
           {/* Verdict Radio Option Tiles */}
           <div className="space-y-2">
             <label className="text-[11px] font-semibold text-onedark-muted uppercase tracking-wider">
-              Review Verdict
+              {isAuthor ? 'Action' : 'Review Verdict'}
             </label>
             <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
-                onClick={() => setEvent('APPROVE')}
-                className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between space-y-1.5 ${
-                  event === 'APPROVE'
-                    ? 'bg-onedark-green/15 border-onedark-green/60 text-onedark-green ring-1 ring-onedark-green/30'
-                    : 'bg-onedark-surface/50 border-onedark-borderSubtle text-onedark-fg hover:bg-onedark-surface'
+                disabled={isAuthor}
+                onClick={() => !isAuthor && setEvent('APPROVE')}
+                title={isAuthor ? 'Authors cannot approve their own pull request' : 'Approve merging'}
+                className={`p-2.5 rounded-xl border text-left transition-all flex flex-col justify-between space-y-1.5 ${
+                  isAuthor
+                    ? 'opacity-35 cursor-not-allowed bg-onedark-surface/20 border-onedark-borderSubtle/50 text-onedark-muted'
+                    : event === 'APPROVE'
+                    ? 'bg-onedark-green/15 border-onedark-green/60 text-onedark-green ring-1 ring-onedark-green/30 cursor-pointer'
+                    : 'bg-onedark-surface/50 border-onedark-borderSubtle text-onedark-fg hover:bg-onedark-surface cursor-pointer'
                 }`}
               >
                 <div className="flex items-center justify-between">
@@ -2583,7 +2608,9 @@ export const PRReviewDecisionModal: React.FC<PRReviewDecisionModalProps> = ({
                 </div>
                 <div>
                   <div className="font-bold text-[12px]">Approve</div>
-                  <div className="text-[10px] text-onedark-muted leading-tight mt-0.5">Submit feedback and approve merging</div>
+                  <div className="text-[10px] text-onedark-muted leading-tight mt-0.5">
+                    {isAuthor ? 'Unavailable for author' : 'Submit feedback and approve merging'}
+                  </div>
                 </div>
               </button>
 
@@ -2602,17 +2629,21 @@ export const PRReviewDecisionModal: React.FC<PRReviewDecisionModalProps> = ({
                 </div>
                 <div>
                   <div className="font-bold text-[12px]">Comment</div>
-                  <div className="text-[10px] text-onedark-muted leading-tight mt-0.5">Submit general review comments</div>
+                  <div className="text-[10px] text-onedark-muted leading-tight mt-0.5">Submit general discussion notes</div>
                 </div>
               </button>
 
               <button
                 type="button"
-                onClick={() => setEvent('REQUEST_CHANGES')}
-                className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between space-y-1.5 ${
-                  event === 'REQUEST_CHANGES'
-                    ? 'bg-onedark-red/15 border-onedark-red/60 text-onedark-red ring-1 ring-onedark-red/30'
-                    : 'bg-onedark-surface/50 border-onedark-borderSubtle text-onedark-fg hover:bg-onedark-surface'
+                disabled={isAuthor}
+                onClick={() => !isAuthor && setEvent('REQUEST_CHANGES')}
+                title={isAuthor ? 'Authors cannot request changes from themselves' : 'Require changes before merging'}
+                className={`p-2.5 rounded-xl border text-left transition-all flex flex-col justify-between space-y-1.5 ${
+                  isAuthor
+                    ? 'opacity-35 cursor-not-allowed bg-onedark-surface/20 border-onedark-borderSubtle/50 text-onedark-muted'
+                    : event === 'REQUEST_CHANGES'
+                    ? 'bg-onedark-red/15 border-onedark-red/60 text-onedark-red ring-1 ring-onedark-red/30 cursor-pointer'
+                    : 'bg-onedark-surface/50 border-onedark-borderSubtle text-onedark-fg hover:bg-onedark-surface cursor-pointer'
                 }`}
               >
                 <div className="flex items-center justify-between">
@@ -2621,7 +2652,9 @@ export const PRReviewDecisionModal: React.FC<PRReviewDecisionModalProps> = ({
                 </div>
                 <div>
                   <div className="font-bold text-[12px]">Request Changes</div>
-                  <div className="text-[10px] text-onedark-muted leading-tight mt-0.5">Require changes before merging</div>
+                  <div className="text-[10px] text-onedark-muted leading-tight mt-0.5">
+                    {isAuthor ? 'Unavailable for author' : 'Require changes before merging'}
+                  </div>
                 </div>
               </button>
             </div>
@@ -2672,6 +2705,8 @@ export const PRReviewDecisionModal: React.FC<PRReviewDecisionModalProps> = ({
               <span>
                 {isLoading
                   ? 'Submitting...'
+                  : isAuthor
+                  ? 'Post Comment'
                   : event === 'APPROVE'
                   ? 'Submit Approval'
                   : event === 'REQUEST_CHANGES'
@@ -3079,6 +3114,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
   const [initialReviewEvent, setInitialReviewEvent] = useState<'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT'>('APPROVE');
   const [isMergeModalOpen, setIsMergeModalOpen] = useState<boolean>(false);
   const [selectedLinearTicket, setSelectedLinearTicket] = useState<string | null>(null);
+  const [submittedVerdict, setSubmittedVerdict] = useState<'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | null>(null);
 
   const contentScrollRef = useRef<HTMLDivElement>(null);
 
@@ -3167,6 +3203,16 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
 
   const totalCommentsCount = comments.length || data?.comments_count || (data?.comments?.length ?? 0);
 
+  // Compute latest review state from PR comments/reviews
+  const latestReviewFromComments = useMemo(() => {
+    const reviewItems = comments.filter((c) => c.type === 'review' && c.review_state);
+    if (!reviewItems.length) return null;
+    const last = reviewItems[reviewItems.length - 1];
+    return last.review_state || null;
+  }, [comments]);
+
+  const effectiveReviewVerdict = submittedVerdict || latestReviewFromComments;
+
   const fetchPR = async (fetchUrl: string) => {
     setIsLoading(true);
     setError(null);
@@ -3224,6 +3270,17 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
   const handleSubmitDecision = async (event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT', body: string) => {
     const effectivePrNum = data?.pr_number || prNumber || prRecord?.pr_number;
     if (!task?.id || !effectivePrNum) return;
+    
+    // Optimistically update review verdict state immediately
+    const verdictMap: Record<string, 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED'> = {
+      APPROVE: 'APPROVED',
+      REQUEST_CHANGES: 'CHANGES_REQUESTED',
+      COMMENT: 'COMMENTED'
+    };
+    if (verdictMap[event]) {
+      setSubmittedVerdict(verdictMap[event]);
+    }
+
     setActionLoading('decision');
     try {
       const apiBase = import.meta.env.VITE_API_URL || '';
@@ -3496,6 +3553,13 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
   const effectiveTitle = data?.title || prRecord?.title || `Pull Request #${data?.pr_number || prNumber || prRecord?.pr_number || ''}`;
   const effectiveState = (data?.state || prRecord?.status || 'OPEN').toUpperCase();
   const effectiveAuthor = data?.author || prRecord?.author;
+  const isAuthor = Boolean(
+    data?.viewer_is_author ||
+    (data?.viewer_login && effectiveAuthor && data.viewer_login.toLowerCase() === effectiveAuthor.toLowerCase())
+  );
+  const approvalCount = useMemo(() => {
+    return comments.filter((c) => c.type === 'review' && c.review_state === 'APPROVED').length;
+  }, [comments]);
   const effectiveHeadBranch = data?.head_branch || prRecord?.head_branch;
   const effectiveBaseBranch = data?.base_branch || prRecord?.base_branch || 'main';
   const effectiveAdditions = data?.additions ?? prRecord?.diff_stats?.additions;
@@ -3727,49 +3791,142 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
             {/* PR Decision Actions (Only when not already merged/closed) */}
             {effectiveState !== 'MERGED' && effectiveState !== 'CLOSED' && (
               <>
-                {/* Quick Approve Button */}
-                <button
-                  onClick={handleQuickApprove}
-                  disabled={Boolean(actionLoading)}
-                  className="flex items-center space-x-1 px-2.5 py-1 rounded-md bg-onedark-green/20 hover:bg-onedark-green/30 text-onedark-green text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap flex-shrink-0"
-                  title="Quickly submit an approval review"
-                >
-                  {actionLoading === 'decision' ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                  )}
-                  <span>Approve</span>
-                </button>
+                {isAuthor ? (
+                  /* --- Author Persona Actions --- */
+                  <>
+                    {/* Overall Approvals Status Tag */}
+                    {approvalCount > 0 ? (
+                      <div 
+                        className="flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-onedark-green/20 border border-onedark-green/30 text-onedark-green text-[11px] font-semibold select-none flex-shrink-0 shadow-2xs"
+                        title={`${approvalCount} review approval${approvalCount > 1 ? 's' : ''} on this PR`}
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>{approvalCount} {approvalCount === 1 ? 'Approval' : 'Approvals'}</span>
+                      </div>
+                    ) : (
+                      <div 
+                        className="flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-onedark-surface border border-onedark-borderSubtle text-onedark-muted text-[11px] font-medium select-none flex-shrink-0"
+                        title="Awaiting review from peers"
+                      >
+                        <Clock className="w-3.5 h-3.5 text-onedark-muted flex-shrink-0" />
+                        <span>Awaiting Reviews</span>
+                      </div>
+                    )}
 
-                {/* Submit Review Modal Trigger */}
-                <button
-                  onClick={() => {
-                    setInitialReviewEvent('APPROVE');
-                    setIsReviewDecisionModalOpen(true);
-                  }}
-                  disabled={Boolean(actionLoading)}
-                  className="flex items-center space-x-1 px-2.5 py-1 rounded-md bg-onedark-surface hover:bg-onedark-surface/80 text-onedark-fgBright text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap flex-shrink-0"
-                  title="Open code review decision modal (Approve, Request Changes, Comment)"
-                >
-                  <ShieldCheck className="w-3.5 h-3.5 text-onedark-accent" />
-                  <span>Submit Review</span>
-                </button>
+                    {/* Add Discussion Comment Button (for Authors) */}
+                    <button
+                      onClick={() => {
+                        setInitialReviewEvent('COMMENT');
+                        setIsReviewDecisionModalOpen(true);
+                      }}
+                      disabled={Boolean(actionLoading)}
+                      className="flex items-center space-x-1 px-2.5 py-1 rounded-md bg-onedark-surface hover:bg-onedark-surface/80 text-onedark-fgBright text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap flex-shrink-0 border border-onedark-borderSubtle"
+                      title="Add a discussion comment on your pull request"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5 text-onedark-accent" />
+                      <span>Add Comment</span>
+                    </button>
 
-                {/* Merge PR Modal Trigger */}
-                <button
-                  onClick={() => setIsMergeModalOpen(true)}
-                  disabled={Boolean(actionLoading)}
-                  className="flex items-center space-x-1 px-2.5 py-1 rounded-md bg-onedark-purple/20 hover:bg-onedark-purple/30 text-onedark-purple text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap flex-shrink-0"
-                  title="Merge this pull request"
-                >
-                  {actionLoading === 'merge' ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <GitMerge className="w-3.5 h-3.5" />
-                  )}
-                  <span>Merge PR</span>
-                </button>
+                    {/* Merge PR Modal Trigger (Author has merge rights) */}
+                    <button
+                      onClick={() => setIsMergeModalOpen(true)}
+                      disabled={Boolean(actionLoading)}
+                      className="flex items-center space-x-1 px-2.5 py-1 rounded-md bg-onedark-purple/20 hover:bg-onedark-purple/30 text-onedark-purple text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap flex-shrink-0"
+                      title="Merge your pull request"
+                    >
+                      {actionLoading === 'merge' ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <GitMerge className="w-3.5 h-3.5" />
+                      )}
+                      <span>Merge PR</span>
+                    </button>
+                  </>
+                ) : (
+                  /* --- Reviewer Persona Actions --- */
+                  <>
+                    {/* State-aware Review Status Pill vs. Quick Approve Action */}
+                    {effectiveReviewVerdict === 'APPROVED' ? (
+                      <div
+                        className="flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-onedark-green/20 border border-onedark-green/30 text-onedark-green text-[11px] font-semibold select-none flex-shrink-0 shadow-2xs"
+                        title="You approved this pull request"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>Approved</span>
+                      </div>
+                    ) : effectiveReviewVerdict === 'CHANGES_REQUESTED' ? (
+                      <div
+                        className="flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-onedark-red/20 border border-onedark-red/30 text-onedark-red text-[11px] font-semibold select-none flex-shrink-0 shadow-2xs"
+                        title="You requested changes on this pull request"
+                      >
+                        <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>Changes Requested</span>
+                      </div>
+                    ) : effectiveReviewVerdict === 'COMMENTED' ? (
+                      <div
+                        className="flex items-center space-x-1.5 px-2.5 py-1 rounded-md bg-onedark-surface border border-onedark-borderSubtle text-onedark-fgBright text-[11px] font-semibold select-none flex-shrink-0 shadow-2xs"
+                        title="Review comments submitted"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5 text-onedark-muted flex-shrink-0" />
+                        <span>Commented</span>
+                      </div>
+                    ) : (
+                      /* Unreviewed: Quick Approve Button */
+                      <button
+                        onClick={handleQuickApprove}
+                        disabled={Boolean(actionLoading)}
+                        className="flex items-center space-x-1 px-2.5 py-1 rounded-md bg-onedark-green/20 hover:bg-onedark-green/30 text-onedark-green text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap flex-shrink-0"
+                        title="Quickly submit an approval review"
+                      >
+                        {actionLoading === 'decision' ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                        )}
+                        <span>Approve</span>
+                      </button>
+                    )}
+
+                    {/* Submit Review / Re-Review Modal Trigger */}
+                    <button
+                      onClick={() => {
+                        setInitialReviewEvent(
+                          effectiveReviewVerdict === 'CHANGES_REQUESTED'
+                            ? 'REQUEST_CHANGES'
+                            : effectiveReviewVerdict === 'COMMENTED'
+                            ? 'COMMENT'
+                            : 'APPROVE'
+                        );
+                        setIsReviewDecisionModalOpen(true);
+                      }}
+                      disabled={Boolean(actionLoading)}
+                      className="flex items-center space-x-1 px-2.5 py-1 rounded-md bg-onedark-surface hover:bg-onedark-surface/80 text-onedark-fgBright text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap flex-shrink-0 border border-onedark-borderSubtle"
+                      title={
+                        effectiveReviewVerdict
+                          ? "Update or re-submit your code review verdict"
+                          : "Open code review decision modal (Approve, Request Changes, Comment)"
+                      }
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5 text-onedark-accent" />
+                      <span>{effectiveReviewVerdict ? 'Re-Review' : 'Submit Review'}</span>
+                    </button>
+
+                    {/* Merge PR Modal Trigger */}
+                    <button
+                      onClick={() => setIsMergeModalOpen(true)}
+                      disabled={Boolean(actionLoading)}
+                      className="flex items-center space-x-1 px-2.5 py-1 rounded-md bg-onedark-purple/20 hover:bg-onedark-purple/30 text-onedark-purple text-[11px] font-semibold transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap flex-shrink-0"
+                      title="Merge this pull request"
+                    >
+                      {actionLoading === 'merge' ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <GitMerge className="w-3.5 h-3.5" />
+                      )}
+                      <span>Merge PR</span>
+                    </button>
+                  </>
+                )}
               </>
             )}
           </div>
@@ -4312,6 +4469,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
         initialEvent={initialReviewEvent}
         onSubmitDecision={handleSubmitDecision}
         isLoading={actionLoading === 'decision'}
+        isAuthor={isAuthor}
       />
 
       {/* PR Merge Modal */}

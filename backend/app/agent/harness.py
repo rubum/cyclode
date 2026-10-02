@@ -441,15 +441,25 @@ class AntigravityHarness:
         ):
             return "planning"
 
-        # 3. Pure Q&A / Research prefixes
+        # 3. Conversational / Discussion & Advisory Question patterns
+        discussion_keywords = [
+            "discuss", "discuss that", "let's discuss", "lets discuss", "can we discuss",
+            "does it make sense", "do you think", "what do you think", "should we", "should i",
+            "what if", "is it better", "would it be better", "pros and cons", "thoughts on",
+            "why or why not", "how should we handle", "what are your thoughts", "advice on",
+            "don't submit", "dont submit", "don't make changes", "dont make changes",
+            "without making changes", "before making changes", "before changing"
+        ]
+        is_discussion_or_advisory = any(k in cleaned_prompt for k in discussion_keywords) or any(k in cleaned_title for k in discussion_keywords)
+
         is_qa_prefix = (
-            any(cleaned_prompt.startswith(prefix) for prefix in ["what is", "what are", "how does", "how do", "how to", "why is", "why does", "explain", "describe", "tell me about", "compare", "contrast", "overview of", "summarize"])
-            or any(cleaned_title.startswith(prefix) for prefix in ["what is", "what are", "how does", "how do", "how to", "why is", "why does", "explain", "describe", "tell me about", "compare", "contrast", "overview of", "summarize"])
+            any(cleaned_prompt.startswith(prefix) for prefix in ["what is", "what are", "how does", "how do", "how to", "why is", "why does", "explain", "describe", "tell me about", "compare", "contrast", "overview of", "summarize", "does it", "should we", "should i", "can we", "is it", "would it"])
+            or any(cleaned_title.startswith(prefix) for prefix in ["what is", "what are", "how does", "how do", "how to", "why is", "why does", "explain", "describe", "tell me about", "compare", "contrast", "overview of", "summarize", "does it", "should we", "should i", "can we", "is it", "would it"])
             or "research" in cleaned_title.split()
         )
         has_code_file = bool(re.search(r'\b[\w\-\./]+\.(py|html|css|jsx?|tsx?|json|sql|rs|go|c|cpp|h)\b|\bdockerfile\b', combined, re.IGNORECASE))
 
-        if is_qa_prefix and not has_code_file:
+        if is_discussion_or_advisory or (is_qa_prefix and not has_code_file):
             return "qa_research"
 
         # 4. Review & Audit
@@ -832,8 +842,7 @@ class AntigravityHarness:
             f"Allowed intent_category values: ['planning', 'qa_research', 'app_building', 'code_modification', 'review_audit', 'debugging', 'devops']\n"
             f"Guidelines:\n"
             f"- If the prompt asks for a plan, roadmap, proposal, architecture proposal, or says 'what\\'s the plan', 'so what\\'s the plan', 'plan this', set intent_category='planning'.\n"
-            f"- CRITICAL FOR PLANNING INTENT: Ground your plan directly in the specific technical decisions, proposals, files, and code samples discussed in the preceding conversation context! Do NOT generate generic abstract placeholders. Name exact files, exact function/class names, and concrete verification commands!\n"
-            f"- If the prompt is asking a question, conceptual explanation, web research, or URL summarization (e.g. 'Summarize this https://...', 'What is Redis LangCache', 'Explain grafana alert rules'), set intent_category='qa_research'.\n"
+            f"- If the prompt is asking a question, conceptual explanation, trade-off discussion, advisory feedback (e.g. 'Does it make sense...', 'Discuss that first', 'What do you think', 'Should we...', 'dont submit'), web research, or URL summarization, set intent_category='qa_research'. NEVER generate a multi-phase implementation plan for conversational or advisory questions!\n"
             f"  CRITICAL FOR QA & RESEARCH INTENT: The plan milestones must represent research/reading steps (e.g. Step 1: Retrieve external intelligence / URL, Step 2: Synthesize comprehensive analytical briefing with hyperlinked citations directly in chat). 'file_touchpoints' MUST be an empty array []! NEVER propose creating workspace files (such as source.md, summary.md, notes.txt), NEVER propose git log audits, and NEVER propose bash unit testing for text research!\n"
             f"- For engineering/coding phases, provide descriptive title, 1-sentence objective, specific file touchpoints with bulleted action items under each file, and concrete verification criteria (e.g. exact pytest or build commands).\n"
             f"- If the prompt asks to build an interactive web app, frontend, UI, dashboard, game, landing page, or calculator, set intent_category='app_building'.\n"
@@ -879,12 +888,10 @@ class AntigravityHarness:
         if plan_res.get("result"):
             parsed = plan_res["result"]
             intent_cat = parsed.get("intent_category")
-            if is_planning_query or inferred_intent == "planning":
+            if is_planning_query:
                 intent_cat = "planning"
             elif intent_cat not in ["planning", "qa_research", "app_building", "code_modification", "review_audit", "debugging", "devops"]:
                 intent_cat = inferred_intent
-            elif inferred_intent == "app_building" and intent_cat != "app_building":
-                intent_cat = "app_building"
 
             obj = parsed.get("objective") or objective
             raw_phases = parsed.get("phases", [])
@@ -1294,13 +1301,13 @@ class AntigravityHarness:
                     },
                     {
                         "name": "post_pull_request_review",
-                        "description": "Submit a code review or summary comment to a GitHub pull request.",
+                        "description": "Submit a concise, high-signal code review to a GitHub pull request. For clean PRs: 1-2 sentence LGTM confirming verified invariants. For PRs with bugs: lead immediately with '### Changes Requested (N blocking defects)' with exact file/line links, concrete root cause, and copy-pasteable diffs. Group non-blocking notes in <details><summary>Non-blocking Notes</summary>...</details>. NEVER write narrative filler, sycophantic praise, or diff recaps.",
                         "parameters": {
                             "type": "OBJECT",
                             "properties": {
-                                "repository": {"type": "STRING", "description": "Repository in owner/repo format"},
+                                "repository": {"type": "STRING", "description": "Repository in owner/repo format (e.g. 'owner/repo')"},
                                 "pr_number": {"type": "INTEGER", "description": "Pull request number"},
-                                "body": {"type": "STRING", "description": "Review comment body in Markdown format"},
+                                "body": {"type": "STRING", "description": "High-signal review Markdown (max 150 words total, zero fluff, defect-first with exact line links and copy-pasteable diffs)"},
                                 "event": {"type": "STRING", "description": "Review action: 'COMMENT', 'APPROVE', 'REQUEST_CHANGES'"}
                             },
                             "required": ["repository", "pr_number", "body"]
@@ -1308,13 +1315,13 @@ class AntigravityHarness:
                     },
                     {
                         "name": "post_pull_request_line_comment",
-                        "description": "Post an inline review comment on a specific line of code in a GitHub pull request diff.",
+                        "description": "Post a concise inline review comment on a specific line of code in a GitHub pull request diff. State the concrete defect and copy-pasteable diff. No narrative filler.",
                         "parameters": {
                             "type": "OBJECT",
                             "properties": {
                                 "repository": {"type": "STRING", "description": "Repository in owner/repo format"},
                                 "pr_number": {"type": "INTEGER", "description": "Pull request number"},
-                                "body": {"type": "STRING", "description": "Comment text"},
+                                "body": {"type": "STRING", "description": "Concise comment text with copy-pasteable diff (no conversational filler)"},
                                 "commit_sha": {"type": "STRING", "description": "Head commit SHA"},
                                 "path": {"type": "STRING", "description": "File path in repository"},
                                 "line": {"type": "INTEGER", "description": "Diff line number"},
@@ -2447,7 +2454,7 @@ class AntigravityHarness:
                                 and (
                                     "# Implementation Plan" in final_agent_text
                                     or "## Implementation Plan" in final_agent_text
-                                    or "Key Execution Phases" in final_agent_text
+                                    or (final_agent_text.strip().startswith("# ") and "Key Execution Phases" in final_agent_text)
                                 )
                             )
 
@@ -2501,14 +2508,19 @@ class AntigravityHarness:
 
                                 return {"status": "COMPLETED", "summary": chat_agent_text[:120]}
                             else:
-                                if intent_category == "qa_research" and mutating_tool_count == 0:
+                                if mutating_tool_count == 0:
+                                    # Informational inquiry, research, review, or QA response with zero file mutations
                                     for s in current_plan.get("steps", []):
                                         if s.get("status") != "failed":
-                                            s["status"] = "completed" if not is_dangling_intent else "failed"
+                                            s["status"] = "completed" if (all_checks_passed and not is_dangling_intent) else "failed"
                                     eval_status = "accomplished" if (all_checks_passed and not is_dangling_intent) else "needs_revision"
-                                    eval_summary = "Research and analytical synthesis delivered successfully." if (all_checks_passed and not is_dangling_intent) else "Plan execution requires revision or concluded with in-flight actions."
+                                    eval_summary = (
+                                        "Research and analytical synthesis delivered successfully."
+                                        if intent_category == "qa_research"
+                                        else "Analytical synthesis and workspace inquiry delivered successfully."
+                                    ) if (all_checks_passed and not is_dangling_intent) else "Plan execution requires revision or concluded with in-flight actions."
                                 else:
-                                    if is_app_task and mutating_tool_count > 0 and not is_dangling_intent:
+                                    if is_app_task and not is_dangling_intent:
                                         from app.api.preview import verify_workspace_preview
                                         preview_verification = verify_workspace_preview(workspace_path, task_id)
                                         if preview_verification.get("status") in ["ready", "compiled", "static"] and not preview_verification.get("issues"):
@@ -2516,18 +2528,18 @@ class AntigravityHarness:
                                                 if s.get("status") != "failed":
                                                     s["status"] = "completed"
 
-                                    any_pending_or_failed = False
-                                    for s in current_plan.get("steps", []):
-                                        if s.get("status") == "in_progress":
-                                            if all_checks_passed and not is_dangling_intent:
+                                    if all_checks_passed and not is_dangling_intent:
+                                        for s in current_plan.get("steps", []):
+                                            if s.get("status") != "failed":
                                                 s["status"] = "completed"
-                                            else:
+                                        eval_status = "accomplished"
+                                        eval_summary = "All execution plan steps verified successfully against workspace state."
+                                    else:
+                                        for s in current_plan.get("steps", []):
+                                            if s.get("status") == "in_progress":
                                                 s["status"] = "failed"
-                                        elif s.get("status") in ["pending", "failed"]:
-                                            any_pending_or_failed = True
-
-                                    eval_status = "accomplished" if (all_checks_passed and not any_pending_or_failed and not is_dangling_intent) else ("in_progress" if (all_checks_passed and any_pending_or_failed and not is_dangling_intent) else "needs_revision")
-                                    eval_summary = "All execution plan steps verified successfully against workspace state." if eval_status == "accomplished" else ("Active plan step completed successfully. Advancing remaining milestones." if eval_status == "in_progress" else "Plan execution concluded with remaining pending steps or revisions needed.")
+                                        eval_status = "needs_revision"
+                                        eval_summary = "Plan execution requires revision or concluded with in-flight actions."
 
                                 if is_dangling_intent and active_provider:
                                     terminal_synth_instruction = (
@@ -2947,19 +2959,50 @@ class AntigravityHarness:
                             elif fn_name == "post_pull_request_review":
                                 repo_arg = args.get("repository", "")
                                 pr_num = int(args.get("pr_number", 1))
-                                body_arg = args.get("body", "")
+                                from app.agent.review_verifier import ReviewVerifier
+                                body_arg = ReviewVerifier.normalize_pr_review_markdown(args.get("body", ""))
                                 event_arg = args.get("event", "COMMENT")
-                                tool_result = await WorkspaceTools.post_pull_request_review(
-                                    repo_arg, pr_num, body_arg, event=event_arg
-                                )
-                                out_str = json.dumps(tool_result, indent=2)
-                                asyncio.create_task(event_dispatcher.record_and_broadcast(
-                                    task_id=task_id,
-                                    action_type="pr_review",
-                                    target=f"{repo_arg}#{pr_num}",
-                                    payload={"review_event": event_arg, "body": body_arg, "repo": repo_arg, "pr_number": pr_num},
-                                    status_code=200 if tool_result.get("ok", True) else 400
-                                ))
+
+                                can_exec, status_reason = policy_engine.check_action("post_pull_request_review", args)
+                                if not can_exec:
+                                    if status_reason == "AWAITING_HUMAN_APPROVAL":
+                                        if on_approval_required:
+                                            try:
+                                                res = on_approval_required(
+                                                    "post_pull_request_review",
+                                                    {
+                                                        "action_type": "post_pull_request_review",
+                                                        "repository": repo_arg,
+                                                        "pr_number": pr_num,
+                                                        "body": body_arg,
+                                                        "event": event_arg,
+                                                        "description": f"Submit {event_arg} PR review to {repo_arg}#{pr_num}"
+                                                    }
+                                                )
+                                                if inspect.isawaitable(res):
+                                                    await res
+                                            except Exception as cb_err:
+                                                logger.warning(f"Failed to notify on_approval_required for PR review: {cb_err}")
+                                        tool_result = {
+                                            "status": "AWAITING_APPROVAL",
+                                            "message": f"Formal PR review draft ({event_arg}) for {repo_arg}#{pr_num} has been staged in the UI for developer confirmation. Summarize your review findings in chat and state that the review is staged below ready for submission to GitHub."
+                                        }
+                                        out_str = json.dumps(tool_result, indent=2)
+                                    else:
+                                        tool_result = {"error": f"Action post_pull_request_review is disabled by policy ({status_reason})."}
+                                        out_str = json.dumps(tool_result, indent=2)
+                                else:
+                                    tool_result = await WorkspaceTools.post_pull_request_review(
+                                        repo_arg, pr_num, body_arg, event=event_arg
+                                    )
+                                    out_str = json.dumps(tool_result, indent=2)
+                                    asyncio.create_task(event_dispatcher.record_and_broadcast(
+                                        task_id=task_id,
+                                        action_type="pr_review",
+                                        target=f"{repo_arg}#{pr_num}",
+                                        payload={"review_event": event_arg, "body": body_arg, "repo": repo_arg, "pr_number": pr_num},
+                                        status_code=200 if tool_result.get("ok", True) else 400
+                                    ))
                             elif fn_name == "post_pull_request_line_comment":
                                 repo_arg = args.get("repository", "")
                                 pr_num = int(args.get("pr_number", 1))
@@ -2968,17 +3011,50 @@ class AntigravityHarness:
                                 path_arg = args.get("path", "")
                                 line_arg = int(args.get("line", 1))
                                 side_arg = args.get("side", "RIGHT")
-                                tool_result = await WorkspaceTools.post_pull_request_line_comment(
-                                    repo_arg, pr_num, body_arg, commit_sha_arg, path_arg, line_arg, side=side_arg
-                                )
-                                out_str = json.dumps(tool_result, indent=2)
-                                asyncio.create_task(event_dispatcher.record_and_broadcast(
-                                    task_id=task_id,
-                                    action_type="line_comment",
-                                    target=f"{repo_arg}#{pr_num}:{path_arg}:{line_arg}",
-                                    payload={"body": body_arg, "path": path_arg, "line": line_arg, "commit_sha": commit_sha_arg},
-                                    status_code=200 if tool_result.get("ok", True) else 400
-                                ))
+
+                                can_exec, status_reason = policy_engine.check_action("post_pull_request_line_comment", args)
+                                if not can_exec:
+                                    if status_reason == "AWAITING_HUMAN_APPROVAL":
+                                        if on_approval_required:
+                                            try:
+                                                res = on_approval_required(
+                                                    "post_pull_request_line_comment",
+                                                    {
+                                                        "action_type": "post_pull_request_line_comment",
+                                                        "repository": repo_arg,
+                                                        "pr_number": pr_num,
+                                                        "body": body_arg,
+                                                        "commit_sha": commit_sha_arg,
+                                                        "path": path_arg,
+                                                        "line": line_arg,
+                                                        "side": side_arg,
+                                                        "description": f"Post inline comment on {path_arg}:{line_arg} in {repo_arg}#{pr_num}"
+                                                    }
+                                                )
+                                                if inspect.isawaitable(res):
+                                                    await res
+                                            except Exception as cb_err:
+                                                logger.warning(f"Failed to notify on_approval_required for PR line comment: {cb_err}")
+                                        tool_result = {
+                                            "status": "AWAITING_APPROVAL",
+                                            "message": f"Inline PR comment draft on {path_arg}:{line_arg} in {repo_arg}#{pr_num} has been staged in the UI for developer confirmation. Summarize your findings in chat and state that the inline comment is staged below ready for submission to GitHub."
+                                        }
+                                        out_str = json.dumps(tool_result, indent=2)
+                                    else:
+                                        tool_result = {"error": f"Action post_pull_request_line_comment is disabled by policy ({status_reason})."}
+                                        out_str = json.dumps(tool_result, indent=2)
+                                else:
+                                    tool_result = await WorkspaceTools.post_pull_request_line_comment(
+                                        repo_arg, pr_num, body_arg, commit_sha_arg, path_arg, line_arg, side=side_arg
+                                    )
+                                    out_str = json.dumps(tool_result, indent=2)
+                                    asyncio.create_task(event_dispatcher.record_and_broadcast(
+                                        task_id=task_id,
+                                        action_type="line_comment",
+                                        target=f"{repo_arg}#{pr_num}:{path_arg}:{line_arg}",
+                                        payload={"body": body_arg, "path": path_arg, "line": line_arg, "commit_sha": commit_sha_arg},
+                                        status_code=200 if tool_result.get("ok", True) else 400
+                                    ))
                             elif fn_name == "create_pull_request":
                                 repo_arg = args.get("repository", "")
                                 title_arg = args.get("title", "")

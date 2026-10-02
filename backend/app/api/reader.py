@@ -760,6 +760,19 @@ async def _fetch_github_pr_info(owner: str, repo: str, pr_number: int) -> Dict[s
             full_md_parts.append(f"```diff\n{diff_text.strip()}\n```\n")
         full_md = "\n".join(full_md_parts).strip()
 
+        # Determine viewer user and author relationship
+        viewer_login = None
+        viewer_is_author = False
+        try:
+            from app.integrations.github_client import github_client
+            auth_user = await github_client.get_authenticated_user(custom_token=token)
+            if auth_user:
+                viewer_login = auth_user.get("login")
+                if viewer_login and user_login:
+                    viewer_is_author = (viewer_login.lower() == user_login.lower())
+        except Exception:
+            pass
+
         return {
             "type": "github",
             "is_pr": True,
@@ -771,6 +784,8 @@ async def _fetch_github_pr_info(owner: str, repo: str, pr_number: int) -> Dict[s
             "state": status_str,
             "author": user_login,
             "author_avatar": user_avatar,
+            "viewer_login": viewer_login,
+            "viewer_is_author": viewer_is_author,
             "head_branch": head_ref,
             "base_branch": base_ref,
             "additions": additions,
