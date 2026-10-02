@@ -902,7 +902,9 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
     .replace(/&quot;/gi, '"')
     .replace(/&#39;/gi, "'")
     .replace(/&bull;/gi, '•')
-    .replace(/<!--[\s\S]*?-->/g, '');
+    .replace(/<!--[\s\S]*?-->/g, '')
+    // Normalize inverted backtick links: `[text](url)` -> [`text`](url)
+    .replace(/`\[([^\]]+)\]\(([^)]+)\)`/g, '[`$1`]($2)');
 
   // Match display math, inline math, inline code, bold, strikethrough, italic, sub/sup/kbd/mark/code, linked images, images, links, HTML tags, and raw URLs
   const tokens = decodedText.split(
@@ -1127,7 +1129,43 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
     if (htmlAnchorMatch) {
       const linkUrl = htmlAnchorMatch[1];
       const rawLinkContent = htmlAnchorMatch[2].trim();
-      const linkText = rawLinkContent.replace(/<[^>]+>/g, '').trim() || linkUrl;
+      const cleanPlainTitle = rawLinkContent.replace(/<[^>]+>/g, '').replace(/[`*_~]/g, '').trim() || linkUrl;
+
+      const codeWrappedMatch = rawLinkContent.match(/^`+([\s\S]+?)`+$/);
+      if (codeWrappedMatch) {
+        const codeContent = codeWrappedMatch[1];
+        return (
+          <a
+            key={i}
+            href={linkUrl}
+            onClick={(e) => {
+              if (linkUrl.startsWith('#')) {
+                e.preventDefault();
+                const targetId = linkUrl.slice(1);
+                const targetEl = document.getElementById(targetId);
+                if (targetEl) {
+                  targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+                return;
+              }
+              if (e.metaKey || e.ctrlKey || !onLinkClick) {
+                return;
+              }
+              e.preventDefault();
+              onLinkClick(linkUrl, cleanPlainTitle);
+            }}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline mx-0.5 group align-baseline"
+            title={`Preview ${cleanPlainTitle} in sidebar (Cmd/Ctrl + click for new tab)`}
+          >
+            <code className="px-1.5 py-0.5 rounded-md bg-onedark-surface/80 border border-onedark-borderSubtle text-onedark-accent group-hover:text-onedark-accent/80 group-hover:bg-onedark-surface group-hover:border-onedark-accent/40 font-mono text-[13px] font-medium tracking-normal align-baseline select-text shadow-2xs underline underline-offset-2 decoration-onedark-accent/40 group-hover:decoration-onedark-accent transition-colors">
+              {codeContent}
+            </code>
+          </a>
+        );
+      }
+
       return (
         <a
           key={i}
@@ -1146,14 +1184,14 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
               return;
             }
             e.preventDefault();
-            onLinkClick(linkUrl, linkText);
+            onLinkClick(linkUrl, cleanPlainTitle);
           }}
           target="_blank"
           rel="noopener noreferrer"
           className="text-onedark-accent underline underline-offset-2 hover:text-onedark-accent/80 transition-colors font-medium cursor-pointer inline"
-          title={`Preview ${linkText} in sidebar (Cmd/Ctrl + click for new tab)`}
+          title={`Preview ${cleanPlainTitle} in sidebar (Cmd/Ctrl + click for new tab)`}
         >
-          {linkText}
+          {renderInline(rawLinkContent, onLinkClick)}
         </a>
       );
     }
@@ -1187,6 +1225,43 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
         );
       }
 
+      const cleanPlainTitle = linkText.replace(/[`*_~]/g, '').trim() || linkText;
+      const codeWrappedMatch = linkText.match(/^`+([\s\S]+?)`+$/);
+
+      if (codeWrappedMatch) {
+        const codeContent = codeWrappedMatch[1];
+        return (
+          <a
+            key={i}
+            href={linkUrl}
+            onClick={(e) => {
+              if (linkUrl.startsWith('#')) {
+                e.preventDefault();
+                const targetId = linkUrl.slice(1);
+                const targetEl = document.getElementById(targetId);
+                if (targetEl) {
+                  targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+                return;
+              }
+              if (e.metaKey || e.ctrlKey || !onLinkClick) {
+                return;
+              }
+              e.preventDefault();
+              onLinkClick(linkUrl, cleanPlainTitle);
+            }}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline mx-0.5 group align-baseline"
+            title={`Preview ${cleanPlainTitle} in sidebar (Cmd/Ctrl + click for new tab)`}
+          >
+            <code className="px-1.5 py-0.5 rounded-md bg-onedark-surface/80 border border-onedark-borderSubtle text-onedark-accent group-hover:text-onedark-accent/80 group-hover:bg-onedark-surface group-hover:border-onedark-accent/40 font-mono text-[13px] font-medium tracking-normal align-baseline select-text shadow-2xs underline underline-offset-2 decoration-onedark-accent/40 group-hover:decoration-onedark-accent transition-colors">
+              {codeContent}
+            </code>
+          </a>
+        );
+      }
+
       return (
         <a
           key={i}
@@ -1205,14 +1280,14 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
               return;
             }
             e.preventDefault();
-            onLinkClick(linkUrl, linkText);
+            onLinkClick(linkUrl, cleanPlainTitle);
           }}
           target="_blank"
           rel="noopener noreferrer"
           className="text-onedark-accent underline underline-offset-2 hover:text-onedark-accent/80 transition-colors font-medium cursor-pointer inline"
-          title={`Preview ${linkText} in sidebar (Cmd/Ctrl + click for new tab)`}
+          title={`Preview ${cleanPlainTitle} in sidebar (Cmd/Ctrl + click for new tab)`}
         >
-          {linkText}
+          {renderInline(linkText, onLinkClick)}
         </a>
       );
     }
