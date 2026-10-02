@@ -84,6 +84,18 @@ export const PolicySettings: React.FC<PolicySettingsProps> = ({
       category: 'Communication',
       icon: MessageSquare,
     },
+    post_pull_request_review: {
+      label: 'Submit Formal PR Reviews',
+      desc: 'Governs autonomous PR reviews (Approve, Request Changes, Comment) on GitHub pull requests.',
+      category: 'Code Review',
+      icon: ShieldCheck,
+    },
+    post_pull_request_line_comment: {
+      label: 'Post Inline PR Diff Comments',
+      desc: 'Governs autonomous line comments on specific files and lines of a PR diff.',
+      category: 'Code Review',
+      icon: MessageSquare,
+    },
     slack_notify: {
       label: 'Post Slack Broadcasts',
       desc: 'Allows the agent to send status alerts to configured Slack channels.',

@@ -9,6 +9,8 @@ class ApprovalPolicyEngine:
             "git_push": settings.POLICY_GIT_PUSH,
             "create_pull_request": settings.POLICY_CREATE_PR,
             "post_comment": settings.POLICY_POST_COMMENTS,
+            "post_pull_request_review": getattr(settings, "POLICY_POST_PR_REVIEW", PolicyLevel.REQUIRE_APPROVAL),
+            "post_pull_request_line_comment": getattr(settings, "POLICY_POST_PR_REVIEW", PolicyLevel.REQUIRE_APPROVAL),
             "slack_notify": settings.POLICY_SLACK_NOTIFY,
             "merge_pr": settings.POLICY_MERGE_PR,
             "execute_shell": settings.POLICY_EXECUTE_SHELL,

@@ -107,6 +107,7 @@ class Settings(BaseSettings):
     POLICY_GIT_PUSH: PolicyLevel = PolicyLevel.REQUIRE_APPROVAL
     POLICY_CREATE_PR: PolicyLevel = PolicyLevel.REQUIRE_APPROVAL
     POLICY_POST_COMMENTS: PolicyLevel = PolicyLevel.AUTO_ALLOW
+    POLICY_POST_PR_REVIEW: PolicyLevel = PolicyLevel.REQUIRE_APPROVAL
     POLICY_SLACK_NOTIFY: PolicyLevel = PolicyLevel.AUTO_ALLOW
     POLICY_MERGE_PR: PolicyLevel = PolicyLevel.REQUIRE_APPROVAL
     POLICY_EXECUTE_SHELL: PolicyLevel = PolicyLevel.AUTO_ALLOW
