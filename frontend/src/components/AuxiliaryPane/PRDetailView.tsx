@@ -2186,7 +2186,7 @@ export const PRCommentComposer: React.FC<PRCommentComposerProps> = ({
   }, [commentText]);
 
   return (
-    <div className="mt-6 rounded-xl border border-onedark-borderSubtle bg-onedark-darker/90 shadow-sm overflow-hidden transition-all focus-within:border-onedark-accent/60">
+    <div className="mt-6 rounded-xl border border-onedark-borderSubtle bg-onedark-darker/90 shadow-sm overflow-hidden transition-all focus-within:border-onedark-border">
       {/* Header Bar: Mode Switcher, Reply Target, and Presets */}
       <div className="flex items-center justify-between px-3.5 py-2.5 bg-onedark-surface/60 border-b border-onedark-borderSubtle gap-2 flex-wrap">
         <div className="flex items-center space-x-2 min-w-0">
@@ -2414,7 +2414,8 @@ export const PRCommentComposer: React.FC<PRCommentComposerProps> = ({
                 ? `Reply to @${replyingTo.author}... (Supports Markdown, Math, & Suggestions)`
                 : 'Leave a comment or review finding... (Supports Markdown, Math, & Suggestions)'
             }
-            className="w-full bg-transparent text-xs text-onedark-fg placeholder-onedark-muted focus:outline-hidden leading-relaxed resize-y min-h-[90px] font-sans"
+            className="w-full bg-transparent text-xs text-onedark-fg placeholder-onedark-muted border-none outline-none focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 focus-visible:border-none shadow-none leading-relaxed resize-y min-h-[90px] font-sans"
+            style={{ outline: 'none', border: 'none', boxShadow: 'none' }}
           />
         ) : (
           <div className="min-h-[90px] p-2.5 rounded-lg bg-onedark-darker/50 border border-onedark-borderSubtle text-onedark-fg text-[13px] leading-relaxed select-text">
