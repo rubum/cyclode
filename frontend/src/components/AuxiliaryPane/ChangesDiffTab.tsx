@@ -34,6 +34,7 @@ import {
 import { DiffHunkExpander } from './DiffHunkExpander';
 import { InlineAgentRationale } from './InlineAgentRationale';
 import { HunkFeedbackInput } from './HunkFeedbackInput';
+import { DiffCodeLine } from '../Diff/DiffCodeLine';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -190,20 +191,51 @@ function parseSideBySidePatch(patch: string): SideBySideRow[] {
 interface ChangesDiffTabProps {
   task: Task | null;
   onSelectAuxTab?: (tab: any) => void;
+  targetCommitSha?: string | null;
+  onClearTargetCommitSha?: () => void;
 }
 
-export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({ task, onSelectAuxTab }) => {
+export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({ 
+  task, 
+  onSelectAuxTab,
+  targetCommitSha,
+  onClearTargetCommitSha
+}) => {
   const [diffs, setDiffs] = useState<TaskDiff[]>(() => task?.diffs || []);
   const [branch, setBranch] = useState<string>(() => task?.git_branch || 'main');
   const [commits, setCommits] = useState<TaskCommit[]>([]);
-  const [selectedMode, setSelectedMode] = useState<'all' | 'working_tree' | 'commit'>('all');
-  const [selectedCommit, setSelectedCommit] = useState<TaskCommit | null>(null);
+  const [selectedMode, setSelectedMode] = useState<'all' | 'working_tree' | 'commit'>(() => targetCommitSha ? 'commit' : 'all');
+  const [selectedCommit, setSelectedCommit] = useState<TaskCommit | null>(() => targetCommitSha ? {
+    sha: targetCommitSha,
+    short_sha: targetCommitSha.slice(0, 7),
+    author: 'Commit',
+    email: '',
+    committed_at: new Date().toISOString(),
+    relative_time: '',
+    message: `Commit ${targetCommitSha.slice(0, 7)}`
+  } : null);
   const [diffLayout, setDiffLayout] = useState<'unified' | 'split'>('unified');
-  const [layoutPreference, setLayoutPreference] = useState<'auto' | 'unified' | 'split'>('auto');
+  const [layoutPreference, setLayoutPreferenceState] = useState<'auto' | 'unified' | 'split'>(() => {
+    try {
+      const saved = localStorage.getItem('cyclode_diff_layout_preference');
+      if (saved && ['auto', 'unified', 'split'].includes(saved)) {
+        return saved as 'auto' | 'unified' | 'split';
+      }
+    } catch {}
+    return 'unified';
+  });
+
+  const setLayoutPreference = useCallback((pref: 'auto' | 'unified' | 'split') => {
+    setLayoutPreferenceState(pref);
+    try {
+      localStorage.setItem('cyclode_diff_layout_preference', pref);
+    } catch {}
+  }, []);
+
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState<number>(1000);
 
-  // ResizeObserver for responsive auto-layout policy (split on wide, unified on narrow)
+  // ResizeObserver for responsive layout inspection
   useEffect(() => {
     if (!containerRef.current) return;
     const observer = new ResizeObserver((entries) => {
@@ -218,10 +250,10 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({ task, onSelectAu
   }, []);
 
   const effectiveLayout = useMemo<'unified' | 'split'>(() => {
-    if (layoutPreference === 'unified') return 'unified';
     if (layoutPreference === 'split') return 'split';
-    return containerWidth >= 768 ? 'split' : 'unified';
-  }, [layoutPreference, containerWidth]);
+    if (layoutPreference === 'unified') return 'unified';
+    return 'unified';
+  }, [layoutPreference]);
 
   // Context expansion state
   const [expandedLinesByFile, setExpandedLinesByFile] = useState<Record<string, Record<number, string>>>({});
@@ -467,6 +499,27 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({ task, onSelectAu
   useEffect(() => {
     fetchLiveDiff();
   }, [fetchLiveDiff]);
+
+  // Synchronize incoming targetCommitSha prop with commit diff selection
+  useEffect(() => {
+    if (targetCommitSha) {
+      setSelectedMode('commit');
+      const match = commits.find((c) => c.sha === targetCommitSha || c.short_sha === targetCommitSha || c.sha.startsWith(targetCommitSha));
+      if (match) {
+        setSelectedCommit(match);
+      } else {
+        setSelectedCommit({
+          sha: targetCommitSha,
+          short_sha: targetCommitSha.slice(0, 7),
+          author: 'Commit',
+          email: '',
+          committed_at: new Date().toISOString(),
+          relative_time: '',
+          message: `Commit ${targetCommitSha.slice(0, 7)}`
+        });
+      }
+    }
+  }, [targetCommitSha, commits]);
 
   const handleSelectMode = (mode: 'all' | 'working_tree') => {
     setSelectedMode(mode);
@@ -982,9 +1035,12 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({ task, onSelectAu
                                     <span className="w-3 flex-shrink-0 select-none font-bold text-center">
                                       {isDel ? '-' : ' '}
                                     </span>
-                                    <span className="whitespace-pre flex-1 truncate">
-                                      {row.leftText.replace(/^[+-]/, '')}
-                                    </span>
+                                    <DiffCodeLine
+                                      text={row.leftText.replace(/^[+-]/, '')}
+                                      fileName={d.file_path}
+                                      grepMatcher={fileFilter.trim() ? grepMatcher : null}
+                                      className="whitespace-pre flex-1 truncate"
+                                    />
                                   </div>
 
                                   {/* Right (New / Additions) */}
@@ -1003,9 +1059,12 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({ task, onSelectAu
                                     <span className="w-3 flex-shrink-0 select-none font-bold text-center">
                                       {isAdd ? '+' : ' '}
                                     </span>
-                                    <span className="whitespace-pre flex-1 truncate">
-                                      {row.rightText.replace(/^[+-]/, '')}
-                                    </span>
+                                    <DiffCodeLine
+                                      text={row.rightText.replace(/^[+-]/, '')}
+                                      fileName={d.file_path}
+                                      grepMatcher={fileFilter.trim() ? grepMatcher : null}
+                                      className="whitespace-pre flex-1 truncate"
+                                    />
                                   </div>
                                 </div>
                               );
@@ -1100,23 +1159,12 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({ task, onSelectAu
                               </span>
 
                               {/* Content */}
-                              {isLineGrepMatch ? (
-                                <span className="whitespace-pre flex-1 min-w-0">
-                                  {grepMatcher.highlightSegments(lineObj.text.replace(/^[+-]/, '')).map((seg, sIdx) =>
-                                    seg.matched ? (
-                                      <mark key={sIdx} className="bg-onedark-yellow/30 text-onedark-yellow font-bold px-0.5 rounded-xs">
-                                        {seg.text}
-                                      </mark>
-                                    ) : (
-                                      <span key={sIdx}>{seg.text}</span>
-                                    )
-                                  )}
-                                </span>
-                              ) : (
-                                <span className="whitespace-pre flex-1 min-w-0">
-                                  {lineObj.text.replace(/^[+-]/, '')}
-                                </span>
-                              )}
+                              <DiffCodeLine
+                                text={lineObj.text.replace(/^[+-]/, '')}
+                                fileName={d.file_path}
+                                grepMatcher={fileFilter.trim() ? grepMatcher : null}
+                                className="whitespace-pre flex-1 min-w-0"
+                              />
                             </div>
                           );
                         });
