@@ -432,4 +432,93 @@ async def test_reader_diff_context():
             assert len(data_clamp["lines"]) == 6
 
 
+@pytest.mark.asyncio
+async def test_fetch_github_pr_info():
+    from app.api.reader import _fetch_github_pr_info
+
+    pr_payload = {
+        "title": "fix(PD-1473): restore staging Medusa deploys",
+        "body": "What & why\nFix staging CORS allowlist.",
+        "state": "open",
+        "merged": False,
+        "html_url": "https://github.com/gowaylo/commerce/pull/1192",
+        "user": {"login": "theguuholi", "avatar_url": "https://avatars.githubusercontent.com/u/1"},
+        "head": {"ref": "codex/pd-1473-medusa-staging"},
+        "base": {"ref": "main"},
+        "additions": 488,
+        "deletions": 141,
+        "changed_files": 14
+    }
+
+    files_payload = [
+        {
+            "filename": "lib/medusa/config.ex",
+            "status": "modified",
+            "additions": 10,
+            "deletions": 2,
+            "changes": 12,
+            "patch": "@@ -1,5 +1,13 @@\n-old\n+new"
+        }
+    ]
+
+    commits_payload = [
+        {
+            "sha": "8859cba1234567890",
+            "commit": {
+                "message": "fix(PD-1473): restore staging Medusa deploys",
+                "author": {"name": "Guu", "date": "2026-10-02T12:00:00Z"}
+            },
+            "author": {"login": "theguuholi", "avatar_url": "https://avatars.githubusercontent.com/u/1"}
+        }
+    ]
+
+    mock_pr_resp = MagicMock()
+    mock_pr_resp.status_code = 200
+    mock_pr_resp.json.return_value = pr_payload
+    mock_pr_resp.text = ""
+
+    mock_diff_resp = MagicMock()
+    mock_diff_resp.status_code = 200
+    mock_diff_resp.text = "diff --git a/lib/medusa/config.ex b/lib/medusa/config.ex\n--- a/lib/medusa/config.ex\n+++ b/lib/medusa/config.ex\n@@ -1,5 +1,13 @@\n-old\n+new\n"
+
+    mock_files_resp = MagicMock()
+    mock_files_resp.status_code = 200
+    mock_files_resp.json.return_value = files_payload
+    mock_files_resp.text = ""
+
+    mock_commits_resp = MagicMock()
+    mock_commits_resp.status_code = 200
+    mock_commits_resp.json.return_value = commits_payload
+    mock_commits_resp.text = ""
+
+    async def mock_get(url, headers=None, *args, **kwargs):
+        if url.endswith("/files?per_page=100"):
+            return mock_files_resp
+        elif url.endswith("/commits?per_page=50"):
+            return mock_commits_resp
+        elif headers and headers.get("Accept") == "application/vnd.github.v3.diff":
+            return mock_diff_resp
+        elif "/pulls/1192" in url:
+            return mock_pr_resp
+        res = MagicMock()
+        res.status_code = 404
+        res.text = ""
+        res.json.return_value = {}
+        return res
+
+    with patch("httpx.AsyncClient.get", side_effect=mock_get):
+        data = await _fetch_github_pr_info("gowaylo", "commerce", 1192)
+        assert data["type"] == "github"
+        assert data["is_pr"] is True
+        assert data["pr_number"] == 1192
+        assert data["repo_name"] == "gowaylo/commerce"
+        assert data["url"] == "https://github.com/gowaylo/commerce/pull/1192"
+        assert len(data["files"]) == 1
+        assert data["files"][0]["filename"] == "lib/medusa/config.ex"
+        assert len(data["commits"]) == 1
+        assert data["commits"][0]["sha"] == "8859cba1234567890"
+        assert "diff --git" in data["diff_text"]
+
+
+
 

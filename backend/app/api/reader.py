@@ -732,6 +732,7 @@ async def _fetch_github_pr_info(owner: str, repo: str, pr_number: int) -> Dict[s
         status_str = "MERGED" if merged else state.upper()
         head_ref = pr_data.get("head", {}).get("ref", "")
         base_ref = pr_data.get("base", {}).get("ref", "main")
+        html_url = pr_data.get("html_url") or f"https://github.com/{owner}/{repo}/pull/{pr_number}"
         raw_body = (pr_data.get("body") or "").strip()
         body = _clean_github_markdown(raw_body, owner, repo, default_branch=base_ref) if raw_body else ""
         additions = pr_data.get("additions", 0)
