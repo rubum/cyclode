@@ -737,24 +737,11 @@ async def _fetch_github_pr_info(owner: str, repo: str, pr_number: int) -> Dict[s
         additions = pr_data.get("additions", 0)
         deletions = pr_data.get("deletions", 0)
         changed_files = pr_data.get("changed_files", len(files_list))
-        html_url = pr_data.get("html_url") or f"https://github.com/{owner}/{repo}/pull/{pr_number}"
-
-        meta_parts = [f"**Status**: `{status_str}`", f"**Author**: @{user_login}"]
-        if head_ref and base_ref:
-            meta_parts.append(f"**Branches**: `{head_ref}` ➔ `{base_ref}`")
-        if additions or deletions or changed_files:
-            meta_parts.append(f"**Changes**: `+{additions:,}` / `-{deletions:,}` ({changed_files} files)")
-
-        overview_parts = [
-            f"# Pull Request #{pr_number}: {title}\n",
-            f"{' | '.join(meta_parts)}\n",
-            "## Description\n",
-            f"{body if body else '*No description provided.*'}\n"
-        ]
-        overview_md = "\n".join(overview_parts).strip()
+        clean_body = body.strip() if body and body.strip() else "*No description provided.*"
+        overview_md = clean_body
 
         # Build full markdown as fallback for non-tabbed readers
-        full_md_parts = list(overview_parts)
+        full_md_parts = [clean_body]
         if diff_text.strip():
             full_md_parts.append("\n## Unified Diff\n")
             full_md_parts.append(f"```diff\n{diff_text.strip()}\n```\n")

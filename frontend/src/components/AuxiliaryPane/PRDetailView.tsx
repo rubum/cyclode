@@ -2903,169 +2903,82 @@ export interface PRDetailViewProps {
   onAskAboutComment?: (prompt: string) => void;
 }
 
-interface PRDetailSkeletonProps {
-  tab: 'overview' | 'diff' | 'commits' | 'comments' | 'tests' | 'review';
+export function cleanPRDescriptionMarkdown(raw: string): string {
+  if (!raw || !raw.trim()) return 'No description provided for this pull request.';
+
+  let text = raw.trim();
+
+  // 1. Strip synthetic reader header dump at the beginning of the text if present
+  text = text.replace(/^#*\s*Pull Request\s+#\d+:[^\n]*\n+/i, '');
+  text = text.replace(/^(?:\*\*)?Status:(?:\*\*)?\s+[^\n]*\n+/i, '');
+  text = text.replace(/^#*\s*Description\s*\n+/i, '');
+  text = text.replace(/^(?:---|___|\*\*\*)\s*\n+/i, '');
+
+  // 2. Normalize standalone raw Linear URLs
+  text = text.replace(/(^|[\s(])(linear\.app\/[^\s)]+)/g, '$1https://$2');
+
+  // Convert "Linear ticket\nhttps://linear.app/.../issue/(KEY)/..." into clean markdown
+  text = text.replace(/(?:^|\n)(?:#{1,4}\s*)?(?:Linear ticket|Linear issue|Issue|Ticket)[\s:]*\n*(https?:\/\/linear\.app\/[^\s\n]+)/gi, (_match, url) => {
+    const keyMatch = url.match(/\/issue\/([A-Za-z0-9_-]+)/i);
+    const key = keyMatch ? keyMatch[1].toUpperCase() : 'Linear Issue';
+    return `\n\n### Linked Issue\n- [${key}](${url})\n`;
+  });
+
+  // 3. Promote common section headings if written in plain bold or plain text
+  const commonSections = [
+    'What & why',
+    'What and why',
+    'Why',
+    'Summary',
+    'What changed',
+    "What's changed",
+    'Context',
+    'Problem',
+    'Solution',
+    'Evidence',
+    'Test Results',
+    'Testing',
+    'How to verify',
+    'How to test',
+    'Verification',
+    'Test Plan',
+    'Security & Permissions',
+    'Risk & Rollback',
+    'Dependencies',
+    'Related PRs',
+    'Notes'
+  ];
+
+  for (const sec of commonSections) {
+    const escaped = sec.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    text = text.replace(new RegExp(`(^|\\n)\\*\\*${escaped}\\*\\*\\s*(?=\\n|$)`, 'gi'), `$1### ${sec}\n`);
+    text = text.replace(new RegExp(`(^|\\n)${escaped}:\\s*(?=\\n)`, 'gi'), `$1### ${sec}\n`);
+    text = text.replace(new RegExp(`(^|\\n)${escaped}\\s*(?=\\n\\s*\\n|\\n\\s*[-*1-9])`, 'gi'), `$1### ${sec}\n`);
+  }
+
+  return text.trim() || 'No description provided for this pull request.';
+}
+
+interface PRDetailLoadingProps {
   prNumber?: number;
   title?: string;
 }
 
-const PRDetailSkeleton: React.FC<PRDetailSkeletonProps> = ({ tab, prNumber, title }) => {
+const PRDetailLoading: React.FC<PRDetailLoadingProps> = ({ prNumber, title }) => {
   return (
-    <div className="space-y-4 select-none">
-      {/* Top Ambient Loading Spinner Banner */}
-      <div className="flex items-center justify-between p-3.5 rounded-xl border border-onedark-accent/30 bg-onedark-accent/5 shadow-xs">
-        <div className="flex items-center space-x-3">
-          <Loader2 className="w-4 h-4 text-onedark-accent animate-spin flex-shrink-0" />
-          <div className="space-y-0.5">
-            <div className="flex items-center space-x-2">
-              <span className="text-xs font-bold text-onedark-fgBright">
-                {prNumber ? `Loading Pull Request #${prNumber}` : 'Loading Pull Request Telemetry'}
-              </span>
-              <span className="px-1.5 py-0.5 rounded bg-onedark-accent/15 text-onedark-accent text-[10px] font-mono animate-pulse">
-                Fetching Data
-              </span>
-            </div>
-            <p className="text-[11px] text-onedark-muted truncate max-w-lg">
-              {title || 'Retrieving latest commits, branch diffs, and review summary...'}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center space-x-2">
-          <span className="h-5 w-16 bg-onedark-surface/60 rounded-md animate-pulse"></span>
-          <span className="h-5 w-14 bg-onedark-surface/60 rounded-md animate-pulse"></span>
+    <div className="flex flex-col items-center justify-center py-20 px-4 text-center select-none animate-fadeIn">
+      <div className="relative flex items-center justify-center mb-3">
+        <div className="w-10 h-10 rounded-xl bg-onedark-accent/10 border border-onedark-accent/20 flex items-center justify-center">
+          <Loader2 className="w-5 h-5 text-onedark-accent animate-spin" />
         </div>
       </div>
-
-      {tab === 'overview' && (
-        <div className="space-y-4 animate-pulse">
-          {/* Header Metadata Skeleton */}
-          <div className="p-4 rounded-xl border border-onedark-borderSubtle bg-onedark-surface/20 space-y-3">
-            <div className="h-6 bg-onedark-surface/80 rounded-md w-3/4"></div>
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <div className="h-5 w-20 bg-onedark-surface/70 rounded-md"></div>
-              <div className="h-5 w-28 bg-onedark-surface/60 rounded-md"></div>
-              <div className="h-5 w-36 bg-onedark-surface/60 rounded-md"></div>
-              <div className="h-5 w-16 bg-onedark-surface/60 rounded-md"></div>
-            </div>
-          </div>
-
-          {/* Prose Skeleton */}
-          <div className="p-4 rounded-xl border border-onedark-borderSubtle bg-onedark-surface/10 space-y-3">
-            <div className="h-5 bg-onedark-surface/70 rounded w-1/4"></div>
-            <div className="space-y-2 pt-1">
-              <div className="h-3.5 bg-onedark-surface/60 rounded w-11/12"></div>
-              <div className="h-3.5 bg-onedark-surface/50 rounded w-5/6"></div>
-              <div className="h-3.5 bg-onedark-surface/50 rounded w-4/6"></div>
-            </div>
-
-            {/* Code block placeholder */}
-            <div className="my-3 rounded-lg border border-onedark-borderSubtle bg-onedark-darker/60 overflow-hidden">
-              <div className="h-7 bg-onedark-surface/40 border-b border-onedark-borderSubtle/60 px-3 flex items-center justify-between">
-                <div className="h-3 w-16 bg-onedark-surface/80 rounded"></div>
-                <div className="h-3 w-10 bg-onedark-surface/60 rounded"></div>
-              </div>
-              <div className="p-3 space-y-1.5 font-mono">
-                <div className="h-3 bg-onedark-surface/50 rounded w-2/3"></div>
-                <div className="h-3 bg-onedark-surface/40 rounded w-4/5"></div>
-                <div className="h-3 bg-onedark-surface/30 rounded w-1/2"></div>
-              </div>
-            </div>
-
-            <div className="h-5 bg-onedark-surface/70 rounded w-1/5 pt-2"></div>
-            <div className="space-y-2">
-              <div className="flex items-center space-x-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-onedark-accent/50"></div>
-                <div className="h-3.5 bg-onedark-surface/60 rounded w-4/5"></div>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-onedark-accent/50"></div>
-                <div className="h-3.5 bg-onedark-surface/60 rounded w-3/4"></div>
-              </div>
-              <div className="flex items-center space-x-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-onedark-accent/50"></div>
-                <div className="h-3.5 bg-onedark-surface/60 rounded w-5/6"></div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {tab === 'diff' && (
-        <div className="grid grid-cols-12 gap-3 h-[480px] animate-pulse">
-          <div className="col-span-4 rounded-xl border border-onedark-borderSubtle bg-onedark-surface/20 p-3 space-y-2 overflow-hidden">
-            <div className="h-4 bg-onedark-surface/80 rounded w-1/2 mb-3"></div>
-            {[...Array(6)].map((_, i) => (
-              <div key={i} className="flex items-center justify-between p-2 rounded bg-onedark-surface/40">
-                <div className="flex items-center space-x-2">
-                  <div className="w-3.5 h-3.5 rounded bg-onedark-surface/80"></div>
-                  <div className={`h-3 ${i % 2 === 0 ? 'w-24' : 'w-32'} bg-onedark-surface/70 rounded`}></div>
-                </div>
-                <div className="h-3 w-8 bg-onedark-surface/50 rounded"></div>
-              </div>
-            ))}
-          </div>
-          <div className="col-span-8 rounded-xl border border-onedark-borderSubtle bg-onedark-surface/10 p-4 space-y-2.5 overflow-hidden">
-            <div className="h-5 bg-onedark-surface/80 rounded w-1/3 mb-2"></div>
-            <div className="space-y-1.5 font-mono">
-              {[...Array(12)].map((_, i) => (
-                <div key={i} className={`h-4 rounded flex items-center px-2 space-x-2 ${
-                  i % 4 === 1 ? 'bg-onedark-green/10' : i % 4 === 3 ? 'bg-onedark-red/10' : 'bg-onedark-surface/30'
-                }`}>
-                  <span className="w-6 text-[10px] opacity-40 font-mono">{i + 1}</span>
-                  <div className={`h-2.5 rounded ${i % 3 === 0 ? 'w-3/4' : i % 3 === 1 ? 'w-1/2' : 'w-2/3'} bg-onedark-surface/60`}></div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {tab === 'commits' && (
-        <div className="space-y-3 animate-pulse">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="p-3.5 rounded-xl border border-onedark-borderSubtle bg-onedark-surface/20 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <div className="w-4 h-4 rounded-full bg-onedark-purple/40"></div>
-                  <div className={`h-4 bg-onedark-surface/80 rounded ${i % 2 === 0 ? 'w-64' : 'w-48'}`}></div>
-                </div>
-                <div className="h-4 bg-onedark-surface/60 rounded w-16"></div>
-              </div>
-              <div className="h-3 bg-onedark-surface/50 rounded w-3/4"></div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {tab === 'comments' && (
-        <div className="space-y-3 animate-pulse">
-          {[...Array(3)].map((_, i) => (
-            <div key={i} className="rounded-xl border border-onedark-borderSubtle bg-onedark-surface/20 overflow-hidden">
-              <div className="px-4 py-2.5 bg-onedark-surface/50 border-b border-onedark-borderSubtle/60 flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <div className="w-5 h-5 rounded-full bg-onedark-accent/40"></div>
-                  <div className="h-3.5 bg-onedark-surface/80 rounded w-24"></div>
-                </div>
-                <div className="h-3 bg-onedark-surface/60 rounded w-16"></div>
-              </div>
-              <div className="p-4 space-y-2">
-                <div className="h-3.5 bg-onedark-surface/60 rounded w-5/6"></div>
-                <div className="h-3.5 bg-onedark-surface/50 rounded w-2/3"></div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {(tab === 'tests' || tab === 'review') && (
-        <div className="p-4 rounded-xl border border-onedark-borderSubtle bg-onedark-surface/20 space-y-3 animate-pulse">
-          <div className="h-5 bg-onedark-surface/80 rounded w-1/3"></div>
-          <div className="space-y-2 pt-2">
-            <div className="h-3.5 bg-onedark-surface/60 rounded w-full"></div>
-            <div className="h-3.5 bg-onedark-surface/50 rounded w-5/6"></div>
-            <div className="h-3.5 bg-onedark-surface/50 rounded w-3/4"></div>
-          </div>
-        </div>
+      <span className="text-xs font-semibold text-onedark-fgBright">
+        {prNumber ? `Loading Pull Request #${prNumber}` : 'Loading Pull Request Telemetry...'}
+      </span>
+      {title && (
+        <p className="text-[11.5px] text-onedark-muted truncate max-w-md mt-1 font-mono">
+          {title}
+        </p>
       )}
     </div>
   );
@@ -3327,7 +3240,8 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
 
   // Extract on-page headings for Overview
   const overviewHeadings = useMemo<HeadingItem[]>(() => {
-    const md = data?.overview_markdown || data?.content_markdown || prRecord?.body || '';
+    const rawMd = data?.overview_markdown || data?.content_markdown || prRecord?.body || '';
+    const md = cleanPRDescriptionMarkdown(rawMd);
     if (!md) return [];
     const lines = md.split('\n');
     const items: HeadingItem[] = [];
@@ -4318,8 +4232,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
         {/* Main PR Body Viewport */}
         <div ref={contentScrollRef} className="flex-1 overflow-y-auto p-4 select-text relative">
           {isLoading && (
-            <PRDetailSkeleton
-              tab={prTab}
+            <PRDetailLoading
               prNumber={data?.pr_number || prNumber || prRecord?.pr_number}
               title={effectiveTitle}
             />
@@ -4348,10 +4261,56 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
 
           {!isLoading && !error && viewMode === 'reader' && (
             prTab === 'overview' ? (
-              <div className="max-w-none text-onedark-fg text-[14px] leading-[1.7]">
-                <MarkdownRenderer
-                  content={data?.overview_markdown || data?.content_markdown || prRecord?.body || 'No description provided for this pull request.'}
-                />
+              <div className="max-w-none text-onedark-fg text-[14px] leading-[1.75] space-y-4">
+                {/* Linked Linear Issue Card if detected */}
+                {detectedLinearTickets.length > 0 && (
+                  <div className="p-3 rounded-xl bg-indigo-500/10 border border-indigo-500/25 flex flex-wrap items-center justify-between gap-2 shadow-xs">
+                    <div className="flex items-center space-x-2.5">
+                      <div className="w-7 h-7 rounded-lg bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center">
+                        <Zap className="w-4 h-4 text-indigo-400" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-bold text-onedark-fgBright">Linked Linear Tickets</span>
+                        <p className="text-[11px] text-onedark-muted">Click any ticket to inspect issue telemetry and acceptance criteria</p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {detectedLinearTickets.map((ticket) => (
+                        <button
+                          key={ticket}
+                          onClick={() => setSelectedLinearTicket(ticket)}
+                          className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/40 text-indigo-300 text-xs font-mono font-bold transition-all cursor-pointer shadow-xs active:scale-95"
+                          title={`Open and inspect Linear issue ${ticket}`}
+                        >
+                          <Zap className="w-3 h-3 text-indigo-400" />
+                          <span>{ticket}</span>
+                          <ExternalLink className="w-2.5 h-2.5 text-indigo-400/80 ml-0.5" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="p-5 rounded-2xl bg-onedark-bg/70 border border-onedark-borderSubtle shadow-xs">
+                  <MarkdownRenderer
+                    content={cleanPRDescriptionMarkdown(
+                      data?.overview_markdown || data?.content_markdown || prRecord?.body || ''
+                    )}
+                    onLinkClick={(targetLink, linkText) => {
+                      const linearMatch = targetLink.match(/linear\.app\/[^\/]+\/issue\/([A-Za-z0-9_-]+)/i);
+                      if (linearMatch) {
+                        setSelectedLinearTicket(linearMatch[1].toUpperCase());
+                        return;
+                      }
+                      const ticketMatch = linkText.match(/\b([A-Z]{2,10}-\d+)\b/);
+                      if (ticketMatch) {
+                        setSelectedLinearTicket(ticketMatch[1].toUpperCase());
+                        return;
+                      }
+                      window.open(targetLink, '_blank', 'noopener,noreferrer');
+                    }}
+                  />
+                </div>
               </div>
             ) : prTab === 'diff' ? (
               <PRDiffSection 
