@@ -137,6 +137,12 @@ class AgentTaskPool:
         if not event_id and (not title or "http" in title or title == description[:70]):
             initial_title = generate_heuristic_title(description or title, repo_name)
 
+        # Auto-route PR review & audit intent to CodeReviewer persona if persona is default or General
+        review_intent_pattern = r"\b(?:review|audit|verify|check)\s+(?:pr\b|pull\s+request|changeset|diff|#\d+)\b|\b(?:pr|pull\s+request)\s+(?:review|audit)\b"
+        if persona in ["IssueResolver", "General", "default", ""] and re.search(review_intent_pattern, f"{initial_title} {description}", re.IGNORECASE):
+            persona = "CodeReviewer"
+            logger.info(f"Auto-routed task '{initial_title}' to specialized CodeReviewer persona based on PR review intent.")
+
         # Determine model: prioritize explicit model_name (if not 'auto'/empty)
         chosen_model = model_name if (model_name and model_name.strip() and model_name.strip() != "auto") else None
 
