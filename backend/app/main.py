@@ -21,6 +21,8 @@ from app.api.health import router as health_router
 from app.api.reader import router as reader_router
 from app.api.linear import router as linear_router
 from app.api.preview import router as preview_router
+from app.api.terminals import router as terminals_router
+from app.core.sandboxes.terminal_manager import terminal_manager
 
 
 @asynccontextmanager
@@ -84,6 +86,7 @@ app.include_router(repositories_router)
 app.include_router(reader_router)
 app.include_router(linear_router)
 app.include_router(preview_router)
+app.include_router(terminals_router)
 
 from app.agent.providers.factory import get_model_catalog
 
@@ -100,8 +103,32 @@ async def websocket_endpoint(websocket: WebSocket):
     await ws_manager.connect(websocket)
     try:
         while True:
-            data = await websocket.receive_text()
-            # Handle client heartbeats/messages
+            raw_data = await websocket.receive_text()
+            if not raw_data:
+                continue
+            try:
+                import json
+                msg = json.loads(raw_data)
+                msg_type = msg.get("type")
+                if msg_type == "PING":
+                    await ws_manager.send_personal_message({"type": "PONG"}, websocket)
+                elif msg_type == "TERMINAL_INPUT":
+                    session_id = msg.get("session_id")
+                    input_data = msg.get("data", "")
+                    if session_id and input_data:
+                        await terminal_manager.write_input(session_id, input_data)
+                elif msg_type == "TERMINAL_RESIZE":
+                    session_id = msg.get("session_id")
+                    cols = msg.get("cols", 80)
+                    rows = msg.get("rows", 24)
+                    if session_id:
+                        terminal_manager.resize_session(session_id, int(cols), int(rows))
+                elif msg_type == "TERMINAL_KILL":
+                    session_id = msg.get("session_id")
+                    if session_id:
+                        await terminal_manager.kill_session(session_id)
+            except Exception as e:
+                logger.debug(f"Error handling websocket payload: {e}")
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
     except Exception:
