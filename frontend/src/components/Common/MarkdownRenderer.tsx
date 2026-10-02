@@ -304,11 +304,13 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                     className={`my-2.5 p-3 rounded-xl border ${alertStyle.border} ${alertStyle.bg} flex items-start space-x-2.5 text-[13px] leading-relaxed`}
                   >
                     <Icon className={`w-3.5 h-3.5 ${alertStyle.text} flex-shrink-0 mt-0.5`} />
-                    <div className="space-y-0.5">
+                    <div className="space-y-0.5 flex-1 min-w-0">
                       <div className={`font-bold font-mono text-[10.5px] uppercase tracking-wider ${alertStyle.text}`}>
                         {block.alertType}
                       </div>
-                      <div className="text-onedark-fg">{inline(block.content || '')}</div>
+                      <div className="text-onedark-fg">
+                        <MarkdownRenderer content={block.content || ''} onLinkClick={onLinkClick} className="text-[13px] space-y-1.5" />
+                      </div>
                     </div>
                   </div>
                 );
@@ -471,8 +473,8 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
 
               if (block.type === 'blockquote' && block.content) {
                 return (
-                  <blockquote key={bIdx} className="border-l-2 border-onedark-accent pl-3 py-1.5 my-2 bg-onedark-surface/60 rounded-r-lg text-onedark-fg leading-[1.7] text-[13.5px]">
-                    {inline(block.content)}
+                  <blockquote key={bIdx} className="border-l-2 border-onedark-accent/70 pl-3.5 py-2 my-2.5 bg-onedark-surface/35 rounded-r-lg text-onedark-fg text-[13.5px] space-y-2 leading-[1.7]">
+                    <MarkdownRenderer content={block.content} onLinkClick={onLinkClick} className="space-y-2 text-[13.5px] text-onedark-fg" />
                     {shouldAttachCursor && renderCursor()}
                   </blockquote>
                 );
@@ -674,12 +676,49 @@ function parseBlocks(text: string): BlockItem[] {
       flushList();
       flushTable();
       const alertType = alertMatch[1].toUpperCase();
-      let alertContent = alertMatch[2];
-      while (i + 1 < lines.length && lines[i + 1].trim().startsWith('>')) {
-        i++;
-        alertContent += ' ' + lines[i].trim().slice(1).trim();
+      const alertLines: string[] = [];
+      if (alertMatch[2].trim()) {
+        alertLines.push(alertMatch[2].trim());
       }
-      blocks.push({ type: 'alert', alertType, content: alertContent.trim() });
+      while (i + 1 < lines.length && (lines[i + 1].trim() === '>' || lines[i + 1].trim().startsWith('>'))) {
+        const nextTrimmed = lines[i + 1].trim();
+        if (nextTrimmed.match(/^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/i)) {
+          break;
+        }
+        i++;
+        alertLines.push(lines[i].replace(/^(\s*)>\s?/, '$1'));
+      }
+      blocks.push({ type: 'alert', alertType, content: alertLines.join('\n').trim() });
+      continue;
+    }
+
+    // Standard Blockquote: Aggregate consecutive blockquote lines (including empty '>' lines)
+    if (trimmed.startsWith('>')) {
+      flushParagraph();
+      flushList();
+      flushTable();
+
+      const quoteLines: string[] = [];
+      quoteLines.push(line.replace(/^(\s*)>\s?/, '$1'));
+
+      while (i + 1 < lines.length) {
+        const nextLine = lines[i + 1];
+        const nextTrimmed = nextLine.trim();
+        if (nextTrimmed.startsWith('>')) {
+          if (nextTrimmed.match(/^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]/i)) {
+            break;
+          }
+          i++;
+          quoteLines.push(nextLine.replace(/^(\s*)>\s?/, '$1'));
+        } else {
+          break;
+        }
+      }
+
+      blocks.push({
+        type: 'blockquote',
+        content: quoteLines.join('\n').trim()
+      });
       continue;
     }
 
@@ -793,8 +832,8 @@ function parseBlocks(text: string): BlockItem[] {
       continue;
     }
 
-    // End list if ongoing and moving to heading or blockquote
-    if (trimmed.startsWith('#') || trimmed.startsWith('> ')) {
+    // End list if ongoing and moving to heading
+    if (trimmed.startsWith('#')) {
       flushParagraph();
       flushList();
 
@@ -811,8 +850,6 @@ function parseBlocks(text: string): BlockItem[] {
         blocks.push({ type: 'h2', content: trimmed.slice(3) });
       } else if (trimmed.startsWith('# ')) {
         blocks.push({ type: 'h1', content: trimmed.slice(2) });
-      } else if (trimmed.startsWith('> ')) {
-        blocks.push({ type: 'blockquote', content: trimmed.slice(2) });
       }
       continue;
     }

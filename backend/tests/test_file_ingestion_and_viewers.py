@@ -401,4 +401,84 @@ async def test_query_table_excel_spreadsheet_and_attachment_fallback(tmp_path):
         assert sql_data["rows"][0] == ["Gadget B"]
 
 
+@pytest.mark.asyncio
+async def test_notebook_complete_retrieval_without_truncation(tmp_path):
+    workspace = tmp_path / "sandbox-task-notebook-test"
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    task_id = "task-notebook-test"
+    async with async_session_factory() as session:
+        task = TaskModel(
+            id=task_id,
+            session_key="test-key-nb",
+            title="Notebook File Test",
+            persona="IssueResolver",
+            status="RUNNING",
+            workspace_path=str(workspace)
+        )
+        session.add(task)
+        await session.commit()
+
+    # Generate a realistic Jupyter notebook with > 1200 lines
+    cells = []
+    for i in range(150):
+        cells.append({
+            "cell_type": "code",
+            "execution_count": i + 1,
+            "metadata": {},
+            "source": [
+                f"# Cell {i + 1}\n",
+                f"import math\n",
+                f"val_{i} = math.sqrt({i} * 42)\n",
+                f"print(f'Computed {i}: {{val_{i}}}')\n"
+            ],
+            "outputs": [
+                {
+                    "output_type": "stream",
+                    "name": "stdout",
+                    "text": [f"Computed {i}: {i * 6.48:.2f}\n"]
+                }
+            ]
+        })
+
+    notebook_data = {
+        "cells": cells,
+        "metadata": {
+            "kernelspec": {
+                "display_name": "Python 3 (ipykernel)",
+                "language": "python",
+                "name": "python3"
+            },
+            "language_info": {
+                "name": "python",
+                "version": "3.11.0"
+            }
+        },
+        "nbformat": 4,
+        "nbformat_minor": 5
+    }
+
+    nb_text = json.dumps(notebook_data, indent=2)
+    assert len(nb_text.splitlines()) > 1000
+
+    nb_file = workspace / "analysis_pipeline.ipynb"
+    nb_file.write_text(nb_text, encoding="utf-8")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.get(f"/api/tasks/{task_id}/files/content?path=analysis_pipeline.ipynb")
+        assert res.status_code == 200
+        data = res.json()
+
+        # Should NOT be truncated despite having > 1000 lines
+        assert data["is_truncated"] is False
+        assert data["lines"] > 1000
+        assert data["language"] == "jupyter"
+
+        # Content must parse cleanly as valid JSON without 'Unexpected end of JSON'
+        parsed = json.loads(data["content"])
+        assert len(parsed["cells"]) == 150
+        assert parsed["cells"][0]["source"][0] == "# Cell 1\n"
+
+
 
