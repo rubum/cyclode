@@ -12,7 +12,16 @@ import {
   ChevronDown, 
   ChevronUp,
   ChevronsUpDown,
+  Bold,
+  Italic,
+  Code,
+  Quote,
   List, 
+  ListOrdered,
+  CheckSquare,
+  Link,
+  Eye,
+  Edit3,
   ListTree, 
   PanelLeft,
   PanelLeftClose,
@@ -1998,6 +2007,488 @@ const formatCommentTimeAgo = (dateStr?: string): string => {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 };
 
+interface PRCommentComposerProps {
+  prNumber?: number;
+  taskId?: string;
+  replyingTo: PRCommentItem | null;
+  onCancelReply: () => void;
+  onCommentPosted?: () => Promise<void>;
+  onAskAboutComment?: (prompt: string) => void;
+  comments?: PRCommentItem[];
+}
+
+export const PRCommentComposer: React.FC<PRCommentComposerProps> = ({
+  prNumber,
+  taskId,
+  replyingTo,
+  onCancelReply,
+  onCommentPosted,
+  onAskAboutComment,
+  comments = []
+}) => {
+  const draftKey = `cyclode_pr_draft_${prNumber || 'generic'}`;
+  const [activeTab, setActiveTab] = useState<'write' | 'preview'>('write');
+  const [commentText, setCommentText] = useState<string>(() => {
+    try {
+      return sessionStorage.getItem(draftKey) || '';
+    } catch {
+      return '';
+    }
+  });
+  const [isPosting, setIsPosting] = useState<boolean>(false);
+  const [postError, setPostError] = useState<string | null>(null);
+  const [postSuccess, setPostSuccess] = useState<boolean>(false);
+  const [showPresetsMenu, setShowPresetsMenu] = useState<boolean>(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    try {
+      if (commentText) {
+        sessionStorage.setItem(draftKey, commentText);
+      } else {
+        sessionStorage.removeItem(draftKey);
+      }
+    } catch {}
+  }, [commentText, draftKey]);
+
+  useEffect(() => {
+    if (replyingTo && textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, [replyingTo]);
+
+  const insertMarkdown = useCallback((prefix: string, suffix: string = '', defaultText: string = '') => {
+    setActiveTab('write');
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      setCommentText((prev) => `${prev}${prefix}${defaultText}${suffix}`);
+      return;
+    }
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selected = commentText.substring(start, end) || defaultText;
+    const replacement = `${prefix}${selected}${suffix}`;
+    const next = commentText.substring(0, start) + replacement + commentText.substring(end);
+    setCommentText(next);
+
+    setTimeout(() => {
+      textarea.focus();
+      const selectionStartPos = start + prefix.length;
+      const selectionEndPos = start + prefix.length + selected.length;
+      textarea.setSelectionRange(selectionStartPos, selectionEndPos);
+    }, 0);
+  }, [commentText]);
+
+  const presets = [
+    { label: 'LGTM 👍', text: 'LGTM! Verified and looks good to merge. 👍\n', title: 'Approve & LGTM' },
+    { label: 'Nitpick 🔍', text: '**Nitpick:** ', title: 'Minor styling / clean-up' },
+    { label: 'Question ❓', text: '**Question:** Could you clarify ', title: 'Ask for clarification' },
+    { label: 'Request Changes ⚠️', text: '### ⚠️ Changes Requested\n\n- ', title: 'Block / Request updates' },
+    { label: 'Test Request 🧪', text: '**Test Request:** Could we add automated test coverage for ', title: 'Request unit / integration tests' },
+    { label: 'Code Suggestion 💡', text: '```suggestion\n// Replace with optimized logic\n```\n', title: 'Suggest inline diff replacement' }
+  ];
+
+  const distinctAuthors = useMemo(() => {
+    const set = new Set<string>();
+    if (replyingTo?.author) set.add(replyingTo.author);
+    for (const c of comments) {
+      if (c.author && !c.author.toLowerCase().includes('[bot]')) {
+        set.add(c.author);
+      }
+    }
+    return Array.from(set).slice(0, 4);
+  }, [comments, replyingTo]);
+
+  const handlePost = async () => {
+    const text = commentText.trim();
+    if (!text || !taskId || !prNumber) return;
+    setIsPosting(true);
+    setPostError(null);
+    setPostSuccess(false);
+
+    try {
+      const apiBase = import.meta.env.VITE_API_URL || '';
+      const res = await fetch(`${apiBase}/api/tasks/${taskId}/prs/${prNumber}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          body: text,
+          in_reply_to_id: replyingTo?.raw_id
+        })
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.detail || errJson.error || `HTTP ${res.status}`);
+      }
+
+      setCommentText('');
+      try {
+        sessionStorage.removeItem(draftKey);
+      } catch {}
+      onCancelReply();
+      setPostSuccess(true);
+      setTimeout(() => setPostSuccess(false), 3000);
+      if (onCommentPosted) {
+        await onCommentPosted();
+      }
+    } catch (err: any) {
+      setPostError(err.message || 'Failed to post comment');
+    } finally {
+      setIsPosting(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      if (!isPosting && commentText.trim()) {
+        handlePost();
+      }
+      return;
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') {
+      e.preventDefault();
+      insertMarkdown('**', '**', 'bold text');
+      return;
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'i') {
+      e.preventDefault();
+      insertMarkdown('*', '*', 'italic text');
+      return;
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      e.preventDefault();
+      insertMarkdown('[', '](https://...)', 'link text');
+      return;
+    }
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'e') {
+      e.preventDefault();
+      insertMarkdown('`', '`', 'code');
+      return;
+    }
+    if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'p') {
+      e.preventDefault();
+      setActiveTab((prev) => (prev === 'write' ? 'preview' : 'write'));
+      return;
+    }
+    if (e.key === 'Escape' && replyingTo) {
+      e.preventDefault();
+      onCancelReply();
+      return;
+    }
+  };
+
+  const wordCount = useMemo(() => {
+    const trimmed = commentText.trim();
+    return trimmed ? trimmed.split(/\s+/).length : 0;
+  }, [commentText]);
+
+  return (
+    <div className="mt-6 rounded-xl border border-onedark-borderSubtle bg-onedark-darker/90 shadow-sm overflow-hidden transition-all focus-within:border-onedark-accent/60">
+      {/* Header Bar: Mode Switcher, Reply Target, and Presets */}
+      <div className="flex items-center justify-between px-3.5 py-2.5 bg-onedark-surface/60 border-b border-onedark-borderSubtle gap-2 flex-wrap">
+        <div className="flex items-center space-x-2 min-w-0">
+          <span className="font-semibold text-onedark-fgBright text-xs flex items-center space-x-1.5">
+            <MessageSquarePlus className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
+            <span className="truncate">
+              {replyingTo ? `Reply to @${replyingTo.author}` : 'Add a comment'}
+            </span>
+          </span>
+
+          {replyingTo && (
+            <button
+              onClick={onCancelReply}
+              className="px-1.5 py-0.5 rounded text-[10.5px] bg-onedark-surface text-onedark-muted hover:text-onedark-fg border border-onedark-borderSubtle flex items-center space-x-1 cursor-pointer transition-colors"
+              title="Cancel reply"
+            >
+              <span>Cancel</span>
+              <X className="w-2.5 h-2.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Right Header Controls: Presets Dropdown + Write/Preview Tabs */}
+        <div className="flex items-center space-x-2">
+          {/* Quick Presets Dropdown */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowPresetsMenu((prev) => !prev)}
+              className="inline-flex items-center space-x-1 px-2 py-1 rounded-lg text-[11px] font-medium bg-onedark-surface hover:bg-onedark-surface/80 border border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fg transition-colors cursor-pointer"
+              title="Insert common review templates"
+            >
+              <Sparkles className="w-3 h-3 text-onedark-yellow" />
+              <span>Templates</span>
+              <ChevronDown className="w-2.5 h-2.5 text-onedark-muted" />
+            </button>
+
+            {showPresetsMenu && (
+              <div
+                className="absolute right-0 top-full mt-1 w-56 rounded-xl border border-onedark-borderSubtle bg-onedark-surface/95 backdrop-blur-md shadow-lg p-1.5 z-20 space-y-0.5"
+                onMouseLeave={() => setShowPresetsMenu(false)}
+              >
+                <div className="px-2 py-1 text-[10px] font-mono text-onedark-muted uppercase tracking-wider">
+                  Review Templates
+                </div>
+                {presets.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => {
+                      insertMarkdown(preset.text);
+                      setShowPresetsMenu(false);
+                    }}
+                    className="w-full text-left px-2 py-1.5 rounded-lg text-xs hover:bg-onedark-darker text-onedark-fg flex items-center justify-between transition-colors cursor-pointer"
+                    title={preset.title}
+                  >
+                    <span>{preset.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Write / Preview Tab Switcher */}
+          <div className="flex items-center p-0.5 rounded-lg bg-onedark-surface border border-onedark-borderSubtle text-[11px] font-medium">
+            <button
+              type="button"
+              onClick={() => setActiveTab('write')}
+              className={`px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center space-x-1 ${
+                activeTab === 'write'
+                  ? 'bg-onedark-accent text-onedark-bg font-bold shadow-xs'
+                  : 'text-onedark-muted hover:text-onedark-fg'
+              }`}
+            >
+              <Edit3 className="w-3 h-3" />
+              <span>Write</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('preview')}
+              className={`px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center space-x-1 ${
+                activeTab === 'preview'
+                  ? 'bg-onedark-accent text-onedark-bg font-bold shadow-xs'
+                  : 'text-onedark-muted hover:text-onedark-fg'
+              }`}
+            >
+              <Eye className="w-3 h-3" />
+              <span>Preview</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Replying-to Context Quote */}
+      {replyingTo && (
+        <div className="px-3.5 py-2 bg-onedark-surface/30 border-b border-onedark-borderSubtle flex items-center justify-between gap-2 text-[11px] text-onedark-muted">
+          <div className="flex items-center space-x-2 truncate">
+            <CornerDownRight className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
+            <span className="italic truncate">&quot;{replyingTo.body.slice(0, 160)}...&quot;</span>
+          </div>
+        </div>
+      )}
+
+      {/* Formatting Action Toolbar (Visible in Write mode) */}
+      {activeTab === 'write' && (
+        <div className="flex items-center justify-between px-3 py-1.5 bg-onedark-surface/40 border-b border-onedark-borderSubtle text-onedark-muted overflow-x-auto gap-1">
+          <div className="flex items-center space-x-1">
+            <button
+              type="button"
+              onClick={() => insertMarkdown('**', '**', 'bold text')}
+              className="p-1.5 rounded hover:bg-onedark-surface hover:text-onedark-fg transition-colors cursor-pointer"
+              title="Bold (⌘+B)"
+            >
+              <Bold className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => insertMarkdown('*', '*', 'italic text')}
+              className="p-1.5 rounded hover:bg-onedark-surface hover:text-onedark-fg transition-colors cursor-pointer"
+              title="Italic (⌘+I)"
+            >
+              <Italic className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => insertMarkdown('`', '`', 'code')}
+              className="p-1.5 rounded hover:bg-onedark-surface hover:text-onedark-fg transition-colors cursor-pointer font-mono"
+              title="Inline Code (⌘+E)"
+            >
+              <Code className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => insertMarkdown('```ts\n', '\n```', '// code here')}
+              className="p-1.5 rounded hover:bg-onedark-surface hover:text-onedark-fg transition-colors cursor-pointer font-mono text-[10.5px] font-bold"
+              title="Code Block (```)"
+            >
+              {'{}'}
+            </button>
+
+            <div className="h-3.5 w-px bg-onedark-borderSubtle mx-1" />
+
+            <button
+              type="button"
+              onClick={() => insertMarkdown('> ', '', 'quote')}
+              className="p-1.5 rounded hover:bg-onedark-surface hover:text-onedark-fg transition-colors cursor-pointer"
+              title="Blockquote (>)"
+            >
+              <Quote className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => insertMarkdown('- ', '', 'list item')}
+              className="p-1.5 rounded hover:bg-onedark-surface hover:text-onedark-fg transition-colors cursor-pointer"
+              title="Bulleted List (-)"
+            >
+              <List className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => insertMarkdown('1. ', '', 'first item')}
+              className="p-1.5 rounded hover:bg-onedark-surface hover:text-onedark-fg transition-colors cursor-pointer"
+              title="Numbered List (1.)"
+            >
+              <ListOrdered className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => insertMarkdown('- [ ] ', '', 'task item')}
+              className="p-1.5 rounded hover:bg-onedark-surface hover:text-onedark-fg transition-colors cursor-pointer"
+              title="Task Checklist (- [ ])"
+            >
+              <CheckSquare className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => insertMarkdown('[', '](https://...)', 'link title')}
+              className="p-1.5 rounded hover:bg-onedark-surface hover:text-onedark-fg transition-colors cursor-pointer"
+              title="Insert Link (⌘+K)"
+            >
+              <Link className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => insertMarkdown('```suggestion\n', '\n```', '// suggested change')}
+              className="p-1.5 rounded hover:bg-onedark-surface hover:text-onedark-fg transition-colors cursor-pointer"
+              title="Insert GitHub Code Suggestion"
+            >
+              <FileCode2 className="w-3.5 h-3.5 text-onedark-accent" />
+            </button>
+          </div>
+
+          {/* Quick Mention Chips */}
+          {distinctAuthors.length > 0 && (
+            <div className="flex items-center space-x-1 pl-2 text-[10.5px]">
+              <span className="text-onedark-muted/60 hidden md:inline">Mention:</span>
+              {distinctAuthors.map((author) => (
+                <button
+                  key={author}
+                  type="button"
+                  onClick={() => insertMarkdown(`@${author} `)}
+                  className="px-1.5 py-0.5 rounded bg-onedark-surface hover:bg-onedark-surface/80 border border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fg font-mono transition-colors cursor-pointer"
+                  title={`Mention @${author}`}
+                >
+                  @{author}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Main Editing / Preview Canvas */}
+      <div className="p-3 bg-onedark-bg">
+        {activeTab === 'write' ? (
+          <textarea
+            ref={textareaRef}
+            id="pr-comment-composer-input"
+            rows={4}
+            value={commentText}
+            onChange={(e) => setCommentText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={
+              replyingTo
+                ? `Reply to @${replyingTo.author}... (Supports Markdown, Math, & Suggestions)`
+                : 'Leave a comment or review finding... (Supports Markdown, Math, & Suggestions)'
+            }
+            className="w-full bg-transparent text-xs text-onedark-fg placeholder-onedark-muted focus:outline-hidden leading-relaxed resize-y min-h-[90px] font-sans"
+          />
+        ) : (
+          <div className="min-h-[90px] p-2.5 rounded-lg bg-onedark-darker/50 border border-onedark-borderSubtle text-onedark-fg text-[13px] leading-relaxed select-text">
+            {commentText.trim() ? (
+              <MarkdownRenderer content={commentText} />
+            ) : (
+              <div className="text-onedark-muted italic py-6 text-center text-xs">
+                Nothing to preview yet. Switch to Write mode to type markdown.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Error & Success Alerts */}
+      {postError && (
+        <div className="px-3.5 py-2 bg-onedark-red/10 border-t border-onedark-red/20 text-[11px] text-onedark-red flex items-center space-x-1.5">
+          <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />
+          <span>{postError}</span>
+        </div>
+      )}
+
+      {postSuccess && (
+        <div className="px-3.5 py-2 bg-onedark-green/10 border-t border-onedark-green/20 text-[11px] text-onedark-green flex items-center space-x-1.5">
+          <Check className="w-3.5 h-3.5 flex-shrink-0" />
+          <span>Comment posted successfully!</span>
+        </div>
+      )}
+
+      {/* Bottom Footer: Stats, Shortcuts, and Primary Actions */}
+      <div className="px-3.5 py-2.5 bg-onedark-surface/40 border-t border-onedark-borderSubtle flex items-center justify-between gap-2 flex-wrap text-[11px]">
+        <div className="flex items-center space-x-2 text-onedark-muted">
+          <span className="font-mono text-[10.5px]">
+            {commentText.length} chars • {wordCount} words
+          </span>
+          <span className="hidden sm:inline-block font-mono text-[10px] px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-borderSubtle text-onedark-muted/80">
+            ⌘+Enter to submit
+          </span>
+        </div>
+
+        <div className="flex items-center space-x-2">
+          {onAskAboutComment && commentText.trim().length > 10 && (
+            <button
+              type="button"
+              onClick={() => {
+                const prompt = `Please review and refine the following pull request comment for PR #${prNumber || ''}:\n\n${commentText}\n\nCheck for clarity, accuracy, and constructive engineering recommendations.`;
+                onAskAboutComment(prompt);
+              }}
+              className="inline-flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-onedark-accent hover:bg-onedark-accent/15 border border-onedark-accent/30 transition-all cursor-pointer shadow-2xs"
+              title="Refine and review comment with Cyclode Agent"
+            >
+              <Sparkles className="w-3 h-3" />
+              <span>Polish with Agent</span>
+            </button>
+          )}
+
+          <button
+            onClick={handlePost}
+            disabled={isPosting || !commentText.trim()}
+            className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-onedark-accent text-onedark-bg hover:brightness-110 active:scale-95 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-xs"
+          >
+            {isPosting ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Send className="w-3.5 h-3.5" />
+            )}
+            <span>{isPosting ? 'Posting...' : replyingTo ? 'Send Reply' : 'Comment'}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
   comments,
   prNumber,
@@ -2011,11 +2502,7 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
   const [filter, setFilter] = useState<'ALL' | 'CONVERSATION' | 'CODE' | 'REVIEWS'>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isRegex, setIsRegex] = useState<boolean>(false);
-  const [newCommentText, setNewCommentText] = useState<string>('');
   const [replyingTo, setReplyingTo] = useState<PRCommentItem | null>(null);
-  const [isPosting, setIsPosting] = useState<boolean>(false);
-  const [postError, setPostError] = useState<string | null>(null);
-  const [postSuccess, setPostSuccess] = useState<boolean>(false);
   const [expandedDiffHunks, setExpandedDiffHunks] = useState<Record<string, boolean>>({});
   const [copiedPromptId, setCopiedPromptId] = useState<string | null>(null);
   const [collapsedComments, setCollapsedComments] = useState<Record<string, boolean>>({});
@@ -2077,43 +2564,6 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
       return next;
     });
   }, [allCollapsed, filteredComments]);
-
-  const handlePost = async () => {
-    const text = newCommentText.trim();
-    if (!text || !task?.id || !prNumber) return;
-    setIsPosting(true);
-    setPostError(null);
-    setPostSuccess(false);
-
-    try {
-      const apiBase = import.meta.env.VITE_API_URL || '';
-      const res = await fetch(`${apiBase}/api/tasks/${task.id}/prs/${prNumber}/comments`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          body: text,
-          in_reply_to_id: replyingTo?.raw_id
-        })
-      });
-
-      if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson.detail || errJson.error || `HTTP ${res.status}`);
-      }
-
-      setNewCommentText('');
-      setReplyingTo(null);
-      setPostSuccess(true);
-      setTimeout(() => setPostSuccess(false), 3000);
-      if (onRefreshComments) {
-        await onRefreshComments();
-      }
-    } catch (err: any) {
-      setPostError(err.message || 'Failed to post comment');
-    } finally {
-      setIsPosting(false);
-    }
-  };
 
   const toggleDiffHunk = (commentId: string) => {
     setExpandedDiffHunks(prev => ({ ...prev, [commentId]: !prev[commentId] }));
@@ -2688,78 +3138,17 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
         })}
       </div>
 
-      {/* Interactive Comment Composer */}
+      {/* Interactive Rich Comment Composer */}
       {task?.id && prNumber && (
-        <div className="mt-6 p-3.5 rounded-xl border border-onedark-borderSubtle bg-onedark-darker/90 shadow-xs space-y-2.5">
-          <div className="flex items-center justify-between">
-            <span className="font-semibold text-onedark-fgBright text-xs flex items-center space-x-1.5">
-              <MessageSquarePlus className="w-3.5 h-3.5 text-onedark-accent" />
-              <span>{replyingTo ? `Reply to @${replyingTo.author}` : 'Add a comment'}</span>
-            </span>
-
-            {replyingTo && (
-              <button
-                onClick={() => setReplyingTo(null)}
-                className="text-[11px] text-onedark-muted hover:text-onedark-fg flex items-center space-x-1 cursor-pointer"
-              >
-                <span>Cancel reply</span>
-                <X className="w-3 h-3" />
-              </button>
-            )}
-          </div>
-
-          {replyingTo && (
-            <div className="p-2 rounded-lg bg-onedark-surface/60 border border-onedark-borderSubtle text-[11px] text-onedark-muted line-clamp-2 italic">
-              &quot;{replyingTo.body.slice(0, 140)}...&quot;
-            </div>
-          )}
-
-          <textarea
-            id="pr-comment-composer-input"
-            rows={3}
-            value={newCommentText}
-            onChange={(e) => setNewCommentText(e.target.value)}
-            placeholder={
-              replyingTo
-                ? `Reply to @${replyingTo.author}... (Markdown supported)`
-                : 'Leave a comment on this pull request... (Markdown supported)'
-            }
-            className="w-full p-2.5 rounded-lg bg-onedark-bg border border-onedark-borderSubtle text-xs text-onedark-fg placeholder-onedark-muted focus:outline-hidden focus:border-onedark-accent leading-relaxed resize-y min-h-[70px]"
-          />
-
-          {postError && (
-            <div className="text-[11px] text-onedark-red flex items-center space-x-1">
-              <AlertCircle className="w-3 h-3" />
-              <span>{postError}</span>
-            </div>
-          )}
-
-          {postSuccess && (
-            <div className="text-[11px] text-onedark-green flex items-center space-x-1">
-              <Check className="w-3 h-3" />
-              <span>Comment posted successfully!</span>
-            </div>
-          )}
-
-          <div className="flex items-center justify-between pt-1">
-            <span className="text-[10px] text-onedark-muted">
-              Supports GitHub Flavored Markdown
-            </span>
-
-            <button
-              onClick={handlePost}
-              disabled={isPosting || !newCommentText.trim()}
-              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-onedark-accent text-onedark-bg hover:brightness-110 active:scale-95 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isPosting ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Send className="w-3.5 h-3.5" />
-              )}
-              <span>{isPosting ? 'Posting...' : replyingTo ? 'Send Reply' : 'Comment'}</span>
-            </button>
-          </div>
-        </div>
+        <PRCommentComposer
+          prNumber={prNumber}
+          taskId={task.id}
+          replyingTo={replyingTo}
+          onCancelReply={() => setReplyingTo(null)}
+          onCommentPosted={onRefreshComments}
+          onAskAboutComment={onAskAboutComment}
+          comments={comments}
+        />
       )}
     </div>
   );
