@@ -434,15 +434,24 @@ class ReviewVerifier:
         pr_title = (pr_meta or {}).get("title", "Pull Request Changeset")
         pr_number = (pr_meta or {}).get("number", "")
 
+        parts = []
+        if pr_title and pr_title != "Pull Request Changeset":
+            pr_label = f"#{pr_number} — {pr_title}" if pr_number else pr_title
+            parts.append(f"### Review: {pr_label}\n\n")
+
         if not findings:
             target = f"for {pr_title} #{pr_number}" if pr_number else (f"for {pr_title}" if pr_title and pr_title != "Pull Request Changeset" else "across changeset")
-            return f"**LGTM** · Verified security boundaries, state invariants, and concurrency lifecycles {target}. No defects or regressions detected."
+            parts.append(
+                f"**Assessment**: The changeset is clean, focused, and verified against security boundaries, "
+                f"state lifecycles, and concurrency invariants {target}. No defects or regressions detected.\n\n"
+                f"**Verdict**: **LGTM** · Ready to merge."
+            )
+            return "".join(parts).strip()
 
         # Stratify findings into Blockers (CRITICAL / HIGH) and Non-blocking (MEDIUM / LOW / INFO)
         blockers = [f for f in findings if f.severity in ["CRITICAL", "HIGH"]]
         defensive = [f for f in findings if f.severity not in ["CRITICAL", "HIGH"]]
 
-        parts = []
         if blockers:
             header_title = f"### Changes Requested ({len(blockers)} blocking defect{'s' if len(blockers) > 1 else ''})\n\n"
             parts.append(header_title)
@@ -480,7 +489,7 @@ class ReviewVerifier:
         """
         Sanitizes and normalizes an incoming review markdown body before staging or submission:
         1. Strips throat-clearing, greetings, and boilerplate intros/outros.
-        2. Strips redundant diff summary / 'What was done well' recap sections.
+        2. Strips verbose listicle template sections ('### Summary of Changes', '### What was done well').
         3. Normalizes unanchored defect headers into clean structured Markdown.
         """
         if not body or not body.strip():
@@ -496,7 +505,7 @@ class ReviewVerifier:
             flags=re.IGNORECASE
         ).strip()
 
-        # Strip sycophantic sections ("What was done well", "Key Changes", "Summary of Changes") if followed by other content
+        # Strip verbose template sections ("### Summary of Changes", "### What was done well", "### Key Changes")
         text = re.sub(
             r'###?\s*(?:Summary of Changes|Key Changes|What (?:was done well|is right|looks good))[^\n]*\n(?:[\s\S]*?)(?=(?:###?\s*(?:Changes Requested|Blocking|Areas for Improvement|Considerations|Verified Findings|Defects)|\Z))',
             '',
