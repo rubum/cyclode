@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { GitPullRequest, Activity, Cpu, Inbox, Folder, Compass, Play, GitCompare } from 'lucide-react';
+import { GitPullRequest, Activity, Cpu, Inbox, Folder, Compass, Play, GitCompare, Terminal as TerminalIcon } from 'lucide-react';
 import { Task, WorkspacePreviewInfo } from '../../types';
 import { PullRequestsTab } from './PullRequestsTab';
 import { TerminalTab } from './TerminalTab';
+import { ToolActivityTab } from './ToolActivityTab';
 import { SubagentsTab } from './SubagentsTab';
 import { EventInspectorTab } from './EventInspectorTab';
 import { FilesExplorerTab } from './FilesExplorerTab';
@@ -13,7 +14,7 @@ import { ErrorBoundary } from '../Common/ErrorBoundary';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
-export type AuxTabType = 'docs' | 'files' | 'preview' | 'changes' | 'prs' | 'activity' | 'subagents' | 'event';
+export type AuxTabType = 'docs' | 'files' | 'terminal' | 'preview' | 'changes' | 'prs' | 'activity' | 'subagents' | 'event';
 
 interface AuxiliaryPaneProps {
   task: Task | null;
@@ -57,6 +58,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
   onAskAboutComment,
 }) => {
   const [previewInfo, setPreviewInfo] = useState<WorkspacePreviewInfo | null>(null);
+  const [targetCommitSha, setTargetCommitSha] = useState<string | null>(null);
 
   const checkPreviewStatus = useCallback(async () => {
     if (!task?.id || task.id.startsWith('temp-')) {
@@ -132,6 +134,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
   const tabs = [
     { id: 'docs', label: 'Web & Docs', icon: Compass, badge: (previewTarget?.url && !isPrForTask(previewTarget.url, task)) ? '●' : undefined },
     { id: 'files', label: 'Files', icon: Folder, iconClass: 'text-onedark-folder' },
+    { id: 'terminal', label: 'Terminal', icon: TerminalIcon, iconClass: 'text-onedark-accent' },
     { id: 'preview', label: 'Preview', icon: Play, iconClass: previewInfo?.has_preview ? 'text-onedark-green' : '', badge: previewInfo?.has_preview ? '●' : undefined },
     { id: 'changes', label: 'Changes', icon: GitCompare, count: task?.diffs?.length || 0, iconClass: (task?.diffs?.length || 0) > 0 ? 'text-onedark-accent' : '' },
     { id: 'prs', label: 'PRs', icon: GitPullRequest, count: task?.prs?.length || 0, badge: (previewTarget?.url && isPrForTask(previewTarget.url, task)) ? '●' : undefined },
@@ -194,13 +197,27 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
             <FilesExplorerTab 
               task={task} 
               selectedFilePath={selectedFilePath} 
-              onClearSelectedFilePath={onClearSelectedFilePath} 
+              onClearSelectedFilePath={onClearSelectedFilePath}
+              onViewCommitDiff={(sha) => {
+                setTargetCommitSha(sha);
+                handleTabClick('changes');
+              }}
             />
           )}
           {activeTab === 'files' && !task && (
             <div className="h-full flex items-center justify-center text-xs text-onedark-muted font-mono">
               No active task selected
             </div>
+          )}
+          {activeTab === 'terminal' && (
+            <TerminalTab
+              task={task}
+              onOpenFile={(filePath) => {
+                if (filePath) {
+                  handleTabClick('files');
+                }
+              }}
+            />
           )}
           {activeTab === 'preview' && (
             <AppPreviewTab
@@ -210,7 +227,12 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
             />
           )}
           {activeTab === 'changes' && (
-            <ChangesDiffTab task={task} onSelectAuxTab={handleTabClick} />
+            <ChangesDiffTab 
+              task={task} 
+              onSelectAuxTab={handleTabClick} 
+              targetCommitSha={targetCommitSha}
+              onClearTargetCommitSha={() => setTargetCommitSha(null)}
+            />
           )}
           {activeTab === 'prs' && (
             <PullRequestsTab
@@ -221,7 +243,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
               onAskAboutComment={onAskAboutComment}
             />
           )}
-          {activeTab === 'activity' && <TerminalTab logs={task?.logs} />}
+          {activeTab === 'activity' && <ToolActivityTab logs={task?.logs} />}
           {activeTab === 'subagents' && <SubagentsTab task={task} />}
           {activeTab === 'event' && <EventInspectorTab task={task} />}
         </ErrorBoundary>

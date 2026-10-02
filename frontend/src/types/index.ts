@@ -10,7 +10,7 @@ export type TaskStatus =
   | 'CANCELLED';
 export type LayoutPreset = 'split' | 'preview' | 'wide' | 'fullscreen' | 'standard';
 export type PlanStepStatus = 'pending' | 'in_progress' | 'completed' | 'failed';
-export type PlanEvaluationStatus = 'pending' | 'evaluating' | 'accomplished' | 'needs_revision' | 'ready_for_review';
+export type PlanEvaluationStatus = 'pending' | 'evaluating' | 'in_progress' | 'accomplished' | 'needs_revision' | 'ready_for_review';
 
 export interface PlanStep {
   id: string;

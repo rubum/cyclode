@@ -12,6 +12,7 @@ export type ViewType =
   | "simulator";
 
 export type AuxTabType =
+  | "terminal"
   | "files"
   | "prs"
   | "activity"

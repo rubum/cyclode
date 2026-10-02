@@ -19,6 +19,7 @@ interface FilesExplorerTabProps {
   task: Task;
   selectedFilePath?: string | null;
   onClearSelectedFilePath?: () => void;
+  onViewCommitDiff?: (commitSha: string) => void;
 }
 
 interface SandboxInfo {
@@ -44,6 +45,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
   task,
   selectedFilePath,
   onClearSelectedFilePath,
+  onViewCommitDiff,
 }) => {
   const [data, setData] = useState<SandboxInfo | null>(() => (task?.id ? sandboxCache.get(task.id) || null : null));
   const [loading, setLoading] = useState<boolean>(() => !(task?.id && sandboxCache.has(task.id)));
@@ -385,6 +387,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
             setIsAgentPopoverOpen(true);
           }}
           onOpenAgentChat={() => setIsAgentPopoverOpen(true)}
+          onViewCommitDiff={onViewCommitDiff}
         />
       </div>
 

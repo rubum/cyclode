@@ -3,7 +3,7 @@ import { WebSocketProvider, useWebSocket } from './contexts/WebSocketContext';
 import { Sidebar } from './components/Sidebar/Sidebar';
 import { ResizablePanes } from './components/Layout/ResizablePanes';
 import { ChatCanvas } from './components/Chat/ChatCanvas';
-import { AuxiliaryPane } from './components/AuxiliaryPane/AuxiliaryPane';
+import { AuxiliaryPane, AuxTabType } from './components/AuxiliaryPane/AuxiliaryPane';
 import { FleetDashboard } from './components/Fleet/FleetDashboard';
 import { EventInbox } from './components/Events/EventInbox';
 import { WebhookSimulator } from './components/Simulator/WebhookSimulator';
@@ -42,7 +42,7 @@ const MainApp: React.FC = () => {
     }
     return 'split';
   });
-  const [activeAuxTab, setActiveAuxTab] = useState<'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'docs' | 'preview' | 'changes'>('activity');
+  const [activeAuxTab, setActiveAuxTab] = useState<AuxTabType>('terminal');
   const [sessionPreviews, setSessionPreviews] = useState<Record<string, { url: string; title?: string } | null>>({});
   const [sessionFiles, setSessionFiles] = useState<Record<string, string | null>>({});
 
@@ -933,7 +933,7 @@ const MainApp: React.FC = () => {
     }
   };
 
-  const handleApprove = async (feedback?: string) => {
+  const handleApprove = async (feedback?: string, custom_details?: any) => {
     if (!activeTaskId) return;
     setActiveTaskDetails((prev) => {
       if (!prev) return prev;
@@ -952,7 +952,7 @@ const MainApp: React.FC = () => {
       await fetch(`${API_BASE}/api/tasks/${activeTaskId}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ feedback }),
+        body: JSON.stringify({ feedback, custom_details }),
       });
       fetchTaskDetails(activeTaskId);
       fetchTasks();
@@ -974,17 +974,6 @@ const MainApp: React.FC = () => {
         ...prev,
         status: 'CANCELLED',
         approvals: updatedApprovals,
-        messages: [
-          ...(prev.messages || []),
-          {
-            id: `reject-${Date.now()}`,
-            task_id: activeTaskId,
-            sender: 'system',
-            content: `🛑 **Action Rejected by Reviewer.** Reason: ${feedback || 'No feedback provided.'}`,
-            created_at: new Date().toISOString(),
-            isOptimistic: true,
-          },
-        ],
       };
     });
     setTasks((prev) =>
@@ -1138,17 +1127,6 @@ const MainApp: React.FC = () => {
         ? {
             ...prev,
             status: 'CANCELLED',
-            messages: [
-              ...(prev.messages || []),
-              {
-                id: `stop-${Date.now()}`,
-                task_id: activeTaskId,
-                sender: 'system',
-                content: '⏹ **Task stopped by user.**',
-                created_at: new Date().toISOString(),
-                isOptimistic: true,
-              },
-            ],
           }
         : prev
     );
