@@ -84,6 +84,7 @@ class RetryTaskRequest(BaseModel):
 
 class ApprovalActionRequest(BaseModel):
     feedback: Optional[str] = None
+    custom_details: Optional[Dict[str, Any]] = None
 
 
 class InquiryResponseRequest(BaseModel):
@@ -570,7 +571,7 @@ async def sync_task_repo_prs(task_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/{task_id}/approve")
 async def approve_task_action(task_id: str, req: ApprovalActionRequest):
-    res = await agent_pool.approve_task(task_id, req.feedback)
+    res = await agent_pool.approve_task(task_id, req.feedback, req.custom_details)
     return res
 
 
@@ -1498,6 +1499,10 @@ async def get_sandbox_file_content(
     end_val = end_line if isinstance(end_line, int) else None
     max_b = max_bytes if isinstance(max_bytes, int) else 1048576
 
+    # Structured formats (Jupyter notebooks, JSON, YAML, TOML) must not be arbitrarily line-sliced at 1000 lines
+    # unless explicit line slicing was requested, to avoid destroying valid AST/JSON syntax.
+    is_structured_format = ext in {".ipynb", ".json", ".jsonc", ".yaml", ".yml", ".toml"}
+
     if start_val is not None or end_val is not None:
         s = max(1, start_val or 1)
         e = min(total_lines, end_val or total_lines)
@@ -1511,6 +1516,12 @@ async def get_sandbox_file_content(
         is_truncated = (s > 1 or e < total_lines)
         returned_start = s
         returned_end = e
+    elif is_structured_format and file_size <= 20971520:
+        # Deliver complete structured text up to 20MB
+        content = raw_text
+        is_truncated = False
+        returned_start = 1
+        returned_end = total_lines
     elif total_lines > DEFAULT_WINDOW or file_size > max_b:
         slice_lines = all_lines[:DEFAULT_WINDOW]
         content = "\n".join(slice_lines)
@@ -1536,6 +1547,58 @@ async def get_sandbox_file_content(
         "is_binary": False,
         "raw_url": raw_url
     }
+
+
+@router.get("/{task_id}/files/blame")
+async def get_sandbox_file_blame(
+    task_id: str,
+    path: str = Query(..., description="Relative file path in sandbox"),
+    start_line: Optional[int] = Query(None, ge=1, description="1-indexed starting line"),
+    end_line: Optional[int] = Query(None, ge=1, description="1-indexed ending line"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Retrieves GitLens-style line blame metadata (author, email, commit SHA, relative age, commit summary)
+    for a file in the task sandbox workspace.
+    """
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    result = await db.execute(stmt)
+    task = result.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    ws_path = Path(task.workspace_path).resolve() if task.workspace_path else None
+    if ws_path and ws_path.name != f"sandbox-{task.id}":
+        specific_sb = Path(settings.WORKSPACE_ROOT) / f"sandbox-{task.id}"
+        if specific_sb.exists() and specific_sb.is_dir():
+            ws_path = specific_sb
+
+    if not ws_path or not ws_path.exists() or not ws_path.is_dir():
+        raise HTTPException(status_code=404, detail="Sandbox workspace does not exist on disk")
+
+    clean_rel = unquote(path).lstrip("/\\")
+    if clean_rel.startswith(ws_path.name + "/"):
+        clean_rel = clean_rel[len(ws_path.name) + 1:]
+    elif clean_rel.startswith(ws_path.name + "\\"):
+        clean_rel = clean_rel[len(ws_path.name) + 1:]
+    elif clean_rel.startswith("sandbox-"):
+        parts = re.split(r"[/\\]", clean_rel, 1)
+        if len(parts) > 1 and parts[0].startswith("sandbox-"):
+            clean_rel = parts[1]
+
+    target_file = (ws_path / clean_rel).resolve()
+    try:
+        target_file.relative_to(ws_path)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied: Path outside sandbox workspace")
+
+    blame_res = worktree_manager.get_git_blame(
+        workspace_path=ws_path,
+        file_path=clean_rel,
+        start_line=start_line,
+        end_line=end_line
+    )
+    return blame_res
 
 
 @router.get("/{task_id}/files/raw")

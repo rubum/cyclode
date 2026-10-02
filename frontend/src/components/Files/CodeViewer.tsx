@@ -28,9 +28,10 @@ import {
   Music,
   FileText,
   BookOpen,
-  Archive
+  Archive,
+  GitCommit
 } from 'lucide-react';
-import { highlightCode, resolveLanguage, escapeHtml } from '../../utils/syntaxHighlighter';
+import { highlightCode, resolveLanguage, escapeHtml, splitHtmlLines } from '../../utils/syntaxHighlighter';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { ImageViewer } from './Viewers/ImageViewer';
 import { DataTableView } from './Viewers/DataTableView';
@@ -39,6 +40,7 @@ import { MediaViewer } from './Viewers/MediaViewer';
 import { DocumentViewer } from './Viewers/DocumentViewer';
 import { NotebookViewer } from './Viewers/NotebookViewer';
 import { ArchiveViewer } from './Viewers/ArchiveViewer';
+import { GitBlameHoverCard, LineBlame } from './GitBlameHoverCard';
 
 export interface LineContext {
   filename: string;
@@ -62,6 +64,7 @@ interface CodeViewerProps {
   previousFileTooltip?: string;
   nextFileTooltip?: string;
   onSearchSymbol?: (symbol: string, mode?: 'ast' | 'grep') => void;
+  onViewCommitDiff?: (commitSha: string) => void;
 }
 
 interface FileContentResponse {
@@ -96,7 +99,8 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
   onGoForward,
   previousFileTooltip,
   nextFileTooltip,
-  onSearchSymbol
+  onSearchSymbol,
+  onViewCommitDiff
 }) => {
   const [data, setData] = useState<FileContentResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -107,6 +111,57 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
   const [viewMode, setViewMode] = useState<ViewerMode>('code');
   const [previewReloadKey, setPreviewReloadKey] = useState<number>(0);
   const [activeHighlightLine, setActiveHighlightLine] = useState<number | null>(null);
+
+  // GitLens Line Blame & Inspection State
+  const [blameMap, setBlameMap] = useState<Record<number, LineBlame>>({});
+  const [loadingBlame, setLoadingBlame] = useState(false);
+  const [hoveredLineNum, setHoveredLineNum] = useState<number | null>(null);
+  const [activeBlameCard, setActiveBlameCard] = useState<{ blame: LineBlame; position: { top: number; left: number } } | null>(null);
+  const [showGutterBlame, setShowGutterBlame] = useState(false);
+  const blameHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lineHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Fetch Git blame metadata whenever filePath or taskId changes in code view
+  useEffect(() => {
+    setBlameMap({});
+    setActiveBlameCard(null);
+    setHoveredLineNum(null);
+    if (lineHoverTimerRef.current) {
+      clearTimeout(lineHoverTimerRef.current);
+      lineHoverTimerRef.current = null;
+    }
+
+    if (!taskId || !filePath || viewMode !== 'code') {
+      return;
+    }
+
+    let isMounted = true;
+    const fetchBlame = async () => {
+      setLoadingBlame(true);
+      try {
+        const res = await fetch(`${API_BASE}/api/tasks/${taskId}/files/blame?path=${encodeURIComponent(filePath)}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.ok && json.lines && isMounted) {
+            const mapped: Record<number, LineBlame> = {};
+            for (const [k, v] of Object.entries(json.lines)) {
+              mapped[parseInt(k, 10)] = v as LineBlame;
+            }
+            setBlameMap(mapped);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load git blame metadata:', err);
+      } finally {
+        if (isMounted) setLoadingBlame(false);
+      }
+    };
+
+    fetchBlame();
+    return () => {
+      isMounted = false;
+    };
+  }, [taskId, filePath, viewMode]);
 
   // Auto-detect default viewer mode on file change
   useEffect(() => {
@@ -201,6 +256,9 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     setScrollTop(e.currentTarget.scrollTop);
+    if (activeBlameCard) {
+      setActiveBlameCard(null);
+    }
   };
 
   useEffect(() => {
@@ -344,7 +402,7 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
       return rawLines.map(escapeHtml);
     }
     const html = highlightCode(data.content, data.language, data.name);
-    return html.split('\n');
+    return splitHtmlLines(html);
   }, [data, rawLines]);
 
   const lineCount = useMemo(() => {
@@ -428,6 +486,114 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
       content: lineContent,
     };
     onAskAboutLine?.(context);
+  };
+
+  const handleLineMouseEnter = (lineNum: number) => {
+    if (lineHoverTimerRef.current) {
+      clearTimeout(lineHoverTimerRef.current);
+    }
+    const baseLine = data?.start_line || 1;
+    const lineIndex = lineNum - baseLine;
+    const rawLine = rawLines[lineIndex] || '';
+    if (!rawLine.trim()) return;
+
+    lineHoverTimerRef.current = setTimeout(() => {
+      setHoveredLineNum(lineNum);
+    }, 180);
+  };
+
+  const handleLineMouseLeave = (lineNum: number) => {
+    if (lineHoverTimerRef.current) {
+      clearTimeout(lineHoverTimerRef.current);
+      lineHoverTimerRef.current = null;
+    }
+    setHoveredLineNum((prev) => (prev === lineNum ? null : prev));
+  };
+
+  const handleGutterMouseEnter = (lineNum: number, e: React.MouseEvent) => {
+    const baseLine = data?.start_line || 1;
+    const lineIndex = lineNum - baseLine;
+    const rawLine = rawLines[lineIndex] || '';
+    if (!rawLine.trim()) return;
+
+    const blame = blameMap[lineNum];
+    if (!blame) return;
+
+    if (blameHoverTimerRef.current) {
+      clearTimeout(blameHoverTimerRef.current);
+    }
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    blameHoverTimerRef.current = setTimeout(() => {
+      const cardWidth = 384;
+      const cardHeight = 180;
+      const padding = 12;
+
+      let top: number;
+      if (rect.bottom + cardHeight + padding <= window.innerHeight) {
+        top = rect.bottom + 6;
+      } else {
+        top = Math.max(padding, rect.top - cardHeight - 6);
+      }
+
+      let left = rect.right + 10;
+      if (left + cardWidth + padding > window.innerWidth) {
+        left = Math.max(padding, window.innerWidth - cardWidth - padding);
+      }
+
+      setActiveBlameCard({
+        blame,
+        position: { top: Math.round(top), left: Math.round(left) }
+      });
+    }, 200);
+  };
+
+  const handleGutterMouseLeave = () => {
+    if (blameHoverTimerRef.current) {
+      clearTimeout(blameHoverTimerRef.current);
+      blameHoverTimerRef.current = null;
+    }
+  };
+
+  const handleGhostTextClick = (lineNum: number, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (blameHoverTimerRef.current) {
+      clearTimeout(blameHoverTimerRef.current);
+      blameHoverTimerRef.current = null;
+    }
+
+    const baseLine = data?.start_line || 1;
+    const lineIndex = lineNum - baseLine;
+    const rawLine = rawLines[lineIndex] || '';
+    if (!rawLine.trim()) return;
+
+    const blame = blameMap[lineNum];
+    if (!blame) return;
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const cardWidth = 384;
+    const cardHeight = 180;
+    const padding = 12;
+
+    let top: number;
+    if (rect.bottom + cardHeight + padding <= window.innerHeight) {
+      top = rect.bottom + 6;
+    } else {
+      top = Math.max(padding, rect.top - cardHeight - 6);
+    }
+
+    let left = rect.left;
+    if (left + cardWidth + padding > window.innerWidth) {
+      left = Math.max(padding, window.innerWidth - cardWidth - padding);
+    } else {
+      left = Math.max(padding, left);
+    }
+
+    setActiveBlameCard({
+      blame,
+      position: { top: Math.round(top), left: Math.round(left) }
+    });
   };
 
   const handleSelectionAction = (initialPrompt?: string) => {
@@ -797,6 +963,17 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
           {viewMode === 'code' ? (
             <>
               <button
+                onClick={() => setShowGutterBlame(!showGutterBlame)}
+                className={`p-1 rounded transition-colors cursor-pointer ${
+                  showGutterBlame
+                    ? 'bg-onedark-accent/20 text-onedark-accent border border-onedark-accent/40 shadow-xs'
+                    : 'hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright'
+                }`}
+                title={showGutterBlame ? 'Hide Git Blame gutter' : 'Show Git Blame gutter'}
+              >
+                <GitCommit className="w-3.5 h-3.5" />
+              </button>
+              <button
                 onClick={() => setWrapLines(!wrapLines)}
                 className={`p-1 rounded transition-colors ${
                   wrapLines
@@ -947,13 +1124,15 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
           rawUrl={rawFileUrl}
           svgContent={data.content}
         />
-      ) : viewMode === 'notebook' || isNotebook ? (
+      ) : (viewMode === 'notebook' || (isNotebook && viewMode !== 'code')) ? (
         <NotebookViewer
           content={data.content}
           filePath={filePath || ''}
           rawUrl={rawFileUrl}
+          isTruncated={data.is_truncated}
+          onSwitchToCode={() => setViewMode('code')}
         />
-      ) : viewMode === 'archive' || isArchive || (data.is_binary && isArchive) ? (
+      ) : (viewMode === 'archive' || (isArchive && viewMode !== 'code') || (data.is_binary && isArchive)) ? (
         <ArchiveViewer
           taskId={taskId}
           filePath={filePath || ''}
@@ -1037,39 +1216,101 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
                 {visibleLines.map((lineHtml, i) => {
                   const lineNum = (data.start_line || 1) + startIndex + i;
                   const isTarget = activeHighlightLine === lineNum;
+                  const lineIndex = startIndex + i;
+                  const rawLine = rawLines[lineIndex] || '';
+                  const isBlankLine = !rawLine.trim();
+                  const blame = isBlankLine ? undefined : blameMap[lineNum];
+                  const isHoveredLine = !isBlankLine && hoveredLineNum === lineNum;
 
                   return (
                     <tr 
                       key={lineNum} 
                       id={`line-row-${lineNum}`}
                       style={{ height: `${ROW_HEIGHT}px` }}
-                      className={`hover:bg-onedark-surface/50 group/line transition-colors ${
+                      onMouseEnter={() => handleLineMouseEnter(lineNum)}
+                      onMouseLeave={() => handleLineMouseLeave(lineNum)}
+                      className={`hover:bg-onedark-surface/30 group/line transition-colors relative h-[20px] ${
                         isTarget ? 'bg-onedark-accent/20 ring-1 ring-inset ring-onedark-accent' : ''
                       }`}
                     >
-                      {/* Gutter with line number and hover 💬 button */}
-                      <td className="select-none pr-2 pl-3 text-right text-onedark-muted/40 group-hover/line:text-onedark-muted border-r border-onedark-borderSubtle font-mono text-[11px] leading-[20px] align-top w-16 min-w-[4rem] sticky left-0 bg-onedark-bg group-hover/line:bg-onedark-surface/50 z-10">
-                        <div className="flex items-center justify-end space-x-1.5">
+                      {/* Gutter with line number, optional GitLens blame summary, and hover 💬 button */}
+                      <td 
+                        onMouseEnter={(e) => handleGutterMouseEnter(lineNum, e)}
+                        onMouseLeave={handleGutterMouseLeave}
+                        onClick={(e) => handleGhostTextClick(lineNum, e)}
+                        className={`select-none pr-2 pl-2.5 text-right text-onedark-muted/40 group-hover/line:text-onedark-muted border-r border-onedark-borderSubtle font-mono text-[11px] leading-[20px] align-top sticky left-0 bg-onedark-bg group-hover/line:bg-onedark-surface/40 z-10 transition-colors tabular-nums cursor-pointer ${
+                          showGutterBlame ? 'min-w-[7.5rem] w-30' : 'w-16 min-w-[4rem]'
+                        }`}
+                        title="Click to view full Git blame & commit details"
+                      >
+                        <div className="flex items-center justify-end space-x-1.5 min-w-0">
+                          {showGutterBlame && blame && (
+                            <div 
+                              onClick={(e) => handleGhostTextClick(lineNum, e)}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              className="flex items-center space-x-1 min-w-0 truncate text-[10px] text-onedark-muted/80 hover:text-onedark-fg mr-auto font-sans cursor-pointer group/gblame"
+                              title={`Modified by ${blame.author} (${blame.relative_time}): ${blame.summary}`}
+                            >
+                              <span 
+                                className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                  blame.is_uncommitted 
+                                    ? 'bg-amber-400' 
+                                    : 'bg-onedark-accent/70'
+                                }`} 
+                              />
+                              <span className="truncate max-w-[50px] group-hover/gblame:text-onedark-accent">
+                                {blame.author.split(' ')[0]}
+                              </span>
+                            </div>
+                          )}
                           {onAskAboutLine && (
                             <button
-                              onClick={() => handleAskAboutGutterLine(lineNum)}
-                              className="opacity-0 group-hover/line:opacity-100 transition-opacity p-0.5 rounded bg-onedark-accent text-onedark-bg hover:scale-110 shadow-xs cursor-pointer"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleAskAboutGutterLine(lineNum);
+                              }}
+                              className="opacity-0 group-hover/line:opacity-100 transition-opacity p-0.5 rounded bg-onedark-accent text-onedark-bg hover:brightness-110 shadow-xs cursor-pointer shrink-0"
                               title={`Ask Cyclode Agent about line ${lineNum}`}
                             >
                               <MessageSquarePlus className="w-2.5 h-2.5" />
                             </button>
                           )}
-                          <span>{lineNum}</span>
+                          <span className="shrink-0">{lineNum}</span>
                         </div>
                       </td>
 
                       <td
                         onClick={handleCodeCellClick}
-                        className={`pl-3.5 pr-4 font-mono text-[12.5px] leading-[20px] align-top text-onedark-fg ${
+                        className={`pl-3.5 pr-4 font-mono text-[12.5px] leading-[20px] align-top text-onedark-fg h-[20px] ${
                           wrapLines ? 'whitespace-pre-wrap break-all' : 'whitespace-pre'
                         }`}
-                        dangerouslySetInnerHTML={{ __html: lineHtml || ' ' }}
-                      />
+                      >
+                        <div className="flex items-center min-h-[20px] h-[20px] leading-[20px]">
+                          <span dangerouslySetInnerHTML={{ __html: lineHtml || ' ' }} className="shrink-0" />
+
+                          {/* GitLens-Style Ambient Two-Tier Inline Ghost Annotation */}
+                          {isHoveredLine && blame && (
+                            <span
+                              onClick={(e) => handleGhostTextClick(lineNum, e)}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              className="ml-6 inline-flex items-center space-x-1.5 text-[10px] font-mono select-none cursor-pointer rounded h-[16px] max-h-[16px] leading-none py-0 px-1.5 opacity-35 hover:opacity-100 text-onedark-muted/70 hover:text-onedark-fgBright hover:bg-onedark-surface/90 border border-transparent hover:border-onedark-borderSubtle hover:shadow-xs group/ghost shrink-0 transition-opacity duration-150 box-border"
+                              title="Click to view full Git commit details & actions"
+                            >
+                              <GitCommit className="w-3 h-3 text-onedark-muted/60 group-hover/ghost:text-onedark-accent transition-colors shrink-0" />
+                              <span className="font-medium text-onedark-muted/80 group-hover/ghost:text-onedark-fgBright transition-colors truncate max-w-[120px]">
+                                {blame.author}
+                              </span>
+                              <span className="text-onedark-muted/60 group-hover/ghost:text-onedark-muted transition-colors shrink-0">
+                                , {blame.relative_time}
+                              </span>
+                              <span className="text-onedark-muted/40 mx-0.5">•</span>
+                              <span className="truncate max-w-xs text-onedark-muted/60 group-hover/ghost:text-onedark-fg/90 font-sans transition-colors">
+                                {blame.summary}
+                              </span>
+                            </span>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
@@ -1110,6 +1351,32 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
             </div>
           )}
         </div>
+      )}
+
+      {/* GitLens Blame Inspection Card Popover */}
+      {activeBlameCard && (
+        <GitBlameHoverCard
+          blame={activeBlameCard.blame}
+          filePath={filePath || ''}
+          position={activeBlameCard.position}
+          onClose={() => setActiveBlameCard(null)}
+          onAskAgent={(prompt) => {
+            if (onAskAboutLine) {
+              onAskAboutLine(
+                {
+                  filename: filePath || '',
+                  startLine: activeBlameCard.blame.line,
+                  endLine: activeBlameCard.blame.line,
+                  content: rawLines[activeBlameCard.blame.line - (data?.start_line || 1)] || ''
+                },
+                prompt
+              );
+            }
+          }}
+          onViewDiff={(sha) => {
+            onViewCommitDiff?.(sha);
+          }}
+        />
       )}
     </div>
   );

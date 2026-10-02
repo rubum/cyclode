@@ -930,6 +930,203 @@ class WorktreeManager:
             "lines": sliced
         }
 
+    def get_git_blame(
+        self,
+        workspace_path: Path,
+        file_path: str,
+        start_line: Optional[int] = None,
+        end_line: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Parses git blame metadata for a file in the workspace using git blame --line-porcelain.
+        Returns line-indexed author, commit SHA, relative time, summary, and email details.
+        """
+        clean_rel = file_path.lstrip("/")
+        full_path = workspace_path / clean_rel
+
+        if not (workspace_path / ".git").exists():
+            line_count = 0
+            if full_path.exists() and full_path.is_file():
+                try:
+                    with open(full_path, "r", encoding="utf-8", errors="replace") as f:
+                        line_count = sum(1 for _ in f)
+                except Exception:
+                    line_count = 0
+            fallback_lines: Dict[str, Any] = {}
+            for l_num in range(1, max(line_count + 1, 2)):
+                fallback_lines[str(l_num)] = {
+                    "line": l_num,
+                    "sha": "0000000000000000000000000000000000000000",
+                    "short_sha": "0000000",
+                    "author": "Workspace File",
+                    "email": "",
+                    "committed_at": None,
+                    "relative_time": "Current",
+                    "summary": "Untracked workspace file",
+                    "is_uncommitted": True
+                }
+            return {
+                "ok": True,
+                "file_path": clean_rel,
+                "total_lines": line_count,
+                "start_line": start_line or 1,
+                "end_line": end_line or line_count,
+                "lines": fallback_lines,
+                "commits": {}
+            }
+
+        git_env = self._get_git_env()
+        cmd = ["git", "blame", "--line-porcelain"]
+        if start_line is not None and end_line is not None and start_line > 0 and end_line >= start_line:
+            cmd.extend(["-L", f"{start_line},{end_line}"])
+        cmd.extend(["--", clean_rel])
+
+        try:
+            proc = subprocess.run(
+                cmd,
+                cwd=workspace_path,
+                capture_output=True,
+                text=True,
+                env=git_env,
+                timeout=10
+            )
+
+            if proc.returncode != 0:
+                # Untracked or newly added file in git workspace
+                line_count = 0
+                if full_path.exists() and full_path.is_file():
+                    try:
+                        with open(full_path, "r", encoding="utf-8", errors="replace") as f:
+                            line_count = sum(1 for _ in f)
+                    except Exception:
+                        line_count = 0
+                fallback_lines = {}
+                for l_num in range(1, max(line_count + 1, 2)):
+                    fallback_lines[str(l_num)] = {
+                        "line": l_num,
+                        "sha": "0000000000000000000000000000000000000000",
+                        "short_sha": "0000000",
+                        "author": "You",
+                        "email": "",
+                        "committed_at": None,
+                        "relative_time": "Just now",
+                        "summary": "Uncommitted changes (Current Session)",
+                        "is_uncommitted": True
+                    }
+                return {
+                    "ok": True,
+                    "file_path": clean_rel,
+                    "total_lines": line_count,
+                    "start_line": start_line or 1,
+                    "end_line": end_line or line_count,
+                    "lines": fallback_lines,
+                    "commits": {}
+                }
+
+            lines_map: Dict[str, Any] = {}
+            commits_map: Dict[str, Any] = {}
+
+            current_header = None
+            current_meta: Dict[str, str] = {}
+
+            for raw_line in proc.stdout.splitlines():
+                if raw_line.startswith("\t"):
+                    if current_header:
+                        sha = current_header["sha"]
+                        final_line = current_header["final_line"]
+                        author = current_meta.get("author", "Unknown")
+                        author_mail = current_meta.get("author-mail", "").strip("<>")
+                        author_time_str = current_meta.get("author-time", "0")
+                        summary = current_meta.get("summary", "")
+
+                        is_uncommitted = (
+                            sha.startswith("0000000") or 
+                            author in ("Not Committed Yet", "You") or 
+                            author_mail == "not.committed.yet"
+                        )
+
+                        committed_iso = None
+                        rel_time = "Just now"
+                        try:
+                            epoch = int(author_time_str)
+                            if epoch > 0:
+                                from datetime import datetime, timezone
+                                dt = datetime.fromtimestamp(epoch, tz=timezone.utc)
+                                committed_iso = dt.isoformat()
+                                rel_time = self._format_relative_time(committed_iso)
+                        except Exception:
+                            pass
+
+                        short_sha = sha[:7] if len(sha) >= 7 else sha
+                        if is_uncommitted:
+                            author = "You"
+                            summary = "Uncommitted changes (Current Session)"
+                            rel_time = "Just now"
+
+                        line_blame = {
+                            "line": final_line,
+                            "sha": sha,
+                            "short_sha": short_sha,
+                            "author": author,
+                            "email": author_mail,
+                            "committed_at": committed_iso,
+                            "relative_time": rel_time,
+                            "summary": summary,
+                            "is_uncommitted": is_uncommitted
+                        }
+                        lines_map[str(final_line)] = line_blame
+
+                        if short_sha not in commits_map and not is_uncommitted:
+                            commits_map[short_sha] = {
+                                "sha": sha,
+                                "short_sha": short_sha,
+                                "author": author,
+                                "email": author_mail,
+                                "committed_at": committed_iso,
+                                "relative_time": rel_time,
+                                "summary": summary
+                            }
+
+                    current_header = None
+                    current_meta = {}
+                else:
+                    parts = raw_line.split(" ", 3)
+                    if len(parts) >= 3 and len(parts[0]) == 40 and parts[1].isdigit() and parts[2].isdigit():
+                        current_header = {
+                            "sha": parts[0],
+                            "orig_line": int(parts[1]),
+                            "final_line": int(parts[2])
+                        }
+                    elif current_header is not None:
+                        space_idx = raw_line.find(" ")
+                        if space_idx > 0:
+                            k = raw_line[:space_idx]
+                            v = raw_line[space_idx + 1:]
+                            current_meta[k] = v
+
+            sorted_line_keys = [int(k) for k in lines_map.keys()]
+            calc_start = min(sorted_line_keys) if sorted_line_keys else 1
+            calc_end = max(sorted_line_keys) if sorted_line_keys else len(lines_map)
+
+            return {
+                "ok": True,
+                "file_path": clean_rel,
+                "total_lines": len(lines_map),
+                "start_line": start_line or calc_start,
+                "end_line": end_line or calc_end,
+                "lines": lines_map,
+                "commits": commits_map
+            }
+
+        except Exception as e:
+            return {
+                "ok": False,
+                "error": str(e),
+                "file_path": clean_rel,
+                "lines": {},
+                "commits": {}
+            }
+
     def cleanup_workspace(self, task_id: str):
         path = self.root_dir / f"task-{task_id}"
         if path.exists():
