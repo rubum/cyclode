@@ -11,6 +11,7 @@ import {
   ChevronRight, 
   ChevronDown, 
   ChevronUp,
+  ChevronsUpDown,
   List, 
   ListTree, 
   PanelLeft,
@@ -1802,6 +1803,15 @@ export interface ParsedBotComment {
   effort?: { label: string; colorClass: string };
   aiPrompt?: string;
   cleanBody: string;
+  botConfig?: {
+    runId?: string;
+    profile?: string;
+    plan?: string;
+    configUsed?: string;
+    remainingReviews?: string;
+  };
+  warningsCount?: number;
+  summarySnippet?: string;
 }
 
 export function parseBotReviewComment(rawBody?: string): ParsedBotComment {
@@ -1811,6 +1821,9 @@ export function parseBotReviewComment(rawBody?: string): ParsedBotComment {
   let severity: ParsedBotComment['severity'] = undefined;
   let effort: ParsedBotComment['effort'] = undefined;
   let aiPrompt: string | undefined = undefined;
+  let botConfig: ParsedBotComment['botConfig'] = undefined;
+  let warningsCount: number | undefined = undefined;
+  let summarySnippet: string | undefined = undefined;
 
   let bodyText = rawBody;
 
@@ -1825,11 +1838,52 @@ export function parseBotReviewComment(rawBody?: string): ParsedBotComment {
   // Strip coderabbit raw image URLs at top
   bodyText = bodyText.replace(/^https?:\/\/[^\s\n]+#gh-(?:light|dark)-mode-only\s*$/gim, '');
 
+  // Extract CodeRabbit / Bot Diagnostics metadata
+  const runIdMatch = bodyText.match(/Run ID:\s*`?([a-zA-Z0-9_-]+)`?/i);
+  const profileMatch = bodyText.match(/Review profile:\s*`?([a-zA-Z0-9_-]+)`?/i);
+  const planMatch = bodyText.match(/Plan:\s*`?([a-zA-Z0-9_-]+)`?/i);
+  const configMatch = bodyText.match(/Configuration used:\s*`?([^\n]+)`?/i);
+  const allowanceMatch = bodyText.match(/Included review availability:\s*([^\n]+)/i);
+
+  if (runIdMatch || profileMatch || planMatch || configMatch || allowanceMatch) {
+    botConfig = {
+      runId: runIdMatch ? runIdMatch[1] : undefined,
+      profile: profileMatch ? profileMatch[1] : undefined,
+      plan: planMatch ? planMatch[1] : undefined,
+      configUsed: configMatch ? configMatch[1].replace(/Repository:\s*/i, '').trim() : undefined,
+      remainingReviews: allowanceMatch ? allowanceMatch[1].trim() : undefined,
+    };
+  }
+
+  // Extract warning counts e.g. "Failed checks (5 warnings)" or "5 warnings"
+  const warningsMatch = bodyText.match(/(?:Failed checks\s*\()?(\d+)\s+warnings?\)?/i);
+  if (warningsMatch) {
+    warningsCount = parseInt(warningsMatch[1], 10);
+  }
+
+  // Extract Walkthrough summary snippet for collapsed preview
+  const walkthroughMatch = bodyText.match(/Walkthrough\s*\n+([\s\S]*?)(?=\n\n\s*Changes|\n\n\s*#{1,4}|\nFailed checks|$)/i);
+  if (walkthroughMatch) {
+    summarySnippet = walkthroughMatch[1].replace(/[*_`#]/g, '').trim().slice(0, 160);
+  }
+
   const lines = bodyText.split('\n');
   const cleanLines: string[] = [];
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
+
+    // Skip bot metadata noise lines since they are preserved in botConfig
+    if (/^Configuration used:/i.test(line) ||
+        /^Review profile:/i.test(line) ||
+        /^Plan:/i.test(line) ||
+        /^Run ID:/i.test(line) ||
+        /^Included review availability:/i.test(line) ||
+        /^Review in Change Stack/i.test(line) ||
+        /^Navigate logical layers of code changes/i.test(line) ||
+        /^Reviewing files that changed from the base/i.test(line)) {
+      continue;
+    }
 
     // Check for piped badges: e.g. 🎯 Functional Correctness | 🟠 Major | ⚡ Quick win
     if (line.includes('|') && (
@@ -1882,10 +1936,43 @@ export function parseBotReviewComment(rawBody?: string): ParsedBotComment {
       continue;
     }
 
+    // Format plain Walkthrough / Changes / Failed checks lines as headings
+    if (line === 'Walkthrough') {
+      cleanLines.push('### 📖 Walkthrough');
+      continue;
+    }
+    if (line === 'Changes') {
+      cleanLines.push('### 📦 Changes');
+      continue;
+    }
+    if (/^Failed checks\s*\(\d+\s+warnings?\)/i.test(line) || line.startsWith('❌ Failed checks')) {
+      cleanLines.push(`### ⚠️ ${line.replace(/^❌\s*/, '')}`);
+      continue;
+    }
+
     cleanLines.push(lines[i]);
   }
 
-  return { category, severity, effort, aiPrompt, cleanBody: cleanLines.join('\n').trim() };
+  let cleanBody = cleanLines.join('\n').trim();
+  cleanBody = cleanBody.replace(/^\n+/, '');
+
+  if (!summarySnippet && cleanBody) {
+    const firstLine = cleanBody.split('\n').find(l => l.trim() && !l.startsWith('#') && !l.startsWith('-') && !l.startsWith('|'));
+    if (firstLine) {
+      summarySnippet = firstLine.replace(/[*_`]/g, '').trim().slice(0, 140);
+    }
+  }
+
+  return {
+    category,
+    severity,
+    effort,
+    aiPrompt,
+    cleanBody,
+    botConfig,
+    warningsCount,
+    summarySnippet
+  };
 }
 
 interface PRCommentsSectionProps {
@@ -1931,6 +2018,7 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
   const [postSuccess, setPostSuccess] = useState<boolean>(false);
   const [expandedDiffHunks, setExpandedDiffHunks] = useState<Record<string, boolean>>({});
   const [copiedPromptId, setCopiedPromptId] = useState<string | null>(null);
+  const [collapsedComments, setCollapsedComments] = useState<Record<string, boolean>>({});
 
   const conversationCount = useMemo(() => comments.filter(c => c.type === 'conversation').length, [comments]);
   const codeCount = useMemo(() => comments.filter(c => c.type === 'code_comment').length, [comments]);
@@ -1955,6 +2043,40 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
       return true;
     });
   }, [comments, filter, searchQuery, grepMatcher]);
+
+  const isCommentCollapsed = useCallback((commentId: string, isBot: boolean, isReview: boolean, bodyLength: number): boolean => {
+    if (collapsedComments[commentId] !== undefined) {
+      return collapsedComments[commentId];
+    }
+    return isBot || (isReview && bodyLength > 300) || bodyLength > 500;
+  }, [collapsedComments]);
+
+  const toggleCollapse = useCallback((id: string, currentCollapsed: boolean) => {
+    setCollapsedComments(prev => ({
+      ...prev,
+      [id]: !currentCollapsed
+    }));
+  }, []);
+
+  const allCollapsed = useMemo(() => {
+    if (filteredComments.length === 0) return false;
+    return filteredComments.every((c) => {
+      const isBot = (c.author || '').toLowerCase().includes('[bot]') || (c.author || '').toLowerCase() === 'coderabbitai';
+      const isReview = c.type === 'review';
+      return isCommentCollapsed(c.id, isBot, isReview, (c.body || '').length);
+    });
+  }, [filteredComments, isCommentCollapsed]);
+
+  const toggleCollapseAll = useCallback(() => {
+    const targetState = !allCollapsed;
+    setCollapsedComments(prev => {
+      const next: Record<string, boolean> = { ...prev };
+      for (const c of filteredComments) {
+        next[c.id] = targetState;
+      }
+      return next;
+    });
+  }, [allCollapsed, filteredComments]);
 
   const handlePost = async () => {
     const text = newCommentText.trim();
@@ -2002,7 +2124,7 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
       {/* Top Controls: Category Tabs, Search, and Auto-Sync Status */}
       <div className="flex flex-col gap-2.5 bg-onedark-surface/40 p-3 rounded-xl border border-onedark-borderSubtle">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          {/* Filter Chips */}
+          {/* Filter Chips + Expand/Collapse All */}
           <div className="flex items-center gap-1.5 flex-wrap">
             <button
               onClick={() => setFilter('ALL')}
@@ -2068,6 +2190,21 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
                 </span>
               )}
             </button>
+
+            {filteredComments.length > 0 && (
+              <>
+                <div className="h-4 w-px bg-onedark-borderSubtle mx-0.5 hidden sm:block" />
+                <button
+                  type="button"
+                  onClick={toggleCollapseAll}
+                  className="px-2 py-1 rounded-lg text-xs font-medium bg-onedark-surface hover:bg-onedark-surface/80 border border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fg transition-all cursor-pointer flex items-center space-x-1.5 shadow-2xs"
+                  title={allCollapsed ? "Expand all comments" : "Collapse all comments"}
+                >
+                  <ChevronsUpDown className="w-3 h-3 text-onedark-accent" />
+                  <span>{allCollapsed ? 'Expand All' : 'Collapse All'}</span>
+                </button>
+              </>
+            )}
           </div>
 
           {/* Auto-Sync Indicator & Actions */}
@@ -2177,6 +2314,8 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
           const isReview = c.type === 'review';
           const isBot = (c.author || '').toLowerCase().includes('[bot]') || (c.author || '').toLowerCase() === 'coderabbitai';
           const botMeta = parseBotReviewComment(c.body);
+          const collapsed = isCommentCollapsed(c.id, isBot, isReview, (c.body || '').length);
+          const lineCount = c.body ? c.body.split('\n').length : 0;
 
           return (
             <div
@@ -2196,9 +2335,17 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
                   : 'border border-onedark-borderSubtle bg-onedark-surface/40'
               }`}
             >
-              {/* Comment Header */}
-              <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-onedark-borderSubtle bg-onedark-surface/60 gap-2">
+              {/* Comment Header - Clickable to toggle collapse */}
+              <div
+                onClick={() => toggleCollapse(c.id, collapsed)}
+                className="flex items-center justify-between px-3.5 py-2.5 border-b border-onedark-borderSubtle bg-onedark-surface/60 gap-2 cursor-pointer hover:bg-onedark-surface/80 transition-colors select-none"
+              >
                 <div className="flex items-center space-x-2.5 min-w-0 flex-wrap gap-y-1">
+                  {/* Chevron Toggle Button */}
+                  <span className="text-onedark-muted hover:text-onedark-fg transition-transform flex-shrink-0">
+                    <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${collapsed ? '-rotate-90 text-onedark-muted' : 'text-onedark-fg'}`} />
+                  </span>
+
                   {c.author_avatar ? (
                     <img
                       src={c.author_avatar}
@@ -2257,9 +2404,36 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
                       <span>Inline Review</span>
                     </span>
                   )}
+
+                  {/* Collapsed Header Badges for immediate high-level summary */}
+                  {collapsed && (
+                    <>
+                      {botMeta.warningsCount !== undefined && botMeta.warningsCount > 0 && (
+                        <span className="px-1.5 py-0.2 rounded text-[9.5px] font-bold bg-onedark-red/15 text-onedark-red border border-onedark-red/30 flex items-center space-x-1">
+                          <AlertTriangle className="w-2.5 h-2.5" />
+                          <span>{botMeta.warningsCount} warnings</span>
+                        </span>
+                      )}
+                      {botMeta.category && (
+                        <span className={`px-1.5 py-0.2 rounded text-[9.5px] font-medium border ${botMeta.category.colorClass}`}>
+                          {botMeta.category.label}
+                        </span>
+                      )}
+                      {botMeta.severity && (
+                        <span className={`px-1.5 py-0.2 rounded text-[9.5px] font-bold border ${botMeta.severity.colorClass}`}>
+                          {botMeta.severity.label}
+                        </span>
+                      )}
+                    </>
+                  )}
                 </div>
 
                 <div className="flex items-center space-x-2 text-onedark-muted flex-shrink-0">
+                  {lineCount > 1 && (
+                    <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-onedark-darker text-onedark-muted border border-onedark-borderSubtle hidden sm:inline-block">
+                      {lineCount} lines
+                    </span>
+                  )}
                   <span className="text-[11px] font-mono">
                     {formatCommentTimeAgo(c.created_at)}
                   </span>
@@ -2269,6 +2443,7 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
                       target="_blank"
                       rel="noopener noreferrer"
                       title="View on GitHub"
+                      onClick={(e) => e.stopPropagation()}
                       className="hover:text-onedark-fgBright transition-colors p-0.5"
                     >
                       <ExternalLink className="w-3 h-3" />
@@ -2277,161 +2452,237 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
                 </div>
               </div>
 
-              {/* Bot Metadata Chip Bar (Category, Severity, Effort) */}
-              {(botMeta.category || botMeta.severity || botMeta.effort) && (
-                <div className="flex items-center gap-1.5 flex-wrap px-3.5 pt-2.5 pb-1 bg-onedark-surface/30 border-b border-onedark-borderSubtle">
-                  {botMeta.category && (
-                    <span className={`px-2 py-0.5 rounded-md font-mono text-[10.5px] font-semibold border ${botMeta.category.colorClass}`}>
-                      {botMeta.category.label}
+              {/* Collapsed Preview Snippet */}
+              {collapsed ? (
+                <div
+                  onClick={() => toggleCollapse(c.id, collapsed)}
+                  className="px-4 py-2.5 bg-onedark-darker/30 hover:bg-onedark-darker/60 transition-colors cursor-pointer flex items-center justify-between gap-3 text-[12px] text-onedark-muted select-none"
+                >
+                  <div className="flex items-center space-x-2 truncate min-w-0">
+                    {c.path && (
+                      <span className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-borderSubtle text-[10.5px] font-mono text-onedark-accent font-semibold flex-shrink-0">
+                        <FileCode2 className="w-3 h-3" />
+                        <span className="truncate max-w-[140px]">{c.path.split('/').pop()}</span>
+                        {c.line && <span>:{c.line}</span>}
+                      </span>
+                    )}
+                    <span className="truncate text-onedark-fg/75">
+                      {botMeta.summarySnippet || (c.body || '').replace(/[*_`#]/g, '').trim().slice(0, 140) || 'Click to view comment contents...'}
                     </span>
-                  )}
-                  {botMeta.severity && (
-                    <span className={`px-2 py-0.5 rounded-md font-mono text-[10.5px] font-bold border ${botMeta.severity.colorClass}`}>
-                      {botMeta.severity.label}
-                    </span>
-                  )}
-                  {botMeta.effort && (
-                    <span className={`px-2 py-0.5 rounded-md font-mono text-[10.5px] font-medium border ${botMeta.effort.colorClass}`}>
-                      {botMeta.effort.label}
-                    </span>
-                  )}
-                </div>
-              )}
+                  </div>
 
-              {/* Code Comment Anchor & Diff Snippet Context */}
-              {isCodeComment && (c.diff_hunk || c.path) && (
-                <div className="px-3.5 py-2 bg-onedark-darker/40 border-b border-onedark-borderSubtle">
-                  {c.diff_hunk ? (
-                    <MiniDiffHunkViewer
-                      diffHunk={c.diff_hunk}
-                      filePath={c.path}
-                      targetLine={c.line}
-                      onJumpToDiff={onJumpToDiff}
-                    />
-                  ) : c.path ? (
-                    <div className="flex items-center justify-between text-xs font-mono">
-                      <div className="flex items-center space-x-1.5 text-onedark-fg truncate">
-                        <FileCode2 className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
-                        <span className="font-semibold text-onedark-fgBright truncate">{c.path}</span>
-                        {c.line && <span className="text-onedark-accent">:{c.line}</span>}
-                      </div>
-                      {onJumpToDiff && (
-                        <button
-                          onClick={() => onJumpToDiff(c.path!, c.line)}
-                          className="px-2 py-0.5 rounded text-[10.5px] font-medium bg-onedark-accent/15 text-onedark-accent hover:bg-onedark-accent/25 border border-onedark-accent/30 transition-colors cursor-pointer"
-                        >
-                          Jump to Diff
-                        </button>
+                  <div className="flex items-center space-x-2 flex-shrink-0 text-[11px]">
+                    {onJumpToDiff && c.path && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onJumpToDiff(c.path!, c.line);
+                        }}
+                        className="px-2 py-0.5 rounded text-[10.5px] font-medium bg-onedark-accent/15 text-onedark-accent hover:bg-onedark-accent/25 border border-onedark-accent/30 transition-colors cursor-pointer"
+                      >
+                        Diff
+                      </button>
+                    )}
+                    <span className="text-onedark-muted/60 text-[10.5px]">Click to expand</span>
+                  </div>
+                </div>
+              ) : (
+                /* Expanded Content */
+                <>
+                  {/* Bot Metadata Chip Bar (Category, Severity, Effort, Warnings) */}
+                  {(botMeta.category || botMeta.severity || botMeta.effort || (botMeta.warningsCount !== undefined && botMeta.warningsCount > 0)) && (
+                    <div className="flex items-center gap-1.5 flex-wrap px-3.5 pt-2.5 pb-1 bg-onedark-surface/30 border-b border-onedark-borderSubtle">
+                      {botMeta.warningsCount !== undefined && botMeta.warningsCount > 0 && (
+                        <span className="px-2 py-0.5 rounded-md font-mono text-[10.5px] font-bold bg-onedark-red/15 text-onedark-red border border-onedark-red/30 flex items-center space-x-1">
+                          <AlertTriangle className="w-3 h-3" />
+                          <span>{botMeta.warningsCount} warnings</span>
+                        </span>
+                      )}
+                      {botMeta.category && (
+                        <span className={`px-2 py-0.5 rounded-md font-mono text-[10.5px] font-semibold border ${botMeta.category.colorClass}`}>
+                          {botMeta.category.label}
+                        </span>
+                      )}
+                      {botMeta.severity && (
+                        <span className={`px-2 py-0.5 rounded-md font-mono text-[10.5px] font-bold border ${botMeta.severity.colorClass}`}>
+                          {botMeta.severity.label}
+                        </span>
+                      )}
+                      {botMeta.effort && (
+                        <span className={`px-2 py-0.5 rounded-md font-mono text-[10.5px] font-medium border ${botMeta.effort.colorClass}`}>
+                          {botMeta.effort.label}
+                        </span>
                       )}
                     </div>
-                  ) : null}
-                </div>
-              )}
+                  )}
 
-              {/* Comment Body Markdown & Actionable AI Prompt Card */}
-              <div className="px-4 py-3 text-onedark-fg text-[13.5px] leading-relaxed select-text space-y-3">
-                <MarkdownRenderer content={botMeta.cleanBody || c.body || '*No content provided.*'} />
-
-                {/* Structured AI Agent Prompt Box if present */}
-                {botMeta.aiPrompt && (
-                  <div className="mt-3 p-3 rounded-xl border border-onedark-purple/30 bg-onedark-darker/90 space-y-2 shadow-xs">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center space-x-1.5 text-onedark-purple font-mono text-xs font-bold">
-                        <Bot className="w-3.5 h-3.5" />
-                        <span>Prompt for AI Agents</span>
+                  {/* Bot Configuration & Run Diagnostics Disclosure Tray */}
+                  {botMeta.botConfig && (
+                    <details className="group mx-3.5 mt-2.5 rounded-lg border border-onedark-borderSubtle bg-onedark-darker/60 text-[11px] overflow-hidden">
+                      <summary className="px-2.5 py-1.5 font-mono text-onedark-muted hover:text-onedark-fg cursor-pointer select-none flex items-center justify-between transition-colors">
+                        <span className="flex items-center space-x-1.5">
+                          <Terminal className="w-3 h-3 text-onedark-purple" />
+                          <span>Bot Review Diagnostics & Configuration</span>
+                        </span>
+                        <span className="text-[10px] text-onedark-muted group-open:rotate-180 transition-transform">▼</span>
+                      </summary>
+                      <div className="p-2.5 pt-1.5 border-t border-onedark-borderSubtle grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px] font-mono text-onedark-fg/80">
+                        {botMeta.botConfig.runId && (
+                          <div><span className="text-onedark-muted">Run ID:</span> <span className="text-onedark-purple font-semibold">{botMeta.botConfig.runId}</span></div>
+                        )}
+                        {botMeta.botConfig.profile && (
+                          <div><span className="text-onedark-muted">Profile:</span> <span className="text-onedark-blue font-medium">{botMeta.botConfig.profile}</span></div>
+                        )}
+                        {botMeta.botConfig.plan && (
+                          <div><span className="text-onedark-muted">Plan:</span> <span className="text-onedark-green font-medium">{botMeta.botConfig.plan}</span></div>
+                        )}
+                        {botMeta.botConfig.configUsed && (
+                          <div className="col-span-full"><span className="text-onedark-muted">Config:</span> {botMeta.botConfig.configUsed}</div>
+                        )}
+                        {botMeta.botConfig.remainingReviews && (
+                          <div className="col-span-full"><span className="text-onedark-muted">Review Availability:</span> {botMeta.botConfig.remainingReviews}</div>
+                        )}
                       </div>
-                      <div className="flex items-center space-x-1.5">
+                    </details>
+                  )}
+
+                  {/* Code Comment Anchor & Diff Snippet Context */}
+                  {isCodeComment && (c.diff_hunk || c.path) && (
+                    <div className="px-3.5 py-2 bg-onedark-darker/40 border-b border-onedark-borderSubtle">
+                      {c.diff_hunk ? (
+                        <MiniDiffHunkViewer
+                          diffHunk={c.diff_hunk}
+                          filePath={c.path}
+                          targetLine={c.line}
+                          onJumpToDiff={onJumpToDiff}
+                        />
+                      ) : c.path ? (
+                        <div className="flex items-center justify-between text-xs font-mono">
+                          <div className="flex items-center space-x-1.5 text-onedark-fg truncate">
+                            <FileCode2 className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
+                            <span className="font-semibold text-onedark-fgBright truncate">{c.path}</span>
+                            {c.line && <span className="text-onedark-accent">:{c.line}</span>}
+                          </div>
+                          {onJumpToDiff && (
+                            <button
+                              onClick={() => onJumpToDiff(c.path!, c.line)}
+                              className="px-2 py-0.5 rounded text-[10.5px] font-medium bg-onedark-accent/15 text-onedark-accent hover:bg-onedark-accent/25 border border-onedark-accent/30 transition-colors cursor-pointer"
+                            >
+                              Jump to Diff
+                            </button>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+
+                  {/* Comment Body Markdown & Actionable AI Prompt Card */}
+                  <div className="px-4 py-3 text-onedark-fg text-[13.5px] leading-relaxed select-text space-y-3">
+                    <MarkdownRenderer content={botMeta.cleanBody || c.body || '*No content provided.*'} />
+
+                    {/* Structured AI Agent Prompt Box if present */}
+                    {botMeta.aiPrompt && (
+                      <div className="mt-3 p-3 rounded-xl border border-onedark-purple/30 bg-onedark-darker/90 space-y-2 shadow-xs">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center space-x-1.5 text-onedark-purple font-mono text-xs font-bold">
+                            <Bot className="w-3.5 h-3.5" />
+                            <span>Prompt for AI Agents</span>
+                          </div>
+                          <div className="flex items-center space-x-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(botMeta.aiPrompt!);
+                                setCopiedPromptId(c.id);
+                                setTimeout(() => setCopiedPromptId(null), 2000);
+                              }}
+                              className="inline-flex items-center space-x-1 px-2 py-1 rounded bg-onedark-surface hover:bg-onedark-surface/80 border border-onedark-borderSubtle text-[10.5px] font-mono text-onedark-muted hover:text-onedark-fg transition-colors cursor-pointer"
+                              title="Copy AI Prompt"
+                            >
+                              {copiedPromptId === c.id ? <Check className="w-3 h-3 text-onedark-green" /> : <Copy className="w-3 h-3" />}
+                              <span>{copiedPromptId === c.id ? 'Copied' : 'Copy'}</span>
+                            </button>
+
+                            {onAskAboutComment && (
+                              <button
+                                type="button"
+                                onClick={() => onAskAboutComment(botMeta.aiPrompt!)}
+                                className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker font-bold text-[11px] shadow-xs active:scale-95 transition-all cursor-pointer"
+                                title="Execute prompt directly in Chat Workstation"
+                              >
+                                <Zap className="w-3 h-3 fill-current" />
+                                <span>Fix with Cyclode</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        <pre className="p-2.5 rounded-lg bg-black/40 border border-onedark-borderSubtle text-[11px] font-mono text-onedark-fg/90 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto select-text">
+                          {botMeta.aiPrompt}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Comment Footer: Reactions & Actions */}
+                  <div className="px-3.5 py-2 border-t border-onedark-borderSubtle bg-onedark-surface/20 rounded-b-xl flex items-center justify-between gap-2">
+                    {/* Reaction Counters */}
+                    <div className="flex items-center space-x-1.5 flex-wrap">
+                      {c.reactions && Object.entries(c.reactions).map(([emojiKey, count]) => {
+                        if (typeof count !== 'number' || count <= 0) return null;
+                        const emojiIcon = emojiKey === '+1' ? '👍' : emojiKey === '-1' ? '👎' : emojiKey === 'heart' ? '❤️' : emojiKey === 'laugh' ? '😄' : emojiKey === 'rocket' ? '🚀' : emojiKey === 'eyes' ? '👀' : '🎉';
+                        return (
+                          <span
+                            key={emojiKey}
+                            className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded-md bg-onedark-surface border border-onedark-borderSubtle text-[10px] text-onedark-fg font-mono"
+                          >
+                            <span>{emojiIcon}</span>
+                            <span>{count}</span>
+                          </span>
+                        );
+                      })}
+                    </div>
+
+                    {/* Right Action Buttons: Fix with Agent + Reply */}
+                    <div className="flex items-center space-x-1.5">
+                      {onAskAboutComment && (
                         <button
                           type="button"
                           onClick={() => {
-                            navigator.clipboard.writeText(botMeta.aiPrompt!);
-                            setCopiedPromptId(c.id);
-                            setTimeout(() => setCopiedPromptId(null), 2000);
+                            const remediationPrompt = botMeta.aiPrompt || (
+                              `Please inspect and resolve the pull request review finding from @${c.author} on \`${c.path || 'active pull request'}\`${c.line ? ` (line ${c.line})` : ''}:\n\n` +
+                              `> ${(botMeta.cleanBody || c.body).slice(0, 300).replace(/\n/g, '\n> ')}\n\n` +
+                              `Review the repository code in the workspace and apply a verified fix with tests.`
+                            );
+                            onAskAboutComment(remediationPrompt);
                           }}
-                          className="inline-flex items-center space-x-1 px-2 py-1 rounded bg-onedark-surface hover:bg-onedark-surface/80 border border-onedark-borderSubtle text-[10.5px] font-mono text-onedark-muted hover:text-onedark-fg transition-colors cursor-pointer"
-                          title="Copy AI Prompt"
+                          className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-onedark-accent hover:bg-onedark-accent/15 border border-onedark-accent/30 transition-colors cursor-pointer shadow-2xs"
+                          title="Ask Cyclode Agent to fix this issue"
                         >
-                          {copiedPromptId === c.id ? <Check className="w-3 h-3 text-onedark-green" /> : <Copy className="w-3 h-3" />}
-                          <span>{copiedPromptId === c.id ? 'Copied' : 'Copy'}</span>
+                          <Zap className="w-3 h-3" />
+                          <span>Fix with Agent</span>
                         </button>
+                      )}
 
-                        {onAskAboutComment && (
-                          <button
-                            type="button"
-                            onClick={() => onAskAboutComment(botMeta.aiPrompt!)}
-                            className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker font-bold text-[11px] shadow-xs active:scale-95 transition-all cursor-pointer"
-                            title="Execute prompt directly in Chat Workstation"
-                          >
-                            <Zap className="w-3 h-3 fill-current" />
-                            <span>Fix with Cyclode</span>
-                          </button>
-                        )}
-                      </div>
+                      {task?.id && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReplyingTo(c);
+                            const textarea = document.getElementById('pr-comment-composer-input');
+                            if (textarea) textarea.focus();
+                          }}
+                          className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-medium text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/60 transition-colors cursor-pointer"
+                        >
+                          <CornerDownRight className="w-3 h-3" />
+                          <span>Reply</span>
+                        </button>
+                      )}
                     </div>
-
-                    <pre className="p-2.5 rounded-lg bg-black/40 border border-onedark-borderSubtle text-[11px] font-mono text-onedark-fg/90 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto select-text">
-                      {botMeta.aiPrompt}
-                    </pre>
                   </div>
-                )}
-              </div>
-
-              {/* Comment Footer: Reactions & Actions */}
-              <div className="px-3.5 py-2 border-t border-onedark-borderSubtle bg-onedark-surface/20 rounded-b-xl flex items-center justify-between gap-2">
-                {/* Reaction Counters */}
-                <div className="flex items-center space-x-1.5 flex-wrap">
-                  {c.reactions && Object.entries(c.reactions).map(([emojiKey, count]) => {
-                    if (typeof count !== 'number' || count <= 0) return null;
-                    const emojiIcon = emojiKey === '+1' ? '👍' : emojiKey === '-1' ? '👎' : emojiKey === 'heart' ? '❤️' : emojiKey === 'laugh' ? '😄' : emojiKey === 'rocket' ? '🚀' : emojiKey === 'eyes' ? '👀' : '🎉';
-                    return (
-                      <span
-                        key={emojiKey}
-                        className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded-md bg-onedark-surface border border-onedark-borderSubtle text-[10px] text-onedark-fg font-mono"
-                      >
-                        <span>{emojiIcon}</span>
-                        <span>{count}</span>
-                      </span>
-                    );
-                  })}
-                </div>
-
-                {/* Right Action Buttons: Fix with Agent + Reply */}
-                <div className="flex items-center space-x-1.5">
-                  {onAskAboutComment && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const remediationPrompt = botMeta.aiPrompt || (
-                          `Please inspect and resolve the pull request review finding from @${c.author} on \`${c.path || 'active pull request'}\`${c.line ? ` (line ${c.line})` : ''}:\n\n` +
-                          `> ${(botMeta.cleanBody || c.body).slice(0, 300).replace(/\n/g, '\n> ')}\n\n` +
-                          `Review the repository code in the workspace and apply a verified fix with tests.`
-                        );
-                        onAskAboutComment(remediationPrompt);
-                      }}
-                      className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-semibold text-onedark-accent hover:bg-onedark-accent/15 border border-onedark-accent/30 transition-colors cursor-pointer shadow-2xs"
-                      title="Ask Cyclode Agent to fix this issue"
-                    >
-                      <Zap className="w-3 h-3" />
-                      <span>Fix with Agent</span>
-                    </button>
-                  )}
-
-                  {task?.id && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setReplyingTo(c);
-                        const textarea = document.getElementById('pr-comment-composer-input');
-                        if (textarea) textarea.focus();
-                      }}
-                      className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-md text-[11px] font-medium text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/60 transition-colors cursor-pointer"
-                    >
-                      <CornerDownRight className="w-3 h-3" />
-                      <span>Reply</span>
-                    </button>
-                  )}
-                </div>
-              </div>
+                </>
+              )}
             </div>
           );
         })}
