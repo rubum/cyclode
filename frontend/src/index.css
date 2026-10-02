@@ -197,9 +197,20 @@ table td span.token {
 .token.comment,
 .token.prolog,
 .token.doctype,
-.token.cdata {
+.token.cdata,
+.token.doc,
+.token.docstring,
+.token.doc-comment,
+.token.triple-quoted-string,
+.token.doc .token.docstring,
+.token.doc .token.string {
   color: #5c6370;
   font-style: italic;
+}
+
+.token.doc .token.attribute {
+  color: #c678dd;
+  font-style: normal;
 }
 
 .token.punctuation {
@@ -271,9 +282,20 @@ table td span.token {
 html.light-theme .token.comment,
 html.light-theme .token.prolog,
 html.light-theme .token.doctype,
-html.light-theme .token.cdata {
+html.light-theme .token.cdata,
+html.light-theme .token.doc,
+html.light-theme .token.docstring,
+html.light-theme .token.doc-comment,
+html.light-theme .token.triple-quoted-string,
+html.light-theme .token.doc .token.docstring,
+html.light-theme .token.doc .token.string {
   color: #6a737d;
   font-style: italic;
+}
+
+html.light-theme .token.doc .token.attribute {
+  color: #a626a4;
+  font-style: normal;
 }
 
 html.light-theme .token.punctuation {

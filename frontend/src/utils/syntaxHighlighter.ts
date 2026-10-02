@@ -233,6 +233,33 @@ if (Prism.languages.markup && Prism.languages.elixir) {
   Prism.languages['html.leex'] = Prism.languages.heex;
 }
 
+// Enhance Elixir docstring grammar to prevent keyword leakage in prose and ensure comment styling
+if (Prism.languages.elixir) {
+  (Prism.languages.elixir as any).doc = {
+    pattern: /@(?:doc|moduledoc|typedoc|shortdoc)\s+(?:~[sS](?:("""|''')[\s\S]*?\1|([\/|"'])(?:\\.|(?!\2)[^\\\r\n])*\2|\((?:\\.|[^\\)\r\n])*\)|\[(?:\\.|[^\\\]\r\n])*\]|\{(?:\\.|[^\\}\r\n])*\}|<(?:\\.|[^\\>\r\n])*>)|("""|''')[\s\S]*?\3|("|')(?:\\(?:\r\n|[\s\S])|(?!\4)[^\\\r\n])*\4|false)/,
+    greedy: true,
+    inside: {
+      attribute: {
+        pattern: /^@\w+/,
+        alias: 'keyword',
+      },
+      boolean: {
+        pattern: /\bfalse\b/,
+        alias: 'boolean',
+      },
+      docstring: {
+        pattern: /[\s\S]+/,
+        alias: ['comment', 'doc-comment', 'docstring'],
+      },
+    },
+  };
+}
+
+// Enhance Python triple-quoted docstrings with comment styling
+if (Prism.languages.python && (Prism.languages.python as any)['triple-quoted-string']) {
+  (Prism.languages.python as any)['triple-quoted-string'].alias = ['comment', 'docstring', 'doc-comment', 'string'];
+}
+
 const EXTENSION_MAP: Record<string, string> = {
   // Python
   py: 'python',
@@ -393,6 +420,172 @@ export function escapeHtml(text: string): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+}
+
+/**
+ * Accurately splits multiline syntax-highlighted HTML into individual line HTML strings
+ * while cleanly carrying and closing open <span class="..."> tags across line breaks.
+ */
+export function splitHtmlLines(html: string): string[] {
+  if (!html) return [];
+  const lines = html.split('\n');
+  const result: string[] = [];
+  const openTags: { fullTag: string; tagName: string }[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // Start with currently open tags
+    let lineOutput = openTags.map((t) => t.fullTag).join('') + line;
+
+    // Parse tags in the current line to maintain the openTags stack
+    const tagRegex = /<\/?([a-zA-Z0-9_-]+)(?:\s+[^>]*)?>/g;
+    let match: RegExpExecArray | null;
+    while ((match = tagRegex.exec(line)) !== null) {
+      const fullTag = match[0];
+      const tagName = match[1].toLowerCase();
+      if (fullTag.startsWith('</')) {
+        // Find matching opening tag from end of openTags stack
+        for (let k = openTags.length - 1; k >= 0; k--) {
+          if (openTags[k].tagName === tagName) {
+            openTags.splice(k, 1);
+            break;
+          }
+        }
+      } else if (!fullTag.endsWith('/>')) {
+        // Opening tag
+        openTags.push({ fullTag, tagName });
+      }
+    }
+
+    // Close any tags still open at the end of this line
+    for (let j = openTags.length - 1; j >= 0; j--) {
+      lineOutput += '</' + openTags[j].tagName + '>';
+    }
+    result.push(lineOutput);
+  }
+
+  return result;
+}
+
+export interface HighlightDiffLineOptions {
+  language?: string;
+  fileName?: string;
+  grepMatcher?: {
+    test: (text: string | null | undefined) => boolean;
+    highlightSegments: (text: string) => { text: string; matched: boolean }[];
+  } | null;
+}
+
+const DIFF_LINE_CACHE = new Map<string, string>();
+const MAX_DIFF_CACHE_SIZE = 5000;
+
+function renderTokenStreamToHtml(
+  token: string | Prism.Token | (string | Prism.Token)[],
+  grepMatcher?: {
+    test: (text: string | null | undefined) => boolean;
+    highlightSegments: (text: string) => { text: string; matched: boolean }[];
+  } | null
+): string {
+  if (typeof token === 'string') {
+    if (grepMatcher && grepMatcher.test(token)) {
+      const segments = grepMatcher.highlightSegments(token);
+      return segments
+        .map(seg =>
+          seg.matched
+            ? `<mark class="bg-onedark-yellow/30 text-onedark-yellow font-bold px-0.5 rounded-xs border border-onedark-yellow/40">${escapeHtml(seg.text)}</mark>`
+            : escapeHtml(seg.text)
+        )
+        .join('');
+    }
+    return escapeHtml(token);
+  }
+
+  if (Array.isArray(token)) {
+    return token.map(t => renderTokenStreamToHtml(t, grepMatcher)).join('');
+  }
+
+  // Prism.Token instance
+  const typeClass = `token ${token.type} ${
+    Array.isArray(token.alias)
+      ? token.alias.join(' ')
+      : token.alias || ''
+  }`.trim();
+
+  let innerHtml = '';
+  if (typeof token.content === 'string') {
+    if (grepMatcher && grepMatcher.test(token.content)) {
+      const segments = grepMatcher.highlightSegments(token.content);
+      innerHtml = segments
+        .map(seg =>
+          seg.matched
+            ? `<mark class="bg-onedark-yellow/30 text-onedark-yellow font-bold px-0.5 rounded-xs border border-onedark-yellow/40">${escapeHtml(seg.text)}</mark>`
+            : escapeHtml(seg.text)
+        )
+        .join('');
+    } else {
+      innerHtml = escapeHtml(token.content);
+    }
+  } else if (Array.isArray(token.content) || (typeof token.content === 'object' && token.content !== null)) {
+    innerHtml = renderTokenStreamToHtml(token.content as any, grepMatcher);
+  } else {
+    innerHtml = escapeHtml(String(token.content ?? ''));
+  }
+
+  return `<span class="${typeClass}">${innerHtml}</span>`;
+}
+
+/**
+ * Highlights a single line of source code from a unified or split diff.
+ * Strips diff prefix markers before grammar tokenization to prevent syntax parse degradation,
+ * preserves One Dark syntax token styling, and layers live grep search marks.
+ */
+export function highlightDiffLine(
+  lineText: string,
+  options?: HighlightDiffLineOptions
+): string {
+  if (!lineText) return ' ';
+
+  const fileName = options?.fileName;
+  const langOrExt = options?.language;
+  const grepMatcher = options?.grepMatcher;
+
+  const language = resolveLanguage(langOrExt, fileName);
+  const grammar = Prism.languages[language];
+
+  // If no grepMatcher is active, use fast LRU cache
+  if (!grepMatcher) {
+    const cacheKey = `${language}:::${lineText}`;
+    const cached = DIFF_LINE_CACHE.get(cacheKey);
+    if (cached !== undefined) {
+      return cached;
+    }
+  }
+
+  let resultHtml = '';
+  if (grammar) {
+    try {
+      const tokens = Prism.tokenize(lineText, grammar);
+      resultHtml = renderTokenStreamToHtml(tokens, grepMatcher);
+    } catch (e) {
+      resultHtml = grepMatcher && grepMatcher.test(lineText)
+        ? grepMatcher.highlightSegments(lineText).map(s => s.matched ? `<mark class="bg-onedark-yellow/30 text-onedark-yellow font-bold px-0.5 rounded-xs border border-onedark-yellow/40">${escapeHtml(s.text)}</mark>` : escapeHtml(s.text)).join('')
+        : escapeHtml(lineText);
+    }
+  } else {
+    resultHtml = grepMatcher && grepMatcher.test(lineText)
+      ? grepMatcher.highlightSegments(lineText).map(s => s.matched ? `<mark class="bg-onedark-yellow/30 text-onedark-yellow font-bold px-0.5 rounded-xs border border-onedark-yellow/40">${escapeHtml(s.text)}</mark>` : escapeHtml(s.text)).join('')
+      : escapeHtml(lineText);
+  }
+
+  if (!grepMatcher) {
+    if (DIFF_LINE_CACHE.size > MAX_DIFF_CACHE_SIZE) {
+      DIFF_LINE_CACHE.clear();
+    }
+    const cacheKey = `${language}:::${lineText}`;
+    DIFF_LINE_CACHE.set(cacheKey, resultHtml);
+  }
+
+  return resultHtml;
 }
 
 export default Prism;
