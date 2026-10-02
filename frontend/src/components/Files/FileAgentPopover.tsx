@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { 
   Bot, 
   Send, 
+  Square,
   X, 
   Sparkles, 
   ShieldCheck, 
@@ -16,6 +17,7 @@ import {
   Minimize2, 
   Maximize2, 
   RotateCcw,
+  Pencil,
   Trash2
 } from "lucide-react";
 import { MarkdownRenderer } from "../Common/MarkdownRenderer";
@@ -142,6 +144,25 @@ export const FileAgentPopover: React.FC<FileAgentPopoverProps> = ({
   const [size, setSize] = useState<{ width: number; height: number }>({ width: 530, height: 650 });
   const [isResizing, setIsResizing] = useState(false);
 
+  // Subsession prompt history & edit state
+  const cleanPath = filePath ? filePath.replace(/[^a-zA-Z0-9._-]/g, "_") : "root";
+  const sessionKey = `files:${parentTaskId}:${cleanPath}`;
+  const historyStorageKey = `cyclode:prompt_history:${sessionKey}`;
+
+  const [promptHistory, setPromptHistory] = useState<string[]>(() => {
+    try {
+      const saved = sessionStorage.getItem(historyStorageKey);
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [historyIndex, setHistoryIndex] = useState<number>(-1);
+  const tempDraftRef = useRef<string>("");
+
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingContent, setEditingContent] = useState<string>("");
+
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const isAutoScrollEnabledRef = useRef<boolean>(true);
   const scrollRafRef = useRef<number | null>(null);
@@ -149,13 +170,19 @@ export const FileAgentPopover: React.FC<FileAgentPopoverProps> = ({
   const isSendingRef = useRef<boolean>(false);
   const { subscribe } = useWebSocket();
 
+  // Auto-grow input textarea height dynamically
+  useEffect(() => {
+    if (inputRef.current) {
+      inputRef.current.style.height = "auto";
+      inputRef.current.style.height = `${Math.min(140, Math.max(38, inputRef.current.scrollHeight))}px`;
+    }
+  }, [inputPrompt]);
+
   // Auto-resume existing subsession for this file if available
   useEffect(() => {
     if (!isOpen || !parentTaskId) return;
 
     let isMounted = true;
-    const cleanPath = filePath ? filePath.replace(/[^a-zA-Z0-9._-]/g, "_") : "root";
-    const sessionKey = `files:${parentTaskId}:${cleanPath}`;
 
     const fetchExistingSession = async () => {
       try {
@@ -184,7 +211,7 @@ export const FileAgentPopover: React.FC<FileAgentPopoverProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [isOpen, parentTaskId, filePath]);
+  }, [isOpen, parentTaskId, sessionKey]);
 
   // Synchronize attached snippet from props
   useEffect(() => {
@@ -434,6 +461,83 @@ export const FileAgentPopover: React.FC<FileAgentPopoverProps> = ({
     };
   }, [subTaskId, subscribe]);
 
+  const handleStopSubTask = async () => {
+    if (!subTaskId) {
+      setIsLoading(false);
+      return;
+    }
+    setIsLoading(false);
+    try {
+      await fetch(`${API_BASE}/api/tasks/${subTaskId}/stop`, {
+        method: "POST",
+      });
+    } catch (err) {
+      console.error("Error stopping file agent subsession:", err);
+    }
+  };
+
+  const handleRetryTurn = async (fromMessageId?: string) => {
+    if (!subTaskId) return;
+
+    setMessages(prev => {
+      if (!fromMessageId) return prev;
+      const targetIdx = prev.findIndex(m => m.id === fromMessageId);
+      return targetIdx >= 0 ? prev.slice(0, targetIdx + 1) : prev;
+    });
+
+    setIsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/tasks/${subTaskId}/retry`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from_message_id: fromMessageId || null }),
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP error ${res.status}`);
+      }
+    } catch (err) {
+      console.error("Error retrying subsession turn:", err);
+      setIsLoading(false);
+    }
+  };
+
+  const handleStartEditTurn = (message: TaskMessage) => {
+    setEditingMessageId(message.id);
+    setEditingContent(message.content);
+  };
+
+  const handleSaveEditTurn = async (messageId: string) => {
+    if (!subTaskId || !editingContent.trim()) return;
+
+    const newContent = editingContent.trim();
+    setEditingMessageId(null);
+
+    setMessages(prev => {
+      const targetIdx = prev.findIndex(m => m.id === messageId);
+      if (targetIdx >= 0) {
+        return prev.slice(0, targetIdx + 1).map((m, idx) =>
+          idx === targetIdx ? { ...m, content: newContent } : m
+        );
+      }
+      return prev;
+    });
+
+    setIsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/tasks/${subTaskId}/messages/${messageId}/edit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: newContent }),
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP error ${res.status}`);
+      }
+    } catch (err) {
+      console.error("Error saving edited message in subsession:", err);
+      setIsLoading(false);
+    }
+  };
+
   const handleSendMessage = async (customPrompt?: string) => {
     const rawText = customPrompt || inputPrompt;
     if ((!rawText.trim() && !attachedContext) || isSendingRef.current) return;
@@ -443,6 +547,18 @@ export const FileAgentPopover: React.FC<FileAgentPopoverProps> = ({
     if (attachedContext) {
       finalPrompt = `**Regarding snippet in** \`${attachedContext.filename}\` (lines ${attachedContext.startLine}-${attachedContext.endLine}):\n\`\`\`\n${attachedContext.content}\n\`\`\`\n\n${finalPrompt || "Please inspect and analyze this code."}`;
     }
+
+    if (rawText.trim()) {
+      setPromptHistory(prev => {
+        const updated = [...prev.filter(p => p !== rawText.trim()), rawText.trim()].slice(-50);
+        try {
+          sessionStorage.setItem(historyStorageKey, JSON.stringify(updated));
+        } catch {}
+        return updated;
+      });
+    }
+    setHistoryIndex(-1);
+    tempDraftRef.current = "";
 
     setInputPrompt("");
     setAttachedContext(null);
@@ -465,8 +581,6 @@ export const FileAgentPopover: React.FC<FileAgentPopoverProps> = ({
     try {
       if (!subTaskId) {
         setIsInitializing(true);
-        const cleanPath = filePath ? filePath.replace(/[^a-zA-Z0-9._-]/g, "_") : "root";
-        const sessionKey = `files:${parentTaskId}:${cleanPath}`;
         const res = await fetch(`${API_BASE}/api/tasks`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -508,7 +622,7 @@ export const FileAgentPopover: React.FC<FileAgentPopoverProps> = ({
           id: `err-${Date.now()}`,
           task_id: subTaskId || "err",
           sender: "system",
-          content: "⚠️ Failed to send message to Cyclode Agent. Please check connectivity.",
+          content: "Failed to send message to Cyclode Agent. Please check connectivity.",
           created_at: new Date().toISOString()
         }
       ]);
@@ -522,13 +636,61 @@ export const FileAgentPopover: React.FC<FileAgentPopoverProps> = ({
     setSubTaskId(null);
     setAttachedContext(null);
     setInputPrompt("");
+    setHistoryIndex(-1);
+    tempDraftRef.current = "";
     onClearActiveSnippet?.();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleSendMessage();
+      if (isLoading) {
+        handleStopSubTask();
+      } else {
+        handleSendMessage();
+      }
+      return;
+    }
+
+    if (e.key === "ArrowUp") {
+      const textarea = inputRef.current;
+      if (!textarea) return;
+      const isAtStart = textarea.selectionStart === 0 && textarea.selectionEnd === 0;
+      if (isAtStart && promptHistory.length > 0) {
+        e.preventDefault();
+        if (historyIndex === -1) {
+          tempDraftRef.current = inputPrompt;
+          const nextIdx = promptHistory.length - 1;
+          setHistoryIndex(nextIdx);
+          setInputPrompt(promptHistory[nextIdx]);
+        } else if (historyIndex > 0) {
+          const nextIdx = historyIndex - 1;
+          setHistoryIndex(nextIdx);
+          setInputPrompt(promptHistory[nextIdx]);
+        }
+      }
+      return;
+    }
+
+    if (e.key === "ArrowDown") {
+      if (historyIndex !== -1) {
+        e.preventDefault();
+        if (historyIndex < promptHistory.length - 1) {
+          const nextIdx = historyIndex + 1;
+          setHistoryIndex(nextIdx);
+          setInputPrompt(promptHistory[nextIdx]);
+        } else {
+          setHistoryIndex(-1);
+          setInputPrompt(tempDraftRef.current || "");
+        }
+      }
+      return;
+    }
+
+    if (e.key === "Escape" && historyIndex !== -1) {
+      e.preventDefault();
+      setHistoryIndex(-1);
+      setInputPrompt(tempDraftRef.current || "");
     }
   };
 
@@ -691,6 +853,16 @@ export const FileAgentPopover: React.FC<FileAgentPopoverProps> = ({
         </div>
 
         <div className="flex items-center space-x-1 flex-shrink-0">
+          {isLoading && (
+            <button
+              onClick={handleStopSubTask}
+              className="p-1 rounded bg-onedark-red/15 hover:bg-onedark-red/25 text-onedark-red transition-colors cursor-pointer border border-onedark-red/30 flex items-center space-x-1 px-1.5"
+              title="Stop active generation"
+            >
+              <Square className="w-3 h-3 fill-current" />
+              <span className="text-[10px] font-mono font-medium">Stop</span>
+            </button>
+          )}
           <button
             onClick={handleClearChat}
             className="p-1 rounded hover:bg-onedark-bg text-onedark-muted hover:text-onedark-red transition-colors cursor-pointer"
@@ -790,39 +962,118 @@ export const FileAgentPopover: React.FC<FileAgentPopoverProps> = ({
           const isTurnRunning = isLoading && turn.isLatest && (turn.agentMessages.length === 0 || (turn.agentMessages.length === 1 && !turn.agentMessages[0].content));
           const hasThoughts = turn.thoughts.length > 0;
           const isTurnOpen = openThoughtTurns[turn.id] ?? (isTurnRunning && turn.isLatest);
+          const isEditingThis = turn.userMessage && editingMessageId === turn.userMessage.id;
 
           return (
             <div key={turn.id || tIdx} className="space-y-3.5">
               {/* User Message in Turn */}
               {turn.userMessage && (
-                <div className="flex flex-col items-end space-y-1.5">
+                <div className="flex flex-col items-end space-y-1.5 group">
                   <div className="flex items-center space-x-1.5 px-1 text-[10.5px] text-onedark-muted font-mono">
                     <span>You</span>
                     <span>•</span>
                     <span>{new Date(turn.userMessage.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                   </div>
-                  <div className="p-3 rounded-2xl max-w-[94%] shadow-xs leading-relaxed bg-onedark-accent/20 border border-onedark-accent/40 text-onedark-fgBright">
-                    <UserSnippetMessageBubble
-                      content={turn.userMessage.content}
-                      onLinkClick={(url, text) => {
-                        if (url.startsWith("#") || url.includes("#L") || url.includes(":")) {
-                          const m = url.match(/(?:#L|:)(\d+)/);
-                          if (m && onNavigateToFileLine) {
-                            onNavigateToFileLine(text, parseInt(m[1], 10));
-                          }
-                        }
-                      }}
-                    />
-                  </div>
+
+                  {isEditingThis ? (
+                    <div className="w-full max-w-[94%] p-3 rounded-2xl bg-onedark-surface border border-onedark-accent/60 space-y-2 shadow-md">
+                      <textarea
+                        value={editingContent}
+                        onChange={(e) => setEditingContent(e.target.value)}
+                        rows={3}
+                        className="w-full bg-onedark-bg p-2 rounded-lg border border-onedark-borderSubtle text-xs text-onedark-fg focus:outline-none resize-none font-sans"
+                        placeholder="Edit message..."
+                      />
+                      <div className="flex items-center justify-end space-x-2">
+                        <button
+                          type="button"
+                          onClick={() => setEditingMessageId(null)}
+                          className="px-2.5 py-1 rounded-md text-xs text-onedark-muted hover:text-onedark-fg hover:bg-onedark-darker transition-colors cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSaveEditTurn(turn.userMessage!.id)}
+                          className="px-3 py-1 rounded-md text-xs bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker font-semibold transition-colors cursor-pointer"
+                        >
+                          Save & Retry
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="relative max-w-[94%]">
+                      <div className="p-3 rounded-2xl shadow-xs leading-relaxed bg-onedark-accent/20 border border-onedark-accent/40 text-onedark-fgBright">
+                        <UserSnippetMessageBubble
+                          content={turn.userMessage.content}
+                          onLinkClick={(url, text) => {
+                            if (url.startsWith("#") || url.includes("#L") || url.includes(":")) {
+                              const m = url.match(/(?:#L|:)(\d+)/);
+                              if (m && onNavigateToFileLine) {
+                                onNavigateToFileLine(text, parseInt(m[1], 10));
+                              }
+                            }
+                          }}
+                        />
+                      </div>
+
+                      {/* User Turn Action Bar */}
+                      <div className="absolute -bottom-2.5 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-onedark-surface border border-onedark-borderSubtle rounded-lg px-1 py-0.5 flex items-center space-x-1 shadow-md z-10">
+                        <button
+                          type="button"
+                          onClick={() => handleCopyMessage(turn.userMessage!.content, tIdx)}
+                          className="p-1 rounded hover:bg-onedark-bg text-onedark-muted hover:text-onedark-fg transition-colors cursor-pointer"
+                          title="Copy prompt"
+                        >
+                          {copiedIndex === tIdx ? <Check className="w-3 h-3 text-onedark-green" /> : <Copy className="w-3 h-3" />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleStartEditTurn(turn.userMessage!)}
+                          disabled={isLoading}
+                          className="p-1 rounded hover:bg-onedark-bg text-onedark-muted hover:text-onedark-fg transition-colors cursor-pointer disabled:opacity-40"
+                          title="Edit prompt"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRetryTurn(turn.userMessage!.id)}
+                          disabled={isLoading}
+                          className="p-1 rounded hover:bg-onedark-bg text-onedark-muted hover:text-onedark-accent transition-colors cursor-pointer disabled:opacity-40"
+                          title="Retry from this turn"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
               {/* System Messages in Turn */}
-              {turn.systemMessages.map((sMsg, sIdx) => (
-                <div key={sMsg.id || sIdx} className="p-2 rounded-lg bg-onedark-surface/40 border border-onedark-borderSubtle text-[11px] text-onedark-muted font-mono">
-                  {sMsg.content}
-                </div>
-              ))}
+              {turn.systemMessages.map((sMsg, sIdx) => {
+                const cleaned = sMsg.content
+                  .replace(/^🛑\s*(?:\*\*)?Action Rejected by Reviewer\.(?:\*\*)?\s*Reason:\s*/i, "Action cancelled: ")
+                  .replace(/^⏹\s*(?:\*\*)?Task stopped by user\.(?:\*\*)?/i, "Task stopped by user.")
+                  .replace(/^■\s*(?:\*\*)?Task stopped by user\.(?:\*\*)?/i, "Task stopped by user.")
+                  .replace(/^[🛑⏹■⚠️]\s*/, "")
+                  .trim();
+
+                return (
+                  <div key={sMsg.id || sIdx} className="my-1.5 px-3 py-1.5 rounded-lg bg-onedark-surface/20 border border-onedark-borderSubtle/50 text-xs text-onedark-muted max-w-2xl text-left font-sans">
+                    <MarkdownRenderer 
+                      content={cleaned} 
+                      onLinkClick={onNavigateToFileLine ? (url, text) => {
+                        if (url.startsWith("#") || url.includes("#L") || url.includes(":")) {
+                          const m = url.match(/(?:#L|:)(\d+)/);
+                          if (m) onNavigateToFileLine(text, parseInt(m[1], 10));
+                        }
+                      } : undefined} 
+                    />
+                  </div>
+                );
+              })}
 
               {/* Unified Turn Reasoning Process Accordion */}
               {hasThoughts && (
@@ -897,15 +1148,31 @@ export const FileAgentPopover: React.FC<FileAgentPopoverProps> = ({
                         }
                       }}
                     />
-                    {msg.content && (
-                      <button
-                        onClick={() => handleCopyMessage(msg.content, mIdx)}
-                        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-onedark-bg/80 text-onedark-muted hover:text-onedark-fg transition-all cursor-pointer"
-                        title="Copy message"
-                      >
-                        {copiedIndex === mIdx ? <Check className="w-3 h-3 text-onedark-green" /> : <Copy className="w-3 h-3" />}
-                      </button>
-                    )}
+                    
+                    {/* Agent Message Hover Action Bar */}
+                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center space-x-1 bg-onedark-darker/90 border border-onedark-borderSubtle rounded-lg p-0.5">
+                      {msg.content && (
+                        <button
+                          type="button"
+                          onClick={() => handleCopyMessage(msg.content, mIdx)}
+                          className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-all cursor-pointer"
+                          title="Copy response"
+                        >
+                          {copiedIndex === mIdx ? <Check className="w-3 h-3 text-onedark-green" /> : <Copy className="w-3 h-3" />}
+                        </button>
+                      )}
+                      {turn.userMessage && (
+                        <button
+                          type="button"
+                          onClick={() => handleRetryTurn(turn.userMessage!.id)}
+                          disabled={isLoading}
+                          className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-accent transition-all cursor-pointer disabled:opacity-40"
+                          title="Retry from this turn"
+                        >
+                          <RotateCcw className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -968,8 +1235,8 @@ export const FileAgentPopover: React.FC<FileAgentPopoverProps> = ({
           </div>
         )}
 
-        {/* Textarea Input */}
-        <div className="relative flex items-end bg-onedark-bg rounded-xl border border-transparent focus-within:border-onedark-accent/60 transition-colors p-2">
+        {/* Textarea Input & Action Buttons */}
+        <div className="relative flex items-end bg-onedark-bg rounded-xl border border-transparent focus-within:border-onedark-accent/60 transition-colors p-2 gap-1.5">
           <textarea
             ref={inputRef}
             value={inputPrompt}
@@ -978,28 +1245,38 @@ export const FileAgentPopover: React.FC<FileAgentPopoverProps> = ({
             placeholder={
               attachedContext
                 ? `Ask agent about ${attachedContext.filename} (L${attachedContext.startLine}-${attachedContext.endLine})...`
-                : "Ask Cyclode Agent about this file or codebase..."
+                : "Ask Cyclode Agent about this file (↑↓ for history)..."
             }
-            rows={2}
-            className="w-full bg-transparent border-none text-[13.5px] text-onedark-fg focus:outline-none resize-none px-2.5 py-1.5 placeholder:text-onedark-muted/60 leading-relaxed font-sans"
+            rows={1}
+            className="w-full bg-transparent border-none text-[13.5px] text-onedark-fg focus:outline-none resize-none px-2 py-1 placeholder:text-onedark-muted/60 leading-relaxed font-sans max-h-36 overflow-y-auto"
           />
 
-          <button
-            onClick={() => handleSendMessage()}
-            disabled={(!inputPrompt.trim() && !attachedContext) || isInitializing}
-            className={`p-2.5 rounded-lg transition-all flex-shrink-0 cursor-pointer ${
-              (inputPrompt.trim() || attachedContext) && !isInitializing
-                ? "bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker shadow-xs"
-                : "bg-onedark-surface text-onedark-muted/40 cursor-not-allowed"
-            }`}
-            title="Send message (Enter)"
-          >
-            {isInitializing ? (
-              <Loader2 className="w-4 h-4 animate-spin stroke-[2.5]" />
-            ) : (
-              <Send className="w-4 h-4 stroke-[2.5]" />
-            )}
-          </button>
+          {isLoading ? (
+            <button
+              onClick={handleStopSubTask}
+              className="p-2.5 rounded-lg transition-all flex-shrink-0 cursor-pointer bg-onedark-red/20 hover:bg-onedark-red/30 text-onedark-red border border-onedark-red/40 shadow-xs"
+              title="Stop generation"
+            >
+              <Square className="w-4 h-4 fill-current stroke-[2.5]" />
+            </button>
+          ) : (
+            <button
+              onClick={() => handleSendMessage()}
+              disabled={(!inputPrompt.trim() && !attachedContext) || isInitializing}
+              className={`p-2.5 rounded-lg transition-all flex-shrink-0 cursor-pointer ${
+                (inputPrompt.trim() || attachedContext) && !isInitializing
+                  ? "bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker shadow-xs"
+                  : "bg-onedark-surface text-onedark-muted/40 cursor-not-allowed"
+              }`}
+              title="Send message (Enter)"
+            >
+              {isInitializing ? (
+                <Loader2 className="w-4 h-4 animate-spin stroke-[2.5]" />
+              ) : (
+                <Send className="w-4 h-4 stroke-[2.5]" />
+              )}
+            </button>
+          )}
         </div>
       </div>
     </div>

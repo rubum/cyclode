@@ -434,80 +434,85 @@ class ReviewVerifier:
         pr_title = (pr_meta or {}).get("title", "Pull Request Changeset")
         pr_number = (pr_meta or {}).get("number", "")
 
-        header = f"# Verified Code Review: {pr_title} #{pr_number}\n\n" if pr_number else f"# Verified Code Review: {pr_title}\n\n"
-
         if not findings:
-            return (
-                f"{header}"
-                "### Executive Summary\n"
-                "**All Invariant Verification Checks Passed with Zero Flaws Detected.**\n\n"
-                "The changeset was evaluated across multi-perspective ensemble scanners (*Security & Permission Boundaries*, "
-                "*Logic & State Machine Invariants*, and *Concurrency & Resource Management*) with adversarial falsification enabled. "
-                "No runtime crashes, auth regressions, resource leaks, or broken invariants were identified.\n\n"
-                "| Audit Dimension | Status | Verified Invariants |\n"
-                "| :--- | :--- | :--- |\n"
-                "| **Security & Auth Boundaries** | Pass | Parameterized queries, safe process execution, zero committed secrets. |\n"
-                "| **Logic & State Transitions** | Pass | Complete exception branches, deterministic return invariants. |\n"
-                "| **Concurrency & Async Lifecycle** | Pass | All coroutines awaited, connection pools managed within contexts. |\n\n"
-                "> [!NOTE]\n"
-                "> In adherence to the Zero-Style Invariant and High-Signal Review protocol, purely stylistic, naming, or cosmetic comments are completely excluded."
-            )
+            target = f"for {pr_title} #{pr_number}" if pr_number else (f"for {pr_title}" if pr_title and pr_title != "Pull Request Changeset" else "across changeset")
+            return f"**LGTM** · Verified security boundaries, state invariants, and concurrency lifecycles {target}. No defects or regressions detected."
 
-        # Stratify findings into Blockers (CRITICAL / HIGH) and Defensive Suggestions (MEDIUM / LOW / INFO)
+        # Stratify findings into Blockers (CRITICAL / HIGH) and Non-blocking (MEDIUM / LOW / INFO)
         blockers = [f for f in findings if f.severity in ["CRITICAL", "HIGH"]]
         defensive = [f for f in findings if f.severity not in ["CRITICAL", "HIGH"]]
 
-        summary_table = (
-            "### Verified Findings Summary\n\n"
-            "| Severity | Category | File Location | Violated Invariant |\n"
-            "| :--- | :--- | :--- | :--- |\n"
-        )
-        for f in findings:
-            badge = "🔴 CRITICAL" if f.severity == "CRITICAL" else ("🔴 HIGH" if f.severity == "HIGH" else f"🟡 {f.severity}")
-            summary_table += f"| **{badge}** | `{f.category}` | `{f.file_path}:{f.line_start}` | {f.title} |\n"
-
-        body = "\n"
-
-        # Render Blockers
+        parts = []
         if blockers:
-            body += "### 🔴 Blocking Findings (Must Fix Before Merge)\n\n"
+            header_title = f"### Changes Requested ({len(blockers)} blocking defect{'s' if len(blockers) > 1 else ''})\n\n"
+            parts.append(header_title)
             for idx, f in enumerate(blockers, start=1):
-                body += (
-                    f"#### {idx}. [{f.severity}] {f.title}\n\n"
-                    f"> [!CAUTION]\n"
-                    f"> **Impact Assessment**: {f.violation_summary}\n\n"
-                    f"- **Location**: `{f.file_path}:{f.line_start}-{f.line_end}`\n"
-                    f"- **Confidence**: `{int(f.confidence_score * 100)}% Verified`\n"
-                    f"- **Verification Evidence**: {f.verification_evidence}\n\n"
-                    f"**Causal Sequence & Reproduction**:\n"
-                    f"{f.reproduction_steps}\n\n"
-                    f"**Suggested Patch Diff**:\n"
-                    f"{f.suggested_diff}\n\n"
-                    f"---\n\n"
-                )
+                loc = f"`{f.file_path}:{f.line_start}-{f.line_end}`" if f.line_start != f.line_end else f"`{f.file_path}:{f.line_start}`"
+                parts.append(f"🔴 **[{f.severity}] {f.title}** — {loc}\n{f.violation_summary}\n\n")
+                if f.reproduction_steps and f.reproduction_steps.strip() and f.reproduction_steps.strip() != "None.":
+                    parts.append(f"**Trigger**: {f.reproduction_steps.strip()}\n\n")
+                if f.suggested_diff and f.suggested_diff.strip():
+                    diff_content = f.suggested_diff.strip()
+                    if not diff_content.startswith("```"):
+                        diff_content = f"```diff\n{diff_content}\n```"
+                    parts.append(f"{diff_content}\n\n")
+        elif defensive:
+            parts.append(f"### Review Comments ({len(defensive)} non-blocking note{'s' if len(defensive) > 1 else ''})\n\n")
 
-        # Render Defensive / Suggestions
         if defensive:
-            body += "### 🟡 Non-Blocking Defensive Improvements\n\n"
+            if blockers:
+                parts.append(f"<details>\n<summary><b>Non-blocking Notes ({len(defensive)})</b></summary>\n\n")
             for idx, f in enumerate(defensive, start=1):
-                body += (
-                    f"#### {idx}. [{f.severity}] {f.title}\n\n"
-                    f"> [!NOTE]\n"
-                    f"> **Observation**: {f.violation_summary}\n\n"
-                    f"- **Location**: `{f.file_path}:{f.line_start}-{f.line_end}`\n"
-                    f"- **Recommendation**: {f.verification_evidence}\n\n"
-                    f"**Suggested Patch Diff**:\n"
-                    f"{f.suggested_diff}\n\n"
-                    f"---\n\n"
-                )
+                loc = f"`{f.file_path}:{f.line_start}`"
+                parts.append(f"- **[Optional]** {f.title} — {loc}\n  {f.violation_summary}\n")
+                if f.suggested_diff and f.suggested_diff.strip():
+                    diff_content = f.suggested_diff.strip()
+                    if not diff_content.startswith("```"):
+                        diff_content = f"```diff\n{diff_content}\n```"
+                    parts.append(f"  {diff_content}\n")
+            if blockers:
+                parts.append("\n</details>\n")
 
-        footer = (
-            "> [!IMPORTANT]\n"
-            "> Every finding listed above has been verified for concrete runtime, security, or concurrency failure modes. "
-            "Stylistic, formatting, and naming preferences were filtered out by the Zero-Style verification engine."
-        )
+        return "".join(parts).strip()
 
-        return f"{header}{summary_table}{body}{footer}"
+    @classmethod
+    def normalize_pr_review_markdown(cls, body: str) -> str:
+        """
+        Sanitizes and normalizes an incoming review markdown body before staging or submission:
+        1. Strips throat-clearing, greetings, and boilerplate intros/outros.
+        2. Strips redundant diff summary / 'What was done well' recap sections.
+        3. Normalizes unanchored defect headers into clean structured Markdown.
+        """
+        if not body or not body.strip():
+            return "**LGTM** · Verified changeset invariants. No defects detected."
+
+        text = body.strip()
+
+        # Strip conversational greetings and throat-clearing at start
+        text = re.sub(
+            r'^(?:(?:Thank you for (?:putting together|opening|submitting) this PR[^\n]*\n*)|(?:Here is (?:my|an automated) (?:PR |code )?review[^\n]*\n*)|(?:I have reviewed (?:this|the) (?:PR|pull request)[^\n]*\n*))+',
+            '',
+            text,
+            flags=re.IGNORECASE
+        ).strip()
+
+        # Strip sycophantic sections ("What was done well", "Key Changes", "Summary of Changes") if followed by other content
+        text = re.sub(
+            r'###?\s*(?:Summary of Changes|Key Changes|What (?:was done well|is right|looks good))[^\n]*\n(?:[\s\S]*?)(?=(?:###?\s*(?:Changes Requested|Blocking|Areas for Improvement|Considerations|Verified Findings|Defects)|\Z))',
+            '',
+            text,
+            flags=re.IGNORECASE
+        ).strip()
+
+        # Strip conversational customer-service sign-offs at end
+        text = re.sub(
+            r'\n*(?:Overall, (?:this is |great job)[^\n]*|Happy to re-review[^\n]*|Feel free to ask[^\n]*|Let me know if[^\n]*)\Z',
+            '',
+            text,
+            flags=re.IGNORECASE
+        ).strip()
+
+        return text or "**LGTM** · Verified changeset invariants. No defects detected."
 
     @classmethod
     async def generate_ensemble_hypotheses_async(

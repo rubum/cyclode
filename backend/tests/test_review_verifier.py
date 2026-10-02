@@ -197,9 +197,8 @@ def test_deduplication_and_clustering():
 def test_review_markdown_synthesis():
     # 1. Clean report when zero findings
     clean_report = review_verifier.format_review_markdown([])
-    assert "All Invariant Verification Checks Passed with Zero Flaws Detected" in clean_report
-    assert "Security & Auth Boundaries" in clean_report
-    assert "Zero-Style Invariant" in clean_report
+    assert "LGTM" in clean_report
+    assert "No defects or regressions detected" in clean_report
 
     # 2. Report with verified findings
     sample_finding = VerifiedFinding(
@@ -218,8 +217,7 @@ def test_review_markdown_synthesis():
     )
 
     findings_report = review_verifier.format_review_markdown([sample_finding], pr_meta={"title": "Add Auth", "number": 105})
-    assert "Verified Code Review: Add Auth #105" in findings_report
-    assert "Verified Findings Summary" in findings_report
+    assert "Changes Requested" in findings_report
     assert "Hardcoded JWT Secret Key" in findings_report
     assert "backend/auth.py:14" in findings_report
 
@@ -485,18 +483,13 @@ def test_format_review_markdown_gfm_alerts_and_causal_chains():
 
     md = ReviewVerifier.format_review_markdown([critical_finding, defensive_finding], pr_meta={"title": "Local Docker Provisioner", "number": 1198})
 
-    # Assertions for GFM Callouts and Structured Sections
-    assert "# Verified Code Review: Local Docker Provisioner #1198" in md
-    assert "### Verified Findings Summary" in md
-    assert "🔴 CRITICAL" in md
-    assert "🟡 MEDIUM" in md
-    assert "### 🔴 Blocking Findings (Must Fix Before Merge)" in md
-    assert "> [!CAUTION]" in md
-    assert "**Impact Assessment**:" in md
-    assert "**Causal Sequence & Reproduction**:" in md
-    assert "### 🟡 Non-Blocking Defensive Improvements" in md
-    assert "> [!NOTE]" in md
-    assert "**Observation**:" in md
+    # Assertions for High-Signal Review Structure
+    assert "Changes Requested (1 blocking defect)" in md
+    assert "🔴 **[CRITICAL] Tenant SSO Origin Bypass via Local Docker Driver Default**" in md
+    assert "lib/waylo/commerce/stores.ex:45-52" in md
+    assert "Missing production environment configuration" in md
+    assert "Non-blocking Notes (1)" in md
+    assert "Unchecked Pattern Match on Credential-less Database URI" in md
 
     # Assert complete absence of internal AI machinery and sandbox excuses
     banned_phrases = [
@@ -514,10 +507,36 @@ def test_format_review_markdown_gfm_alerts_and_causal_chains():
 
 def test_format_review_markdown_zero_findings_clean_executive_summary():
     md = ReviewVerifier.format_review_markdown([], pr_meta={"title": "Fix Typo in README", "number": 42})
-    assert "# Verified Code Review: Fix Typo in README #42" in md
-    assert "### Executive Summary" in md
-    assert "All Invariant Verification Checks Passed with Zero Flaws Detected." in md
-    assert "> [!NOTE]" in md
-    assert "Zero-Style Invariant" in md
+    assert "**LGTM**" in md
+    assert "Fix Typo in README #42" in md
+    assert "No defects or regressions detected" in md
+
+
+def test_normalize_pr_review_markdown():
+    # 1. Empty or blank
+    assert ReviewVerifier.normalize_pr_review_markdown("") == "**LGTM** · Verified changeset invariants. No defects detected."
+
+    # 2. Sycophantic opening and cheerleading summary
+    verbose_input = (
+        "Thank you for putting together this PR! Here is my review.\n\n"
+        "### Summary of Changes\n"
+        "- Added new auth service\n"
+        "- Updated config\n\n"
+        "### What was done well\n"
+        "- Clean code\n"
+        "- Good tests\n\n"
+        "### Changes Requested (1 blocking defect)\n\n"
+        "🔴 **[CRITICAL] SQL Injection** — `db.py:10`\n"
+        "Unparameterized query.\n\n"
+        "Overall, great job! Let me know if you have questions."
+    )
+    normalized = ReviewVerifier.normalize_pr_review_markdown(verbose_input)
+    assert "Thank you for" not in normalized
+    assert "Summary of Changes" not in normalized
+    assert "What was done well" not in normalized
+    assert "Overall, great job" not in normalized
+    assert "### Changes Requested (1 blocking defect)" in normalized
+    assert "🔴 **[CRITICAL] SQL Injection** — `db.py:10`" in normalized
+
 
 

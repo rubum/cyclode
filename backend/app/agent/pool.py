@@ -17,6 +17,7 @@ from app.core.sandboxes.base import CloneAuthRequiredException, CloneFailedExcep
 from app.agent.harness import antigravity_harness
 from app.api.websocket import ws_manager
 from app.integrations.github_client import github_client
+from app.integrations.manager import integration_manager
 from app.integrations.slack_client import slack_client
 from app.agent.title_generator import generate_heuristic_title, generate_ai_title
 
@@ -1000,7 +1001,7 @@ class AgentTaskPool:
         })
         return {"ok": True, "task_id": task_id, "status": "RESOLVED"}
 
-    async def approve_task(self, task_id: str, feedback: Optional[str] = None) -> Dict[str, Any]:
+    async def approve_task(self, task_id: str, feedback: Optional[str] = None, custom_details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Processes human approval for an awaiting task based on approval action_type.
         """
@@ -1025,10 +1026,13 @@ class AgentTaskPool:
 
             action_type = approval.action_type if approval else "generic"
             action_details = approval.action_details if approval and approval.action_details else {}
+            if custom_details and isinstance(custom_details, dict):
+                action_details = {**action_details, **custom_details}
 
             if approval:
                 approval.status = "APPROVED"
                 approval.feedback = feedback
+                approval.action_details = action_details
                 approval.resolved_at = get_utc_now()
 
             # Route by action_type
@@ -1043,7 +1047,7 @@ class AgentTaskPool:
                 err = exec_res.get("error", "")
                 exit_code = exec_res.get("exit_code", 0)
 
-                msg_content = f"✅ **Approved Command Executed:** `{cmd}`\n"
+                msg_content = f"Command executed: `{cmd}`\n"
                 if stdout:
                     msg_content += f"```\n{stdout}\n```\n"
                 if stderr:
@@ -1107,11 +1111,11 @@ class AgentTaskPool:
 
                 pr_url = pr_res.get("html_url")
                 if pr_url:
-                    content_msg = f"🎉 **Action Approved!** Pull Request created: [{pr_url}]({pr_url})"
-                    summary_msg = f"Approved & PR Created: {pr_url}"
+                    content_msg = f"Pull request created: [{pr_url}]({pr_url})"
+                    summary_msg = f"PR Created: {pr_url}"
                 else:
-                    content_msg = f"🎉 **Action Approved!** Pull Request submitted for task `{task_id[:8]}`."
-                    summary_msg = "Approved & PR Submitted"
+                    content_msg = f"Pull request created for task `{task_id[:8]}`."
+                    summary_msg = "PR Created"
 
                 msg = TaskMessageModel(
                     task_id=task_id,
@@ -1143,12 +1147,133 @@ class AgentTaskPool:
 
                 return {"ok": True, "task_id": task_id, "status": "APPROVED", "pr": pr_res}
 
+            elif action_type in ["post_pull_request_review", "post_pr_review"]:
+                repo_arg = action_details.get("repository") or action_details.get("repo", task.repo_name if task else "repo")
+                pr_num = int(action_details.get("pr_number", 1))
+                body_arg = action_details.get("body", "")
+                event_arg = action_details.get("event", "COMMENT")
+                is_chat_only = bool(action_details.get("chat_only", False) or feedback == "chat_only")
+
+                if is_chat_only:
+                    content_msg = f"Review preserved in chat (GitHub submission skipped for {repo_arg}#{pr_num})."
+                    summary_msg = f"Review Preserved in Chat: {repo_arg}#{pr_num}"
+                    pr_res = {"status": "chat_only", "repository": repo_arg, "pr_number": pr_num}
+                else:
+                    owner, repo = WorkspaceTools._parse_repo(repo_arg)
+                    token = await integration_manager.get_github_token_for_repo(f"{owner}/{repo}")
+                    pr_res = await github_client.post_pull_request_review(
+                        owner=owner,
+                        repo=repo,
+                        pr_number=pr_num,
+                        body=body_arg,
+                        event=event_arg,
+                        custom_token=token
+                    )
+                    html_url = pr_res.get("html_url") or f"https://github.com/{owner}/{repo}/pull/{pr_num}"
+                    event_label = "Approved" if event_arg == "APPROVE" else ("Changes Requested" if event_arg == "REQUEST_CHANGES" else "Commented")
+                    content_msg = f"Submitted {event_label.lower()} review on [{owner}/{repo}#{pr_num}]({html_url})."
+                    summary_msg = f"Review Posted: {owner}/{repo}#{pr_num}"
+
+                msg = TaskMessageModel(
+                    task_id=task_id,
+                    sender="agent",
+                    content=content_msg
+                )
+                session.add(msg)
+
+                await session.execute(
+                    update(TaskModel)
+                    .where(TaskModel.id == task_id)
+                    .values(
+                        status="COMPLETED",
+                        result_summary=summary_msg,
+                        completed_at=get_utc_now()
+                    )
+                )
+                await session.commit()
+
+                await ws_manager.broadcast("APPROVAL_RESOLVED", {
+                    "task_id": task_id,
+                    "status": "APPROVED",
+                    "action_type": action_type,
+                    "result": pr_res
+                })
+                await ws_manager.broadcast("TASK_STATUS_CHANGE", {
+                    "task_id": task_id,
+                    "status": "COMPLETED"
+                })
+
+                return {"ok": True, "task_id": task_id, "status": "APPROVED", "result": pr_res}
+
+            elif action_type in ["post_pull_request_line_comment", "post_line_comment"]:
+                repo_arg = action_details.get("repository") or action_details.get("repo", task.repo_name if task else "repo")
+                pr_num = int(action_details.get("pr_number", 1))
+                body_arg = action_details.get("body", "")
+                commit_sha = action_details.get("commit_sha", "")
+                path = action_details.get("path", "")
+                line = int(action_details.get("line", 1))
+                side = action_details.get("side", "RIGHT")
+                is_chat_only = bool(action_details.get("chat_only", False) or feedback == "chat_only")
+
+                if is_chat_only:
+                    content_msg = f"Inline comment preserved in chat (GitHub submission skipped for {repo_arg}#{pr_num})."
+                    summary_msg = f"Comment Preserved in Chat: {repo_arg}#{pr_num}"
+                    comment_res = {"status": "chat_only"}
+                else:
+                    owner, repo = WorkspaceTools._parse_repo(repo_arg)
+                    token = await integration_manager.get_github_token_for_repo(f"{owner}/{repo}")
+                    comment_res = await github_client.post_pull_request_line_comment(
+                        owner=owner,
+                        repo=repo,
+                        pr_number=pr_num,
+                        body=body_arg,
+                        commit_sha=commit_sha,
+                        path=path,
+                        line=line,
+                        side=side,
+                        custom_token=token
+                    )
+                    html_url = f"https://github.com/{owner}/{repo}/pull/{pr_num}"
+                    content_msg = f"Submitted inline comment on `{path}:{line}` to [{repo_arg}#{pr_num}]({html_url})."
+                    summary_msg = f"Line Comment Posted: {path}:{line}"
+
+                msg = TaskMessageModel(
+                    task_id=task_id,
+                    sender="agent",
+                    content=content_msg
+                )
+                session.add(msg)
+
+                await session.execute(
+                    update(TaskModel)
+                    .where(TaskModel.id == task_id)
+                    .values(
+                        status="COMPLETED",
+                        result_summary=summary_msg,
+                        completed_at=get_utc_now()
+                    )
+                )
+                await session.commit()
+
+                await ws_manager.broadcast("APPROVAL_RESOLVED", {
+                    "task_id": task_id,
+                    "status": "APPROVED",
+                    "action_type": action_type,
+                    "result": comment_res
+                })
+                await ws_manager.broadcast("TASK_STATUS_CHANGE", {
+                    "task_id": task_id,
+                    "status": "COMPLETED"
+                })
+
+                return {"ok": True, "task_id": task_id, "status": "APPROVED", "result": comment_res}
+
             else:
                 desc = action_details.get("description", feedback or f"Action {action_type} approved")
                 msg = TaskMessageModel(
                     task_id=task_id,
                     sender="agent",
-                    content=f"✅ **Action Approved:** {desc}"
+                    content=f"Approved: {desc}"
                 )
                 session.add(msg)
 
@@ -1191,10 +1316,16 @@ class AgentTaskPool:
                 approval.feedback = feedback
                 approval.resolved_at = get_utc_now()
 
+            cancel_reason = feedback.strip() if feedback else ""
+            if cancel_reason and not any(k in cancel_reason.lower() for k in ["no feedback", "none"]):
+                clean_content = f"Action cancelled: {cancel_reason}."
+            else:
+                clean_content = "Action cancelled."
+
             msg = TaskMessageModel(
                 task_id=task_id,
                 sender="system",
-                content=f"🛑 **Action Rejected by Reviewer.** Reason: {feedback or 'No feedback provided.'}"
+                content=clean_content
             )
             session.add(msg)
 
@@ -1203,7 +1334,7 @@ class AgentTaskPool:
                 .where(TaskModel.id == task_id)
                 .values(
                     status="CANCELLED",
-                    result_summary=f"Rejected: {feedback or 'No feedback'}",
+                    result_summary=f"Cancelled: {feedback or 'No feedback'}",
                     completed_at=get_utc_now()
                 )
             )
@@ -1249,9 +1380,9 @@ class AgentTaskPool:
 
                     if not was_already_cancelled:
                         if not clean_reason or clean_reason in ["Cancelled by user via UI", "User cancelled task", "Stopped by user"]:
-                            msg_text = "⏹ **Task stopped by user.**"
+                            msg_text = "Task stopped by user."
                         else:
-                            msg_text = f"⏹ **Task stopped by user.** ({clean_reason})"
+                            msg_text = f"Task stopped by user ({clean_reason})."
 
                         stop_msg = TaskMessageModel(
                             task_id=task_id,
