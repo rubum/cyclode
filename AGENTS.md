@@ -67,7 +67,9 @@ Cyclode/
 │   │   ├── integrations/      # GitHub, Slack, Linear, AppSignal clients & registry
 │   │   └── static/            # Static build output mounted by FastAPI
 │   ├── cyclode/               # Standalone CLI entrypoint and packaging package
-│   └── tests/                 # Canonical backend pytest test suite (193 tests)
+│   └── tests/                 # Canonical backend pytest test suite (325 tests)
+├── crates/
+│   └── cyclode-search/        # High-performance Rust trigram search & Tree-sitter AST engine
 ├── frontend/
 │   ├── src/
 │   │   ├── components/        # React components (ChatCanvas, AuxiliaryPane, PRDetailView)
@@ -131,7 +133,7 @@ Cyclode/
 Before declaring any engineering task complete, agents MUST run the full automated verification suite:
 
 ```bash
-# 1. Backend Verification (Must achieve 100% pass rate across all 193 tests)
+# 1. Backend Verification (Must achieve 100% pass rate across all 325 tests)
 pytest -v
 
 # 2. Frontend TypeScript Compilation & Asset Build (Must compile with 0 errors)
