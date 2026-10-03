@@ -973,7 +973,8 @@ class AntigravityHarness:
         on_stream_chunk: Optional[Callable[[str, str, str, str], Any]] = None,
         on_stream_end: Optional[Callable[[str, str, str], Any]] = None,
         on_inquiry: Optional[Callable[[str, List[Dict[str, Any]], str, int], Any]] = None,
-        on_plan: Optional[Callable[[Dict[str, Any]], Any]] = None
+        on_plan: Optional[Callable[[Dict[str, Any]], Any]] = None,
+        steering_queue: Optional[asyncio.Queue] = None
     ) -> Dict[str, Any]:
         """
         Executes an agent task directly via the LLM-First ReAct engine with native function calling.
@@ -1035,7 +1036,8 @@ class AntigravityHarness:
             on_stream_chunk=on_stream_chunk,
             on_stream_end=on_stream_end,
             on_inquiry=on_inquiry,
-            on_plan=on_plan
+            on_plan=on_plan,
+            steering_queue=steering_queue
         )
 
     async def _execute_with_llm(
@@ -1057,7 +1059,8 @@ class AntigravityHarness:
         on_stream_chunk: Optional[Callable[[str, str, str, str], Any]] = None,
         on_stream_end: Optional[Callable[[str, str, str], Any]] = None,
         on_inquiry: Optional[Callable[[str, List[Dict[str, Any]], str, int], Any]] = None,
-        on_plan: Optional[Callable[[Dict[str, Any]], Any]] = None
+        on_plan: Optional[Callable[[Dict[str, Any]], Any]] = None,
+        steering_queue: Optional[asyncio.Queue] = None
     ) -> Dict[str, Any]:
         """
         Primary LLM-first ReAct engine: invokes model with comprehensive tool declarations.
@@ -1503,6 +1506,96 @@ class AntigravityHarness:
                             },
                             "required": ["file_path"]
                         }
+                    },
+                    {
+                        "name": "delegate_subtasks",
+                        "description": "Dispatches concurrent subagent tasks linked to the current parent session. Enables multi-agent swarms (e.g. parallel PR reviews, specialist security/QA audits, speculative branches, partitioned file migrations) with live telemetry in the Agents tab.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "subtasks": {
+                                    "type": "ARRAY",
+                                    "description": "List of subtasks to execute concurrently (max 5)",
+                                    "items": {
+                                        "type": "OBJECT",
+                                        "properties": {
+                                            "title": {"type": "STRING", "description": "Short descriptive title of the subtask"},
+                                            "prompt": {"type": "STRING", "description": "Detailed instructions and objective for the subagent"},
+                                            "persona": {"type": "STRING", "description": "Persona to run (e.g. 'CodeReviewer', 'SecurityAuditor', 'SoftwareEngineer', 'TestEngineer', 'PerformanceEngineer')"},
+                                            "model_name": {"type": "STRING", "description": "Optional model name override (e.g. 'gemini-3.7-flash', 'deepseek-chat')"},
+                                            "session_key": {"type": "STRING", "description": "Optional session grouping key (e.g. 'pr-42', 'auth-spec')"},
+                                            "repo_name": {"type": "STRING", "description": "Optional repository handle"}
+                                        },
+                                        "required": ["title", "prompt"]
+                                    }
+                                },
+                                "wait_for_completion": {
+                                    "type": "BOOLEAN",
+                                    "description": "Whether to wait synchronously for all subagents to finish and aggregate results (default: true)"
+                                }
+                            },
+                            "required": ["subtasks"]
+                        }
+                    },
+                    {
+                        "name": "send_subagent_message",
+                        "description": "Sends a follow-up instruction or message to an existing subagent pod by subagent_id or session_key, resuming its conversation and state in its workspace without spawning a duplicate pod.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "message": {"type": "STRING", "description": "The follow-up prompt or instruction for the subagent"},
+                                "subagent_id": {"type": "STRING", "description": "Optional subagent task ID to target"},
+                                "session_key": {"type": "STRING", "description": "Optional session grouping key to target (e.g. 'pr-42', 'auth-spec')"},
+                                "wait_for_completion": {"type": "BOOLEAN", "description": "Whether to wait synchronously for the subagent turn to complete (default: true)"}
+                            },
+                            "required": ["message"]
+                        }
+                    },
+                    {
+                        "name": "batch_review_prs",
+                        "description": "Spawns dedicated CodeReviewer subagents for multiple GitHub pull requests in parallel. Automatically creates isolated worktrees, executes linters and unit tests, and returns consolidated review summaries.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "repository": {"type": "STRING", "description": "Repository handle (e.g. 'owner/repo')"},
+                                "pr_numbers": {
+                                    "type": "ARRAY",
+                                    "description": "List of pull request numbers to review concurrently",
+                                    "items": {"type": "INTEGER"}
+                                },
+                                "wait_for_completion": {
+                                    "type": "BOOLEAN",
+                                    "description": "Whether to wait synchronously for all reviews to finish (default: true)"
+                                }
+                            },
+                            "required": ["repository", "pr_numbers"]
+                        }
+                    },
+                    {
+                        "name": "apply_subagent_diff",
+                        "description": "Atomically adopts and applies code changes/diffs produced by a completed subagent into the primary workspace. Ideal for adopting the winning approach from a speculative tournament or merging partitioned work.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "subagent_task_id": {"type": "STRING", "description": "Task ID of the subagent whose diff should be merged"}
+                            },
+                            "required": ["subagent_task_id"]
+                        }
+                    },
+                    {
+                        "name": "get_subagent_results",
+                        "description": "Retrieves live status, active tools, results, and diff summaries for specified subagent task IDs.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "subagent_task_ids": {
+                                    "type": "ARRAY",
+                                    "description": "List of subagent task IDs to query",
+                                    "items": {"type": "STRING"}
+                                }
+                            },
+                            "required": ["subagent_task_ids"]
+                        }
                     }
                 ]
             }
@@ -1529,6 +1622,7 @@ class AntigravityHarness:
             f"   - When reviewing PRs or summarizing changes: call `get_pull_request_diff` and `get_pull_request_details` to analyze the exact code hunks.\n"
             f"   - When referencing, tracking, or resolving Linear tickets (e.g. 'PD-1198'): call Linear tools directly (`get_linear_issue`, `search_linear_issues`, `post_linear_comment`, `update_linear_issue_status`).\n"
             f"   - When answering user questions about the workspace: use `read_file`, `search_code`, `find_symbols`, and `run_command`.\n"
+            f"   - When asked to perform multi-agent analysis, delegate subtasks across multiple topics/companies, or run parallel investigations: call `delegate_subtasks` with focused subtasks to launch concurrent worker pods with live telemetry in the Agents tab.\n"
             f"   - When asked to search the web: call `search_web` or `fetch_url`. Formulate clean, concise keyword queries without redundant boolean operators or nested quotes. Complete web research in 1–3 focused tool queries and promptly deliver your full analytical synthesis.\n"
             f"2. ANALYTICAL PROSE & RICH CITATIONS:\n"
             f"   - Lead with an Executive Summary in fluid analytical prose.\n"
@@ -1760,6 +1854,29 @@ class AntigravityHarness:
                         collector.start_turn(turn_index=turn, user_prompt=prompt if turn == 1 else None)
                         if workspace_path and workspace_path.exists():
                             create_turn_snapshot(workspace_path, turn)
+
+                        # Drain in-flight user steering messages if any were queued while agent was executing
+                        if steering_queue and not steering_queue.empty():
+                            steer_msgs = []
+                            while not steering_queue.empty():
+                                try:
+                                    msg = steering_queue.get_nowait()
+                                    if msg and str(msg).strip():
+                                        steer_msgs.append(str(msg).strip())
+                                except asyncio.QueueEmpty:
+                                    break
+                            if steer_msgs:
+                                combined_steer = "\n\n".join(steer_msgs)
+                                logger.info(f"Draining {len(steer_msgs)} in-flight steering messages into task {task_id} turn {turn}")
+                                steer_text = f"[User In-Flight Steering Update]:\n{combined_steer}\n\nPlease adapt your ongoing actions to incorporate these user instructions."
+                                if contents and contents[-1].get("role") == "user":
+                                    contents[-1]["parts"].append({"text": steer_text})
+                                else:
+                                    contents.append({"role": "user", "parts": [{"text": steer_text}]})
+                                await self._emit_streamed_thought(
+                                    f"**In-Flight Steering Received**: Processing updated user directive: {combined_steer[:80]}...",
+                                    on_thought, on_stream_start, on_stream_chunk, on_stream_end
+                                )
 
                         # Tier 3: In-Context Tool Output & Historical Content Compaction
                         optimized_contents = []
@@ -3228,6 +3345,53 @@ class AntigravityHarness:
                                 fp = args.get("file_path") or args.get("path") or ""
                                 prompt_arg = args.get("prompt")
                                 tool_result = await WorkspaceTools.view_image(workspace_path, file_path=fp, prompt=prompt_arg)
+                                out_str = json.dumps(tool_result, indent=2)
+                            elif fn_name == "delegate_subtasks":
+                                subtasks_arg = args.get("subtasks", [])
+                                wait_arg = args.get("wait_for_completion", True)
+                                tool_result = await WorkspaceTools.delegate_subtasks(
+                                    workspace_path=workspace_path,
+                                    subtasks=subtasks_arg,
+                                    wait_for_completion=wait_arg
+                                )
+                                out_str = json.dumps(tool_result, indent=2)
+                            elif fn_name == "send_subagent_message":
+                                msg_arg = args.get("message", "")
+                                sub_id_arg = args.get("subagent_id")
+                                session_key_arg = args.get("session_key")
+                                wait_arg = args.get("wait_for_completion", True)
+                                tool_result = await WorkspaceTools.send_subagent_message(
+                                    workspace_path=workspace_path,
+                                    message=msg_arg,
+                                    subagent_id=sub_id_arg,
+                                    session_key=session_key_arg,
+                                    wait_for_completion=wait_arg
+                                )
+                                out_str = json.dumps(tool_result, indent=2)
+                            elif fn_name == "batch_review_prs":
+                                repo_arg = args.get("repository", "")
+                                pr_nums_arg = args.get("pr_numbers", [])
+                                wait_arg = args.get("wait_for_completion", True)
+                                tool_result = await WorkspaceTools.batch_review_prs(
+                                    workspace_path=workspace_path,
+                                    repository=repo_arg,
+                                    pr_numbers=pr_nums_arg,
+                                    wait_for_completion=wait_arg
+                                )
+                                out_str = json.dumps(tool_result, indent=2)
+                            elif fn_name == "apply_subagent_diff":
+                                sub_id_arg = args.get("subagent_task_id", "")
+                                tool_result = await WorkspaceTools.apply_subagent_diff(
+                                    workspace_path=workspace_path,
+                                    subagent_task_id=sub_id_arg
+                                )
+                                out_str = json.dumps(tool_result, indent=2)
+                            elif fn_name == "get_subagent_results":
+                                sub_ids_arg = args.get("subagent_task_ids", [])
+                                tool_result = await WorkspaceTools.get_subagent_results(
+                                    workspace_path=workspace_path,
+                                    subagent_task_ids=sub_ids_arg
+                                )
                                 out_str = json.dumps(tool_result, indent=2)
                             else:
                                 tool_result = {"error": f"Unknown tool: {fn_name}"}

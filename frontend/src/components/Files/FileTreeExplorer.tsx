@@ -18,6 +18,7 @@ import {
   Plus
 } from 'lucide-react';
 import { createGrepMatcher } from '../../utils/grepMatcher';
+import { readDroppedFileSystemEntries, extractFilesFromInput, openNativeFolderPicker, UploadableItem } from '../../utils/fileUpload';
 
 export interface FileNode {
   name: string;
@@ -90,9 +91,24 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
+  const uploadMenuRef = useRef<HTMLDivElement>(null);
+  const [showUploadMenu, setShowUploadMenu] = useState<boolean>(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [scopeFilter, setScopeFilter] = useState<'all' | 'current' | 'workspace'>('all');
   const [collapsedSearchFiles, setCollapsedSearchFiles] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (uploadMenuRef.current && !uploadMenuRef.current.contains(e.target as Node)) {
+        setShowUploadMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   const debounceTimerRef = useRef<any>(null);
   const lastExternalSearchRef = useRef<number | undefined>(undefined);
@@ -526,13 +542,14 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
     );
   };
 
-  const handleUploadFiles = async (files: FileList | File[]) => {
-    if (!taskId || !files || files.length === 0) return;
+  const handleUploadItems = async (items: UploadableItem[]) => {
+    if (!taskId || !items || items.length === 0) return;
     setIsUploading(true);
     try {
       const formData = new FormData();
-      Array.from(files).forEach((f) => {
-        formData.append('files', f);
+      items.forEach((item) => {
+        const rel = item.relativePath || item.file.name;
+        formData.append('files', item.file, rel);
       });
       formData.append('target_type', 'workspace');
 
@@ -548,11 +565,43 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
         if (onRefresh) onRefresh();
       }
     } catch (err) {
-      console.error('Failed to upload file to workspace:', err);
+      console.error('Failed to upload files to workspace:', err);
     } finally {
       setIsUploading(false);
       setIsDragging(false);
     }
+  };
+
+  const setFolderInputRef = (el: HTMLInputElement | null) => {
+    folderInputRef.current = el;
+    if (el) {
+      el.setAttribute('webkitdirectory', '');
+      el.setAttribute('directory', '');
+      el.setAttribute('mozdirectory', '');
+      (el as any).webkitdirectory = true;
+    }
+  };
+
+  const handleSelectFolder = async () => {
+    setShowUploadMenu(false);
+    const nativeItems = await openNativeFolderPicker();
+    if (nativeItems !== null) {
+      if (nativeItems.length > 0) {
+        await handleUploadItems(nativeItems);
+      }
+      return;
+    }
+    folderInputRef.current?.click();
+  };
+
+  const handleUploadFiles = async (files: FileList | File[]) => {
+    const items = extractFilesFromInput(files);
+    await handleUploadItems(items);
+  };
+
+  const handleUploadDropped = async (dataTransfer: DataTransfer) => {
+    const items = await readDroppedFileSystemEntries(dataTransfer);
+    await handleUploadItems(items);
   };
 
   return (
@@ -571,33 +620,47 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
         e.preventDefault();
         e.stopPropagation();
         setIsDragging(false);
-        if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-          handleUploadFiles(e.dataTransfer.files);
-        }
+        handleUploadDropped(e.dataTransfer);
       }}
       className={`flex flex-col h-full bg-onedark-darker select-none text-onedark-fg font-sans border-r border-onedark-borderSubtle relative transition-colors ${
         isDragging ? 'ring-2 ring-onedark-accent/60 bg-onedark-surface/40' : ''
       }`}
     >
-      {/* Hidden file input for uploads */}
+      {/* Hidden file & folder inputs for uploads */}
       <input
         ref={fileInputRef}
         type="file"
         multiple
+        style={{ display: 'none' }}
         onChange={(e) => {
           if (e.target.files && e.target.files.length > 0) {
             handleUploadFiles(e.target.files);
           }
+          e.target.value = '';
         }}
-        className="hidden"
+      />
+      <input
+        ref={setFolderInputRef}
+        type="file"
+        // @ts-ignore
+        webkitdirectory=""
+        directory=""
+        multiple
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          if (e.target.files && e.target.files.length > 0) {
+            handleUploadFiles(e.target.files);
+          }
+          e.target.value = '';
+        }}
       />
 
       {/* Drag & Drop Overlay */}
       {isDragging && (
         <div className="absolute inset-0 bg-onedark-darker/90 backdrop-blur-xs z-30 flex flex-col items-center justify-center p-4 border-2 border-dashed border-onedark-accent rounded-lg pointer-events-none text-center space-y-2">
           <Upload className="w-8 h-8 text-onedark-accent animate-bounce" />
-          <div className="text-xs font-semibold text-onedark-fgBright">Drop files to ingest into workspace</div>
-          <div className="text-[10.5px] text-onedark-muted">Files will be saved in workspace root</div>
+          <div className="text-xs font-semibold text-onedark-fgBright">Drop files or folders to ingest into workspace</div>
+          <div className="text-[10.5px] text-onedark-muted">Hierarchy will be preserved in workspace root</div>
         </div>
       )}
 
@@ -611,22 +674,62 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
 
           <div className="flex items-center space-x-1">
             {taskId && (
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isUploading}
-                className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-accent text-[10px] font-mono cursor-pointer transition-colors flex items-center space-x-1"
-                title="Upload file(s) into workspace"
-              >
-                {isUploading ? (
-                  <Loader2 className="w-3 h-3 animate-spin text-onedark-accent" />
-                ) : (
-                  <>
-                    <Upload className="w-3 h-3" />
-                    <span>Upload</span>
-                  </>
+              <div ref={uploadMenuRef} className="relative flex items-center bg-onedark-surface/40 rounded border border-onedark-borderSubtle/60 hover:border-onedark-borderSubtle">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
+                  className="px-1.5 py-0.5 rounded-l text-onedark-muted hover:text-onedark-accent text-[10px] font-mono cursor-pointer transition-colors flex items-center space-x-1"
+                  title="Upload files to workspace"
+                >
+                  {isUploading ? (
+                    <Loader2 className="w-3 h-3 animate-spin text-onedark-accent" />
+                  ) : (
+                    <>
+                      <Upload className="w-3 h-3" />
+                      <span>Upload</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowUploadMenu((v) => !v);
+                  }}
+                  disabled={isUploading}
+                  className="px-1 py-0.5 rounded-r text-onedark-muted hover:text-onedark-accent text-[10px] font-mono cursor-pointer transition-colors flex items-center border-l border-onedark-borderSubtle/40"
+                  title="More upload options (upload folder)"
+                >
+                  <ChevronDown className={`w-2.5 h-2.5 transition-transform duration-150 ${showUploadMenu ? 'rotate-180 text-onedark-accent' : ''}`} />
+                </button>
+
+                {showUploadMenu && (
+                  <div
+                    className="absolute right-0 top-full mt-1 w-36 rounded-lg bg-onedark-darker border border-onedark-border shadow-xl p-1 z-50 flex flex-col space-y-0.5 text-xs font-sans animate-in fade-in zoom-in-95 duration-100"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowUploadMenu(false);
+                        fileInputRef.current?.click();
+                      }}
+                      className="w-full px-2 py-1.5 text-left rounded hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright flex items-center space-x-2 cursor-pointer"
+                    >
+                      <FileText className="w-3.5 h-3.5 text-onedark-accent" />
+                      <span>Upload Files</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSelectFolder}
+                      className="w-full px-2 py-1.5 text-left rounded hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright flex items-center space-x-2 cursor-pointer"
+                    >
+                      <Folder className="w-3.5 h-3.5 text-onedark-yellow" />
+                      <span>Upload Folder</span>
+                    </button>
+                  </div>
                 )}
-              </button>
+              </div>
             )}
 
             {searchMode === 'files' && (

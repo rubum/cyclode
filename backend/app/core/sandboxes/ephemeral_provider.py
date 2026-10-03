@@ -44,22 +44,24 @@ class EphemeralSandboxProvider(SandboxProvider):
     ) -> SandboxContext:
         workspace_path = self.base_dir / f"sandbox-{task_id}"
         
-        # 1. Reuse existing warm sandbox for multi-turn sessions ONLY IF repo matches
+        # 1. Warm in-memory session reuse
         if task_id in self._active_sandboxes and not self._active_sandboxes[task_id].is_destroyed and workspace_path.exists():
             existing_ctx = self._active_sandboxes[task_id]
-            if not repo_url or existing_ctx.repo_url == repo_url:
-                logger.info(f"Reusing active sandbox session for task {task_id} at {workspace_path}")
-                return existing_ctx
+            if repo_url and not existing_ctx.repo_url:
+                existing_ctx.repo_url = repo_url
+            if repo_name and not existing_ctx.repo_name:
+                existing_ctx.repo_name = repo_name
+            logger.info(f"Reusing active sandbox session for task {task_id} at {workspace_path}")
+            return existing_ctx
 
-        if workspace_path.exists() and (workspace_path / ".git").exists():
-            curr_origin = ""
-            orig_check = subprocess.run(["git", "config", "--get", "remote.origin.url"], cwd=workspace_path, capture_output=True, text=True)
-            if orig_check.returncode == 0:
-                curr_origin = orig_check.stdout.strip()
-            
-            clean_req = (repo_url or "").rstrip("/.git")
-            clean_curr = curr_origin.rstrip("/.git")
-            if not repo_url or (clean_req and clean_req in clean_curr):
+        # 2. Resilient Disk-Level Reattachment
+        if workspace_path.exists() and workspace_path.is_dir():
+            try:
+                has_contents = any(workspace_path.iterdir())
+            except Exception:
+                has_contents = False
+
+            if has_contents:
                 context = SandboxContext(
                     task_id=task_id,
                     workspace_path=workspace_path,

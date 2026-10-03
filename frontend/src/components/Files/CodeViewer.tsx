@@ -38,6 +38,7 @@ import { DataTableView } from './Viewers/DataTableView';
 import { StructuredDataViewer } from './Viewers/StructuredDataViewer';
 import { MediaViewer } from './Viewers/MediaViewer';
 import { DocumentViewer } from './Viewers/DocumentViewer';
+import { DocxViewer } from './Viewers/DocxViewer';
 import { NotebookViewer } from './Viewers/NotebookViewer';
 import { ArchiveViewer } from './Viewers/ArchiveViewer';
 import { GitBlameHoverCard, LineBlame } from './GitBlameHoverCard';
@@ -82,7 +83,7 @@ interface FileContentResponse {
   raw_url?: string;
 }
 
-export type ViewerMode = 'code' | 'preview' | 'table' | 'tree' | 'image' | 'media' | 'pdf' | 'notebook' | 'archive';
+export type ViewerMode = 'code' | 'preview' | 'table' | 'tree' | 'image' | 'media' | 'pdf' | 'notebook' | 'archive' | 'docx';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -215,6 +216,8 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
       lower.endsWith('.m4a')
     ) {
       setViewMode('media');
+    } else if (lower.endsWith('.docx') || lower.endsWith('.doc')) {
+      setViewMode('docx');
     } else if (lower.endsWith('.pdf')) {
       setViewMode('pdf');
     } else {
@@ -691,6 +694,7 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
   const isImage = lowerPath.endsWith('.png') || lowerPath.endsWith('.jpg') || lowerPath.endsWith('.jpeg') || lowerPath.endsWith('.gif') || lowerPath.endsWith('.webp') || lowerPath.endsWith('.svg') || lowerPath.endsWith('.ico') || lowerPath.endsWith('.bmp') || lowerPath.endsWith('.avif');
   const isMedia = lowerPath.endsWith('.mp4') || lowerPath.endsWith('.webm') || lowerPath.endsWith('.mov') || lowerPath.endsWith('.mp3') || lowerPath.endsWith('.wav') || lowerPath.endsWith('.ogg') || lowerPath.endsWith('.m4a');
   const isPdf = lowerPath.endsWith('.pdf');
+  const isDocx = lowerPath.endsWith('.docx') || lowerPath.endsWith('.doc');
 
   const previewUrl = taskId && filePath ? `${API_BASE}/api/tasks/${taskId}/preview/${filePath}` : '';
   const rawFileUrl = data?.raw_url 
@@ -740,17 +744,23 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
             <Braces className="w-3.5 h-3.5 text-onedark-blue flex-shrink-0" />
           ) : isMedia ? (
             <Film className="w-3.5 h-3.5 text-onedark-purple flex-shrink-0" />
+          ) : isDocx ? (
+            <FileText className="w-3.5 h-3.5 text-onedark-blue flex-shrink-0" />
           ) : isPdf ? (
             <FileText className="w-3.5 h-3.5 text-onedark-red flex-shrink-0" />
           ) : (
             <FileCode className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
           )}
 
-          <span className="font-semibold text-onedark-fgBright truncate text-[12.5px]">
-            {data.name}
-          </span>
-          <span className="text-[11px] text-onedark-muted truncate hidden sm:inline">
-            ({data.path})
+          <span className="font-mono text-[12.5px] truncate min-w-0" title={data.path}>
+            {data.path && data.path.includes('/') ? (
+              <>
+                <span className="text-onedark-muted/60">{data.path.slice(0, data.path.lastIndexOf('/') + 1)}</span>
+                <span className="font-semibold text-onedark-fgBright">{data.name}</span>
+              </>
+            ) : (
+              <span className="font-semibold text-onedark-fgBright">{data.name || data.path}</span>
+            )}
           </span>
         </div>
 
@@ -1126,11 +1136,13 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
         />
       ) : (viewMode === 'notebook' || (isNotebook && viewMode !== 'code')) ? (
         <NotebookViewer
+          taskId={taskId}
           content={data.content}
           filePath={filePath || ''}
           rawUrl={rawFileUrl}
           isTruncated={data.is_truncated}
           onSwitchToCode={() => setViewMode('code')}
+          onAskAboutLine={onAskAboutLine}
         />
       ) : (viewMode === 'archive' || (isArchive && viewMode !== 'code') || (data.is_binary && isArchive)) ? (
         <ArchiveViewer
@@ -1154,6 +1166,13 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
         />
       ) : viewMode === 'media' || (data.is_binary && isMedia) ? (
         <MediaViewer
+          filePath={filePath || ''}
+          fileSize={data.size}
+          rawUrl={rawFileUrl}
+        />
+      ) : viewMode === 'docx' || (data.is_binary && isDocx) || isDocx ? (
+        <DocxViewer
+          taskId={taskId || ''}
           filePath={filePath || ''}
           fileSize={data.size}
           rawUrl={rawFileUrl}

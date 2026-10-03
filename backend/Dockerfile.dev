@@ -9,6 +9,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     docker.io \
     docker-cli \
+    procps \
+    htop \
+    sudo \
+    less \
+    jq \
+    tree \
+    lsof \
+    wget \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*

@@ -31,6 +31,7 @@ import {
   Play,
   LayoutGrid,
   Folder,
+  FolderOpen,
   Search,
   Globe,
   Link2,
@@ -64,6 +65,7 @@ import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { FormattedLogView } from '../Common/FormattedLogView';
 import { SandboxInspectorModal } from '../Sandbox/SandboxInspectorModal';
 import { PRReviewApprovalCard } from './PRReviewApprovalCard';
+import { readDroppedFileSystemEntries, extractFilesFromInput, groupAttachmentsByFolder, openNativeFolderPicker, UploadableItem } from '../../utils/fileUpload';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -95,6 +97,13 @@ function getAttachmentIcon(filename: string) {
   return { icon: Paperclip, color: 'text-onedark-accent', bg: 'bg-onedark-accent/10 border-onedark-accent/20' };
 }
 
+export interface ParsedFolderAttachment {
+  name: string;
+  path: string;
+  fileCount?: number;
+  sizeStr?: string;
+}
+
 export interface ParsedAttachment {
   name: string;
   path: string;
@@ -104,22 +113,106 @@ export interface ParsedAttachment {
   category: 'image' | 'table' | 'notebook' | 'archive' | 'doc' | 'code' | 'general';
 }
 
+export interface ParsedUserAttachmentsResult {
+  cleanedText: string;
+  folders: ParsedFolderAttachment[];
+  attachments: ParsedAttachment[];
+}
+
 export const localAttachmentBlobUrls = new Map<string, string>();
 
-export const parseUserMessageAttachments = (content: string, taskId?: string): { cleanedText: string; attachments: ParsedAttachment[] } => {
-  if (!content) return { cleanedText: '', attachments: [] };
+export const parseUserMessageAttachments = (
+  content: string,
+  taskId?: string
+): ParsedUserAttachmentsResult => {
+  if (!content) return { cleanedText: '', folders: [], attachments: [] };
 
-  const attachmentRegex = /\[Uploaded Attachment:\s*([^\]\n]+?)\]/gi;
+  const folders: ParsedFolderAttachment[] = [];
   const attachments: ParsedAttachment[] = [];
 
-  let match;
-  while ((match = attachmentRegex.exec(content)) !== null) {
-    const inner = match[1].trim();
-    // Parse size suffix if present at end of string, e.g. " (4.8 KB)", " (100 B)", " (1.2 MB)"
+  // 1. Workspace Folders: [Uploaded Workspace Folder: Name/ (10 files, 2.3 MB)]
+  const folderRegex = /\[Uploaded Workspace Folder:\s*([^\]\n]+?)\]/gi;
+  let folderMatch;
+  while ((folderMatch = folderRegex.exec(content)) !== null) {
+    const inner = folderMatch[1].trim();
+    const parenMatch = inner.match(/^(.*?)(?:\s*\((.*?)\))$/i);
+    const rawFolderName = (parenMatch ? parenMatch[1] : inner).trim();
+    const metaStr = parenMatch ? parenMatch[2].trim() : '';
+
+    let fileCount: number | undefined;
+    let sizeStr: string | undefined;
+
+    if (metaStr) {
+      const countMatch = metaStr.match(/(\d+)\s*files?/i);
+      if (countMatch) {
+        fileCount = parseInt(countMatch[1], 10);
+      }
+      const sizeMatch = metaStr.match(/([\d.]+\s*(?:B|KB|MB|GB|TB|bytes?))/i);
+      if (sizeMatch) {
+        sizeStr = sizeMatch[1].trim();
+      }
+    }
+
+    const cleanPath = rawFolderName.replace(/\/+$/, '');
+    folders.push({
+      name: rawFolderName.endsWith('/') ? rawFolderName : `${rawFolderName}/`,
+      path: cleanPath,
+      fileCount,
+      sizeStr,
+    });
+  }
+
+  // 2. Workspace Files: [Uploaded Workspace File: path/to/file.ext (1.2 MB)]
+  const wsFileRegex = /\[Uploaded Workspace File:\s*([^\]\n]+?)\]/gi;
+  let wsFileMatch;
+  while ((wsFileMatch = wsFileRegex.exec(content)) !== null) {
+    const inner = wsFileMatch[1].trim();
     const sizeMatch = inner.match(/^(.*?)(?:\s*\(([\d.]+\s*(?:B|KB|MB|GB|bytes?|TB))\))$/i);
     const rawPath = (sizeMatch ? sizeMatch[1] : inner).trim();
     const sizeStr = sizeMatch ? sizeMatch[2].trim() : undefined;
-    const name = rawPath.split('/').pop() || rawPath;
+    const name = rawPath.split(/[/\\]/).pop() || rawPath;
+    const lower = name.toLowerCase();
+
+    let category: ParsedAttachment['category'] = 'general';
+    if (/\.(png|jpe?g|webp|gif|svg|bmp|ico)$/i.test(lower)) {
+      category = 'image';
+    } else if (/\.(csv|tsv|parquet|xlsx|xls|jsonl)$/i.test(lower)) {
+      category = 'table';
+    } else if (/\.ipynb$/i.test(lower)) {
+      category = 'notebook';
+    } else if (/\.(zip|tar|gz|tgz|tar\.gz|tar\.bz2|bz2)$/i.test(lower)) {
+      category = 'archive';
+    } else if (/\.(pdf|md|markdown|txt|docx|doc)$/i.test(lower)) {
+      category = 'doc';
+    } else if (/\.(py|ts|tsx|js|jsx|json|yaml|yml|sh|sql|go|rs|cpp|c|h|html|css)$/i.test(lower)) {
+      category = 'code';
+    }
+
+    const blobUrl = localAttachmentBlobUrls.get(name);
+    const serverUrl = taskId && !taskId.startsWith('temp-')
+      ? `${API_BASE}/api/tasks/${taskId}/files/raw?path=${encodeURIComponent(rawPath)}`
+      : undefined;
+    const rawUrl = serverUrl || blobUrl;
+
+    attachments.push({
+      name,
+      path: rawPath,
+      sizeStr,
+      rawUrl,
+      blobUrl,
+      category,
+    });
+  }
+
+  // 3. Attachments: [Uploaded Attachment: file.png (50 KB)]
+  const attachmentRegex = /\[Uploaded Attachment:\s*([^\]\n]+?)\]/gi;
+  let match;
+  while ((match = attachmentRegex.exec(content)) !== null) {
+    const inner = match[1].trim();
+    const sizeMatch = inner.match(/^(.*?)(?:\s*\(([\d.]+\s*(?:B|KB|MB|GB|bytes?|TB))\))$/i);
+    const rawPath = (sizeMatch ? sizeMatch[1] : inner).trim();
+    const sizeStr = sizeMatch ? sizeMatch[2].trim() : undefined;
+    const name = rawPath.split(/[/\\]/).pop() || rawPath;
     const lower = name.toLowerCase();
 
     let category: ParsedAttachment['category'] = 'general';
@@ -157,9 +250,13 @@ export const parseUserMessageAttachments = (content: string, taskId?: string): {
     });
   }
 
-  const cleanedText = content.replace(attachmentRegex, '').trim();
+  const cleanedText = content
+    .replace(folderRegex, '')
+    .replace(wsFileRegex, '')
+    .replace(attachmentRegex, '')
+    .trim();
 
-  return { cleanedText, attachments };
+  return { cleanedText, folders, attachments };
 };
 
 interface AttachmentImagePreviewProps {
@@ -286,6 +383,8 @@ export interface ChatAttachment {
   file: File;
   name: string;
   size: number;
+  relativePath?: string;
+  rootFolder?: string;
   status: 'uploading' | 'ready' | 'error';
   path?: string;
   category?: string;
@@ -1193,67 +1292,135 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const chatFileInputRef = useRef<HTMLInputElement>(null);
+  const chatFolderInputRef = useRef<HTMLInputElement>(null);
+  const attachMenuEmptyRef = useRef<HTMLDivElement>(null);
+  const attachMenuChatRef = useRef<HTMLDivElement>(null);
   const isAutoScrollEnabledRef = useRef<boolean>(true);
   const scrollRafRef = useRef<number | null>(null);
 
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [isDraggingInput, setIsDraggingInput] = useState<boolean>(false);
+  const [showAttachMenuEmpty, setShowAttachMenuEmpty] = useState<boolean>(false);
+  const [showAttachMenuChat, setShowAttachMenuChat] = useState<boolean>(false);
 
-  const handleAttachFiles = async (files: FileList | File[]) => {
-    if (!files || files.length === 0) return;
-    const newItems: ChatAttachment[] = Array.from(files).map((f) => {
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (attachMenuEmptyRef.current && !attachMenuEmptyRef.current.contains(e.target as Node)) {
+        setShowAttachMenuEmpty(false);
+      }
+      if (attachMenuChatRef.current && !attachMenuChatRef.current.contains(e.target as Node)) {
+        setShowAttachMenuChat(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
+
+  const setFolderInputRef = (el: HTMLInputElement | null) => {
+    chatFolderInputRef.current = el;
+    if (el) {
+      el.setAttribute('webkitdirectory', '');
+      el.setAttribute('directory', '');
+      el.setAttribute('mozdirectory', '');
+      (el as any).webkitdirectory = true;
+    }
+  };
+
+  const handleAttachItems = async (items: UploadableItem[]) => {
+    if (!items || items.length === 0) return;
+    const newItems: ChatAttachment[] = items.map((item) => {
       try {
-        const blobUrl = URL.createObjectURL(f);
-        localAttachmentBlobUrls.set(f.name, blobUrl);
+        const blobUrl = URL.createObjectURL(item.file);
+        localAttachmentBlobUrls.set(item.name, blobUrl);
       } catch {
         // ignore
       }
       return {
-        id: `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-        file: f,
-        name: f.name,
-        size: f.size,
+        id: item.id,
+        file: item.file,
+        name: item.name,
+        size: item.size,
+        relativePath: item.relativePath,
+        rootFolder: item.rootFolder,
         status: task?.id ? 'uploading' : 'ready',
       };
     });
     setAttachments((prev) => [...prev, ...newItems]);
 
     if (task?.id) {
-      for (const item of newItems) {
-        const formData = new FormData();
-        formData.append('files', item.file);
-        formData.append('target_type', 'attachment');
-        try {
-          const res = await fetch(`${API_BASE}/api/tasks/${task.id}/files/upload`, {
-            method: 'POST',
-            body: formData,
-          });
-          if (res.ok) {
-            const data = await res.json();
-            const rec = data.uploaded?.[0];
-            setAttachments((prev) =>
-              prev.map((a) =>
-                a.id === item.id
-                  ? { ...a, status: 'ready', path: rec?.path, category: rec?.category }
-                  : a
-              )
-            );
-          } else {
-            setAttachments((prev) =>
-              prev.map((a) => (a.id === item.id ? { ...a, status: 'error', error: 'Upload failed' } : a))
-            );
-          }
-        } catch (e: any) {
+      const formData = new FormData();
+      newItems.forEach((item) => {
+        const rel = item.relativePath || item.file.name;
+        formData.append('files', item.file, rel);
+      });
+      formData.append('target_type', 'workspace');
+      try {
+        const res = await fetch(`${API_BASE}/api/tasks/${task.id}/files/upload`, {
+          method: 'POST',
+          body: formData,
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const uploadedList: any[] = data.uploaded || [];
+          const uploadedMap = new Map(uploadedList.map((u) => [u.path, u]));
           setAttachments((prev) =>
-            prev.map((a) => (a.id === item.id ? { ...a, status: 'error', error: e.message } : a))
+            prev.map((a) => {
+              if (!newItems.some((ni) => ni.id === a.id)) return a;
+              const rel = a.relativePath || a.file.name;
+              const rec: any = uploadedMap.get(rel) || (a.name ? uploadedMap.get(a.name) : undefined);
+              return rec
+                ? { ...a, status: 'ready', path: rec.path, category: rec.category }
+                : { ...a, status: 'ready' };
+            })
+          );
+        } else {
+          setAttachments((prev) =>
+            prev.map((a) =>
+              newItems.some((ni) => ni.id === a.id) ? { ...a, status: 'error', error: 'Upload failed' } : a
+            )
           );
         }
+      } catch (e: any) {
+        setAttachments((prev) =>
+          prev.map((a) =>
+            newItems.some((ni) => ni.id === a.id) ? { ...a, status: 'error', error: e.message } : a
+          )
+        );
       }
     }
   };
 
+  const handleSelectFolder = async () => {
+    setShowAttachMenuEmpty(false);
+    setShowAttachMenuChat(false);
+    const nativeItems = await openNativeFolderPicker();
+    if (nativeItems !== null) {
+      if (nativeItems.length > 0) {
+        await handleAttachItems(nativeItems);
+      }
+      return;
+    }
+    chatFolderInputRef.current?.click();
+  };
+
+  const handleAttachFiles = async (files: FileList | File[]) => {
+    const items = extractFilesFromInput(files);
+    await handleAttachItems(items);
+  };
+
+  const handleAttachDropped = async (dataTransfer: DataTransfer) => {
+    const items = await readDroppedFileSystemEntries(dataTransfer);
+    await handleAttachItems(items);
+  };
+
   const handleRemoveAttachment = (id: string) => {
     setAttachments((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  const handleRemoveFolder = (rootFolder: string) => {
+    setAttachments((prev) => prev.filter((a) => a.rootFolder !== rootFolder));
   };
 
   const isRunning = task?.status === 'RUNNING' || task?.status === 'INITIALIZING';
@@ -1730,27 +1897,48 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     setMentionQuery(null);
     setMentionIndex(-1);
     const trimmed = inputValue.trim();
-    if (!trimmed || isSubmitting) return;
+    const readyAttachments = attachments.filter((a) => a.status === 'ready');
+    if ((!trimmed && readyAttachments.length === 0) || isSubmitting) return;
 
     isAutoScrollEnabledRef.current = true;
     setShowScrollBottomBtn(false);
     scrollToBottom(true);
     setIsSubmitting(true);
 
-    const readyAttachments = attachments.filter((a) => a.status === 'ready');
-    let promptWithAttachments = trimmed;
+    let basePrompt = trimmed;
+    if (!basePrompt && readyAttachments.length > 0) {
+      const { folders, standaloneFiles } = groupAttachmentsByFolder(readyAttachments as any);
+      if (folders.length > 0) {
+        basePrompt = `Please inspect, analyze, and work with the uploaded folder${folders.length > 1 ? 's' : ''} in the workspace: ${folders.map((f) => f.rootFolder).join(', ')}.`;
+      } else {
+        basePrompt = `Please inspect and work with the uploaded workspace file${standaloneFiles.length > 1 ? 's' : ''}: ${standaloneFiles.map((f) => f.name).join(', ')}.`;
+      }
+    }
+
+    let promptWithAttachments = basePrompt;
     if (readyAttachments.length > 0) {
-      const attachNotes = readyAttachments
-        .map((a) => `[Uploaded Attachment: ${a.path || a.name} (${formatBytes(a.size)})]`)
-        .join('\n');
-      promptWithAttachments = `${trimmed}\n\n${attachNotes}`;
+      const { folders, standaloneFiles } = groupAttachmentsByFolder(readyAttachments as any);
+      const notes: string[] = [];
+      for (const folder of folders) {
+        notes.push(`[Uploaded Workspace Folder: ${folder.rootFolder}/ (${folder.fileCount} files, ${formatBytes(folder.totalSize)})]`);
+      }
+      for (const f of standaloneFiles) {
+        notes.push(`[Uploaded Workspace File: ${f.relativePath || (f as any).path || f.name} (${formatBytes(f.size)})]`);
+      }
+      promptWithAttachments = `${basePrompt}\n\n${notes.join('\n')}`;
     }
 
     try {
+      const filesToSend = readyAttachments.map((a) => {
+        if (a.relativePath) {
+          (a.file as any).customRelativePath = a.relativePath;
+        }
+        return a.file;
+      });
       if (task) {
-        await onSendMessage(promptWithAttachments, selectedModel, readyAttachments.map(a => a.file));
+        await onSendMessage(promptWithAttachments, selectedModel, filesToSend);
       } else if (onNewChatWithPrompt) {
-        await onNewChatWithPrompt(promptWithAttachments, selectedPersona, selectedModel, readyAttachments.map(a => a.file));
+        await onNewChatWithPrompt(promptWithAttachments, selectedPersona, selectedModel, filesToSend);
       }
       setInputValue('');
       setAttachments([]);
@@ -2171,43 +2359,64 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
             onDrop={(e) => {
               e.preventDefault();
               setIsDraggingInput(false);
-              if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                handleAttachFiles(e.dataTransfer.files);
-              }
+              handleAttachDropped(e.dataTransfer);
             }}
             className={`p-4 sm:p-5 rounded-2xl bg-onedark-surface/60 border border-onedark-border/80 shadow-xl shadow-black/20 backdrop-blur-xl focus-within:border-onedark-accent/60 focus-within:ring-2 focus-within:ring-onedark-accent/15 focus-within:bg-onedark-surface/80 transition-all duration-200 space-y-3 relative ${
               isDraggingInput ? 'ring-2 ring-onedark-accent border-onedark-accent bg-onedark-surface' : ''
             }`}
           >
             {/* Attachment Pills in Empty State */}
-            {attachments.length > 0 && (
-              <div className="flex items-center gap-2 overflow-x-auto py-1 px-1 flex-wrap border-b border-onedark-borderSubtle/60 pb-2.5">
-                {attachments.map((att) => {
-                  const meta = getAttachmentIcon(att.name);
-                  const IconComp = meta.icon;
-                  return (
+            {attachments.length > 0 && (() => {
+              const { folders, standaloneFiles } = groupAttachmentsByFolder(attachments as any);
+              return (
+                <div className="flex items-center gap-2 overflow-x-auto py-1 px-1 flex-wrap border-b border-onedark-borderSubtle/60 pb-2.5">
+                  {folders.map((folder) => (
                     <div
-                      key={att.id}
-                      className="flex items-center space-x-2 px-2.5 py-1.5 rounded-lg bg-onedark-darker/80 border border-onedark-borderSubtle/80 text-xs font-mono text-onedark-fg shadow-2xs group"
+                      key={`folder-${folder.rootFolder}`}
+                      className="flex items-center space-x-2 px-2.5 py-1.5 rounded-lg bg-onedark-darker/80 border border-onedark-yellow/30 text-xs font-mono text-onedark-fg shadow-2xs group"
                     >
-                      <div className={`p-1 rounded ${meta.bg} flex items-center justify-center`}>
-                        <IconComp className={`w-3.5 h-3.5 ${meta.color} flex-shrink-0`} />
+                      <div className="p-1 rounded bg-onedark-yellow/15 flex items-center justify-center">
+                        <Folder className="w-3.5 h-3.5 text-onedark-yellow flex-shrink-0" />
                       </div>
-                      <span className="truncate max-w-[160px] font-semibold text-onedark-fgBright">{att.name}</span>
-                      <span className="text-onedark-muted/80 text-[10.5px]">({formatBytes(att.size)})</span>
+                      <span className="truncate max-w-[160px] font-semibold text-onedark-fgBright">{folder.rootFolder}/</span>
+                      <span className="text-onedark-muted/80 text-[10.5px]">({folder.fileCount} files · {formatBytes(folder.totalSize)})</span>
                       <button
                         type="button"
-                        onClick={() => handleRemoveAttachment(att.id)}
+                        onClick={() => handleRemoveFolder(folder.rootFolder)}
                         className="text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/80 rounded p-0.5 cursor-pointer transition-colors ml-1"
-                        title="Remove attachment"
+                        title={`Remove ${folder.rootFolder}/ folder`}
                       >
                         <X className="w-3 h-3" />
                       </button>
                     </div>
-                  );
-                })}
-              </div>
-            )}
+                  ))}
+                  {standaloneFiles.map((att) => {
+                    const meta = getAttachmentIcon(att.name);
+                    const IconComp = meta.icon;
+                    return (
+                      <div
+                        key={att.id}
+                        className="flex items-center space-x-2 px-2.5 py-1.5 rounded-lg bg-onedark-darker/80 border border-onedark-borderSubtle/80 text-xs font-mono text-onedark-fg shadow-2xs group"
+                      >
+                        <div className={`p-1 rounded ${meta.bg} flex items-center justify-center`}>
+                          <IconComp className={`w-3.5 h-3.5 ${meta.color} flex-shrink-0`} />
+                        </div>
+                        <span className="truncate max-w-[160px] font-semibold text-onedark-fgBright">{att.name}</span>
+                        <span className="text-onedark-muted/80 text-[10.5px]">({formatBytes(att.size)})</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveAttachment(att.id)}
+                          className="text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/80 rounded p-0.5 cursor-pointer transition-colors ml-1"
+                          title="Remove attachment"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
 
             <div className="relative w-full z-20">
               {/* Highlight backdrop overlay */}
@@ -2298,29 +2507,84 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   </select>
                 </div>
 
-                {/* Hidden file input for empty state attachments */}
+                {/* Hidden file & folder inputs for empty state attachments */}
                 <input
                   ref={chatFileInputRef}
                   type="file"
                   multiple
+                  style={{ display: 'none' }}
                   onChange={(e) => {
                     if (e.target.files && e.target.files.length > 0) {
                       handleAttachFiles(e.target.files);
                     }
+                    e.target.value = '';
                   }}
-                  className="hidden"
+                />
+                <input
+                  ref={setFolderInputRef}
+                  type="file"
+                  // @ts-ignore
+                  webkitdirectory=""
+                  directory=""
+                  multiple
+                  style={{ display: 'none' }}
+                  onChange={(e) => {
+                    if (e.target.files && e.target.files.length > 0) {
+                      handleAttachFiles(e.target.files);
+                    }
+                    e.target.value = '';
+                  }}
                 />
 
-                {/* Paperclip Attach Button in Empty State */}
-                <button
-                  type="button"
-                  onClick={() => chatFileInputRef.current?.click()}
-                  className="h-8 px-2.5 rounded-lg bg-onedark-darker/60 hover:bg-onedark-darker border border-onedark-borderSubtle/80 hover:border-onedark-border text-xs text-onedark-fg hover:text-onedark-fgBright font-mono shadow-2xs flex-shrink-0 transition-all flex items-center space-x-1.5 cursor-pointer active:scale-95 group"
-                  title="Attach files (CSV, TSV, Parquet, JSON, Notebooks, Images, Archives, PDFs)"
-                >
-                  <Paperclip className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0 group-hover:scale-110 transition-transform" />
-                  <span>Attach</span>
-                </button>
+                {/* Attach Button with Split Option in Empty State */}
+                <div ref={attachMenuEmptyRef} className="relative flex items-center">
+                  <button
+                    type="button"
+                    onClick={() => chatFileInputRef.current?.click()}
+                    className="h-8 pl-2.5 pr-2 rounded-l-lg bg-onedark-darker/60 hover:bg-onedark-darker border border-r-0 border-onedark-borderSubtle/80 hover:border-onedark-border text-xs text-onedark-fg hover:text-onedark-fgBright font-mono shadow-2xs flex-shrink-0 transition-all flex items-center space-x-1.5 cursor-pointer active:scale-95 group"
+                    title="Upload files to workspace"
+                  >
+                    <Paperclip className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0 group-hover:scale-110 transition-transform" />
+                    <span>Attach</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowAttachMenuEmpty((v) => !v);
+                    }}
+                    className="h-8 px-1.5 rounded-r-lg bg-onedark-darker/60 hover:bg-onedark-darker border border-onedark-borderSubtle/80 hover:border-onedark-border text-xs text-onedark-muted hover:text-onedark-fg font-mono shadow-2xs flex-shrink-0 transition-all flex items-center justify-center cursor-pointer active:scale-95 group"
+                    title="Upload folder options"
+                  >
+                    <ChevronDown className={`w-3 h-3 text-onedark-muted group-hover:text-onedark-fg transition-transform duration-150 ${showAttachMenuEmpty ? 'rotate-180 text-onedark-accent' : ''}`} />
+                  </button>
+
+                  {showAttachMenuEmpty && (
+                    <div 
+                      className="absolute left-0 bottom-full mb-1.5 w-44 rounded-xl bg-onedark-darker border border-onedark-border shadow-2xl p-1 z-50 flex flex-col space-y-0.5 text-xs font-sans animate-in fade-in zoom-in-95 duration-100"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowAttachMenuEmpty(false);
+                          chatFileInputRef.current?.click();
+                        }}
+                        className="w-full px-2.5 py-2 text-left rounded-lg hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright flex items-center space-x-2 cursor-pointer transition-colors"
+                      >
+                        <FileText className="w-3.5 h-3.5 text-onedark-accent" />
+                        <span>Upload Files</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSelectFolder}
+                        className="w-full px-2.5 py-2 text-left rounded-lg hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright flex items-center space-x-2 cursor-pointer transition-colors"
+                      >
+                        <Folder className="w-3.5 h-3.5 text-onedark-yellow" />
+                        <span>Upload Folder</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Submit Button */}
@@ -2764,7 +3028,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                         </div>
                         <div className="px-4 py-2.5 rounded-2xl bg-onedark-surface/80 text-onedark-fgBright font-sans text-[13px] sm:text-[13.5px] leading-relaxed shadow-xs text-left w-full max-w-full overflow-hidden">
                           {(() => {
-                            const { cleanedText, attachments: parsedAttachments } = parseUserMessageAttachments(turn.userMessage.content, task?.id);
+                            const { cleanedText, folders: parsedFolders, attachments: parsedAttachments } = parseUserMessageAttachments(turn.userMessage.content, task?.id);
+                            const hasMedia = parsedFolders.length > 0 || parsedAttachments.length > 0;
                             return (
                               <>
                                 {cleanedText && (
@@ -2773,8 +3038,47 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                                     onLinkClick={handleGlobalLinkClick}
                                   />
                                 )}
-                                {parsedAttachments.length > 0 && (
-                                  <div className={`mt-2.5 pt-2 ${cleanedText ? 'border-t border-onedark-borderSubtle/50' : ''} flex flex-wrap gap-2.5`}>
+                                {hasMedia && (
+                                  <div className={`mt-2.5 pt-2.5 ${cleanedText ? 'border-t border-onedark-borderSubtle/50' : ''} flex flex-wrap gap-2.5`}>
+                                    {/* Render Parsed Workspace Folders */}
+                                    {parsedFolders.map((folder, fIdx) => (
+                                      <div
+                                        key={`folder-${fIdx}`}
+                                        onClick={() => {
+                                          if (onOpenFile) {
+                                            onOpenFile(folder.path);
+                                          } else if (onSelectAuxTab) {
+                                            onSelectAuxTab('files');
+                                          }
+                                        }}
+                                        className="flex items-center space-x-3 px-3.5 py-2.5 rounded-xl bg-onedark-darker/90 hover:bg-onedark-darker border border-onedark-yellow/30 hover:border-onedark-yellow/60 text-xs font-sans text-onedark-fg shadow-md transition-all cursor-pointer group active:scale-[0.99] min-w-[240px] flex-1 max-w-md"
+                                        title={`Browse ${folder.name} in Files explorer`}
+                                      >
+                                        <div className="p-2 rounded-lg bg-onedark-yellow/15 border border-onedark-yellow/20 flex items-center justify-center flex-shrink-0 group-hover:scale-105 transition-transform">
+                                          <Folder className="w-4 h-4 text-onedark-yellow" />
+                                        </div>
+                                        <div className="flex flex-col min-w-0 pr-1 flex-1">
+                                          <div className="flex items-center space-x-1.5 min-w-0">
+                                            <span className="font-semibold text-onedark-fgBright truncate font-mono text-[12px] group-hover:text-onedark-yellow transition-colors">
+                                              {folder.name}
+                                            </span>
+                                          </div>
+                                          <div className="flex items-center space-x-1.5 text-[10.5px] text-onedark-muted font-mono mt-0.5">
+                                            {folder.fileCount !== undefined && <span>{folder.fileCount} {folder.fileCount === 1 ? 'file' : 'files'}</span>}
+                                            {folder.fileCount !== undefined && folder.sizeStr && <span>·</span>}
+                                            {folder.sizeStr && <span>{folder.sizeStr}</span>}
+                                            <span>·</span>
+                                            <span className="text-onedark-yellow/90 font-medium">Folder</span>
+                                          </div>
+                                        </div>
+                                        <div className="px-2 py-1 rounded-md bg-onedark-surface hover:bg-onedark-surfaceHighlight text-[11px] font-mono text-onedark-muted group-hover:text-onedark-fg transition-colors flex items-center space-x-1 flex-shrink-0">
+                                          <FolderOpen className="w-3 h-3 text-onedark-yellow" />
+                                          <span>Browse</span>
+                                        </div>
+                                      </div>
+                                    ))}
+
+                                    {/* Render Parsed Workspace Files & Attachments */}
                                     {parsedAttachments.map((att, attIdx) => {
                                       const ext = att.name.toLowerCase();
                                       const isDoc = /\.(pdf|docx?|epub|markdown|md|txt)$/i.test(ext);
@@ -2818,13 +3122,13 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                                       return (
                                         <div
                                           key={attIdx}
-                                          className="flex items-center space-x-2.5 px-3 py-2 rounded-xl bg-onedark-darker/80 border border-onedark-borderSubtle hover:border-onedark-border text-xs font-sans text-onedark-fg shadow-2xs group"
+                                          className="flex items-center space-x-2.5 px-3 py-2 rounded-xl bg-onedark-darker/80 border border-onedark-borderSubtle hover:border-onedark-border text-xs font-sans text-onedark-fg shadow-2xs group min-w-[220px] flex-1 max-w-sm"
                                         >
                                           <div className={`p-1.5 rounded-lg ${meta.bg} flex items-center justify-center flex-shrink-0`}>
                                             <IconComp className={`w-4 h-4 ${meta.color}`} />
                                           </div>
-                                          <div className="flex flex-col min-w-0 pr-1">
-                                            <span className="font-semibold text-onedark-fgBright truncate max-w-[180px] font-mono text-[11.5px]">
+                                          <div className="flex flex-col min-w-0 pr-1 flex-1">
+                                            <span className="font-semibold text-onedark-fgBright truncate font-mono text-[11.5px]">
                                               {att.name}
                                             </span>
                                             <div className="flex items-center space-x-1.5 text-[10.5px] text-onedark-muted font-mono">
@@ -2839,7 +3143,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                                               e.stopPropagation();
                                               handleOpenAttachment();
                                             }}
-                                            className="px-2 py-1 rounded-md bg-onedark-surface hover:bg-onedark-surfaceHighlight text-[11px] font-mono text-onedark-muted hover:text-onedark-fg transition-colors flex items-center space-x-1 ml-auto cursor-pointer"
+                                            className="px-2 py-1 rounded-md bg-onedark-surface hover:bg-onedark-surfaceHighlight text-[11px] font-mono text-onedark-muted hover:text-onedark-fg transition-colors flex items-center space-x-1 ml-auto cursor-pointer flex-shrink-0"
                                             title={isDoc ? "Open in Web & Docs" : "Open in Files"}
                                           >
                                             <ExternalLink className="w-3 h-3 text-onedark-accent" />
@@ -3846,53 +4150,92 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
             </div>
 
             {/* Attachment Pills Container */}
-            {attachments.length > 0 && (
-              <div className="flex items-center gap-1.5 overflow-x-auto py-1 px-1 flex-wrap border-b border-onedark-borderSubtle/50 pb-2">
-                {attachments.map((att) => {
-                  const meta = getAttachmentIcon(att.name);
-                  const IconComp = meta.icon;
-                  return (
+            {attachments.length > 0 && (() => {
+              const { folders, standaloneFiles } = groupAttachmentsByFolder(attachments as any);
+              return (
+                <div className="flex items-center gap-1.5 overflow-x-auto py-1 px-1 flex-wrap border-b border-onedark-borderSubtle/50 pb-2">
+                  {folders.map((folder) => (
                     <div
-                      key={att.id}
-                      className="flex items-center space-x-2 px-2.5 py-1 rounded-lg bg-onedark-surface/60 border border-onedark-borderSubtle/80 text-[11px] font-mono text-onedark-fg shadow-2xs group"
+                      key={`folder-${folder.rootFolder}`}
+                      className="flex items-center space-x-2 px-2.5 py-1 rounded-lg bg-onedark-surface/60 border border-onedark-yellow/30 text-[11px] font-mono text-onedark-fg shadow-2xs group"
                     >
-                      <div className={`p-0.5 rounded ${meta.bg} flex items-center justify-center`}>
-                        <IconComp className={`w-3 h-3 ${meta.color} flex-shrink-0`} />
+                      <div className="p-0.5 rounded bg-onedark-yellow/15 flex items-center justify-center">
+                        <Folder className="w-3 h-3 text-onedark-yellow flex-shrink-0" />
                       </div>
-                      <span className="truncate max-w-[150px] font-semibold text-onedark-fgBright">{att.name}</span>
-                      <span className="text-onedark-muted/80 text-[10px]">({formatBytes(att.size)})</span>
-                      {att.status === 'uploading' ? (
-                        <Loader2 className="w-3 h-3 animate-spin text-onedark-accent" />
-                      ) : att.status === 'error' ? (
-                        <span className="text-onedark-red font-bold text-[10px]" title={att.error}>!</span>
-                      ) : (
-                        <Check className="w-3 h-3 text-onedark-green" />
-                      )}
+                      <span className="truncate max-w-[150px] font-semibold text-onedark-fgBright">{folder.rootFolder}/</span>
+                      <span className="text-onedark-muted/80 text-[10px]">({folder.fileCount} files · {formatBytes(folder.totalSize)})</span>
                       <button
                         type="button"
-                        onClick={() => handleRemoveAttachment(att.id)}
+                        onClick={() => handleRemoveFolder(folder.rootFolder)}
                         className="text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/80 rounded p-0.5 cursor-pointer transition-colors ml-0.5"
-                        title="Remove attachment"
+                        title={`Remove ${folder.rootFolder}/ folder`}
                       >
                         <X className="w-2.5 h-2.5" />
                       </button>
                     </div>
-                  );
-                })}
-              </div>
-            )}
+                  ))}
+                  {standaloneFiles.map((att) => {
+                    const meta = getAttachmentIcon(att.name);
+                    const IconComp = meta.icon;
+                    return (
+                      <div
+                        key={att.id}
+                        className="flex items-center space-x-2 px-2.5 py-1 rounded-lg bg-onedark-surface/60 border border-onedark-borderSubtle/80 text-[11px] font-mono text-onedark-fg shadow-2xs group"
+                      >
+                        <div className={`p-0.5 rounded ${meta.bg} flex items-center justify-center`}>
+                          <IconComp className={`w-3 h-3 ${meta.color} flex-shrink-0`} />
+                        </div>
+                        <span className="truncate max-w-[150px] font-semibold text-onedark-fgBright">{att.name}</span>
+                        <span className="text-onedark-muted/80 text-[10px]">({formatBytes(att.size)})</span>
+                        {att.status === 'uploading' ? (
+                          <Loader2 className="w-3 h-3 animate-spin text-onedark-accent" />
+                        ) : att.status === 'error' ? (
+                          <span className="text-onedark-red font-bold text-[10px]" title={att.error}>!</span>
+                        ) : (
+                          <Check className="w-3 h-3 text-onedark-green" />
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveAttachment(att.id)}
+                          className="text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/80 rounded p-0.5 cursor-pointer transition-colors ml-0.5"
+                          title="Remove attachment"
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
 
-            {/* Hidden file input for chat attachments */}
+            {/* Hidden file & folder inputs for chat attachments */}
             <input
               ref={chatFileInputRef}
               type="file"
               multiple
+              style={{ display: 'none' }}
               onChange={(e) => {
                 if (e.target.files && e.target.files.length > 0) {
                   handleAttachFiles(e.target.files);
                 }
+                e.target.value = '';
               }}
-              className="hidden"
+            />
+            <input
+              ref={setFolderInputRef}
+              type="file"
+              // @ts-ignore
+              webkitdirectory=""
+              directory=""
+              multiple
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                if (e.target.files && e.target.files.length > 0) {
+                  handleAttachFiles(e.target.files);
+                }
+                e.target.value = '';
+              }}
             />
 
             <div 
@@ -3907,23 +4250,60 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               onDrop={(e) => {
                 e.preventDefault();
                 setIsDraggingInput(false);
-                if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-                  handleAttachFiles(e.dataTransfer.files);
-                }
+                handleAttachDropped(e.dataTransfer);
               }}
               className={`flex items-end space-x-2 bg-onedark-surface/40 hover:bg-onedark-surface/60 focus-within:bg-onedark-surface/80 border border-onedark-border/80 focus-within:border-onedark-accent/70 rounded-2xl px-3 py-2 focus-within:ring-2 focus-within:ring-onedark-accent/15 transition-all shadow-md min-h-[48px] relative ${
                 isDraggingInput ? 'ring-2 ring-onedark-accent border-onedark-accent bg-onedark-surface/60' : ''
               }`}
             >
-              {/* Paperclip attach button */}
-              <button
-                type="button"
-                onClick={() => chatFileInputRef.current?.click()}
-                className="h-8 w-8 rounded-lg text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface border border-transparent hover:border-onedark-borderSubtle/60 flex items-center justify-center transition-all cursor-pointer mb-0.5 flex-shrink-0 active:scale-95 group"
-                title="Attach file(s) (CSV, TSV, Parquet, JSON, Notebooks, Images, Archives, PDFs)"
-              >
-                <Paperclip className="w-4 h-4 text-onedark-muted group-hover:text-onedark-accent transition-colors" />
-              </button>
+              {/* Paperclip attach button with folder option */}
+              <div ref={attachMenuChatRef} className="relative mb-0.5 flex-shrink-0 flex items-center bg-onedark-darker/60 rounded-lg border border-onedark-borderSubtle/60 hover:border-onedark-borderSubtle">
+                <button
+                  type="button"
+                  onClick={() => chatFileInputRef.current?.click()}
+                  className="h-8 px-2 text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/60 rounded-l-lg flex items-center justify-center transition-all cursor-pointer active:scale-95 group"
+                  title="Attach file(s) to workspace"
+                >
+                  <Paperclip className="w-4 h-4 text-onedark-muted group-hover:text-onedark-accent transition-colors" />
+                </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowAttachMenuChat((v) => !v);
+                  }}
+                  className="h-8 px-1 text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/60 rounded-r-lg border-l border-onedark-borderSubtle/40 flex items-center justify-center transition-all cursor-pointer active:scale-95 group"
+                  title="Upload folder options"
+                >
+                  <ChevronDown className={`w-2.5 h-2.5 text-onedark-muted group-hover:text-onedark-fg transition-transform duration-150 ${showAttachMenuChat ? 'rotate-180 text-onedark-accent' : ''}`} />
+                </button>
+
+                {showAttachMenuChat && (
+                  <div 
+                    className="absolute left-0 bottom-full mb-1.5 w-44 rounded-xl bg-onedark-darker border border-onedark-border shadow-2xl p-1 z-50 flex flex-col space-y-0.5 text-xs font-sans animate-in fade-in zoom-in-95 duration-100"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowAttachMenuChat(false);
+                        chatFileInputRef.current?.click();
+                      }}
+                      className="w-full px-2.5 py-2 text-left rounded-lg hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright flex items-center space-x-2 cursor-pointer transition-colors"
+                    >
+                      <FileText className="w-3.5 h-3.5 text-onedark-accent" />
+                      <span>Upload Files</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSelectFolder}
+                      className="w-full px-2.5 py-2 text-left rounded-lg hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright flex items-center space-x-2 cursor-pointer transition-colors"
+                    >
+                      <Folder className="w-3.5 h-3.5 text-onedark-yellow" />
+                      <span>Upload Folder</span>
+                    </button>
+                  </div>
+                )}
+              </div>
 
               <div className="relative flex-1 min-h-[36px] max-h-[220px] flex items-center">
                 {/* Highlight backdrop overlay */}

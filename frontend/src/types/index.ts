@@ -538,4 +538,30 @@ export interface EvaluationScorecard {
   evaluated_at: string;
 }
 
+export type AuxTabType = 'docs' | 'files' | 'terminal' | 'preview' | 'changes' | 'prs' | 'activity' | 'agents' | 'subagents' | 'event';
+
+export interface SubagentPod {
+  id: string;
+  parent_task_id: string;
+  session_key?: string;
+  title: string;
+  description: string;
+  persona: string;
+  model_name: string;
+  status: TaskStatus;
+  plan?: TaskPlan | null;
+  active_tool?: { tool_name: string; tool_input: Record<string, any>; timestamp?: string } | null;
+  logs?: TaskLog[];
+  diffs?: TaskDiff[];
+  result_summary?: string;
+  total_tokens?: number;
+  repo_name?: string;
+  repo_url?: string;
+  target_branch?: string;
+  workspace_path?: string;
+  created_at: string;
+  updated_at: string;
+  completed_at?: string;
+}
+
 

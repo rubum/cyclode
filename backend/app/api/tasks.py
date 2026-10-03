@@ -1426,6 +1426,35 @@ async def get_sandbox_file_content(
 
     raw_url = f"/api/tasks/{task_id}/files/raw?path={clean_rel}"
 
+    # Special handling for Microsoft Word (.docx / .doc) documents
+    ext = target_file.suffix.lower()
+    if ext in (".docx", ".doc"):
+        docx_data = _parse_docx_native(target_file)
+        text_content = docx_data.get("text", "")
+        lines = text_content.splitlines()
+        return {
+            "path": clean_rel,
+            "name": target_file.name,
+            "content": text_content,
+            "html": docx_data.get("html", ""),
+            "size": file_size,
+            "lines": len(lines),
+            "total_lines": len(lines),
+            "language": "docx",
+            "is_binary": False,
+            "is_truncated": False,
+            "start_line": 1,
+            "end_line": max(1, len(lines)),
+            "raw_url": raw_url,
+            "docx_metadata": {
+                "headings": docx_data.get("headings", []),
+                "paragraphs_count": docx_data.get("paragraphs_count", 0),
+                "words_count": docx_data.get("words_count", 0),
+                "characters_count": docx_data.get("characters_count", 0),
+                "tables_count": docx_data.get("tables_count", 0)
+            }
+        }
+
     if is_binary:
         return {
             "path": clean_rel,
@@ -1739,6 +1768,12 @@ def _sniff_file_category(name: str) -> str:
     return "binary"
 
 
+class DocxSaveRequest(BaseModel):
+    path: str
+    html: Optional[str] = None
+    text: Optional[str] = None
+
+
 @router.post("/{task_id}/files/upload")
 async def upload_sandbox_files(
     task_id: str,
@@ -1748,8 +1783,8 @@ async def upload_sandbox_files(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Safely uploads one or more files into the sandbox workspace or task attachments.
-    Enforces path containment, CoW hardlink unlinking, and magic-byte categorization.
+    Safely uploads one or more files and nested folder hierarchies into the sandbox workspace or task attachments.
+    Enforces path containment, CoW hardlink unlinking, recursive directory creation, and categorization.
     """
     stmt = select(TaskModel).where(TaskModel.id == task_id)
     result = await db.execute(stmt)
@@ -1781,12 +1816,20 @@ async def upload_sandbox_files(
     uploaded_records: List[Dict[str, Any]] = []
 
     for file in files:
-        filename = Path(file.filename or "uploaded_file").name
-        dest_file = (upload_base / filename).resolve()
+        # Clean relative filename to preserve directories while strictly preventing path traversal
+        raw_name = (file.filename or "uploaded_file").replace("\\", "/")
+        raw_name = re.sub(r"^[a-zA-Z]:[/]?", "", raw_name).lstrip("/")
+        parts = [p for p in raw_name.split("/") if p and p != "." and p != ".."]
+        clean_rel_name = "/".join(parts) if parts else "uploaded_file"
+
+        dest_file = (upload_base / clean_rel_name).resolve()
         try:
             dest_file.relative_to(ws_path)
         except ValueError:
             continue
+
+        # Auto-create intermediate parent directories for nested files/folders
+        dest_file.parent.mkdir(parents=True, exist_ok=True)
 
         # Inode CoW safety: unlink hardlink before writing if exists
         if dest_file.exists() and dest_file.stat().st_nlink > 1:
@@ -1796,11 +1839,11 @@ async def upload_sandbox_files(
         dest_file.write_bytes(content_bytes)
 
         rel_path = str(dest_file.relative_to(ws_path))
-        mime_type, _ = mimetypes.guess_type(filename)
-        category = _sniff_file_category(filename)
+        mime_type, _ = mimetypes.guess_type(dest_file.name)
+        category = _sniff_file_category(dest_file.name)
 
         uploaded_records.append({
-            "name": filename,
+            "name": dest_file.name,
             "path": rel_path,
             "size": len(content_bytes),
             "mime_type": mime_type or "application/octet-stream",
@@ -1808,7 +1851,531 @@ async def upload_sandbox_files(
             "raw_url": f"/api/tasks/{task_id}/files/raw?path={rel_path}"
         })
 
+    # Auto-commit uploaded files to the workspace git tree so they persist across turns
+    if uploaded_records and ws_path.exists():
+        try:
+            from app.agent.harness import ensure_workspace_git_repo, create_turn_snapshot
+            task_branch = getattr(task, "git_branch", None)
+            ensure_workspace_git_repo(ws_path, branch=task_branch)
+            create_turn_snapshot(ws_path, f"uploaded_{len(uploaded_records)}_files")
+        except Exception as snap_err:
+            logger.debug(f"Git snapshot for uploaded files notice: {snap_err}")
+
     return {"uploaded": uploaded_records, "count": len(uploaded_records)}
+
+
+def _parse_docx_native(file_path: Path) -> Dict[str, Any]:
+    """
+    Zero-dependency pure-Python OOXML parser for Microsoft Word (.docx) documents
+    extracting clean HTML, headings hierarchy, styled paragraphs, tables, and metadata.
+    """
+    import xml.etree.ElementTree as ET
+
+    w = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+
+    try:
+        with zipfile.ZipFile(file_path, "r") as z:
+            if "word/document.xml" not in z.namelist():
+                return {
+                    "html": "<p><em>Empty or invalid Word document</em></p>",
+                    "text": "",
+                    "headings": [],
+                    "paragraphs_count": 0,
+                    "words_count": 0,
+                    "characters_count": 0,
+                    "tables_count": 0
+                }
+
+            doc_xml = z.read("word/document.xml")
+            tree = ET.fromstring(doc_xml)
+            body = tree.find(f"{w}body")
+            if body is None:
+                return {
+                    "html": "<p><em>Empty Word document</em></p>",
+                    "text": "",
+                    "headings": [],
+                    "paragraphs_count": 0,
+                    "words_count": 0,
+                    "characters_count": 0,
+                    "tables_count": 0
+                }
+
+            html_parts: List[str] = []
+            text_parts: List[str] = []
+            headings: List[Dict[str, Any]] = []
+            p_count = 0
+            tbl_count = 0
+
+            for elem in body:
+                tag = elem.tag
+                if tag == f"{w}p":
+                    p_count += 1
+                    pPr = elem.find(f"{w}pPr")
+                    style_val = ""
+                    is_num = False
+                    align = ""
+                    if pPr is not None:
+                        pStyle = pPr.find(f"{w}pStyle")
+                        if pStyle is not None:
+                            style_val = pStyle.attrib.get(f"{w}val", "") or pStyle.attrib.get("val", "")
+                        numPr = pPr.find(f"{w}numPr")
+                        if numPr is not None:
+                            is_num = True
+                        jc = pPr.find(f"{w}jc")
+                        if jc is not None:
+                            align = jc.attrib.get(f"{w}val", "") or jc.attrib.get("val", "")
+
+                    p_text_parts: List[str] = []
+                    p_html_parts: List[str] = []
+
+                    for child in elem:
+                        if child.tag == f"{w}r":
+                            rPr = child.find(f"{w}rPr")
+                            is_bold = False
+                            is_italic = False
+                            is_underline = False
+                            is_strike = False
+
+                            if rPr is not None:
+                                b_elem = rPr.find(f"{w}b")
+                                if b_elem is not None and b_elem.attrib.get(f"{w}val") != "0":
+                                    is_bold = True
+                                i_elem = rPr.find(f"{w}i")
+                                if i_elem is not None and i_elem.attrib.get(f"{w}val") != "0":
+                                    is_italic = True
+                                u_elem = rPr.find(f"{w}u")
+                                if u_elem is not None and u_elem.attrib.get(f"{w}val") not in ("none", "0"):
+                                    is_underline = True
+                                strike_elem = rPr.find(f"{w}strike")
+                                if strike_elem is not None and strike_elem.attrib.get(f"{w}val") != "0":
+                                    is_strike = True
+
+                            run_text_chunks: List[str] = []
+                            for r_child in child:
+                                if r_child.tag == f"{w}t":
+                                    if r_child.text:
+                                        run_text_chunks.append(r_child.text)
+                                elif r_child.tag == f"{w}br":
+                                    run_text_chunks.append("\n")
+                                elif r_child.tag == f"{w}tab":
+                                    run_text_chunks.append("\t")
+
+                            run_text = "".join(run_text_chunks)
+                            p_text_parts.append(run_text)
+
+                            escaped_run = (
+                                run_text.replace("&", "&amp;")
+                                .replace("<", "&lt;")
+                                .replace(">", "&gt;")
+                                .replace('"', "&quot;")
+                                .replace("\n", "<br/>")
+                            )
+                            if is_bold:
+                                escaped_run = f"<strong>{escaped_run}</strong>"
+                            if is_italic:
+                                escaped_run = f"<em>{escaped_run}</em>"
+                            if is_underline:
+                                escaped_run = f"<u>{escaped_run}</u>"
+                            if is_strike:
+                                escaped_run = f"<s>{escaped_run}</s>"
+
+                            p_html_parts.append(escaped_run)
+
+                        elif child.tag == f"{w}hyperlink":
+                            link_runs: List[str] = []
+                            for hr in child.findall(f"{w}r"):
+                                for ht in hr.findall(f"{w}t"):
+                                    if ht.text:
+                                        link_runs.append(ht.text)
+                            link_txt = "".join(link_runs)
+                            p_text_parts.append(link_txt)
+                            esc_link = link_txt.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                            p_html_parts.append(f'<span class="text-onedark-accent underline">{esc_link}</span>')
+
+                    full_p_text = "".join(p_text_parts).strip()
+                    full_p_html = "".join(p_html_parts)
+
+                    if full_p_text:
+                        text_parts.append(full_p_text)
+
+                    style_lower = style_val.lower()
+                    align_style = f' style="text-align: {align};"' if align in ("center", "right", "justify") else ""
+
+                    if "heading1" in style_lower or style_lower == "title" or style_lower == "h1":
+                        headings.append({"level": 1, "text": full_p_text})
+                        html_parts.append(f"<h1{align_style}>{full_p_html or '&nbsp;'}</h1>")
+                    elif "heading2" in style_lower or style_lower == "subtitle" or style_lower == "h2":
+                        headings.append({"level": 2, "text": full_p_text})
+                        html_parts.append(f"<h2{align_style}>{full_p_html or '&nbsp;'}</h2>")
+                    elif "heading3" in style_lower or style_lower == "h3":
+                        headings.append({"level": 3, "text": full_p_text})
+                        html_parts.append(f"<h3{align_style}>{full_p_html or '&nbsp;'}</h3>")
+                    elif "heading4" in style_lower or style_lower == "h4":
+                        headings.append({"level": 4, "text": full_p_text})
+                        html_parts.append(f"<h4{align_style}>{full_p_html or '&nbsp;'}</h4>")
+                    elif is_num or "list" in style_lower or "bullet" in style_lower:
+                        html_parts.append(f"<ul><li{align_style}>{full_p_html or '&nbsp;'}</li></ul>")
+                    else:
+                        html_parts.append(f"<p{align_style}>{full_p_html or '&nbsp;'}</p>")
+
+                elif tag == f"{w}tbl":
+                    tbl_count += 1
+                    table_html_rows: List[str] = []
+                    for tr in elem.findall(f"{w}tr"):
+                        cells_html: List[str] = []
+                        for tc in tr.findall(f"{w}tc"):
+                            cell_text_chunks: List[str] = []
+                            for p in tc.findall(f"{w}p"):
+                                for r in p.findall(f"{w}r"):
+                                    for t in r.findall(f"{w}t"):
+                                        if t.text:
+                                            cell_text_chunks.append(t.text)
+                            cell_txt = "".join(cell_text_chunks).strip()
+                            esc_cell = cell_txt.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                            cells_html.append(f'<td class="border border-onedark-borderSubtle p-2">{esc_cell or "&nbsp;"}</td>')
+                        table_html_rows.append(f"<tr>{''.join(cells_html)}</tr>")
+                    html_parts.append(f'<table class="w-full border-collapse border border-onedark-borderSubtle my-3"><tbody>{"".join(table_html_rows)}</tbody></table>')
+
+            full_raw_text = "\n\n".join(text_parts)
+            words_count = len(full_raw_text.split())
+            chars_count = len(full_raw_text)
+
+            final_html = "".join(html_parts).replace("</ul><ul>", "")
+
+            return {
+                "html": final_html,
+                "text": full_raw_text,
+                "headings": headings,
+                "paragraphs_count": p_count,
+                "words_count": words_count,
+                "characters_count": chars_count,
+                "tables_count": tbl_count
+            }
+    except Exception as e:
+        return {
+            "html": f'<p class="text-onedark-red">Failed to parse DOCX document: {str(e)}</p>',
+            "text": "",
+            "headings": [],
+            "paragraphs_count": 0,
+            "words_count": 0,
+            "characters_count": 0,
+            "tables_count": 0,
+            "error": str(e)
+        }
+
+
+def _save_docx_native(file_path: Path, html_content_or_text: str) -> Dict[str, Any]:
+    """
+    Zero-dependency pure-Python OOXML serializer for Microsoft Word (.docx) documents.
+    Preserves template assets if present or constructs a complete OOXML package from HTML/text.
+    """
+    from bs4 import BeautifulSoup, NavigableString, Tag
+
+    def escape_xml(s: str) -> str:
+        return (
+            s.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+            .replace("'", "&apos;")
+        )
+
+    def process_inline(node, flags=None) -> List[str]:
+        if flags is None:
+            flags = {"b": False, "i": False, "u": False, "s": False}
+        runs = []
+        if isinstance(node, NavigableString):
+            txt = str(node)
+            if txt:
+                rPr_parts = []
+                if flags.get("b"):
+                    rPr_parts.append("<w:b/>")
+                if flags.get("i"):
+                    rPr_parts.append("<w:i/>")
+                if flags.get("u"):
+                    rPr_parts.append('<w:u w:val="single"/>')
+                if flags.get("s"):
+                    rPr_parts.append("<w:strike/>")
+                rPr_xml = f"<w:rPr>{''.join(rPr_parts)}</w:rPr>" if rPr_parts else ""
+                esc_txt = escape_xml(txt)
+                runs.append(f'<w:r>{rPr_xml}<w:t xml:space="preserve">{esc_txt}</w:t></w:r>')
+        elif isinstance(node, Tag):
+            new_flags = dict(flags)
+            tag_name = node.name.lower()
+            if tag_name in ("b", "strong"):
+                new_flags["b"] = True
+            elif tag_name in ("i", "em"):
+                new_flags["i"] = True
+            elif tag_name == "u":
+                new_flags["u"] = True
+            elif tag_name in ("s", "strike", "del"):
+                new_flags["s"] = True
+            elif tag_name == "br":
+                runs.append("<w:r><w:br/></w:r>")
+                return runs
+
+            for child in node.children:
+                runs.extend(process_inline(child, new_flags))
+        return runs
+
+    soup = BeautifulSoup(html_content_or_text or "", "html.parser")
+    body_nodes = soup.body.contents if soup.body else soup.contents
+    xml_body_parts: List[str] = []
+
+    for item in body_nodes:
+        if isinstance(item, NavigableString):
+            txt = str(item).strip()
+            if txt:
+                runs_xml = "".join(process_inline(item))
+                xml_body_parts.append(f"<w:p>{runs_xml}</w:p>")
+        elif isinstance(item, Tag):
+            tname = item.name.lower()
+            if tname == "h1":
+                runs_xml = "".join(process_inline(item))
+                xml_body_parts.append(f'<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr>{runs_xml}</w:p>')
+            elif tname == "h2":
+                runs_xml = "".join(process_inline(item))
+                xml_body_parts.append(f'<w:p><w:pPr><w:pStyle w:val="Heading2"/></w:pPr>{runs_xml}</w:p>')
+            elif tname in ("h3", "h4", "h5", "h6"):
+                runs_xml = "".join(process_inline(item))
+                xml_body_parts.append(f'<w:p><w:pPr><w:pStyle w:val="Heading3"/></w:pPr>{runs_xml}</w:p>')
+            elif tname in ("ul", "ol"):
+                for li in item.find_all("li", recursive=False):
+                    li_runs = "".join(process_inline(li))
+                    xml_body_parts.append(f'<w:p><w:pPr><w:pStyle w:val="ListBullet"/></w:pPr>{li_runs}</w:p>')
+            elif tname == "table":
+                tbl_rows = []
+                for tr in item.find_all("tr"):
+                    row_cells = []
+                    for cell in tr.find_all(["td", "th"]):
+                        cell_runs = "".join(process_inline(cell))
+                        row_cells.append(f'<w:tc><w:tcPr><w:tcW w:w="2400" w:type="dxa"/><w:tcBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/><w:left w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/><w:right w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/></w:tcBorders></w:tcPr><w:p>{cell_runs}</w:p></w:tc>')
+                    tbl_rows.append(f"<w:tr>{''.join(row_cells)}</w:tr>")
+                xml_body_parts.append(f'<w:tbl><w:tblPr><w:tblW w:w="5000" w:type="pct"/><w:tblBorders><w:top w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/><w:left w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/><w:right w:val="single" w:sz="4" w:space="0" w:color="CCCCCC"/></w:tblBorders></w:tblPr>{"".join(tbl_rows)}</w:tbl>')
+            else:
+                runs_xml = "".join(process_inline(item))
+                xml_body_parts.append(f"<w:p>{runs_xml}</w:p>")
+
+    if not xml_body_parts:
+        xml_body_parts.append("<w:p/>")
+
+    doc_xml_str = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">\n'
+        '  <w:body>\n'
+        + "\n".join(f"    {p}" for p in xml_body_parts) +
+        '\n    <w:sectPr>\n'
+        '      <w:pgSz w:w="12240" w:h="15840"/>\n'
+        '      <w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>\n'
+        '      <w:cols w:space="720"/>\n'
+        '      <w:docGrid w:linePitch="360"/>\n'
+        '    </w:sectPr>\n'
+        '  </w:body>\n'
+        '</w:document>'
+    )
+
+    # CoW Safety: unlink hardlink before writing
+    if file_path.exists() and file_path.stat().st_nlink > 1:
+        file_path.unlink()
+
+    # If existing file is a valid zip, preserve other assets and overwrite document.xml
+    existing_members = {}
+    if file_path.exists():
+        try:
+            with zipfile.ZipFile(file_path, "r") as z_in:
+                for name in z_in.namelist():
+                    if name != "word/document.xml":
+                        existing_members[name] = z_in.read(name)
+        except Exception:
+            existing_members = {}
+
+    content_types_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n'
+        '  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>\n'
+        '  <Default Extension="xml" ContentType="application/xml"/>\n'
+        '  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>\n'
+        '  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>\n'
+        '</Types>'
+    )
+
+    rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
+        '  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>\n'
+        '</Relationships>'
+    )
+
+    doc_rels_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
+        '  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>\n'
+        '</Relationships>'
+    )
+
+    styles_xml = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+        '<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
+        '  <w:docDefaults>\n'
+        '    <w:rPrDefault>\n'
+        '      <w:rPr>\n'
+        '        <w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:cs="Calibri"/>\n'
+        '        <w:sz w:val="22"/>\n'
+        '        <w:szCs w:val="22"/>\n'
+        '        <w:lang w:val="en-US"/>\n'
+        '      </w:rPr>\n'
+        '    </w:rPrDefault>\n'
+        '  </w:docDefaults>\n'
+        '  <w:style w:type="paragraph" w:default="1" w:styleId="Normal">\n'
+        '    <w:name w:val="Normal"/>\n'
+        '    <w:qFormat/>\n'
+        '  </w:style>\n'
+        '  <w:style w:type="paragraph" w:styleId="Heading1">\n'
+        '    <w:name w:val="heading 1"/>\n'
+        '    <w:basedOn w:val="Normal"/>\n'
+        '    <w:next w:val="Normal"/>\n'
+        '    <w:qFormat/>\n'
+        '    <w:pPr><w:spacing w:before="240" w:after="120"/></w:pPr>\n'
+        '    <w:rPr><w:b/><w:sz w:val="32"/><w:szCs w:val="32"/><w:color w:val="2E74B5"/></w:rPr>\n'
+        '  </w:style>\n'
+        '  <w:style w:type="paragraph" w:styleId="Heading2">\n'
+        '    <w:name w:val="heading 2"/>\n'
+        '    <w:basedOn w:val="Normal"/>\n'
+        '    <w:next w:val="Normal"/>\n'
+        '    <w:qFormat/>\n'
+        '    <w:pPr><w:spacing w:before="180" w:after="80"/></w:pPr>\n'
+        '    <w:rPr><w:b/><w:sz w:val="26"/><w:szCs w:val="26"/><w:color w:val="2E74B5"/></w:rPr>\n'
+        '  </w:style>\n'
+        '  <w:style w:type="paragraph" w:styleId="Heading3">\n'
+        '    <w:name w:val="heading 3"/>\n'
+        '    <w:basedOn w:val="Normal"/>\n'
+        '    <w:next w:val="Normal"/>\n'
+        '    <w:qFormat/>\n'
+        '    <w:pPr><w:spacing w:before="120" w:after="40"/></w:pPr>\n'
+        '    <w:rPr><w:b/><w:sz w:val="24"/><w:szCs w:val="24"/><w:color w:val="1F4D78"/></w:rPr>\n'
+        '  </w:style>\n'
+        '  <w:style w:type="paragraph" w:styleId="ListBullet">\n'
+        '    <w:name w:val="List Bullet"/>\n'
+        '    <w:basedOn w:val="Normal"/>\n'
+        '    <w:qFormat/>\n'
+        '    <w:pPr><w:spacing w:after="60"/></w:pPr>\n'
+        '  </w:style>\n'
+        '</w:styles>'
+    )
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression=zipfile.ZIP_DEFLATED) as z_out:
+        if existing_members:
+            for m_name, m_bytes in existing_members.items():
+                z_out.writestr(m_name, m_bytes)
+        else:
+            z_out.writestr("[Content_Types].xml", content_types_xml)
+            z_out.writestr("_rels/.rels", rels_xml)
+            z_out.writestr("word/_rels/document.xml.rels", doc_rels_xml)
+            z_out.writestr("word/styles.xml", styles_xml)
+
+        z_out.writestr("word/document.xml", doc_xml_str)
+
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+    file_path.write_bytes(buf.getvalue())
+
+    return {
+        "ok": True,
+        "path": str(file_path),
+        "size": file_path.stat().st_size
+    }
+
+
+@router.get("/{task_id}/files/docx-inspect")
+async def inspect_sandbox_docx(
+    task_id: str,
+    path: str = Query(..., description="Relative path to .docx file"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Inspects and parses a Microsoft Word (.docx) document in the task workspace.
+    Returns styled HTML, headings hierarchy, and document metrics for rich UI rendering.
+    """
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    result = await db.execute(stmt)
+    task = result.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    ws_path = Path(task.workspace_path).resolve() if task.workspace_path else None
+    if ws_path and ws_path.name != f"sandbox-{task.id}":
+        specific_sb = Path(settings.WORKSPACE_ROOT) / f"sandbox-{task.id}"
+        if specific_sb.exists() and specific_sb.is_dir():
+            ws_path = specific_sb
+
+    if not ws_path or not ws_path.exists() or not ws_path.is_dir():
+        raise HTTPException(status_code=404, detail="Sandbox workspace does not exist on disk")
+
+    clean_rel = path.lstrip("/\\")
+    target_file = (ws_path / clean_rel).resolve()
+    try:
+        target_file.relative_to(ws_path)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Path outside workspace")
+
+    if not target_file.exists() or not target_file.is_file():
+        raise HTTPException(status_code=404, detail=f"File '{clean_rel}' not found")
+
+    parsed = _parse_docx_native(target_file)
+    return {
+        "path": clean_rel,
+        "name": target_file.name,
+        "size": target_file.stat().st_size,
+        "raw_url": f"/api/tasks/{task_id}/files/raw?path={clean_rel}",
+        **parsed
+    }
+
+
+@router.post("/{task_id}/files/docx-save")
+async def save_sandbox_docx(
+    task_id: str,
+    req: DocxSaveRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Saves and serializes visual WYSIWYG HTML or text mutations into a valid .docx OOXML archive.
+    Enforces path containment and Inode CoW unlinking before writing.
+    """
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    result = await db.execute(stmt)
+    task = result.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    ws_path = Path(task.workspace_path).resolve() if task.workspace_path else None
+    if ws_path and ws_path.name != f"sandbox-{task.id}":
+        specific_sb = Path(settings.WORKSPACE_ROOT) / f"sandbox-{task.id}"
+        if specific_sb.exists() and specific_sb.is_dir():
+            ws_path = specific_sb
+
+    if not ws_path or not ws_path.exists() or not ws_path.is_dir():
+        raise HTTPException(status_code=404, detail="Sandbox workspace does not exist on disk")
+
+    clean_rel = req.path.lstrip("/\\")
+    target_file = (ws_path / clean_rel).resolve()
+    try:
+        target_file.relative_to(ws_path)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Path outside workspace")
+
+    payload = req.html if req.html is not None else (req.text or "")
+    save_res = _save_docx_native(target_file, payload)
+    reparsed = _parse_docx_native(target_file)
+
+    return {
+        "ok": True,
+        "path": clean_rel,
+        "name": target_file.name,
+        "size": target_file.stat().st_size,
+        "raw_url": f"/api/tasks/{task_id}/files/raw?path={clean_rel}",
+        **reparsed
+    }
 
 
 def _read_xlsx_native(file_path: Path) -> Tuple[List[str], List[List[Any]]]:
@@ -3393,6 +3960,190 @@ async def execute_task_plan(task_id: str, db: AsyncSession = Depends(get_db)):
     return {"status": "ok", "message": "Plan execution initiated"}
 
 
+class CreateSubagentRequest(BaseModel):
+    title: str
+    description: str
+    persona: str = "SoftwareEngineer"
+    model_name: Optional[str] = None
+    session_key: Optional[str] = None
+    target_branch: Optional[str] = None
 
 
+@router.get("/{task_id}/subagents")
+async def get_task_subagents(task_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Retrieves all subagents / sub-sessions linked to the specified parent task,
+    including full live telemetry, logs, diffs, and plan steps.
+    """
+    stmt = (
+        select(TaskModel)
+        .where(TaskModel.parent_task_id == task_id)
+        .order_by(TaskModel.created_at.asc())
+        .options(
+            selectinload(TaskModel.logs),
+            selectinload(TaskModel.diffs),
+            selectinload(TaskModel.messages),
+            selectinload(TaskModel.prs),
+            selectinload(TaskModel.approvals)
+        )
+    )
+    result = await db.execute(stmt)
+    subagents = result.scalars().all()
 
+    serialized = []
+    for s in subagents:
+        serialized.append({
+            "id": s.id,
+            "parent_task_id": s.parent_task_id,
+            "session_key": s.session_key,
+            "title": s.title,
+            "description": s.description,
+            "persona": s.persona,
+            "model_name": s.model_name,
+            "status": s.status,
+            "plan": s.plan,
+            "repo_name": s.repo_name,
+            "repo_url": s.repo_url,
+            "target_branch": s.target_branch,
+            "workspace_path": s.workspace_path,
+            "total_tokens": s.total_tokens,
+            "result_summary": s.result_summary,
+            "logs": s.logs,
+            "diffs": s.diffs,
+            "approvals": s.approvals,
+            "prs": s.prs,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+            "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+            "completed_at": s.completed_at.isoformat() if s.completed_at else None
+        })
+
+    return {
+        "parent_task_id": task_id,
+        "count": len(serialized),
+        "subagents": serialized
+    }
+
+
+@router.post("/{task_id}/subagents")
+async def create_task_subagent(
+    task_id: str,
+    req: CreateSubagentRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Manually spawns a new worker subagent linked to the parent task session.
+    """
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    result = await db.execute(stmt)
+    parent_task = result.scalars().first()
+    if not parent_task:
+        raise HTTPException(status_code=404, detail="Parent task not found")
+
+    sub_id = await agent_pool.spawn_task(
+        title=req.title,
+        description=req.description,
+        persona=req.persona,
+        model_name=req.model_name or parent_task.model_name,
+        session_key=req.session_key,
+        repo_name=parent_task.repo_name,
+        repo_url=parent_task.repo_url,
+        target_branch=req.target_branch or parent_task.target_branch,
+        is_subsession=True,
+        parent_task_id=task_id
+    )
+
+    return {
+        "status": "ok",
+        "parent_task_id": task_id,
+        "subagent_id": sub_id,
+        "message": f"Subagent '{req.title}' successfully launched."
+    }
+
+
+@router.post("/{task_id}/subagents/{subagent_id}/apply-diff")
+async def apply_subagent_diff_endpoint(
+    task_id: str,
+    subagent_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Applies the code diffs produced by a subagent task into the parent workspace.
+    """
+    from app.agent.tools import WorkspaceTools
+
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    result = await db.execute(stmt)
+    parent_task = result.scalars().first()
+    if not parent_task:
+        raise HTTPException(status_code=404, detail="Parent task not found")
+
+    ws_path = Path(parent_task.workspace_path)
+    res = await WorkspaceTools.apply_subagent_diff(ws_path, subagent_id)
+    if res.get("error"):
+        raise HTTPException(status_code=400, detail=res["error"])
+    return res
+
+
+class SubagentMessageRequest(BaseModel):
+    content: str
+    model_name: Optional[str] = None
+
+
+@router.post("/{task_id}/subagents/{subagent_id}/messages")
+async def send_subagent_message_endpoint(
+    task_id: str,
+    subagent_id: str,
+    req: SubagentMessageRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Sends a follow-up instruction or message to an existing subagent pod without creating a duplicate task.
+    """
+    stmt = select(TaskModel).where(TaskModel.id == subagent_id, TaskModel.parent_task_id == task_id)
+    result = await db.execute(stmt)
+    subagent = result.scalars().first()
+    if not subagent:
+        raise HTTPException(status_code=404, detail="Subagent not found under parent task")
+
+    res = await agent_pool.send_user_message(subagent_id, req.content, req.model_name)
+    return res
+
+
+@router.post("/{task_id}/subagents/cancel-all")
+async def cancel_all_task_subagents(
+    task_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Cancels all currently running subagents under the specified parent task.
+    """
+    stmt = select(TaskModel).where(
+        TaskModel.parent_task_id == task_id,
+        TaskModel.status.in_(["RUNNING", "INITIALIZING", "QUEUED", "AWAITING_APPROVAL", "AWAITING_INPUT"])
+    )
+    result = await db.execute(stmt)
+    active_subs = result.scalars().all()
+
+    cancelled_ids = []
+    for s in active_subs:
+        if s.id in agent_pool.active_tasks:
+            try:
+                agent_pool.active_tasks[s.id].cancel()
+                agent_pool.active_tasks.pop(s.id, None)
+            except Exception:
+                pass
+        s.status = "CANCELLED"
+        cancelled_ids.append(s.id)
+        await ws_manager.broadcast("TASK_STATUS_CHANGE", {
+            "task_id": s.id,
+            "parent_task_id": task_id,
+            "status": "CANCELLED"
+        })
+
+    await db.commit()
+    return {
+        "status": "ok",
+        "parent_task_id": task_id,
+        "cancelled_count": len(cancelled_ids),
+        "cancelled_ids": cancelled_ids
+    }

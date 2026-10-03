@@ -53,6 +53,7 @@ class AgentTaskPool:
     def __init__(self):
         self.active_tasks: Dict[str, asyncio.Task] = {}
         self.pending_inquiries: Dict[str, Dict[str, Any]] = {}
+        self.steering_queues: Dict[str, asyncio.Queue] = {}
 
     async def spawn_task(
         self,
@@ -750,6 +751,7 @@ class AgentTaskPool:
 
             # Execute via Antigravity Harness configured for the task's model
             from app.agent.harness import AntigravityHarness
+            task_steering_q = self.steering_queues.setdefault(task_id, asyncio.Queue())
             task_harness = AntigravityHarness(model_name=task_model_name)
             result = await task_harness.execute_task(
                 task_id=task_id,
@@ -768,7 +770,8 @@ class AgentTaskPool:
                 on_stream_chunk=on_stream_chunk,
                 on_stream_end=on_stream_end,
                 on_inquiry=on_inquiry,
-                on_plan=on_plan
+                on_plan=on_plan,
+                steering_queue=task_steering_q
             )
 
             # Determine final status
@@ -965,6 +968,7 @@ class AgentTaskPool:
                     pass
 
             self.active_tasks.pop(task_id, None)
+            self.steering_queues.pop(task_id, None)
 
     async def respond_to_inquiry(
         self,
@@ -1594,6 +1598,15 @@ class AgentTaskPool:
             "timestamp": datetime.now(timezone.utc).isoformat()
         })
 
+        # Check if the agent worker is currently actively executing a turn
+        if task_id in self.active_tasks and not self.active_tasks[task_id].done():
+            # In-flight steering: queue message to be ingested at the next turn without spawning conflicting worker
+            if task_id not in self.steering_queues:
+                self.steering_queues[task_id] = asyncio.Queue()
+            await self.steering_queues[task_id].put(message_text)
+            logger.info(f"Queued in-flight user steering message for active task {task_id}")
+            return {"ok": True, "task_id": task_id, "steered": True}
+
         # Check if user message contains credentials to store
         gh_match = re.search(r"(ghp_[A-Za-z0-9_]{8,}|github_pat_[A-Za-z0-9_]{10,})", message_text)
         if gh_match:
@@ -1676,6 +1689,20 @@ class AgentTaskPool:
         worker_prompt = message_text
         if gh_match and task.description and task.description != message_text:
             worker_prompt = f"{task.description}\n\nUser provided credential: {message_text}"
+
+        # Set task status to RUNNING
+        async with async_session_factory() as session:
+            await session.execute(
+                update(TaskModel)
+                .where(TaskModel.id == task_id)
+                .values(status="RUNNING")
+            )
+            await session.commit()
+
+        await ws_manager.broadcast("TASK_STATUS_CHANGE", {
+            "task_id": task_id,
+            "status": "RUNNING"
+        })
 
         # Spawn asynchronous execution worker for the agent response
         worker = asyncio.create_task(

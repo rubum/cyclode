@@ -232,13 +232,47 @@ class OverlayFSSandboxProvider(SandboxProvider):
         upper_dir = task_overlay_root / "upper"
         work_dir = task_overlay_root / "work"
 
-        # 1. Warm session reuse
+        # 1. Warm in-memory session reuse
         if task_id in self._active_sandboxes and not self._active_sandboxes[task_id].is_destroyed and workspace_path.exists():
             existing_ctx = self._active_sandboxes[task_id]
-            if not repo_url or existing_ctx.repo_url == repo_url:
-                return existing_ctx
+            if repo_url and not existing_ctx.repo_url:
+                existing_ctx.repo_url = repo_url
+            if repo_name and not existing_ctx.repo_name:
+                existing_ctx.repo_name = repo_name
+            return existing_ctx
 
-        # Clean any preexisting mounts or directories
+        # 2. Resilient Disk-Level Reattachment (Multi-turn session & upload persistence)
+        # If the task's workspace directory already exists on disk and is non-empty, reattach safely without wiping!
+        if workspace_path.exists() and workspace_path.is_dir():
+            try:
+                has_contents = any(workspace_path.iterdir())
+            except Exception:
+                has_contents = False
+
+            if has_contents:
+                logger.info(f"Reattaching existing on-disk workspace for task {task_id} at {workspace_path}")
+                context = SandboxContext(
+                    task_id=task_id,
+                    workspace_path=workspace_path,
+                    repo_name=repo_name,
+                    repo_url=repo_url,
+                    branch=branch or "main",
+                    commit_sha=commit_sha,
+                    is_destroyed=False,
+                    metadata={
+                        "provider": "overlay_cow",
+                        "native_overlay": False,
+                        "base_repo_path": "",
+                        "upper_dir": str(upper_dir) if upper_dir.exists() else "",
+                        "work_dir": str(work_dir) if work_dir.exists() else ""
+                    }
+                )
+                self._active_sandboxes[task_id] = context
+                if task_id not in self._snapshots:
+                    self._snapshots[task_id] = {}
+                return context
+
+        # 3. Clean any preexisting mounts or directories only for brand new workspace creation
         await self.destroy_by_task_id(task_id, str(workspace_path))
 
         upper_dir.mkdir(parents=True, exist_ok=True)

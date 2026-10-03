@@ -22,6 +22,7 @@ from app.api.reader import router as reader_router
 from app.api.linear import router as linear_router
 from app.api.preview import router as preview_router
 from app.api.terminals import router as terminals_router
+from app.api.notebooks import router as notebooks_router
 from app.core.sandboxes.terminal_manager import terminal_manager
 
 
@@ -87,6 +88,7 @@ app.include_router(reader_router)
 app.include_router(linear_router)
 app.include_router(preview_router)
 app.include_router(terminals_router)
+app.include_router(notebooks_router)
 
 from app.agent.providers.factory import get_model_catalog
 

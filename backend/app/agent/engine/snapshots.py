@@ -53,9 +53,15 @@ def ensure_workspace_git_repo(ws_path: Optional[Path], branch: Optional[str] = N
             except Exception:
                 pass
 
-        # Switch to target task branch if specified
+        # Switch to target task branch safely if specified
         if branch and branch != "master":
-            subprocess.run(["git", "checkout", "-B", branch], cwd=str(ws_path), capture_output=True, text=True, timeout=5, env=git_env)
+            curr_b = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], cwd=str(ws_path), capture_output=True, text=True, timeout=5, env=git_env)
+            if curr_b.returncode == 0 and curr_b.stdout.strip() != branch:
+                check_b = subprocess.run(["git", "rev-parse", "--verify", branch], cwd=str(ws_path), capture_output=True, text=True, timeout=5, env=git_env)
+                if check_b.returncode == 0:
+                    subprocess.run(["git", "checkout", branch], cwd=str(ws_path), capture_output=True, text=True, timeout=5, env=git_env)
+                else:
+                    subprocess.run(["git", "checkout", "-b", branch], cwd=str(ws_path), capture_output=True, text=True, timeout=5, env=git_env)
 
         return True
     except Exception as e:

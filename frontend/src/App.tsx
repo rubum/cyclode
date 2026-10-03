@@ -821,14 +821,17 @@ const MainApp: React.FC = () => {
           if (files && files.length > 0) {
             try {
               const formData = new FormData();
-              files.forEach((f) => formData.append('files', f));
-              formData.append('target_type', 'attachment');
+              files.forEach((f) => {
+                const rel = (f as any).webkitRelativePath || (f as any).customRelativePath || f.name;
+                formData.append('files', f, rel);
+              });
+              formData.append('target_type', 'workspace');
               await fetch(`${API_BASE}/api/tasks/${createdId}/files/upload`, {
                 method: 'POST',
                 body: formData,
               });
             } catch (uploadErr) {
-              console.error('Failed to upload initial attachments:', uploadErr);
+              console.error('Failed to upload initial workspace files:', uploadErr);
             }
           }
 
@@ -872,14 +875,17 @@ const MainApp: React.FC = () => {
     if (files && files.length > 0) {
       try {
         const formData = new FormData();
-        files.forEach((f) => formData.append('files', f));
-        formData.append('target_type', 'attachment');
+        files.forEach((f) => {
+          const rel = (f as any).webkitRelativePath || (f as any).customRelativePath || f.name;
+          formData.append('files', f, rel);
+        });
+        formData.append('target_type', 'workspace');
         await fetch(`${API_BASE}/api/tasks/${activeTaskId}/files/upload`, {
           method: 'POST',
           body: formData,
         });
       } catch (uploadErr) {
-        console.error('Failed to upload message attachments:', uploadErr);
+        console.error('Failed to upload workspace files:', uploadErr);
       }
     }
 

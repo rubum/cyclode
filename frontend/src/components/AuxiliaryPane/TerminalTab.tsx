@@ -510,7 +510,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({ task, onOpenFile }) =>
                 className={`group relative flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-all duration-150 ${
                   isActive
                     ? 'bg-onedark-surface text-onedark-fgBright shadow-xs font-semibold border border-onedark-borderSubtle'
-                    : 'text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface/40 border border-transparent'
+                    : 'bg-onedark-surface/35 text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface/60 border border-onedark-borderSubtle/50'
                 }`}
               >
                 <div className={`w-1.5 h-1.5 rounded-full ${s.isAlive ? 'bg-onedark-green animate-subagent-pulse' : 'bg-onedark-muted/50'}`} />
@@ -537,7 +537,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({ task, onOpenFile }) =>
             type="button"
             onClick={spawnNewSession}
             disabled={isLoadingSessions}
-            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-[11.5px] font-medium text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface/40 transition-colors cursor-pointer"
+            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-[11.5px] font-medium bg-onedark-surface/35 text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface/60 border border-onedark-borderSubtle/50 transition-colors cursor-pointer"
             title="Open New Terminal Shell"
           >
             <Plus className="w-3.5 h-3.5 text-onedark-muted hover:text-onedark-accent" />

@@ -102,6 +102,30 @@ class WorkspaceTools:
         is_lockfile = filename in lockfiles
         is_minified = any(filename.endswith(ext) for ext in minified_exts)
 
+        if filename.endswith((".docx", ".doc")):
+            try:
+                from app.api.tasks import _parse_docx_native
+                parsed = _parse_docx_native(target)
+                raw_text = parsed.get("text", "")
+                lines = raw_text.splitlines()
+                if not lines:
+                    lines = ["[Document is empty]"]
+                total_lines = len(lines)
+                formatted = "\n".join(f"{i+1:4d} | {l}" for i, l in enumerate(lines))
+                return {
+                    "file_path": file_path,
+                    "content": f"[Microsoft Word Document: {target.name} ({parsed.get('words_count', 0)} words, {parsed.get('paragraphs_count', 0)} paragraphs)]\n\n{formatted}",
+                    "total_lines": total_lines,
+                    "is_binary": False
+                }
+            except Exception as e:
+                return {
+                    "file_path": file_path,
+                    "content": f"[Error reading DOCX file: {str(e)}]",
+                    "total_lines": 0,
+                    "is_binary": True
+                }
+
         try:
             # Check for binary file by inspecting initial 4KB buffer
             try:
@@ -3148,8 +3172,452 @@ class WorkspaceTools:
             result["visual_analysis"] = visual_analysis
         else:
             result["visual_analysis"] = f"Image metadata: {img_format} {width}x{height} ({mode}), {file_size} bytes. (Visual model inspection offline/unconfigured)."
-
         return result
 
+    @classmethod
+    async def delegate_subtasks(
+        cls,
+        workspace_path: Path,
+        subtasks: List[Dict[str, Any]],
+        wait_for_completion: bool = True,
+        timeout: int = 120
+    ) -> Dict[str, Any]:
+        """
+        Dispatches concurrent subagent tasks linked to the current parent task session.
+        Each subtask object can specify:
+          - title: (str) Short descriptive objective
+          - prompt / description: (str) Detailed prompt instructions for the subagent
+          - persona: (str) Subagent role (e.g. 'CodeReviewer', 'SecurityAuditor', 'SoftwareEngineer', 'TestEngineer', 'PerformanceEngineer')
+          - model_name: (Optional[str]) Model override or inherited
+          - session_key: (Optional[str]) E.g., 'pr-42', 'auth-module'
+          - repo_name: (Optional[str])
+          - repo_url: (Optional[str])
+          - target_branch: (Optional[str])
+        """
+        if not subtasks:
+            return {"error": "No subtasks provided for delegation", "subtasks_dispatched": 0, "results": []}
 
+        # Cap concurrency to 5 maximum to avoid resource exhaustion
+        if len(subtasks) > 5:
+            subtasks = subtasks[:5]
 
+        from app.agent.pool import agent_pool
+        from app.db.session import async_session_factory
+        from app.db.models import TaskModel, TaskDiffModel
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+        import time
+
+        parent_task_id = workspace_path.name.replace("sandbox-", "")
+        if not parent_task_id or parent_task_id == "default":
+            parent_task_id = "default"
+
+        # Check for existing subagents with matching session_keys under this parent task
+        existing_subagents_by_key: Dict[str, Any] = {}
+        async with async_session_factory() as session:
+            stmt_existing = select(TaskModel).where(TaskModel.parent_task_id == parent_task_id)
+            res_existing = await session.execute(stmt_existing)
+            for existing in res_existing.scalars().all():
+                if existing.session_key:
+                    existing_subagents_by_key[existing.session_key] = existing
+
+        dispatched_ids = []
+        for idx, item in enumerate(subtasks):
+            s_title = item.get("title") or f"Subtask {idx + 1}"
+            s_prompt = item.get("prompt") or item.get("description") or s_title
+            s_persona = item.get("persona") or "SoftwareEngineer"
+            s_model = item.get("model_name")
+            s_session_key = item.get("session_key")
+            s_repo_name = item.get("repo_name")
+            s_repo_url = item.get("repo_url")
+            s_target_branch = item.get("target_branch")
+
+            # Stateful reuse: if matching session_key already exists, send follow-up message instead of spawning duplicate
+            if s_session_key and s_session_key in existing_subagents_by_key:
+                existing_pod = existing_subagents_by_key[s_session_key]
+                try:
+                    logger.info(f"Statefully reusing existing subagent pod '{existing_pod.title}' ({existing_pod.id}) for session_key='{s_session_key}'")
+                    await agent_pool.send_user_message(
+                        task_id=existing_pod.id,
+                        message_text=s_prompt,
+                        model_name=s_model
+                    )
+                    dispatched_ids.append(existing_pod.id)
+                    continue
+                except Exception as e:
+                    logger.warning(f"Failed to reuse subagent pod {existing_pod.id}, will spawn fresh: {e}")
+
+            try:
+                sub_id = await agent_pool.spawn_task(
+                    title=s_title,
+                    description=s_prompt,
+                    persona=s_persona,
+                    model_name=s_model,
+                    session_key=s_session_key,
+                    repo_name=s_repo_name,
+                    repo_url=s_repo_url,
+                    target_branch=s_target_branch,
+                    is_subsession=True,
+                    parent_task_id=parent_task_id
+                )
+                dispatched_ids.append(sub_id)
+            except Exception as e:
+                logger.error(f"Failed to spawn subtask '{s_title}': {e}")
+
+        if not wait_for_completion or not dispatched_ids:
+            return {
+                "subtasks_dispatched": len(dispatched_ids),
+                "subagent_task_ids": dispatched_ids,
+                "status": "DISPATCHED_ASYNC",
+                "message": f"Successfully launched/resumed {len(dispatched_ids)} concurrent subagent pods in background."
+            }
+
+        # Poll until completion or timeout
+        start_time = time.time()
+        final_results = []
+        while time.time() - start_time < timeout:
+            async with async_session_factory() as session:
+                stmt = select(TaskModel).where(TaskModel.id.in_(dispatched_ids)).options(
+                    selectinload(TaskModel.diffs),
+                    selectinload(TaskModel.logs),
+                    selectinload(TaskModel.messages)
+                )
+                res = await session.execute(stmt)
+                tasks_list = res.scalars().all()
+
+                all_done = True
+                for t in tasks_list:
+                    if t.status in ["RUNNING", "INITIALIZING", "QUEUED"]:
+                        all_done = False
+                        break
+
+                if all_done and len(tasks_list) == len(dispatched_ids):
+                    for t in tasks_list:
+                        last_agent_msg = ""
+                        if t.messages:
+                            agent_msgs = [m.content for m in t.messages if m.sender == "agent" and m.content]
+                            if agent_msgs:
+                                last_agent_msg = agent_msgs[-1]
+
+                        summary = t.result_summary or last_agent_msg or "Completed without explicit summary."
+                        final_results.append({
+                            "id": t.id,
+                            "title": t.title,
+                            "persona": t.persona,
+                            "session_key": t.session_key,
+                            "status": t.status,
+                            "result_summary": summary,
+                            "diffs_count": len(t.diffs or []),
+                            "tools_count": len(t.logs or []),
+                            "total_tokens": t.total_tokens
+                        })
+                    break
+
+            await asyncio.sleep(1.0)
+
+        # If timeout reached before all done
+        if not final_results:
+            async with async_session_factory() as session:
+                stmt = select(TaskModel).where(TaskModel.id.in_(dispatched_ids)).options(
+                    selectinload(TaskModel.diffs),
+                    selectinload(TaskModel.logs)
+                )
+                res = await session.execute(stmt)
+                for t in res.scalars().all():
+                    final_results.append({
+                        "id": t.id,
+                        "title": t.title,
+                        "persona": t.persona,
+                        "session_key": t.session_key,
+                        "status": t.status,
+                        "result_summary": t.result_summary or f"Status: {t.status} (timed out after {timeout}s)",
+                        "diffs_count": len(t.diffs or []),
+                        "tools_count": len(t.logs or []),
+                        "total_tokens": t.total_tokens
+                    })
+
+        return {
+            "subtasks_dispatched": len(dispatched_ids),
+            "results": final_results,
+            "status": "COMPLETED" if all(r["status"] == "COMPLETED" for r in final_results) else "PARTIAL"
+        }
+
+    @classmethod
+    async def send_subagent_message(
+        cls,
+        workspace_path: Path,
+        message: str,
+        subagent_id: Optional[str] = None,
+        session_key: Optional[str] = None,
+        wait_for_completion: bool = True,
+        timeout: int = 120
+    ) -> Dict[str, Any]:
+        """
+        Sends a follow-up message/instruction to an existing subagent pod by subagent_id or session_key,
+        resuming its conversation in its existing sandbox without creating a duplicate task record.
+        """
+        from app.agent.pool import agent_pool
+        from app.db.session import async_session_factory
+        from app.db.models import TaskModel, TaskDiffModel
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+        import time
+
+        parent_task_id = workspace_path.name.replace("sandbox-", "")
+        if not parent_task_id or parent_task_id == "default":
+            parent_task_id = "default"
+
+        if not message or not message.strip():
+            return {"error": "Message content cannot be empty"}
+
+        if not subagent_id and not session_key:
+            return {"error": "Must provide either subagent_id or session_key to identify target pod"}
+
+        target_pod_id = subagent_id
+        pod_title = ""
+        pod_persona = ""
+        async with async_session_factory() as session:
+            stmt = select(TaskModel).where(TaskModel.parent_task_id == parent_task_id)
+            if subagent_id:
+                stmt = stmt.where(TaskModel.id == subagent_id)
+            elif session_key:
+                stmt = stmt.where(TaskModel.session_key == session_key)
+
+            res = await session.execute(stmt)
+            target_task = res.scalars().first()
+            if not target_task:
+                return {
+                    "error": f"Subagent pod matching subagent_id='{subagent_id}' or session_key='{session_key}' not found under parent task '{parent_task_id}'."
+                }
+            target_pod_id = target_task.id
+            pod_title = target_task.title
+            pod_persona = target_task.persona
+
+        # Dispatch follow-up message into existing subagent pod
+        res = await agent_pool.send_user_message(
+            task_id=target_pod_id,
+            message_text=message.strip()
+        )
+        if not res.get("ok"):
+            return {"error": f"Failed to send message to subagent: {res.get('error')}"}
+
+        if not wait_for_completion:
+            return {
+                "subagent_id": target_pod_id,
+                "title": pod_title,
+                "persona": pod_persona,
+                "status": "DISPATCHED_ASYNC",
+                "message": f"Sent follow-up instruction to subagent '{pod_title}' ({target_pod_id}) in background."
+            }
+
+        # Poll until subagent completes follow-up turn or timeout
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            async with async_session_factory() as session:
+                stmt = select(TaskModel).where(TaskModel.id == target_pod_id).options(
+                    selectinload(TaskModel.diffs),
+                    selectinload(TaskModel.logs),
+                    selectinload(TaskModel.messages)
+                )
+                res = await session.execute(stmt)
+                t = res.scalars().first()
+                if t and t.status not in ["RUNNING", "INITIALIZING", "QUEUED"]:
+                    last_agent_msg = ""
+                    if t.messages:
+                        agent_msgs = [m.content for m in t.messages if m.sender == "agent" and m.content]
+                        if agent_msgs:
+                            last_agent_msg = agent_msgs[-1]
+                    summary = t.result_summary or last_agent_msg or "Completed without explicit summary."
+                    return {
+                        "subagent_id": t.id,
+                        "title": t.title,
+                        "persona": t.persona,
+                        "session_key": t.session_key,
+                        "status": t.status,
+                        "result_summary": summary,
+                        "diffs_count": len(t.diffs or []),
+                        "tools_count": len(t.logs or []),
+                        "total_tokens": t.total_tokens
+                    }
+            await asyncio.sleep(1.0)
+
+        # Timeout reached
+        async with async_session_factory() as session:
+            stmt = select(TaskModel).where(TaskModel.id == target_pod_id).options(
+                selectinload(TaskModel.diffs),
+                selectinload(TaskModel.logs)
+            )
+            res = await session.execute(stmt)
+            t = res.scalars().first()
+            return {
+                "subagent_id": target_pod_id,
+                "title": pod_title,
+                "persona": pod_persona,
+                "session_key": t.session_key if t else None,
+                "status": t.status if t else "TIMEOUT",
+                "result_summary": t.result_summary if t else f"Timed out after {timeout}s waiting for subagent completion.",
+                "diffs_count": len(t.diffs or []) if t else 0,
+                "tools_count": len(t.logs or []) if t else 0,
+                "total_tokens": t.total_tokens if t else 0
+            }
+
+    @classmethod
+    async def batch_review_prs(
+        cls,
+        workspace_path: Path,
+        repository: str,
+        pr_numbers: List[int],
+        wait_for_completion: bool = True,
+        timeout: int = 180
+    ) -> Dict[str, Any]:
+        """
+        Spawns dedicated CodeReviewer subagents for multiple GitHub pull requests in parallel.
+        """
+        if not pr_numbers:
+            return {"error": "No PR numbers provided", "results": []}
+
+        subtasks = []
+        for num in pr_numbers:
+            subtasks.append({
+                "title": f"Review PR #{num} on {repository}",
+                "prompt": (
+                    f"Perform a thorough, verified code review for PR #{num} in repository '{repository}'. "
+                    f"1. Fetch the diff and review all modified files.\n"
+                    f"2. Run linter/syntax checks and unit tests.\n"
+                    f"3. Provide an executive summary and post line-by-line review comments for any issues found."
+                ),
+                "persona": "CodeReviewer",
+                "session_key": f"pr-{num}",
+                "repo_name": repository
+            })
+
+        return await cls.delegate_subtasks(
+            workspace_path=workspace_path,
+            subtasks=subtasks,
+            wait_for_completion=wait_for_completion,
+            timeout=timeout
+        )
+
+    @classmethod
+    async def apply_subagent_diff(
+        cls,
+        workspace_path: Path,
+        subagent_task_id: str
+    ) -> Dict[str, Any]:
+        """
+        Fetches the code diffs produced by a completed subagent task and atomically applies them
+        to the parent workspace.
+        """
+        from app.db.session import async_session_factory
+        from app.db.models import TaskModel, TaskDiffModel
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+
+        ws_root = workspace_path.resolve()
+        parent_task_id = ws_root.name.replace("sandbox-", "")
+
+        async with async_session_factory() as session:
+            stmt = select(TaskModel).where(TaskModel.id == subagent_task_id).options(
+                selectinload(TaskModel.diffs)
+            )
+            res = await session.execute(stmt)
+            subagent = res.scalars().first()
+            if not subagent:
+                return {"error": f"Subagent task '{subagent_task_id}' not found"}
+
+            diffs = subagent.diffs or []
+            if not diffs:
+                sub_ws = Path(subagent.workspace_path)
+                if sub_ws.exists() and (sub_ws / ".git").exists():
+                    try:
+                        git_diff = subprocess.check_output(
+                            ["git", "diff", "HEAD~1", "HEAD"],
+                            cwd=str(sub_ws),
+                            stderr=subprocess.STDOUT,
+                            text=True
+                        )
+                        if git_diff.strip():
+                            res_patch = cls.apply_unified_patch(workspace_path, git_diff)
+                            return {
+                                "success": True,
+                                "subagent_id": subagent_task_id,
+                                "message": "Successfully applied subagent git patch to workspace.",
+                                "patch_result": res_patch
+                            }
+                    except Exception:
+                        pass
+                return {"error": f"No diffs or modifications found in subagent task '{subagent_task_id}'"}
+
+            applied_files = []
+            total_additions = 0
+            total_deletions = 0
+
+            for d in diffs:
+                if d.diff_content and d.diff_content.strip():
+                    try:
+                        cls.apply_unified_patch(workspace_path, d.diff_content)
+                        applied_files.append(d.file_path)
+                        total_additions += d.additions
+                        total_deletions += d.deletions
+                    except Exception as e:
+                        logger.warning(f"Patch application failed for {d.file_path}: {e}")
+
+            from app.api.websocket import ws_manager
+            await ws_manager.broadcast("DIFF_UPDATED", {
+                "task_id": parent_task_id,
+                "diffs": [
+                    {"file_path": f, "additions": total_additions, "deletions": total_deletions}
+                    for f in applied_files
+                ]
+            })
+
+            return {
+                "success": True,
+                "subagent_id": subagent_task_id,
+                "applied_files": applied_files,
+                "additions": total_additions,
+                "deletions": total_deletions,
+                "message": f"Successfully applied diff from subagent '{subagent_task_id}' ({len(applied_files)} files modified)."
+            }
+
+    @classmethod
+    async def get_subagent_results(
+        cls,
+        workspace_path: Path,
+        subagent_task_ids: List[str]
+    ) -> Dict[str, Any]:
+        """
+        Retrieves live status, active tool, result summary, and diffs for specified subagents.
+        """
+        from app.db.session import async_session_factory
+        from app.db.models import TaskModel
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+
+        if not subagent_task_ids:
+            return {"results": []}
+
+        async with async_session_factory() as session:
+            stmt = select(TaskModel).where(TaskModel.id.in_(subagent_task_ids)).options(
+                selectinload(TaskModel.diffs),
+                selectinload(TaskModel.logs)
+            )
+            res = await session.execute(stmt)
+            tasks_list = res.scalars().all()
+            
+            results = []
+            for t in tasks_list:
+                results.append({
+                    "id": t.id,
+                    "title": t.title,
+                    "persona": t.persona,
+                    "model_name": t.model_name,
+                    "status": t.status,
+                    "result_summary": t.result_summary,
+                    "diffs_count": len(t.diffs or []),
+                    "tools_count": len(t.logs or []),
+                    "total_tokens": t.total_tokens,
+                    "created_at": t.created_at.isoformat() if t.created_at else None,
+                    "completed_at": t.completed_at.isoformat() if t.completed_at else None
+                })
+            return {"results": results}

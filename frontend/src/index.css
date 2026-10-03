@@ -9,6 +9,7 @@
   --color-darker: #21252B;
   --color-darker-rgb: 33, 37, 43;
   --color-surface: #2C313A;
+  --color-surface-rgb: 44, 49, 58;
   --color-border: #3E4451; /* Refined One Dark slate-grey border */
   --color-border-rgb: 62, 68, 81;
   --color-border-subtle: #31363F; /* Soft One Dark divider & card outline */
@@ -130,6 +131,10 @@ html.light-theme {
     font-feature-settings: "liga" 1, "calt" 1;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+
+  input:focus, textarea:focus, select:focus, button:focus {
+    outline: none;
   }
 }
 

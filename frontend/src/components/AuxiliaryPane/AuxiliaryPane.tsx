@@ -4,6 +4,7 @@ import { Task, WorkspacePreviewInfo } from '../../types';
 import { PullRequestsTab } from './PullRequestsTab';
 import { TerminalTab } from './TerminalTab';
 import { ToolActivityTab } from './ToolActivityTab';
+import { AgentsTab } from './AgentsTab';
 import { SubagentsTab } from './SubagentsTab';
 import { EventInspectorTab } from './EventInspectorTab';
 import { FilesExplorerTab } from './FilesExplorerTab';
@@ -14,7 +15,7 @@ import { ErrorBoundary } from '../Common/ErrorBoundary';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
-export type AuxTabType = 'docs' | 'files' | 'terminal' | 'preview' | 'changes' | 'prs' | 'activity' | 'subagents' | 'event';
+export type AuxTabType = 'docs' | 'files' | 'terminal' | 'preview' | 'changes' | 'prs' | 'activity' | 'agents' | 'subagents' | 'event';
 
 interface AuxiliaryPaneProps {
   task: Task | null;
@@ -139,7 +140,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
     { id: 'changes', label: 'Changes', icon: GitCompare, count: task?.diffs?.length || 0, iconClass: (task?.diffs?.length || 0) > 0 ? 'text-onedark-accent' : '' },
     { id: 'prs', label: 'PRs', icon: GitPullRequest, count: task?.prs?.length || 0, badge: (previewTarget?.url && isPrForTask(previewTarget.url, task)) ? '●' : undefined },
     { id: 'activity', label: 'Tool Activity', icon: Activity, count: task?.logs?.length || 0 },
-    { id: 'subagents', label: 'Subagents', icon: Cpu },
+    { id: 'agents', label: 'Agents', icon: Cpu },
     { id: 'event', label: 'Event', icon: Inbox, badge: task?.event_id ? '●' : undefined },
   ];
 
@@ -149,15 +150,15 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
       <div className="flex items-center bg-onedark-darker px-2 py-1.5 space-x-1 overflow-x-auto no-scrollbar border-b border-onedark-borderSubtle/60">
         {tabs.map((tab) => {
           const Icon = tab.icon;
-          const isActive = activeTab === tab.id;
+          const isActive = activeTab === tab.id || (tab.id === 'agents' && activeTab === 'subagents');
           return (
             <button
               key={tab.id}
               onClick={() => handleTabClick(tab.id as any)}
               className={`relative flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium cursor-pointer flex-shrink-0 rounded-lg btn-tactile transition-all duration-150 ${
                 isActive
-                  ? 'bg-onedark-surface text-onedark-fgBright shadow-xs font-semibold'
-                  : 'text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface/40'
+                  ? 'bg-onedark-surface text-onedark-fgBright shadow-xs font-semibold border border-onedark-borderSubtle'
+                  : 'bg-onedark-surface/35 text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface/60 border border-onedark-borderSubtle/50'
               }`}
             >
               <Icon className={`w-3.5 h-3.5 transition-transform duration-150 ${isActive ? 'scale-105' : ''} ${tab.iconClass || ''}`} />
@@ -244,7 +245,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
             />
           )}
           {activeTab === 'activity' && <ToolActivityTab logs={task?.logs} />}
-          {activeTab === 'subagents' && <SubagentsTab task={task} />}
+          {(activeTab === 'agents' || activeTab === 'subagents') && <AgentsTab task={task} />}
           {activeTab === 'event' && <EventInspectorTab task={task} />}
         </ErrorBoundary>
       </div>

@@ -49,6 +49,19 @@ async def test_file_upload_endpoint(tmp_path):
         assert (workspace / "script.py").exists()
         assert (workspace / "metrics.csv").read_bytes() == csv_bytes
 
+        # 1b. Upload nested folder structure
+        header_bytes = b"export const Header = () => <h1>Header</h1>;"
+        utils_bytes = b"export const add = (a, b) => a + b;"
+        folder_files = [
+            ("files", ("src/components/Header.tsx", header_bytes, "text/plain")),
+            ("files", ("src/utils/math.ts", utils_bytes, "text/plain")),
+        ]
+        res_folder = await client.post(f"/api/tasks/{task_id}/files/upload", files=folder_files, data=data)
+        assert res_folder.status_code == 200
+        assert (workspace / "src" / "components" / "Header.tsx").exists()
+        assert (workspace / "src" / "utils" / "math.ts").exists()
+        assert (workspace / "src" / "components" / "Header.tsx").read_bytes() == header_bytes
+
         # 2. Upload file to attachment directory
         json_bytes = b'{"status": "ok"}'
         files_att = [("files", ("response.json", json_bytes, "application/json"))]
@@ -479,6 +492,182 @@ async def test_notebook_complete_retrieval_without_truncation(tmp_path):
         parsed = json.loads(data["content"])
         assert len(parsed["cells"]) == 150
         assert parsed["cells"][0]["source"][0] == "# Cell 1\n"
+
+
+@pytest.mark.asyncio
+async def test_docx_inspect_and_save_endpoints(tmp_path):
+    workspace = tmp_path / "sandbox-task-docx-test"
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    task_id = "task-docx-test"
+    async with async_session_factory() as session:
+        task = TaskModel(
+            id=task_id,
+            session_key="test-key-docx",
+            title="DOCX Inspection and Save Test",
+            persona="IssueResolver",
+            status="RUNNING",
+            workspace_path=str(workspace)
+        )
+        session.add(task)
+        await session.commit()
+
+    docx_path = workspace / "report.docx"
+    initial_html = (
+        "<h1>Q3 Financial Report</h1>"
+        "<p>This document summarizes our <strong>Q3 revenue</strong> and performance metrics.</p>"
+        "<h2>Highlights</h2>"
+        "<ul>"
+        "<li>Revenue exceeded forecast by 15%</li>"
+        "<li>Customer retention reached 94%</li>"
+        "</ul>"
+        "<table>"
+        "<tr><td>Metric</td><td>Value</td></tr>"
+        "<tr><td>ARR</td><td>$12.5M</td></tr>"
+        "</table>"
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Save new DOCX file
+        save_payload = {"path": "report.docx", "html": initial_html}
+        save_res = await client.post(f"/api/tasks/{task_id}/files/docx-save", json=save_payload)
+        assert save_res.status_code == 200
+        save_data = save_res.json()
+        assert save_data["ok"] is True
+        assert docx_path.exists()
+        assert save_data["paragraphs_count"] >= 3
+        assert save_data["words_count"] > 10
+
+        # 2. Inspect saved DOCX file
+        inspect_res = await client.get(f"/api/tasks/{task_id}/files/docx-inspect?path=report.docx")
+        assert inspect_res.status_code == 200
+        inspect_data = inspect_res.json()
+        assert len(inspect_data["headings"]) >= 2
+        assert inspect_data["headings"][0]["text"] == "Q3 Financial Report"
+        assert inspect_data["headings"][0]["level"] == 1
+        assert "Q3 Financial Report" in inspect_data["text"]
+        assert "Revenue exceeded forecast by 15%" in inspect_data["text"]
+        assert inspect_data["tables_count"] >= 1
+
+        # 3. Verify get_sandbox_file_content endpoint returns DOCX metadata
+        content_res = await client.get(f"/api/tasks/{task_id}/files/content?path=report.docx")
+        assert content_res.status_code == 200
+        content_data = content_res.json()
+        assert content_data["language"] == "docx"
+        assert content_data["is_binary"] is False
+        assert "Q3 Financial Report" in content_data["content"]
+        assert "docx_metadata" in content_data
+        assert content_data["docx_metadata"]["words_count"] > 10
+
+        # 4. Modify document and save again
+        updated_html = "<h1>Q4 Revised Strategy</h1><p>New updated <strong>growth plan</strong>.</p>"
+        update_res = await client.post(f"/api/tasks/{task_id}/files/docx-save", json={"path": "report.docx", "html": updated_html})
+        assert update_res.status_code == 200
+        reinspect = await client.get(f"/api/tasks/{task_id}/files/docx-inspect?path=report.docx")
+        assert "Q4 Revised Strategy" in reinspect.json()["text"]
+
+
+@pytest.mark.asyncio
+async def test_docx_agent_read_file_tool(tmp_path):
+    workspace = tmp_path / "sandbox-task-docx-agent"
+    workspace.mkdir(parents=True, exist_ok=True)
+
+    task_id = "task-docx-agent"
+    async with async_session_factory() as session:
+        task = TaskModel(
+            id=task_id,
+            session_key="test-key-docx-agent",
+            title="DOCX Agent Tool Test",
+            persona="IssueResolver",
+            status="RUNNING",
+            workspace_path=str(workspace)
+        )
+        session.add(task)
+        await session.commit()
+
+    from app.api.tasks import _save_docx_native
+    docx_file = workspace / "spec.docx"
+    _save_docx_native(docx_file, "<h1>Architecture Spec</h1><p>System uses <strong>PostgreSQL</strong> for storage.</p>")
+
+    from app.agent.tools import WorkspaceTools
+    read_res = WorkspaceTools.read_file(workspace, "spec.docx")
+    assert "error" not in read_res
+    assert read_res["is_binary"] is False
+    assert "Architecture Spec" in read_res["content"]
+    assert "PostgreSQL" in read_res["content"]
+
+
+@pytest.mark.asyncio
+async def test_multiturn_uploaded_files_persistence(tmp_path):
+    """
+    Verifies that uploaded files and folders persist across multi-turn session executions
+    and are not wiped when subsequent turns or sandbox reattachments occur.
+    """
+    from app.core.sandboxes.overlay_provider import OverlayFSSandboxProvider
+
+    provider = OverlayFSSandboxProvider(base_dir=str(tmp_path))
+    task_id = "task-multiturn-upload-persist"
+    workspace = tmp_path / f"sandbox-{task_id}"
+
+    async with async_session_factory() as session:
+        task = TaskModel(
+            id=task_id,
+            session_key="test-key-multiturn",
+            title="MultiTurn Upload Test",
+            persona="IssueResolver",
+            status="RUNNING",
+            workspace_path=str(workspace),
+            git_branch="cyclode/task-test-branch"
+        )
+        session.add(task)
+        await session.commit()
+
+    # 1. Create initial sandbox
+    ctx1 = await provider.create_sandbox(task_id=task_id)
+    assert ctx1.workspace_path.exists()
+
+    # 2. Upload a nested design folder with files
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        files = [
+            ("files", ("Waylo Design/spec.docx", b"dummy docx bytes", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")),
+            ("files", ("Waylo Design/mockup.png", b"\x89PNG\r\n\x1a\nfake", "image/png")),
+            ("files", ("Waylo Design/notes.md", b"# Design Notes\nPersistent across turns.", "text/markdown"))
+        ]
+        res = await client.post(
+            f"/api/tasks/{task_id}/files/upload",
+            files=files,
+            data={"target_type": "workspace", "destination_path": ""}
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert data["count"] == 3
+
+    # Verify files exist on disk
+    spec_path = workspace / "Waylo Design" / "spec.docx"
+    notes_path = workspace / "Waylo Design" / "notes.md"
+    assert spec_path.exists()
+    assert notes_path.exists()
+    assert notes_path.read_text(encoding="utf-8") == "# Design Notes\nPersistent across turns."
+
+    # 3. Simulate turn 2 execution: Clear in-memory cache to simulate worker completion / reload
+    provider._active_sandboxes.clear()
+
+    # 4. Re-provision sandbox for turn 2 (even if repo_url is passed or re-evaluated)
+    ctx2 = await provider.create_sandbox(
+        task_id=task_id,
+        repo_name="waylo/platform",
+        repo_url="https://github.com/waylo/platform"
+    )
+
+    # 5. Assert that the uploaded files were NOT deleted or overhauled
+    assert ctx2.workspace_path.exists()
+    assert spec_path.exists(), "Uploaded spec.docx was lost after turn 2 sandbox reattachment!"
+    assert notes_path.exists(), "Uploaded notes.md was lost after turn 2 sandbox reattachment!"
+    assert notes_path.read_text(encoding="utf-8") == "# Design Notes\nPersistent across turns."
+
+
 
 
 
