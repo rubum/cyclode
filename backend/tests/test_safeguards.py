@@ -408,6 +408,34 @@ async def test_preview_issues_block_subsumption_and_scorecard(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_minimal_canvas_stub_blocks_scorecard_and_subsumption(tmp_path):
+    from app.core.evals.runner import evaluation_runner
+
+    # Simulate preview where single green box Three.js was flagged as minimal_canvas_stub
+    stub_preview = {
+        "status": "minimal_canvas_stub",
+        "framework": "Static Web",
+        "issues": ["Canvas Semantic Incompleteness: 3D scene in 'index.html' contains only a solitary primitive mesh with no scene lighting, camera controls (OrbitControls), or interactive UI overlay."]
+    }
+
+    scorecard = await evaluation_runner.evaluate_task(
+        workspace_path=tmp_path,
+        intent_category="app_building",
+        is_app_task=True,
+        preview_info=stub_preview,
+        tool_call_count=2,
+        final_agent_text="The 3D warehouse application is ready.",
+        model_succeeded=True
+    )
+
+    assert scorecard.status == "needs_revision"
+    preview_checks = [c for c in scorecard.checks if c.name == "Live Application Preview"]
+    assert len(preview_checks) == 1
+    assert preview_checks[0].passed is False
+    assert "Canvas Semantic Incompleteness" in preview_checks[0].diagnostics
+
+
+@pytest.mark.asyncio
 async def test_evaluation_runner_fails_on_empty_text(tmp_path):
     from app.core.evals.runner import evaluation_runner
 

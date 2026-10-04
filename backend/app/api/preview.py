@@ -305,7 +305,8 @@ def _validate_interactive_buttons(html_text: str, combined_js: str, primary_entr
 
 def _validate_canvas_and_state(html_text: str, combined_js: str, primary_entry: str) -> List[str]:
     """
-    Validates that canvas elements have 2D/WebGL context initialization and animation loops.
+    Validates that canvas elements have 2D/WebGL context initialization, animation loops,
+    and semantic scene completeness (detecting empty/minimal 'Hello World' stubs).
     """
     issues: List[str] = []
     if "<canvas" in html_text.lower():
@@ -320,6 +321,21 @@ def _validate_canvas_and_state(html_text: str, combined_js: str, primary_entry: 
             issues.append(
                 f"Canvas Animation Loop Issue: '<canvas>' rendering context initialized in JavaScript, but no render/animation loop (requestAnimationFrame) is started."
             )
+
+        # Semantic Anti-Stub Verification for 3D / WebGL Scenes
+        is_three_js = bool(re.search(r'\bTHREE\b', combined_js))
+        if is_three_js:
+            has_lights = bool(re.search(r'THREE\.(AmbientLight|DirectionalLight|PointLight|SpotLight|HemisphereLight|RectAreaLight)', combined_js))
+            has_controls = bool(re.search(r'OrbitControls|PointerLockControls|TrackballControls|FlyControls|addEventListener\s*\(\s*["\'](?:mousemove|mousedown|pointerdown|pointermove|keydown|wheel)["\']', combined_js, re.IGNORECASE))
+            geometries = re.findall(r'THREE\.(?:[A-Z][a-zA-Z0-9]+Geometry)\b', combined_js)
+            has_instancing = bool(re.search(r'InstancedMesh|Group\b|Object3D\b', combined_js))
+            has_ui_overlay = bool(re.search(r'<(?:button|input|select|textarea|form|nav|header|aside)\b|class=["\'][^"\']*(?:hud|dashboard|controls|overlay|panel|stats|toolbar)[^"\']*["\']', html_text, re.IGNORECASE))
+
+            # Detect solitary BoxGeometry or single primitive with no lights, no controls, and no UI
+            if len(geometries) <= 1 and not has_lights and not has_controls and not has_ui_overlay and not has_instancing:
+                issues.append(
+                    f"Canvas Semantic Incompleteness: 3D scene in '{primary_entry}' contains only a solitary primitive mesh with no scene lighting, camera controls (OrbitControls), or interactive UI overlay. Implement complete domain-specific scene elements, lighting, camera navigation, and interactive controls."
+                )
     return issues
 
 
@@ -831,6 +847,7 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
     has_uncompiled_css = any("no CSS stylesheets" in iss or "uncompiled '@tailwind'" in iss for iss in issues)
     has_js_dom_mismatch = any("DOM Contract Violation" in iss for iss in issues)
     has_dead_buttons = any("Dead UI Button" in iss for iss in issues)
+    has_semantic_stub = any("Canvas Semantic Incompleteness" in iss for iss in issues)
     has_canvas_issues = any("Canvas Context Issue" in iss or "Canvas Animation Loop" in iss for iss in issues)
     has_syntax_issues = any("JavaScript Syntax" in iss for iss in issues)
 
@@ -843,6 +860,9 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
     elif has_dead_buttons:
         status_code = "dead_buttons"
         recommendation = "Wire up active click event listeners (addEventListener('click', ...)) or inline onclick handlers for all interactive buttons in the application."
+    elif has_semantic_stub:
+        status_code = "minimal_canvas_stub"
+        recommendation = "Develop the full 3D domain environment with concrete geometries, lighting (e.g. AmbientLight/DirectionalLight), camera controls (e.g. OrbitControls), and interactive UI overlays."
     elif has_dom_css_issues or has_canvas_issues:
         status_code = "dom_css_mismatch"
         recommendation = "Harmonize DOM element IDs and CSS selectors between index.html and stylesheets, add missing '.hidden { display: none !important; }' utility, and ensure canvas containers are styled with width: 100%; height: 100%; position: absolute;."

@@ -47,6 +47,10 @@ from app.agent.engine.planning import (
     generate_plan_markdown,
     extract_plan_from_markdown,
 )
+from app.agent.skills_discovery import (
+    discover_available_skills,
+    format_skills_system_prompt,
+)
 
 
 def format_plan_chat_summary(
@@ -847,6 +851,7 @@ class AntigravityHarness:
             f"- For engineering/coding phases, provide descriptive title, 1-sentence objective, specific file touchpoints with bulleted action items under each file, and concrete verification criteria (e.g. exact pytest or build commands).\n"
             f"- If the prompt asks to build an interactive web app, frontend, UI, dashboard, game, landing page, or calculator, set intent_category='app_building'.\n"
             f"  CRITICAL FOR APP BUILDING: Formulate the implementation plan specifically for Cyclode's Instant Live Preview Sandbox! Target self-contained HTML/CSS/JS or Vite/React components (e.g. index.html with Tailwind CSS, responsive layout, theme tokens, interactive DOM sections, and verify_app_preview). Do NOT propose non-executable cloud deployment pipelines or multi-container server dependencies when creating client-side apps or landing pages!\n"
+            f"  DOMAIN-GROUNDED MILESTONES: Extract concrete domain entities, structures, and operational mechanics from the prompt into milestone phases. Prohibit abstract placeholder checklists (e.g. NEVER emit generic steps like 'Initialize files', 'Integrate library', 'Add controls'). Decompose into domain-grounded deliverables: (1) Core Environment & Spatial Shell (floor grid, layout boundaries, lighting, container styling), (2) Domain Models, Entities & Asset Population (specific domain meshes, materials, textures, realistic data), (3) Navigation Controls & Interactive UI/HUD Overlays (camera navigation, user inputs, HUD panels, stats counters), and (4) Compilation & verify_app_preview validation.\n"
             f"- If the prompt asks to review PR, diff, or code audit, set intent_category='review_audit'.\n"
             f"- If the prompt asks to fix an error or debug code, set intent_category='debugging'.\n"
             f"- If the prompt asks to configure Docker, CI/CD, or deployment, set intent_category='devops'.\n"
@@ -1609,6 +1614,10 @@ class AntigravityHarness:
         current_month_year = now.strftime('%B %Y')
         current_year = now.year
 
+        ws_path_obj = Path(workspace_path) if workspace_path else None
+        available_skills = discover_available_skills(ws_path_obj)
+        skills_prompt = format_skills_system_prompt(available_skills)
+
         system_instruction = (
             f"You are Cyclode, an autonomous AI pair programmer and software engineering assistant powered by the Antigravity agent harness.\n"
             f"Persona: {persona_name}.\n"
@@ -1616,6 +1625,7 @@ class AntigravityHarness:
             f"Task Context: {title}\n"
             f"CURRENT TEMPORAL BASELINE: {current_date_str} (Current Year: {current_year}, Current Month: {now.strftime('%B')})\n\n"
             f"{persona_instructions}\n\n"
+            f"{skills_prompt}\n"
             f"Core Operational Directives:\n"
             f"1. DIRECT TOOL INVOCATION & REASONING:\n"
             f"   - When listing pull requests: call `list_pull_requests`. ALWAYS present all discovered PRs in your response with an itemized Markdown table or list including direct clickable links ([#<number>: <title>](https://github.com/<owner>/<repo>/pull/<number>)), author (@<author>), status (OPEN/MERGED), branch flow (<head> ➔ <base>), and diff stats (+add / -del).\n"
@@ -4010,7 +4020,7 @@ class AntigravityHarness:
         # Check preview status for app tasks
         from app.api.preview import verify_workspace_preview
         preview_verif = verify_workspace_preview(workspace_path, task_id)
-        has_preview_missing = is_app_task and preview_verif.get("status") in ["missing_entry_point", "missing_workspace", "needs_build", "uncompiled_css", "unlinked_assets", "empty_ui", "dom_css_mismatch", "issues_found"]
+        has_preview_missing = is_app_task and preview_verif.get("status") in ["missing_entry_point", "missing_workspace", "needs_build", "uncompiled_css", "unlinked_assets", "empty_ui", "dom_css_mismatch", "issues_found", "minimal_canvas_stub"]
 
         if mutating_tool_count > 0 and not has_preview_missing and not has_pending_steps:
             fallback_msg = (
