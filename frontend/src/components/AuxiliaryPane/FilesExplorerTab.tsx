@@ -6,7 +6,10 @@ import {
   Layers,
   FolderLock,
   Sparkles,
-  Bot
+  Bot,
+  Folder,
+  PanelLeftOpen,
+  PanelLeftClose
 } from 'lucide-react';
 import { Task } from '../../types';
 import { FileTreeExplorer, FileNode, ExternalSearchRequest } from '../Files/FileTreeExplorer';
@@ -97,6 +100,37 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
 
   // External Search Trigger State for FileTreeExplorer
   const [externalSearch, setExternalSearch] = useState<ExternalSearchRequest | null>(null);
+
+  // File tree explorer sidebar collapse state
+  const [isTreeCollapsed, setIsTreeCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('cyclode_file_tree_collapsed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleToggleTreeCollapsed = useCallback(() => {
+    setIsTreeCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('cyclode_file_tree_collapsed', String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  // Keyboard shortcut: Option+1 or Alt+1 to toggle file tree sidebar
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.altKey && (e.key === '1' || e.code === 'Digit1')) {
+        e.preventDefault();
+        handleToggleTreeCollapsed();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleToggleTreeCollapsed]);
 
   // Navigation History Stack Hook
   const {
@@ -394,19 +428,63 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
     <div className="h-full flex flex-col md:flex-row overflow-hidden font-sans relative">
       {/* Left Tree Explorer */}
       {fileTree.length > 0 && (
-        <div className="w-full md:w-72 lg:w-80 h-1/2 md:h-full border-b md:border-b-0 md:border-r border-onedark-borderSubtle flex-shrink-0">
-          <FileTreeExplorer
-            taskId={task.id}
-            tree={fileTree}
-            selectedFile={selectedFile}
-            onSelectFile={(path, line) => {
-              pushPoint({ filePath: path, line: line || 1 });
-              handleSelectFile(path, line || null);
-            }}
-            externalSearch={externalSearch}
-            title="Sandbox Files"
-          />
-        </div>
+        <>
+          {!isTreeCollapsed ? (
+            <div className="w-full md:w-72 lg:w-80 h-1/2 md:h-full border-b md:border-b-0 md:border-r border-onedark-borderSubtle flex-shrink-0 transition-all duration-150 relative">
+              <FileTreeExplorer
+                taskId={task.id}
+                tree={fileTree}
+                selectedFile={selectedFile}
+                onSelectFile={(path, line) => {
+                  pushPoint({ filePath: path, line: line || 1 });
+                  handleSelectFile(path, line || null);
+                }}
+                externalSearch={externalSearch}
+                title="Sandbox Files"
+                onToggleCollapse={handleToggleTreeCollapsed}
+              />
+            </div>
+          ) : (
+            <>
+              {/* Desktop slim collapsed rail */}
+              <div className="hidden md:flex flex-col items-center py-2 px-1 bg-onedark-darker border-r border-onedark-borderSubtle flex-shrink-0 select-none z-10 w-9 space-y-3">
+                <button
+                  type="button"
+                  onClick={handleToggleTreeCollapsed}
+                  className="p-1.5 rounded-md hover:bg-onedark-surface text-onedark-muted hover:text-onedark-accent transition-colors cursor-pointer border border-transparent hover:border-onedark-borderSubtle"
+                  title="Expand Sandbox Files (Option+1)"
+                >
+                  <PanelLeftOpen className="w-4 h-4" />
+                </button>
+                <div
+                  onClick={handleToggleTreeCollapsed}
+                  className="flex flex-col items-center space-y-2 cursor-pointer group py-2"
+                  title="Expand Sandbox Files (Option+1)"
+                >
+                  <Folder className="w-3.5 h-3.5 text-onedark-folder group-hover:scale-110 transition-transform" />
+                  <span className="text-[10px] font-mono [writing-mode:vertical-rl] tracking-wider uppercase text-onedark-muted group-hover:text-onedark-fgBright transition-colors">
+                    Files ({data?.file_count || fileTree.length})
+                  </span>
+                </div>
+              </div>
+
+              {/* Mobile compact header strip */}
+              <div className="md:hidden flex items-center justify-between px-3 py-1.5 bg-onedark-darker border-b border-onedark-borderSubtle text-xs select-none">
+                <div className="flex items-center space-x-2">
+                  <Folder className="w-3.5 h-3.5 text-onedark-folder" />
+                  <span className="font-semibold text-onedark-fgBright">Sandbox Files ({data?.file_count || fileTree.length})</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleToggleTreeCollapsed}
+                  className="px-2 py-0.5 rounded bg-onedark-surface text-onedark-accent text-[11px] font-mono cursor-pointer border border-onedark-borderSubtle"
+                >
+                  Expand
+                </button>
+              </div>
+            </>
+          )}
+        </>
       )}
 
       {/* Center Code Viewer */}

@@ -15,7 +15,10 @@ import {
   FileText, 
   Target,
   Upload,
-  Plus
+  Plus,
+  FoldVertical,
+  UnfoldVertical,
+  PanelLeftClose
 } from 'lucide-react';
 import { createGrepMatcher } from '../../utils/grepMatcher';
 import { readDroppedFileSystemEntries, extractFilesFromInput, openNativeFolderPicker, UploadableItem } from '../../utils/fileUpload';
@@ -68,6 +71,7 @@ interface FileTreeExplorerProps {
   title?: string;
   subtitle?: string;
   onRefresh?: () => void;
+  onToggleCollapse?: () => void;
 }
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -80,7 +84,8 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
   externalSearch,
   title = 'Sandbox Files',
   subtitle,
-  onRefresh
+  onRefresh,
+  onToggleCollapse,
 }) => {
   const [filter, setFilter] = useState('');
   const [searchMode, setSearchMode] = useState<SearchMode>('files');
@@ -478,6 +483,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
               <div key={node.path} className="select-none">
                 <div
                   onClick={() => toggleFolder(node)}
+                  title={`${node.path || node.name}${node.child_count !== undefined ? ` (${node.child_count} items)` : ''}`}
                   style={{ paddingLeft: `${depth * 14 + 6}px` }}
                   className="flex items-center justify-between py-1 px-1.5 rounded-md hover:bg-onedark-surface/60 text-onedark-fg text-xs font-mono cursor-pointer transition-colors group"
                 >
@@ -518,6 +524,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
             <div
               key={node.path}
               onClick={() => onSelectFile(node.path)}
+              title={`${node.name}${typeof node.size === 'number' ? ` • ${formatBytes(node.size)}` : ''}\nPath: ${node.path}`}
               style={{ paddingLeft: `${depth * 14 + 20}px` }}
               className={`flex items-center justify-between py-1 px-1.5 rounded-md text-xs font-mono cursor-pointer group transition-all duration-150 btn-tactile ${
                 isSelected
@@ -733,22 +740,35 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
             )}
 
             {searchMode === 'files' && (
-              <>
+              <div className="flex items-center space-x-0.5 border-l border-onedark-borderSubtle/60 pl-1 ml-0.5">
                 <button
+                  type="button"
                   onClick={expandAll}
-                  className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg text-[10px] font-mono cursor-pointer transition-colors"
+                  className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright transition-colors cursor-pointer"
                   title="Expand All Folders"
                 >
-                  +
+                  <UnfoldVertical className="w-3.5 h-3.5" />
                 </button>
                 <button
+                  type="button"
                   onClick={collapseAll}
-                  className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg text-[10px] font-mono cursor-pointer transition-colors"
+                  className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright transition-colors cursor-pointer"
                   title="Collapse All Folders"
                 >
-                  -
+                  <FoldVertical className="w-3.5 h-3.5" />
                 </button>
-              </>
+              </div>
+            )}
+
+            {onToggleCollapse && (
+              <button
+                type="button"
+                onClick={onToggleCollapse}
+                className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright transition-colors cursor-pointer ml-0.5 border border-transparent hover:border-onedark-borderSubtle"
+                title="Collapse file explorer panel (Option+1)"
+              >
+                <PanelLeftClose className="w-3.5 h-3.5" />
+              </button>
             )}
           </div>
         </div>
