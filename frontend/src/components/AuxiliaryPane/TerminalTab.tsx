@@ -42,10 +42,10 @@ interface TerminalTabProps {
 }
 
 const ONEDARK_TERMINAL_THEME = {
-  background: '#181a1f',
+  background: '#21252b',
   foreground: '#abb2bf',
   cursor: '#528bff',
-  cursorAccent: '#181a1f',
+  cursorAccent: '#21252b',
   selectionBackground: 'rgba(62, 68, 81, 0.75)',
   selectionForeground: '#f1f5f9',
   black: '#1e2227',
@@ -487,15 +487,20 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({ task, onOpenFile }) =>
 
   if (!task) {
     return (
-      <div className="flex flex-col items-center justify-center h-full bg-onedark-bg text-onedark-muted text-xs font-mono p-8 text-center">
-        <TerminalIcon className="w-8 h-8 opacity-40 mb-2 text-onedark-accent" />
-        <div>No active workspace selected.</div>
+      <div className="h-full flex flex-col items-center justify-center p-6 text-center text-onedark-muted font-mono select-none bg-onedark-darker">
+        <div className="p-3 rounded-2xl bg-onedark-surface/40 border border-onedark-borderSubtle/80 mb-3 shadow-xs">
+          <TerminalIcon className="w-8 h-8 text-onedark-accent/80 stroke-[1.5]" />
+        </div>
+        <div className="text-xs font-semibold text-onedark-fg">No active workspace selected</div>
+        <div className="text-[11px] text-onedark-muted mt-1.5 max-w-xs leading-relaxed">
+          Select or launch an engineering task to spawn an interactive shell attached to its sandbox workspace.
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="flex flex-col h-full bg-onedark-bg overflow-hidden text-onedark-fg font-mono text-xs select-none">
+    <div className="flex flex-col h-full bg-onedark-darker overflow-hidden text-onedark-fg font-mono text-xs select-none">
       {/* Top Session Control & Multi-Tab Bar (Adapts to Dark / Light Theme) */}
       <div className="flex items-center justify-between px-2.5 py-1.5 bg-onedark-darker border-b border-onedark-borderSubtle/80 flex-shrink-0">
         {/* Left: Session Tabs */}
@@ -510,7 +515,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({ task, onOpenFile }) =>
                 className={`group relative flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-all duration-150 ${
                   isActive
                     ? 'bg-onedark-surface text-onedark-fgBright shadow-xs font-semibold border border-onedark-borderSubtle'
-                    : 'bg-onedark-surface/35 text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface/60 border border-onedark-borderSubtle/50'
+                    : 'bg-onedark-surface/40 text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface/70 border border-onedark-borderSubtle/60'
                 }`}
               >
                 <div className={`w-1.5 h-1.5 rounded-full ${s.isAlive ? 'bg-onedark-green animate-subagent-pulse' : 'bg-onedark-muted/50'}`} />
@@ -537,7 +542,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({ task, onOpenFile }) =>
             type="button"
             onClick={spawnNewSession}
             disabled={isLoadingSessions}
-            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-[11.5px] font-medium bg-onedark-surface/35 text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface/60 border border-onedark-borderSubtle/50 transition-colors cursor-pointer"
+            className="flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-[11.5px] font-medium bg-onedark-surface/40 text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface/70 border border-onedark-borderSubtle/60 transition-colors cursor-pointer"
             title="Open New Terminal Shell"
           >
             <Plus className="w-3.5 h-3.5 text-onedark-muted hover:text-onedark-accent" />
@@ -635,7 +640,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({ task, onOpenFile }) =>
       </div>
 
       {/* Terminal Viewport Canvas */}
-      <div className={`flex-1 relative overflow-hidden ${isLightMode ? 'bg-[#fafafa]' : 'bg-[#181a1f]'}`}>
+      <div className={`flex-1 relative overflow-hidden ${isLightMode ? 'bg-[#fafafa]' : 'bg-[#21252b]'}`}>
         {sessions.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-onedark-muted space-y-3">
             <TerminalIcon className="w-8 h-8 opacity-40 animate-pulse text-onedark-accent" />

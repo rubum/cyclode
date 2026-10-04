@@ -1214,54 +1214,73 @@ const MainApp: React.FC = () => {
   };
 
   const handleDeleteTask = async (taskId: string) => {
-    setDeletingTaskId(taskId);
+    // 1. Snapshot previous state for rollback
+    const prevTasks = [...tasks];
+    const prevActiveId = activeTaskId;
+    const prevActiveDetails = activeTaskDetails;
+
+    // 2. Optimistic local state eviction
+    setTasks((prev) => prev.filter((t) => t.id !== taskId));
+    setSessionPreviews((prev) => {
+      const next = { ...prev };
+      delete next[taskId];
+      return next;
+    });
+
+    if (activeTaskId === taskId) {
+      const remaining = prevTasks.filter((t) => t.id !== taskId && !t.is_subsession);
+      if (remaining.length > 0) {
+        setActiveTaskId(remaining[0].id);
+      } else {
+        setActiveTaskId(null);
+        setActiveTaskDetails(null);
+      }
+    }
+
     try {
       const res = await fetch(`${API_BASE}/api/tasks/${taskId}`, {
         method: 'DELETE',
       });
-      if (res.ok || res.status === 404) {
-        if (activeTaskId === taskId) {
-          setActiveTaskId(null);
-          setActiveTaskDetails(null);
-        }
-        setSessionPreviews((prev) => {
-          const next = { ...prev };
-          delete next[taskId];
-          return next;
-        });
-        await fetchTasks();
-      } else {
+      if (!res.ok && res.status !== 404) {
         console.error('Failed to delete task:', res.status, res.statusText);
-        await fetchTasks();
+        setTasks(prevTasks);
+        setActiveTaskId(prevActiveId);
+        setActiveTaskDetails(prevActiveDetails);
       }
     } catch (err) {
       console.error('Error deleting task:', err);
-      await fetchTasks();
-    } finally {
-      setDeletingTaskId(null);
+      setTasks(prevTasks);
+      setActiveTaskId(prevActiveId);
+      setActiveTaskDetails(prevActiveDetails);
     }
   };
 
   const handleClearAllTasks = async () => {
-    setIsClearingAll(true);
+    const prevTasks = [...tasks];
+    const prevActiveId = activeTaskId;
+    const prevActiveDetails = activeTaskDetails;
+
+    // Optimistically clear all local sessions immediately
+    setTasks([]);
+    setActiveTaskId(null);
+    setActiveTaskDetails(null);
+    setSessionPreviews({});
+
     try {
       const res = await fetch(`${API_BASE}/api/tasks`, {
         method: 'DELETE',
       });
-      if (res.ok || res.status === 404) {
-        setActiveTaskId(null);
-        setActiveTaskDetails(null);
-        setSessionPreviews({});
-        await fetchTasks();
-      } else {
+      if (!res.ok && res.status !== 404) {
         console.error('Failed to clear all tasks:', res.status, res.statusText);
-        await fetchTasks();
+        setTasks(prevTasks);
+        setActiveTaskId(prevActiveId);
+        setActiveTaskDetails(prevActiveDetails);
       }
     } catch (err) {
       console.error('Error clearing all tasks:', err);
-      await fetchTasks();
-    } finally {
-      setIsClearingAll(false);
+      setTasks(prevTasks);
+      setActiveTaskId(prevActiveId);
+      setActiveTaskDetails(prevActiveDetails);
     }
   };
 

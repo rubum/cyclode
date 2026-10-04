@@ -158,7 +158,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
               className={`relative flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium cursor-pointer flex-shrink-0 rounded-lg btn-tactile transition-all duration-150 ${
                 isActive
                   ? 'bg-onedark-surface text-onedark-fgBright shadow-xs font-semibold border border-onedark-borderSubtle'
-                  : 'bg-onedark-surface/35 text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface/60 border border-onedark-borderSubtle/50'
+                  : 'bg-onedark-surface/40 text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface/70 border border-onedark-borderSubtle/60'
               }`}
             >
               <Icon className={`w-3.5 h-3.5 transition-transform duration-150 ${isActive ? 'scale-105' : ''} ${tab.iconClass || ''}`} />
@@ -206,8 +206,14 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
             />
           )}
           {activeTab === 'files' && !task && (
-            <div className="h-full flex items-center justify-center text-xs text-onedark-muted font-mono">
-              No active task selected
+            <div className="h-full flex flex-col items-center justify-center p-6 text-center text-onedark-muted font-mono select-none bg-onedark-darker">
+              <div className="p-3 rounded-2xl bg-onedark-surface/40 border border-onedark-borderSubtle/80 mb-3 shadow-xs">
+                <Folder className="w-8 h-8 text-onedark-folder/80 stroke-[1.5]" />
+              </div>
+              <div className="text-xs font-semibold text-onedark-fg">No active task selected</div>
+              <div className="text-[11px] text-onedark-muted mt-1.5 max-w-xs leading-relaxed">
+                Select or launch an engineering task to inspect its workspace repository files.
+              </div>
             </div>
           )}
           {activeTab === 'terminal' && (

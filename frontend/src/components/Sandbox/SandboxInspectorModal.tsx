@@ -23,7 +23,8 @@ import {
   Lock,
   Database,
   Globe,
-  ExternalLink
+  ExternalLink,
+  Trash2
 } from 'lucide-react';
 import { Task } from '../../types';
 
@@ -254,8 +255,17 @@ const getExecutionPlaneBadge = (plane?: string, target?: string) => {
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
+interface ContainerHygieneTelemetry {
+  available: boolean;
+  engine: string;
+  total_containers: number;
+  running_containers: number;
+  orphaned_containers: number;
+}
+
 export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ task, onClose }) => {
   const [data, setData] = useState<SandboxInfo | null>(null);
+  const [hygiene, setHygiene] = useState<ContainerHygieneTelemetry | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -294,12 +304,44 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
       }
       const json: SandboxInfo = await res.json();
       setData(json);
+
+      // Fetch host container hygiene telemetry
+      try {
+        const hRes = await fetch(`${API_BASE}/api/tasks/sandbox/hygiene`);
+        if (hRes.ok) {
+          const hJson = await hRes.json();
+          if (hJson.ok && hJson.hygiene) {
+            setHygiene(hJson.hygiene);
+          }
+        }
+      } catch (_) {}
     } catch (err: any) {
       if (task.status !== 'INITIALIZING' && task.sandbox_status !== 'PROVISIONING') {
         setError(err.message || 'Error loading sandbox inspector');
       }
     } finally {
       if (!silent) setLoading(false);
+    }
+  };
+
+  const handlePruneOrphans = async () => {
+    setActionLoading('prune_orphans');
+    setActionMessage(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/tasks/sandbox/prune`, {
+        method: 'POST'
+      });
+      const json = await res.json();
+      if (res.ok && json.ok) {
+        setActionMessage({ text: `Pruned ${json.pruned_count} orphaned/stale containers`, success: true });
+        await fetchSandboxData(true);
+      } else {
+        setActionMessage({ text: json.detail || 'Failed to prune containers', success: false });
+      }
+    } catch (err: any) {
+      setActionMessage({ text: err.message || 'Prune error', success: false });
+    } finally {
+      setActionLoading(null);
     }
   };
 
@@ -887,6 +929,33 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
                     </div>
                   </div>
                 </div>
+
+                {/* Host Fleet Container Hygiene & Prune Action */}
+                {hygiene && hygiene.available && (
+                  <div className="p-2.5 rounded-lg bg-onedark-darker/80 border border-onedark-borderSubtle flex items-center justify-between flex-wrap gap-2 text-xs mt-2">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-[11px] text-onedark-muted">Host Runtime Fleet:</span>
+                      <span className="text-[11px] font-mono text-onedark-fg">
+                        <strong className="text-onedark-fgBright">{hygiene.running_containers}</strong> Active · <strong className={hygiene.orphaned_containers > 0 ? 'text-amber-400' : 'text-onedark-green'}>{hygiene.orphaned_containers}</strong> Stale/Orphaned
+                      </span>
+                    </div>
+                    {hygiene.orphaned_containers > 0 && (
+                      <button
+                        onClick={handlePruneOrphans}
+                        disabled={actionLoading === 'prune_orphans'}
+                        className="px-2.5 py-1 rounded bg-onedark-red/10 text-onedark-red hover:bg-onedark-red hover:text-white border border-onedark-red/30 transition-all text-[11px] font-mono flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                        title="Prune all stopped or orphaned cyclode-sb containers from Docker"
+                      >
+                        {actionLoading === 'prune_orphans' ? (
+                          <RefreshCw className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-3 h-3" />
+                        )}
+                        <span>Prune {hygiene.orphaned_containers} Stale Containers</span>
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Packaged Artifacts & Staging Previews Section */}

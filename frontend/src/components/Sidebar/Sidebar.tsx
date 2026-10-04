@@ -724,6 +724,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         variant="danger"
         impactItems={[
           `Clears conversation records and logs for ${tasks.length} agent sessions`,
+          'Shuts down companion Docker containers and wipes ephemeral sandbox overlays',
           'Active agent runs will be stopped',
         ]}
         safeItems={[
@@ -731,12 +732,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
           'Remote codebases are NEVER modified',
         ]}
         onConfirm={async () => {
+          setIsClearAllOpen(false);
           if (onClearAllTasks) {
-            try {
-              await onClearAllTasks();
-            } finally {
-              setIsClearAllOpen(false);
-            }
+            await onClearAllTasks();
           }
         }}
         onCancel={() => {
