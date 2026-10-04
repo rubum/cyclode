@@ -91,6 +91,7 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
   const prevTaskIdRef = useRef<string | null>(null);
   const prevTaskStatusRef = useRef<string | null>(null);
   const prevBuildTimestampRef = useRef<number | null>(null);
+  const userSelectedEntryRef = useRef<boolean>(false);
 
   // Fetch preview inspection from backend
   const inspectPreview = useCallback(async (silent = false) => {
@@ -125,7 +126,16 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
 
       if (data.has_preview && data.entry_point) {
         setCurrentPath((prev) => {
-          if (!prev || prev === 'index.html') return data.entry_point!;
+          // If the user has not manually selected an entry point during this task session,
+          // or if the current path is default or not among available entry points, adopt task entry point.
+          if (
+            !userSelectedEntryRef.current ||
+            !prev ||
+            prev === 'index.html' ||
+            (data.available_entry_points && !data.available_entry_points.includes(prev))
+          ) {
+            return data.entry_point!;
+          }
           return prev;
         });
       }
@@ -164,6 +174,8 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
       setConsoleLogs([]);
       setErrorBannerDismissed(false);
       prevBuildTimestampRef.current = null;
+      userSelectedEntryRef.current = false;
+      setCurrentPath('index.html');
       inspectPreview(false);
     } else {
       // If task transitioned to COMPLETED, PAUSED, or CANCELLED, reload preview to reflect workspace changes
@@ -367,6 +379,7 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
                   <button
                     key={entry}
                     onClick={() => {
+                      userSelectedEntryRef.current = true;
                       setCurrentPath(entry);
                       setEntryDropdownOpen(false);
                     }}

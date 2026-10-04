@@ -1,5 +1,6 @@
 import os
 import re
+import html
 import mimetypes
 import logging
 from pathlib import Path
@@ -442,6 +443,20 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
         "main.html",
     ]
 
+    # Discover child folder bundle candidates (e.g. warehouse-3d-app/dist/index.html, frontend/dist/index.html)
+    ignored_subdirs = {".git", "node_modules", "dist", "build", ".next", "venv", "__pycache__", ".pytest_cache"}
+    try:
+        for child in ws_path.iterdir():
+            if child.is_dir() and not child.name.startswith(".") and child.name not in ignored_subdirs:
+                for sub_cand in ["dist/index.html", "build/index.html", "public/index.html", "index.html"]:
+                    cand_p = child / sub_cand
+                    if cand_p.is_file():
+                        rel_cand = str(cand_p.relative_to(ws_path))
+                        if rel_cand not in entry_candidates:
+                            entry_candidates.append(rel_cand)
+    except Exception:
+        pass
+
     available_entry_points: List[str] = []
     primary_entry: Optional[str] = None
     extracted_title: Optional[str] = None
@@ -451,28 +466,47 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
         try:
             cand_path.relative_to(ws_path)
             if cand_path.exists() and cand_path.is_file():
-                available_entry_points.append(candidate)
+                if candidate not in available_entry_points:
+                    available_entry_points.append(candidate)
                 if not primary_entry:
                     primary_entry = candidate
                     extracted_title = _extract_html_title(cand_path)
         except ValueError:
             continue
 
-    # Fallback search for any html file
-    if not primary_entry:
-        for root, dirs, files in os.walk(ws_path):
-            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "venv", "__pycache__", ".git")]
-            for f in files:
-                if f.lower().endswith((".html", ".htm")):
-                    full_p = Path(root) / f
-                    try:
-                        rel = str(full_p.relative_to(ws_path))
+    # Fallback search for any html file with intelligent ranking
+    all_html_files: List[Tuple[int, str, Path]] = []
+    for root, dirs, files in os.walk(ws_path):
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "venv", "__pycache__", ".git")]
+        for f in files:
+            if f.lower().endswith((".html", ".htm")):
+                full_p = Path(root) / f
+                try:
+                    rel = str(full_p.relative_to(ws_path))
+                    if rel not in available_entry_points:
                         available_entry_points.append(rel)
-                        if not primary_entry:
-                            primary_entry = rel
-                            extracted_title = _extract_html_title(full_p)
-                    except ValueError:
-                        continue
+                    is_dist = "/dist/" in rel or rel.startswith("dist/") or "/build/" in rel or rel.startswith("build/")
+                    is_index = f.lower() == "index.html"
+                    is_main = f.lower() == "main.html"
+                    depth = len(Path(rel).parts)
+                    if is_dist and is_index:
+                        score = 1
+                    elif is_index:
+                        score = 2
+                    elif is_main:
+                        score = 3
+                    elif is_dist:
+                        score = 4
+                    else:
+                        score = 10 + depth
+                    all_html_files.append((score, rel, full_p))
+                except ValueError:
+                    continue
+
+    if not primary_entry and all_html_files:
+        all_html_files.sort(key=lambda x: (x[0], len(x[1]), x[1]))
+        primary_entry = all_html_files[0][1]
+        extracted_title = _extract_html_title(all_html_files[0][2])
 
     # Framework & source discovery
     has_package_json = (ws_path / "package.json").exists() or (ws_path / "client" / "package.json").exists()
@@ -935,9 +969,9 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
     }
 
 
-def _generate_diagnostic_html(task_id: str, task_title: str, ws_path: Optional[Path]) -> str:
+def _generate_diagnostic_html(task_id: str, task_title: str, ws_path: Optional[Path], missing_file: Optional[str] = None) -> str:
     """
-    Generates a helpful, rich OneDark-themed diagnostic landing page when no static index.html is available.
+    Generates a helpful, rich OneDark-themed diagnostic landing page when an index.html or requested preview file is missing.
     """
     discovered_files: List[str] = []
     framework_hint = "Static HTML / Web App"
@@ -963,6 +997,14 @@ def _generate_diagnostic_html(task_id: str, task_title: str, ws_path: Optional[P
     file_list_html = "".join(f"<li style='margin-bottom:4px;font-family:monospace;'>📄 {f}</li>" for f in discovered_files[:15])
     if not file_list_html:
         file_list_html = "<li style='color:#7f848e;'>No files found in workspace root yet.</li>"
+
+    if missing_file:
+        escaped_file = html.escape(missing_file)
+        badge_html = f'<div class="badge">File Not Found (404): {escaped_file}</div>'
+        desc_html = f"<p>The requested preview file <code>{escaped_file}</code> was not found in the active workspace. Select an available entry point below or rebuild the application.</p>"
+    else:
+        badge_html = '<div class="badge">No Static Entry Point (index.html) Detected</div>'
+        desc_html = "<p>The Cyclode live preview engine serves web applications rendered directly from an <code>index.html</code> entry point or built client bundles.</p>"
 
     html_content = f"""<!DOCTYPE html>
 <html lang="en">
@@ -1051,8 +1093,8 @@ def _generate_diagnostic_html(task_id: str, task_title: str, ws_path: Optional[P
         <div style="font-size: 11px; color: #7f848e;">Workspace: sandbox-{task_id[:8]}</div>
       </div>
     </div>
-    <div class="badge">No Static Entry Point (index.html) Detected</div>
-    <p>The Cyclode live preview engine serves web applications rendered directly from an <code>index.html</code> entry point or built client bundles.</p>
+    {badge_html}
+    {desc_html}
     
     <div style="font-size: 11px; color: #7f848e; margin-bottom: 6px; font-weight: 600; text-transform: uppercase;">
       Detected Environment: <span style="color: #61afef;">{framework_hint}</span>
@@ -1252,12 +1294,14 @@ async def serve_preview_file(task_id: str, file_path: str = "", db: AsyncSession
             diag_html = _generate_diagnostic_html(task_id, task.title or "Preview", ws_path)
             return Response(content=diag_html, media_type="text/html; charset=utf-8", headers=headers)
 
-    # If index.html requested but does not exist on disk, render diagnostic landing page!
+    # If file requested does not exist on disk, render styled diagnostic landing page for HTML requests!
     if not target_file.exists() or not target_file.is_file():
-        if clean_rel in ["index.html", "public/index.html", "client/index.html"]:
-            diag_html = _generate_diagnostic_html(task_id, task.title or "Preview", ws_path)
-            return Response(content=diag_html, media_type="text/html; charset=utf-8", headers=headers)
-        raise HTTPException(status_code=404, detail=f"File '{clean_rel}' not found")
+        is_html_req = clean_rel.endswith((".html", ".htm")) or clean_rel in ["index.html", "public/index.html", "client/index.html"] or "." not in Path(clean_rel).name
+        if is_html_req:
+            diag_html = _generate_diagnostic_html(task_id, task.title or "Preview", ws_path, missing_file=clean_rel)
+            status_code = 200 if clean_rel in ["index.html", "public/index.html", "client/index.html"] else 404
+            return Response(content=diag_html, media_type="text/html; charset=utf-8", status_code=status_code, headers=headers)
+        return Response(content=f"Asset '{clean_rel}' not found in workspace", media_type="text/plain; charset=utf-8", status_code=404, headers=headers)
 
     ext = target_file.suffix.lower()
     media_type = MIME_TYPES.get(ext)

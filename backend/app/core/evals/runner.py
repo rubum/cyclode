@@ -30,7 +30,8 @@ class EvaluationRunner:
         model_succeeded: bool = True,
         jailer_metrics: Optional[Dict[str, Any]] = None,
         last_tool_exit_code: Optional[int] = None,
-        last_tool_error: Optional[str] = None
+        last_tool_error: Optional[str] = None,
+        error_count: int = 0
     ) -> EvaluationScorecard:
         """
         Runs comprehensive evaluation checks and produces an immutable EvaluationScorecard.
@@ -49,8 +50,8 @@ class EvaluationRunner:
         ))
 
         # 2. Live Application Preview Check (if fullstack / UI task)
+        preview_ok = False
         if is_app_task:
-            preview_ok = False
             diag = "No preview generated"
             if preview_info:
                 preview_issues = preview_info.get("issues", [])
@@ -72,6 +73,13 @@ class EvaluationRunner:
         if last_tool_exit_code is not None and last_tool_exit_code != 0:
             tool_passed = False
             diag_tool = f"Last tool execution failed with exit code {last_tool_exit_code}: {last_tool_error or 'Unhandled command failure'}."
+        elif error_count > 0:
+            if is_app_task and preview_ok:
+                tool_passed = True
+                diag_tool = f"Executed {tool_call_count} actions with {error_count} recovered error{'s' if error_count != 1 else ''} (preview verified)."
+            else:
+                tool_passed = False if error_count >= 2 else model_succeeded
+                diag_tool = f"Executed {tool_call_count} actions with {error_count} unrecovered error{'s' if error_count != 1 else ''}."
         elif tool_call_count > 0:
             tool_passed = True
             diag_tool = f"Executed {tool_call_count} tool calls successfully."

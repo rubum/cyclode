@@ -766,6 +766,57 @@ async def test_preview_clean_pass_on_fully_wired_app(temp_workspace: Path):
     assert len(res["issues"]) == 0
 
 
+@pytest.mark.asyncio
+async def test_preview_discovers_subdirectory_dist_bundle(temp_workspace: Path):
+    from app.api.preview import verify_workspace_preview
+
+    app_dir = temp_workspace / "warehouse-3d-app"
+    dist_dir = app_dir / "dist"
+    dist_dir.mkdir(parents=True, exist_ok=True)
+    (dist_dir / "index.html").write_text("<!DOCTYPE html><html><head><title>3D Warehouse App</title></head><body><canvas></canvas></body></html>", encoding="utf-8")
+    (app_dir / "index.html").write_text("<!DOCTYPE html><html><head><title>Raw Template</title></head><body></body></html>", encoding="utf-8")
+    # Stray html in root
+    (temp_workspace / "customer-master-lifecycle.html").write_text("<!DOCTYPE html><html><body>Stray Artifact</body></html>", encoding="utf-8")
+
+    res = verify_workspace_preview(temp_workspace, "test-subfolder")
+    assert res["has_preview"] is True
+    # Must prioritize compiled dist/index.html over raw template and stray artifact!
+    assert res["entry_point"] == "warehouse-3d-app/dist/index.html"
+    assert res["title"] == "3D Warehouse App"
+
+
+@pytest.mark.asyncio
+async def test_preview_missing_file_returns_html_diagnostic_404(temp_workspace: Path):
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
+    from app.db.models import TaskModel
+    from app.db.session import async_session_factory
+    import uuid
+
+    task_id = f"test-404-{uuid.uuid4()}"
+    async with async_session_factory() as session:
+        task = TaskModel(
+            id=task_id,
+            title="404 Diagnostic Test",
+            description="Testing 404 returns HTML",
+            persona="SoftwareEngineer",
+            model_name="gemini-3.7-flash",
+            status="RUNNING",
+            workspace_path=str(temp_workspace),
+        )
+        session.add(task)
+        await session.commit()
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        resp = await ac.get(f"/api/tasks/{task_id}/preview/customer-master-lifecycle.html")
+        assert resp.status_code == 404
+        assert "text/html" in resp.headers["content-type"]
+        assert "File Not Found (404)" in resp.text
+        assert "customer-master-lifecycle.html" in resp.text
+        # Ensure it does NOT return JSON
+        assert not resp.text.startswith("{")
+
+
 
 
 

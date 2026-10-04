@@ -1835,6 +1835,7 @@ class AntigravityHarness:
         tool_call_count = 0
         mutating_tool_count = 0
         consecutive_build_errors = 0
+        tool_error_count = 0
         last_tool_exit_code: Optional[int] = None
         last_tool_error: Optional[str] = None
 
@@ -3525,6 +3526,7 @@ class AntigravityHarness:
                             )
                             last_tool_exit_code = exit_code
                             if exit_code != 0:
+                                tool_error_count += 1
                                 last_tool_error = tool_result.get("error") if isinstance(tool_result, dict) else (out_str[:200] if out_str else f"Exited with code {exit_code}")
                             else:
                                 last_tool_error = None
@@ -4114,7 +4116,8 @@ class AntigravityHarness:
                         final_agent_text=final_agent_text,
                         model_succeeded=(model_succeeded and not is_dangling_post and not is_surrender_post),
                         last_tool_exit_code=last_tool_exit_code,
-                        last_tool_error=last_tool_error
+                        last_tool_error=last_tool_error,
+                        error_count=tool_error_count
                     )
                     task_evaluations[task_id] = scorecard
 

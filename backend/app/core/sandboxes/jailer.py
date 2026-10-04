@@ -45,7 +45,7 @@ class Jailer:
     # Long-running daemon servers that block synchronous execution and must be intercepted
     DAEMON_SERVER_PATTERNS = [
         r"\b(?:npx\s+|bunx\s+|yarn\s+|pnpm\s+)?vite\s+(?:preview|dev|serve)\b",
-        r"\b(?:npx\s+|bunx\s+)?vite\b(?!\s+(?:build|optimize|--version|-v|--help|-h))\b",
+        r"(?:^|[\s;&|])(?:npx\s+|bunx\s+)?vite(?:\.js)?(?:\s+|$)(?!\s*(?:build|optimize|--version|-v|--help|-h))\b",
         r"\b(?:npm|pnpm|yarn|bun)\s+run\s+(?:preview|dev|serve|start)\b",
         r"\b(?:npm|pnpm|yarn|bun)\s+(?:start|dev|preview|serve)\b",
         r"\bpython[0-9.]*\s+-m\s+(?:http\.server|simplehttpserver)\b",
@@ -243,16 +243,22 @@ class Jailer:
                 )
 
             # 5. Block foreground dev/preview servers that cause 60s timeout hangs
-            for pattern in cls.DAEMON_SERVER_PATTERNS:
-                if re.search(pattern, sub_lower):
-                    return False, (
-                        f"DAEMON CIRCUIT-BREAKER REJECTED COMMAND: Foreground server daemon detected in '{sub_cmd}'. "
-                        "Cyclode automatically mounts and serves live application previews from workspace build artifacts. "
-                        "Do NOT run foreground servers, preview daemons, or long-running listeners (e.g. 'vite preview', 'vite dev', 'npm start', 'python -m http.server') "
-                        "as they will block the synchronous execution terminal until killed by timeout. "
-                        "To prepare your application for preview, run build commands instead (e.g. 'npm run build', 'npx vite build') "
-                        "or ensure an 'index.html' exists in the workspace."
-                    )
+            # Exempt package scaffolding and dependency installers (e.g. npm create vite, npm init, npm install, yarn add)
+            is_scaffold_or_install = bool(re.search(
+                r"\b(?:npm|pnpm|yarn|bun)\s+(?:create|init|install|i|add)\b|\b(?:npx\s+|bunx\s+)?create-",
+                sub_lower
+            ))
+            if not is_scaffold_or_install:
+                for pattern in cls.DAEMON_SERVER_PATTERNS:
+                    if re.search(pattern, sub_lower):
+                        return False, (
+                            f"DAEMON CIRCUIT-BREAKER REJECTED COMMAND: Foreground server daemon detected in '{sub_cmd}'. "
+                            "Cyclode automatically mounts and serves live application previews from workspace build artifacts. "
+                            "Do NOT run foreground servers, preview daemons, or long-running listeners (e.g. 'vite preview', 'vite dev', 'npm start', 'python -m http.server') "
+                            "as they will block the synchronous execution terminal until killed by timeout. "
+                            "To prepare your application for preview, run build commands instead (e.g. 'npm run build', 'npx vite build') "
+                            "or ensure an 'index.html' exists in the workspace."
+                        )
 
         return True, None
 
