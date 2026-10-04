@@ -159,3 +159,93 @@ def test_standard_react_or_html_dashboard_passes(tmp_path):
     res = verify_workspace_preview(tmp_path)
     assert res["status"] == "ready"
     assert not res.get("issues")
+
+
+def test_unlinked_orbitcontrols_detected_as_missing_dependency(tmp_path):
+    """
+    Verifies that using OrbitControls in JS without linking OrbitControls.js in HTML
+    is flagged as 'missing_dependency'.
+    """
+    index_html = tmp_path / "index.html"
+    index_html.write_text(
+        """<!DOCTYPE html>
+<html>
+<head>
+  <title>Broken 3D App</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <script>
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('c') });
+    // Fails at runtime because OrbitControls is not bundled in three.min.js!
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    function animate() {
+      requestAnimationFrame(animate);
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>""",
+        encoding="utf-8"
+    )
+
+    res = verify_workspace_preview(tmp_path)
+    assert res["status"] == "missing_dependency"
+    assert any("Missing Library Dependency" in iss for iss in res.get("issues", []))
+    assert "OrbitControls.js" in res["recommendation"]
+
+
+def test_scene_with_controls_but_no_lighting_or_ui_fails_anti_stub(tmp_path):
+    """
+    Verifies that a scene with OrbitControls properly linked, but lacking lighting,
+    geometry population, and an interactive UI overlay fails as 'minimal_canvas_stub'.
+    """
+    index_html = tmp_path / "index.html"
+    index_html.write_text(
+        """<!DOCTYPE html>
+<html>
+<head>
+  <title>Minimal 3D App</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <script>
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('c') });
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    
+    // Solitary cube, no lights, no UI overlay
+    const geometry = new THREE.BoxGeometry();
+    const material = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+    scene.add(new THREE.Mesh(geometry, material));
+
+    function animate() {
+      requestAnimationFrame(animate);
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>""",
+        encoding="utf-8"
+    )
+
+    res = verify_workspace_preview(tmp_path)
+    assert res["status"] == "minimal_canvas_stub"
+    assert any("Canvas Semantic Incompleteness" in iss for iss in res.get("issues", []))
+
+
+def test_preview_telemetry_injects_dark_surface_style():
+    from app.api.preview import _inject_html_telemetry_and_base
+    html = "<html><head><title>Test</title></head><body><h1>Hello</h1></body></html>"
+    injected = _inject_html_telemetry_and_base(html, "/api/preview/test/")
+    assert "cyclode-preview-default-surface" in injected
+    assert "#09090b" in injected
+

@@ -161,7 +161,8 @@ def _inject_html_telemetry_and_base(html_text: str, base_href: str) -> str:
     )
 
     base_tag = f'<base href="{base_href}">' if not re.search(r'<base\s+[^>]*href=', html_text, re.IGNORECASE) else ""
-    injection = f"{base_tag}\n{telemetry_script}"
+    dark_surface_style = '<style id="cyclode-preview-default-surface">:root { color-scheme: dark; } html, body { background-color: #09090b; color: #f4f4f5; margin: 0; min-height: 100vh; }</style>'
+    injection = f"{base_tag}\n{dark_surface_style}\n{telemetry_script}"
 
     if re.search(r"<head[^>]*>", html_text, re.IGNORECASE):
         return re.sub(r"(<head[^>]*>)", r"\1\n" + injection, html_text, count=1, flags=re.IGNORECASE)
@@ -322,19 +323,51 @@ def _validate_canvas_and_state(html_text: str, combined_js: str, primary_entry: 
                 f"Canvas Animation Loop Issue: '<canvas>' rendering context initialized in JavaScript, but no render/animation loop (requestAnimationFrame) is started."
             )
 
-        # Semantic Anti-Stub Verification for 3D / WebGL Scenes
+        # Semantic Anti-Stub & Dependency Verification for 3D / WebGL Scenes
         is_three_js = bool(re.search(r'\bTHREE\b', combined_js))
         if is_three_js:
+            # 1. Unlinked Three.js Add-on Scripts Check (e.g. OrbitControls, GLTFLoader)
+            uses_orbit = bool(re.search(r'\bOrbitControls\b', combined_js))
+            has_orbit_script = bool(re.search(r'orbitcontrols(?:\.min)?\.js|three/addons/controls/orbitcontrols', html_text, re.IGNORECASE))
+            has_importmap = bool(re.search(r'type=["\']importmap["\']', html_text, re.IGNORECASE))
+            if uses_orbit and not has_orbit_script and not has_importmap:
+                issues.append(
+                    f"Missing Library Dependency: JavaScript references 'OrbitControls', but standard Three.js CDN ('three.min.js') does not bundle it. "
+                    f"Link the companion script in '{primary_entry}': '<script src=\"https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js\"></script>' "
+                    "or configure an ES module import map to prevent runtime TypeError crashes."
+                )
+
+            uses_gltf = bool(re.search(r'\bGLTFLoader\b', combined_js))
+            has_gltf_script = bool(re.search(r'gltfloader(?:\.min)?\.js|three/addons/loaders/gltfloader', html_text, re.IGNORECASE))
+            if uses_gltf and not has_gltf_script and not has_importmap:
+                issues.append(
+                    f"Missing Library Dependency: JavaScript references 'GLTFLoader', but it is not linked in '{primary_entry}'. "
+                    f"Link '<script src=\"https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js\"></script>'."
+                )
+
+            # 2. Scene Elements & Richness Invariants
             has_lights = bool(re.search(r'THREE\.(AmbientLight|DirectionalLight|PointLight|SpotLight|HemisphereLight|RectAreaLight)', combined_js))
             has_controls = bool(re.search(r'OrbitControls|PointerLockControls|TrackballControls|FlyControls|addEventListener\s*\(\s*["\'](?:mousemove|mousedown|pointerdown|pointermove|keydown|wheel)["\']', combined_js, re.IGNORECASE))
             geometries = re.findall(r'THREE\.(?:[A-Z][a-zA-Z0-9]+Geometry)\b', combined_js)
             has_instancing = bool(re.search(r'InstancedMesh|Group\b|Object3D\b', combined_js))
             has_ui_overlay = bool(re.search(r'<(?:button|input|select|textarea|form|nav|header|aside)\b|class=["\'][^"\']*(?:hud|dashboard|controls|overlay|panel|stats|toolbar)[^"\']*["\']', html_text, re.IGNORECASE))
 
-            # Detect solitary BoxGeometry or single primitive with no lights, no controls, and no UI
-            if len(geometries) <= 1 and not has_lights and not has_controls and not has_ui_overlay and not has_instancing:
+            is_primitive_only = (len(geometries) <= 1 and not has_instancing and not uses_gltf)
+            missing_pillars = []
+            if is_primitive_only:
+                missing_pillars.append("domain geometry models (scene contains only 0-1 primitive mesh)")
+            if not has_lights:
+                missing_pillars.append("scene illumination (missing AmbientLight/DirectionalLight)")
+            if not has_controls:
+                missing_pillars.append("camera navigation controls (missing OrbitControls)")
+            if not has_ui_overlay:
+                missing_pillars.append("interactive UI overlay (missing HUD/controls overlay)")
+
+            # If 2 or more core pillars are missing, or if it's a solitary primitive with no UI, mark as incomplete stub
+            if len(missing_pillars) >= 2 or (is_primitive_only and not has_ui_overlay):
                 issues.append(
-                    f"Canvas Semantic Incompleteness: 3D scene in '{primary_entry}' contains only a solitary primitive mesh with no scene lighting, camera controls (OrbitControls), or interactive UI overlay. Implement complete domain-specific scene elements, lighting, camera navigation, and interactive controls."
+                    f"Canvas Semantic Incompleteness: 3D scene in '{primary_entry}' is incomplete. Missing: {', '.join(missing_pillars)}. "
+                    "Construct full domain-specific scene entities, illumination, camera navigation, and an interactive HUD overlay."
                 )
     return issues
 
@@ -848,12 +881,16 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
     has_js_dom_mismatch = any("DOM Contract Violation" in iss for iss in issues)
     has_dead_buttons = any("Dead UI Button" in iss for iss in issues)
     has_semantic_stub = any("Canvas Semantic Incompleteness" in iss for iss in issues)
+    has_missing_dep = any("Missing Library Dependency" in iss for iss in issues)
     has_canvas_issues = any("Canvas Context Issue" in iss or "Canvas Animation Loop" in iss for iss in issues)
     has_syntax_issues = any("JavaScript Syntax" in iss for iss in issues)
 
     if has_uncompiled_css:
         status_code = "uncompiled_css"
         recommendation = "Link Tailwind CSS (<script src='https://cdn.tailwindcss.com'></script>) or embed comprehensive modern dark theme CSS tokens in <style> to render a styled, professional page."
+    elif has_missing_dep:
+        status_code = "missing_dependency"
+        recommendation = "Link the missing companion script tags in index.html (e.g. OrbitControls.js, GLTFLoader.js) to resolve runtime constructor errors."
     elif has_js_dom_mismatch:
         status_code = "js_dom_mismatch"
         recommendation = "Harmonize DOM element IDs between HTML and JavaScript: add missing IDs to HTML elements or update querySelector/getElementById calls in JavaScript."

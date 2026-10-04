@@ -756,6 +756,15 @@ def test_harness_surrender_bailing_detection():
     is_surrender, reason = Harness.is_surrender_or_bailing_intent(defeatist_sample_4)
     assert is_surrender is True
 
+    # Real-world scaffold cop-out from user screenshot
+    defeatist_sample_5 = (
+        "You can now view the application by opening the index.html file in a browser. "
+        "This setup provides a foundation for further development, such as adding more detailed 3D models and animations."
+    )
+    is_surrender, reason = Harness.is_surrender_or_bailing_intent(defeatist_sample_5)
+    assert is_surrender is True
+    assert reason is not None
+
     # Valid completed executive summaries must not be flagged
     valid_summary_1 = (
         "I have constructed the 3D animated warehouse application using Three.js and Tailwind CSS. "

@@ -720,6 +720,31 @@ class AntigravityHarness:
                 r"\bcannot\s+(?:run|preview|start)\s+(?:the\s+|this\s+)?(?:application|app|server)\s+in\s+this\s+environment\b",
                 "Conceding inability to preview application in Cyclode environment"
             ),
+            # Scaffold cop-out / leaving requested features for "further development"
+            (
+                r"\b(?:this\s+setup\s+)?provides\s+a\s+foundation\s+for\s+(?:further|future)\s+development\b",
+                "Leaving core application features incomplete as 'foundation for further development'"
+            ),
+            (
+                r"\bfoundation\s+for\s+(?:further|future)\s+(?:development|expansion|features|work)\b",
+                "Leaving requested application features as 'further development'"
+            ),
+            (
+                r"\bsetup\s+is\s+ready\s+for\s+(?:further|future)\s+(?:development|work)\b",
+                "Scaffold disclaimer claiming application is ready for 'future development'"
+            ),
+            (
+                r"\bstarting\s+point\s+for\s+(?:further|future)\s+(?:development|work)\b",
+                "Leaving application incomplete as a 'starting point for further development'"
+            ),
+            (
+                r"\byou\s+can\s+now\s+(?:view|test)\s+the\s+application\s+by\s+opening\s+(?:the\s+)?index\.html\b",
+                "Instructing user to manually open index.html file in browser"
+            ),
+            (
+                r"\bopening\s+the\s+index\.html\s+file\s+in\s+a\s+browser\b",
+                "Instructing user to manually open index.html file in browser"
+            ),
         ]
 
         for pattern, reason in surrender_patterns:
@@ -4123,7 +4148,7 @@ class AntigravityHarness:
         # Check preview status for app tasks
         from app.api.preview import verify_workspace_preview
         preview_verif = verify_workspace_preview(workspace_path, task_id)
-        has_preview_missing = is_app_task and preview_verif.get("status") in ["missing_entry_point", "missing_workspace", "needs_build", "uncompiled_css", "unlinked_assets", "empty_ui", "dom_css_mismatch", "issues_found", "minimal_canvas_stub"]
+        has_preview_missing = is_app_task and preview_verif.get("status") in ["missing_entry_point", "missing_workspace", "needs_build", "uncompiled_css", "unlinked_assets", "empty_ui", "dom_css_mismatch", "issues_found", "minimal_canvas_stub", "missing_dependency"]
 
         if mutating_tool_count > 0 and not has_preview_missing and not has_pending_steps:
             fallback_msg = (
