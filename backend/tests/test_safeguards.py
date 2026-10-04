@@ -678,6 +678,101 @@ async def test_pr_review_approval_chat_only(tmp_path):
         assert any("Review preserved in chat" in m.content for m in messages)
 
 
+def test_jailer_blocks_daemon_server_commands(tmp_path):
+    daemon_commands = [
+        "npx vite preview",
+        "vite preview",
+        "npm start",
+        "npm run dev",
+        "npm run preview",
+        "yarn start",
+        "yarn dev",
+        "pnpm dev",
+        "bun dev",
+        "python -m http.server",
+        "python3 -m http.server 8000",
+        "python -m SimpleHTTPServer",
+        "npx http-server",
+        "npx live-server",
+        "cd client && npx vite preview",
+    ]
+    for cmd in daemon_commands:
+        is_safe, err = jailer.validate_command_safety(cmd, tmp_path)
+        assert not is_safe, f"Daemon command should be blocked: {cmd}"
+        assert "DAEMON CIRCUIT-BREAKER REJECTED COMMAND" in err, f"Error missing daemon header for {cmd}: {err}"
+
+
+def test_jailer_permits_build_and_test_commands(tmp_path):
+    build_and_test_commands = [
+        "npm run build",
+        "npx vite build",
+        "vite build",
+        "npm test",
+        "npm run test",
+        "npx tsc",
+        "pytest",
+        "pytest backend/tests/ -v",
+        "python -m unittest",
+        "cargo build",
+        "cargo test",
+    ]
+    for cmd in build_and_test_commands:
+        is_safe, err = jailer.validate_command_safety(cmd, tmp_path)
+        assert is_safe, f"Build/test command was improperly blocked: {cmd} (Error: {err})"
+        assert err is None
+
+
+def test_workspace_tools_run_command_blocks_daemon(tmp_path):
+    result = WorkspaceTools.run_command(tmp_path, "npx vite preview")
+    assert result["exit_code"] == 1
+    assert "error" in result
+    assert "DAEMON CIRCUIT-BREAKER REJECTED COMMAND" in result["error"]
+    assert "DAEMON CIRCUIT-BREAKER REJECTED COMMAND" in result["stderr"]
+    assert result["stdout"] == ""
+
+
+def test_harness_surrender_bailing_detection():
+    from app.agent.harness import Harness
+
+    # Exact phrasing from real-world failure
+    defeatist_sample_1 = (
+        "It seems that running the Vite preview server is timing out, which indicates there might be "
+        "an issue with the environment or network configuration. To resolve this, you can try running "
+        "the application locally on your machine using the following steps: 1. Ensure that you have Node.js and npm installed."
+    )
+    is_surrender, reason = Harness.is_surrender_or_bailing_intent(defeatist_sample_1)
+    assert is_surrender is True
+    assert reason is not None
+
+    defeatist_sample_2 = "You can run this application locally on your machine to test the 3D canvas."
+    is_surrender, reason = Harness.is_surrender_or_bailing_intent(defeatist_sample_2)
+    assert is_surrender is True
+
+    defeatist_sample_3 = "Due to sandbox limitations, please run and preview the server on your local system."
+    is_surrender, reason = Harness.is_surrender_or_bailing_intent(defeatist_sample_3)
+    assert is_surrender is True
+
+    defeatist_sample_4 = "I am unable to preview the application in this environment."
+    is_surrender, reason = Harness.is_surrender_or_bailing_intent(defeatist_sample_4)
+    assert is_surrender is True
+
+    # Valid completed executive summaries must not be flagged
+    valid_summary_1 = (
+        "I have constructed the 3D animated warehouse application using Three.js and Tailwind CSS. "
+        "The scene features interactive camera controls, warehouse racking, pallets, and forklift animation. "
+        "The live preview is compiled and ready in the Preview tab."
+    )
+    is_surrender, reason = Harness.is_surrender_or_bailing_intent(valid_summary_1)
+    assert is_surrender is False
+    assert reason is None
+
+    valid_summary_2 = "Successfully executed 12 unit tests in the test suite. All tests pass with 100% coverage."
+    is_surrender, reason = Harness.is_surrender_or_bailing_intent(valid_summary_2)
+    assert is_surrender is False
+    assert reason is None
+
+
+
 
 
 

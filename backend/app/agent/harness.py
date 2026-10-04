@@ -656,6 +656,78 @@ class AntigravityHarness:
 
         return False
 
+    @staticmethod
+    def is_surrender_or_bailing_intent(text: str) -> Tuple[bool, Optional[str]]:
+        """
+        Determines whether an agent response exhibits defeatist surrender or customer-support bailing
+        (e.g., instructing the user to run/test the app locally, install Node.js on their machine,
+        or blaming network/environment configurations rather than autonomously fulfilling the task).
+        Returns (is_surrender, reason).
+        """
+        if not text or not isinstance(text, str):
+            return False, None
+
+        cleaned = text.strip()
+        if not cleaned:
+            return False, None
+
+        text_lower = cleaned.lower()
+
+        surrender_patterns = [
+            # Direct customer support handoffs to run locally
+            (
+                r"\b(?:try\s+)?run(?:ning)?\s+(?:the\s+|this\s+|it\s+|your\s+)?(?:application|app|project|code|server)?\s*locally\s+on\s+your\s+(?:machine|computer|system|environment)\b",
+                "Directing user to run application locally on their machine"
+            ),
+            (
+                r"\b(?:try\s+)?run(?:ning)?\s+(?:the\s+|this\s+|it\s+|your\s+)?(?:application|app|project|code|server)?\s*locally\b",
+                "Suggesting user run application locally"
+            ),
+            (
+                r"\b(?:steps\s+to\s+|how\s+to\s+)?run\s+(?:the\s+|this\s+|it\s+)?(?:application|app|code)?\s*locally\b",
+                "Providing local run instructions to user"
+            ),
+            (
+                r"\bensure\s+that\s+you\s+have\s+node(?:\.js)?\s+(?:and\s+npm\s+)?installed\b",
+                "Instructing user to verify local Node.js/npm installation"
+            ),
+            (
+                r"\byou\s+can\s+(?:try\s+to\s+)?run\s+(?:the\s+|this\s+|it\s+)?(?:application|app)?\s*on\s+your\s+(?:own\s+)?(?:machine|computer|system)\b",
+                "Advising user to run on their personal machine"
+            ),
+            (
+                r"\btest\s+(?:the\s+|this\s+|it\s+)?(?:application|app|code)?\s*locally\s+on\s+your\s+machine\b",
+                "Advising user to test locally on their machine"
+            ),
+            # Blaming environment or network for unhandled execution failure
+            (
+                r"\b(?:issue|problem)\s+with\s+the\s+environment\s+or\s+network\b",
+                "Blaming environment or network configuration for execution timeout"
+            ),
+            (
+                r"\btiming\s+out,\s+which\s+indicates\s+there\s+might\s+be\s+an\s+issue\s+with\s+the\s+environment\b",
+                "Excusing execution failure as environment breakdown"
+            ),
+            (
+                r"\b(?:due\s+to\s+)?sandbox\s+limitations?,\s+(?:please\s+)?(?:run|test|execute)\b",
+                "Passing execution responsibility to user due to sandbox limitation excuse"
+            ),
+            (
+                r"\bunable\s+to\s+(?:run|preview|start)\s+(?:the\s+|this\s+)?(?:application|app|server)\s+in\s+this\s+environment\b",
+                "Conceding inability to preview application in Cyclode environment"
+            ),
+            (
+                r"\bcannot\s+(?:run|preview|start)\s+(?:the\s+|this\s+)?(?:application|app|server)\s+in\s+this\s+environment\b",
+                "Conceding inability to preview application in Cyclode environment"
+            ),
+        ]
+
+        for pattern, reason in surrender_patterns:
+            if re.search(pattern, text_lower):
+                return True, reason
+
+        return False, None
+
     async def _generate_dynamic_plan(
         self,
         client: httpx.AsyncClient,
@@ -1738,6 +1810,8 @@ class AntigravityHarness:
         tool_call_count = 0
         mutating_tool_count = 0
         consecutive_build_errors = 0
+        last_tool_exit_code: Optional[int] = None
+        last_tool_error: Optional[str] = None
 
         # 1. Initialize and stream First-Class Execution Plan Lifecycle
         current_plan = self._generate_initial_plan(title, prompt, persona_name)
@@ -3424,6 +3498,11 @@ class AntigravityHarness:
                                 duration_ms=elapsed_ms,
                                 exit_code=exit_code
                             )
+                            last_tool_exit_code = exit_code
+                            if exit_code != 0:
+                                last_tool_error = tool_result.get("error") if isinstance(tool_result, dict) else (out_str[:200] if out_str else f"Exited with code {exit_code}")
+                            else:
+                                last_tool_error = None
                             if on_tool_end:
                                 sig = inspect.signature(on_tool_end)
                                 if "call_id" in sig.parameters or len(sig.parameters) >= 6:
@@ -3869,7 +3948,7 @@ class AntigravityHarness:
                     if model_succeeded:
                         synth_instruction = (
                             system_instruction + preview_status_note +
-                            "\n\nCRITICAL DIRECTIVE: You have completed all workspace tool executions. Synthesize your comprehensive, fluid analytical final response answering the user directly in rich markdown format with clickable citations and file links. Do NOT state forward-looking transitional promises (e.g. 'Now let me add...', 'Next I will...'), scratchpad thoughts, or tool intentions. Summarize what has been completed and current status."
+                            "\n\nCRITICAL DIRECTIVE: You have completed all workspace tool executions. Synthesize your comprehensive, fluid analytical final response answering the user directly in rich markdown format with clickable citations and file links. Do NOT state forward-looking transitional promises (e.g. 'Now let me add...', 'Next I will...'), scratchpad thoughts, or tool intentions. NEVER surrender execution or instruct the user to run commands, servers, or troubleshooting steps locally on their machine. You are an autonomous builder responsible for fulfilling the task within the Cyclode workspace. Summarize what has been completed and current status."
                         )
                         try:
                             synth_resp = await active_provider.generate_response(
@@ -3882,7 +3961,15 @@ class AntigravityHarness:
                             if synth_resp.is_success and synth_resp.content:
                                 candidate_synth = synth_resp.content.strip()
                                 if candidate_synth:
-                                    if Harness.is_dangling_action_intent(candidate_synth):
+                                    is_surrender, surrender_reason = Harness.is_surrender_or_bailing_intent(candidate_synth)
+                                    if is_surrender:
+                                        logger.warning(f"Terminal synthesis candidate emitted surrender/bailing intent ({surrender_reason}). Sanitizing terminal delivery...")
+                                        candidate_synth = (
+                                            f"Applied modifications across {mutating_tool_count} workspace action{'s' if mutating_tool_count != 1 else ''}. "
+                                            f"Execution halted before completion: {surrender_reason}."
+                                        )
+                                        model_succeeded = False
+                                    elif Harness.is_dangling_action_intent(candidate_synth):
                                         logger.info(f"Terminal synthesis candidate emitted dangling intent. Sanitizing terminal delivery...")
                                         candidate_synth = (
                                             f"Applied modifications across {mutating_tool_count} workspace action{'s' if mutating_tool_count != 1 else ''}. "
@@ -3959,7 +4046,14 @@ class AntigravityHarness:
                                         flat_synth_text = (
                                             "All requested components and workspace modifications have been applied and verified."
                                         )
-                                    if Harness.is_dangling_action_intent(flat_synth_text):
+                                    is_flat_surrender, flat_surrender_reason = Harness.is_surrender_or_bailing_intent(flat_synth_text)
+                                    if is_flat_surrender:
+                                        flat_synth_text = (
+                                            f"Applied modifications across {mutating_tool_count} workspace action{'s' if mutating_tool_count != 1 else ''}. "
+                                            f"Execution halted before completion: {flat_surrender_reason}."
+                                        )
+                                        model_succeeded = False
+                                    elif Harness.is_dangling_action_intent(flat_synth_text):
                                         flat_synth_text = (
                                             f"Applied modifications across {mutating_tool_count} workspace action{'s' if mutating_tool_count != 1 else ''}. "
                                             f"Execution concluded with in-flight actions."
@@ -3971,7 +4065,14 @@ class AntigravityHarness:
 
                     final_agent_text = final_synth_text or final_agent_text or "Task execution concluded."
                     is_dangling_post = Harness.is_dangling_action_intent(final_agent_text)
-                    if is_dangling_post:
+                    is_surrender_post, surrender_reason_post = Harness.is_surrender_or_bailing_intent(final_agent_text)
+                    if is_surrender_post:
+                        final_agent_text = (
+                            f"Applied modifications across {mutating_tool_count} workspace action{'s' if mutating_tool_count != 1 else ''}. "
+                            f"Execution halted before completion: {surrender_reason_post}."
+                        )
+                        model_succeeded = False
+                    elif is_dangling_post:
                         final_agent_text = (
                             f"Applied modifications across {mutating_tool_count} workspace action{'s' if mutating_tool_count != 1 else ''}. "
                             f"Execution concluded with in-flight actions."
@@ -3986,11 +4087,13 @@ class AntigravityHarness:
                         preview_info=post_verification,
                         tool_call_count=tool_call_count,
                         final_agent_text=final_agent_text,
-                        model_succeeded=(model_succeeded and not is_dangling_post)
+                        model_succeeded=(model_succeeded and not is_dangling_post and not is_surrender_post),
+                        last_tool_exit_code=last_tool_exit_code,
+                        last_tool_error=last_tool_error
                     )
                     task_evaluations[task_id] = scorecard
 
-                    if scorecard.status == "accomplished" and not is_dangling_post:
+                    if scorecard.status == "accomplished" and not is_dangling_post and not is_surrender_post:
                         for s in current_plan.get("steps", []):
                             if s.get("status") != "failed":
                                 s["status"] = "completed"

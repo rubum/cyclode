@@ -42,6 +42,19 @@ class Jailer:
         "components", "public", "core", "api", "agent", "db", "node_modules"
     }
 
+    # Long-running daemon servers that block synchronous execution and must be intercepted
+    DAEMON_SERVER_PATTERNS = [
+        r"\b(?:npx\s+|bunx\s+|yarn\s+|pnpm\s+)?vite\s+(?:preview|dev|serve)\b",
+        r"\b(?:npx\s+|bunx\s+)?vite\b(?!\s+(?:build|optimize|--version|-v|--help|-h))\b",
+        r"\b(?:npm|pnpm|yarn|bun)\s+run\s+(?:preview|dev|serve|start)\b",
+        r"\b(?:npm|pnpm|yarn|bun)\s+(?:start|dev|preview|serve)\b",
+        r"\bpython[0-9.]*\s+-m\s+(?:http\.server|simplehttpserver)\b",
+        r"\b(?:npx\s+|bunx\s+)?(?:http-server|live-server)\b",
+        r"\b(?:npx\s+|bunx\s+)?serve\s+-[lps]\b",
+        r"\b(?:npx\s+|bunx\s+)?serve\b(?!\s+(?:--version|-v|--help|-h))\b",
+        r"\b(?:python[0-9.]*\s+-m\s+)?uvicorn\s+[a-zA-Z0-9_.:]+(?!\s+(?:--help|-h))\b",
+    ]
+
     def __init__(self):
         self._bwrap_path: Optional[str] = shutil.which("bwrap")
         self._unshare_path: Optional[str] = shutil.which("unshare")
@@ -228,6 +241,18 @@ class Jailer:
                     "SECURITY CIRCUIT-BREAKER REJECTED COMMAND: Bulk search-and-delete via 'find -delete/-exec rm' "
                     "is prohibited by Cyclode structural safeguards."
                 )
+
+            # 5. Block foreground dev/preview servers that cause 60s timeout hangs
+            for pattern in cls.DAEMON_SERVER_PATTERNS:
+                if re.search(pattern, sub_lower):
+                    return False, (
+                        f"DAEMON CIRCUIT-BREAKER REJECTED COMMAND: Foreground server daemon detected in '{sub_cmd}'. "
+                        "Cyclode automatically mounts and serves live application previews from workspace build artifacts. "
+                        "Do NOT run foreground servers, preview daemons, or long-running listeners (e.g. 'vite preview', 'vite dev', 'npm start', 'python -m http.server') "
+                        "as they will block the synchronous execution terminal until killed by timeout. "
+                        "To prepare your application for preview, run build commands instead (e.g. 'npm run build', 'npx vite build') "
+                        "or ensure an 'index.html' exists in the workspace."
+                    )
 
         return True, None
 

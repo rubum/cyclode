@@ -204,6 +204,69 @@ async def test_evaluation_runner(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_evaluation_runner_flags_defeatist_surrender(tmp_path):
+    runner = EvaluationRunner()
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    index_html = workspace / "index.html"
+    index_html.write_text("<!DOCTYPE html><html><body><h1>App</h1></body></html>")
+
+    # Real-world defeatist surrender handoff text
+    defeatist_text = (
+        "It seems that running the Vite preview server is timing out, which indicates there might be "
+        "an issue with the environment or network configuration. To resolve this, you can try running "
+        "the application locally on your machine using the following steps: 1. Ensure Node.js is installed."
+    )
+
+    scorecard = await runner.evaluate_task(
+        workspace_path=workspace,
+        intent_category="interactive_app",
+        is_app_task=True,
+        preview_info={"status": "ready", "framework": "vanilla_html", "issues": []},
+        tool_call_count=5,
+        final_agent_text=defeatist_text,
+        model_succeeded=True
+    )
+
+    assert scorecard is not None
+    assert scorecard.status == "needs_revision"
+    exec_check = next((c for c in scorecard.checks if c.name == "Executive Delivery Completion"), None)
+    assert exec_check is not None
+    assert exec_check.passed is False
+    assert "defeatist bailing" in exec_check.diagnostics
+
+
+@pytest.mark.asyncio
+async def test_evaluation_runner_flags_failed_last_tool(tmp_path):
+    runner = EvaluationRunner()
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    index_html = workspace / "index.html"
+    index_html.write_text("<!DOCTYPE html><html><body><h1>App</h1></body></html>")
+
+    scorecard = await runner.evaluate_task(
+        workspace_path=workspace,
+        intent_category="interactive_app",
+        is_app_task=True,
+        preview_info={"status": "ready", "framework": "vanilla_html", "issues": []},
+        tool_call_count=3,
+        final_agent_text="Application created and verified.",
+        model_succeeded=True,
+        last_tool_exit_code=124,
+        last_tool_error="Command timed out after 60 seconds"
+    )
+
+    assert scorecard is not None
+    assert scorecard.status == "needs_revision"
+    tool_check = next((c for c in scorecard.checks if c.name == "Tool Execution & Actions"), None)
+    assert tool_check is not None
+    assert tool_check.passed is False
+    assert "124" in tool_check.diagnostics
+
+
+@pytest.mark.asyncio
 async def test_api_task_events_and_trajectory():
     async with async_session_factory() as session:
         # Create test task in isolated test DB

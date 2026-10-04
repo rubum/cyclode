@@ -1258,7 +1258,19 @@ class WorkspaceTools:
                 "isolation": jailer.isolation_type
             }
         except subprocess.TimeoutExpired:
-            return {"command": command, "error": "Command timed out after 60 seconds", "exit_code": 124}
+            return {
+                "command": command,
+                "error": (
+                    "Command timed out after 60 seconds. "
+                    "If this command was attempting to start a persistent development server or preview listener (e.g. 'vite preview', 'npm start'), "
+                    "note that Cyclode serves live previews automatically from workspace files. Do NOT start foreground servers. "
+                    "Never ask the user to run commands locally on their machine. "
+                    "Compile static assets using 'npm run build' or inspect error logs directly."
+                ),
+                "exit_code": 124,
+                "stderr": "Command timed out after 60 seconds (exit code 124)",
+                "stdout": ""
+            }
         except Exception as e:
             return {"command": command, "error": str(e), "exit_code": 1}
 

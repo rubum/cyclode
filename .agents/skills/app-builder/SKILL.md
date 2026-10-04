@@ -14,6 +14,8 @@ Use this skill whenever asked to build, scaffold, prototype, or code complete we
 1. **Zero-Dependency Instant Preview & UI-First Invariant**:
    - **Construct Visible UI Elements FIRST**: Always build the complete visible DOM layout, interactive buttons/inputs, state display screen, and layout in your FIRST turns.
    - **Strict Anti-Overengineering Rule**: **NEVER** waste turns creating auxiliary sound effect synthesizers (Web Audio API / `AudioFX`), complex background audio engines, or heavy headless utility classes before the visible UI is rendered and working in Live Preview.
+   - **Strict Anti-Daemon Invariant**: **NEVER** run long-running foreground servers or preview listeners (such as `vite preview`, `vite dev`, `npm run dev`, `npm start`, or `python -m http.server`) in the terminal. Cyclode automatically mounts and renders live application previews from workspace files (`index.html` or `dist/index.html`). Launching persistent servers will block the terminal until killed by the 60-second timeout (`exit 124`). Only run batch build commands (`npm run build` or `npx vite build`) if a build step is required.
+   - **Strict Zero-Bailing Invariant**: **NEVER** instruct the user to run the application locally on their machine, install Node/npm, or blame the environment for execution limits. You are the autonomous builder in Cyclode; all code must run and preview within the workspace.
    - **ALWAYS** create a root `index.html` (or `public/index.html`) as the primary visual entry point with complete interactive elements.
    - **NEVER** run long-running, fragile package manager installs (e.g. `apt-get install nodejs npm`) in sandboxes when standalone CDN/ESM can deliver a fully functional, beautiful app instantly.
    - Load modern UI dependencies directly over CDN:
@@ -181,5 +183,6 @@ Use this skill whenever asked to build, scaffold, prototype, or code complete we
 4. **Stage 4: Automated Testing & Verification**:
    - Write tests in `backend/tests/` and run `pytest`.
    - Verify `index.html` exists and contains valid markup.
-5. **Stage 5: Live Preview Confirmation**:
-   - Confirm preview readiness and deliver analytical summary with clickable links to generated artifacts.
+5. **Stage 5: Honest Delivery & Live Preview Active**:
+   - Strictly avoid running foreground preview servers (`vite preview`, `npm start`); verify that `verify_app_preview` reports READY or COMPILED status.
+   - Strictly avoid bailing instructions; never tell the user to test or run locally. Deliver an analytical executive summary with clickable markdown links to created files and direct the user to the `▶ Preview` tab.

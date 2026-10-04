@@ -28,7 +28,9 @@ class EvaluationRunner:
         tool_call_count: int,
         final_agent_text: Optional[str],
         model_succeeded: bool = True,
-        jailer_metrics: Optional[Dict[str, Any]] = None
+        jailer_metrics: Optional[Dict[str, Any]] = None,
+        last_tool_exit_code: Optional[int] = None,
+        last_tool_error: Optional[str] = None
     ) -> EvaluationScorecard:
         """
         Runs comprehensive evaluation checks and produces an immutable EvaluationScorecard.
@@ -66,13 +68,22 @@ class EvaluationRunner:
                 duration_ms=10
             ))
 
-        # 3. Tool Execution Check
-        tool_passed = tool_call_count > 0 or model_succeeded
+        # 3. Tool Execution & Actions Check
+        if last_tool_exit_code is not None and last_tool_exit_code != 0:
+            tool_passed = False
+            diag_tool = f"Last tool execution failed with exit code {last_tool_exit_code}: {last_tool_error or 'Unhandled command failure'}."
+        elif tool_call_count > 0:
+            tool_passed = True
+            diag_tool = f"Executed {tool_call_count} tool calls successfully."
+        else:
+            tool_passed = model_succeeded
+            diag_tool = f"Executed {tool_call_count} tool calls."
+
         checks.append(EvaluationCheck(
             name="Tool Execution & Actions",
             category=EvaluationCategory.UNIT_TESTS if not is_app_task else EvaluationCategory.WORKSPACE_STATE,
             passed=tool_passed,
-            diagnostics=f"Executed {tool_call_count} tool calls.",
+            diagnostics=diag_tool,
             duration_ms=1
         ))
 
@@ -99,16 +110,19 @@ class EvaluationRunner:
             duration_ms=1
         ))
 
-        # 6. Executive Delivery Completion Invariant (Anti-Dangling Scratchpad Guard)
+        # 6. Executive Delivery Completion Invariant (Anti-Dangling Scratchpad & Anti-Bailing Guard)
         from app.agent.harness import Harness
         cleaned_text = (final_agent_text or "").strip()
         has_delivery = bool(cleaned_text)
         is_dangling = Harness.is_dangling_action_intent(cleaned_text) if has_delivery else True
-        exec_passed = has_delivery and not is_dangling
+        is_surrender, surrender_reason = Harness.is_surrender_or_bailing_intent(cleaned_text) if has_delivery else (False, None)
+        exec_passed = has_delivery and not is_dangling and not is_surrender
         if not has_delivery:
             diag = "No final executive summary delivered."
         elif is_dangling:
             diag = f"Agent output contains in-flight transitional action promises ('{cleaned_text[:60]}...') without completed delivery."
+        elif is_surrender:
+            diag = f"Agent surrendered execution with defeatist bailing handoff: {surrender_reason}."
         else:
             diag = "Verified completed terminal executive delivery."
 
