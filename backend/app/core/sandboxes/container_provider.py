@@ -144,6 +144,40 @@ class ContainerSandboxProvider(SandboxProvider):
         await self.lifecycle.destroy_container(task_id)
         return await self.fallback_overlay.destroy_by_task_id(task_id, workspace_path)
 
+    async def bulk_destroy(self, targets: List[tuple[str, Optional[str]]]) -> bool:
+        """
+        Destroys multiple task sandboxes (both companion containers and host directories)
+        in parallel and bulk operations.
+        targets is a list of (task_id, workspace_path) tuples.
+        """
+        if not targets:
+            return True
+
+        task_ids = [tid for tid, _ in targets]
+        # 1. Bulk remove containers
+        await self.lifecycle.destroy_containers_bulk(task_ids)
+        # 2. Bulk remove host workspace directories
+        return await self.fallback_overlay.bulk_destroy(targets)
+
+    async def destroy_all_sandboxes(self) -> bool:
+        """
+        Wipes all cyclode companion containers and active ephemeral overlay workspaces.
+        """
+        await self.lifecycle.destroy_all_cyclode_containers()
+        return True
+
+    async def prune_orphaned_sandboxes(self, active_task_ids: set[str]) -> int:
+        """
+        Reconciles running OCI containers against active DB task IDs and prunes orphans.
+        """
+        return await self.lifecycle.prune_orphaned_containers(active_task_ids)
+
+    async def get_container_hygiene_summary(self, active_task_ids: set[str]) -> Dict[str, Any]:
+        """
+        Retrieves container health and orphan metrics.
+        """
+        return await self.lifecycle.get_container_hygiene_summary(active_task_ids)
+
     async def fork_sandbox(self, parent_context: SandboxContext, new_task_id: str) -> SandboxContext:
         forked_ctx = await self.fallback_overlay.fork_sandbox(parent_context, new_task_id)
         container_name = None

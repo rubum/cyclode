@@ -97,6 +97,156 @@ class ContainerLifecycleManager:
         code, _, _ = await self.client.run_cli(["rm", "-f", container_name], timeout=8.0)
         return code == 0
 
+    async def destroy_containers_bulk(self, task_ids: list[str]) -> bool:
+        """
+        Stops and removes multiple task companion containers in bulk CLI executions.
+        Chunks invocations to prevent shell argument overflow.
+        """
+        if not task_ids or not await self.client.is_available():
+            for tid in task_ids:
+                self._active_containers.pop(tid, None)
+            return True
+
+        container_names = []
+        for tid in task_ids:
+            c_name = self._active_containers.pop(tid, None) or self.get_container_name(tid)
+            if c_name:
+                container_names.append(c_name)
+
+        if not container_names:
+            return True
+
+        # Process in batches of 50 containers per single docker rm -f command
+        batch_size = 50
+        for i in range(0, len(container_names), batch_size):
+            batch = container_names[i : i + batch_size]
+            try:
+                await self.client.run_cli(["rm", "-f"] + batch, timeout=15.0)
+            except Exception as e:
+                logger.warning(f"Error bulk removing containers {batch}: {e}")
+
+        return True
+
+    async def destroy_all_cyclode_containers(self) -> bool:
+        """
+        Removes all cyclode sandbox containers across the host runtime in one shot.
+        """
+        self._active_containers.clear()
+        if not await self.client.is_available():
+            return True
+
+        code, out, _ = await self.client.run_cli(["ps", "-aq", "--filter", "name=cyclode-sb"], timeout=10.0)
+        if code == 0 and out.strip():
+            c_ids = out.strip().split()
+            if c_ids:
+                await self.client.run_cli(["rm", "-f"] + c_ids, timeout=20.0)
+        return True
+
+    async def prune_orphaned_containers(self, active_task_ids: set[str]) -> int:
+        """
+        Scans all cyclode-sb containers on the host and removes any whose task ID
+        is not in active_task_ids or whose state is stopped/exited.
+        Returns the number of pruned containers.
+        """
+        if not await self.client.is_available():
+            return 0
+
+        code, out, _ = await self.client.run_cli(
+            ["ps", "-a", "--filter", "name=cyclode-sb", "--format", "{{.Names}} {{.State}}"],
+            timeout=10.0
+        )
+        if code != 0 or not out.strip():
+            return 0
+
+        to_remove = []
+        for line in out.strip().splitlines():
+            parts = line.strip().split()
+            if not parts:
+                continue
+            c_name = parts[0]
+            state = parts[1].lower() if len(parts) > 1 else "unknown"
+
+            # Parse task id prefix from cyclode-sb-<clean_id>
+            clean_prefix = c_name.replace("cyclode-sb-", "")
+            is_active = any(
+                tid.startswith(clean_prefix) or clean_prefix in tid.replace(" ", "-").replace("/", "-")
+                for tid in active_task_ids
+            )
+
+            # If container is exited, or not associated with any active task in database
+            if state == "exited" or not is_active:
+                to_remove.append(c_name)
+
+        if to_remove:
+            batch_size = 50
+            for i in range(0, len(to_remove), batch_size):
+                batch = to_remove[i : i + batch_size]
+                try:
+                    await self.client.run_cli(["rm", "-f"] + batch, timeout=15.0)
+                except Exception as e:
+                    logger.warning(f"Error during container orphan prune for {batch}: {e}")
+            logger.info(f"Pruned {len(to_remove)} orphaned/exited cyclode containers")
+
+        return len(to_remove)
+
+    async def get_container_hygiene_summary(self, active_task_ids: set[str]) -> dict[str, Any]:
+        """
+        Returns telemetry regarding running vs orphaned containers on the host OCI engine.
+        """
+        if not await self.client.is_available():
+            return {
+                "available": False,
+                "engine": self.client.engine_type,
+                "total_containers": 0,
+                "running_containers": 0,
+                "orphaned_containers": 0
+            }
+
+        code, out, _ = await self.client.run_cli(
+            ["ps", "-a", "--filter", "name=cyclode-sb", "--format", "{{.Names}} {{.State}}"],
+            timeout=8.0
+        )
+        if code != 0 or not out.strip():
+            return {
+                "available": True,
+                "engine": self.client.engine_type,
+                "total_containers": 0,
+                "running_containers": 0,
+                "orphaned_containers": 0
+            }
+
+        total = 0
+        running = 0
+        orphaned = 0
+
+        for line in out.strip().splitlines():
+            parts = line.strip().split()
+            if not parts:
+                continue
+            total += 1
+            c_name = parts[0]
+            state = parts[1].lower() if len(parts) > 1 else "unknown"
+            if state == "running":
+                clean_prefix = c_name.replace("cyclode-sb-", "")
+                is_active = any(
+                    tid.startswith(clean_prefix) or clean_prefix in tid.replace(" ", "-").replace("/", "-")
+                    for tid in active_task_ids
+                )
+                if is_active:
+                    running += 1
+                else:
+                    orphaned += 1
+            else:
+                orphaned += 1
+
+        return {
+            "available": True,
+            "engine": self.client.engine_type,
+            "total_containers": total,
+            "running_containers": running,
+            "orphaned_containers": orphaned
+        }
+
     async def get_container_ip(self, task_id: str) -> Optional[str]:
         """
         Retrieves the private IP address of the task's container if running.

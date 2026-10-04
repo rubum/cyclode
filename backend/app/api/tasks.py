@@ -604,6 +604,31 @@ async def cancel_task(task_id: str):
     return res
 
 
+@router.post("/sandbox/prune")
+async def prune_orphaned_sandboxes(db: AsyncSession = Depends(get_db)):
+    """
+    Scans and purges all stopped or orphaned OCI sandbox containers
+    whose task IDs do not exist in the active tasks database.
+    """
+    stmt = select(TaskModel.id)
+    res = await db.execute(stmt)
+    active_ids = set(res.scalars().all())
+    pruned_count = await sandbox_manager.prune_orphans(active_ids)
+    return {"ok": True, "pruned_count": pruned_count}
+
+
+@router.get("/sandbox/hygiene")
+async def get_sandbox_hygiene(db: AsyncSession = Depends(get_db)):
+    """
+    Returns running vs orphaned container metrics across the host runtime.
+    """
+    stmt = select(TaskModel.id)
+    res = await db.execute(stmt)
+    active_ids = set(res.scalars().all())
+    hygiene = await sandbox_manager.get_hygiene_summary(active_ids)
+    return {"ok": True, "hygiene": hygiene}
+
+
 @router.delete("")
 @router.delete("/")
 async def clear_all_tasks(db: AsyncSession = Depends(get_db)):
@@ -611,7 +636,7 @@ async def clear_all_tasks(db: AsyncSession = Depends(get_db)):
     result = await db.execute(stmt)
     tasks = result.scalars().all()
 
-    # Cancel all active agent tasks
+    # Cancel all active in-memory agent tasks immediately
     for tid in list(agent_pool.active_tasks.keys()):
         try:
             agent_pool.active_tasks[tid].cancel()
@@ -619,13 +644,9 @@ async def clear_all_tasks(db: AsyncSession = Depends(get_db)):
         except Exception:
             pass
 
-    for task in tasks:
-        try:
-            await sandbox_manager.destroy_by_task_id(task.id, task.workspace_path)
-        except Exception as e:
-            logger.warning(f"Error destroying sandbox for task {task.id}: {e}")
+    targets = [(task.id, task.workspace_path) for task in tasks]
 
-    # Explicit SQL deletes across all tables to avoid lazy-load cascade failures
+    # Explicit SQL deletes across all tables in a single transaction
     await db.execute(delete(TaskMessageModel))
     await db.execute(delete(TaskLogModel))
     await db.execute(delete(TaskApprovalModel))
@@ -633,6 +654,11 @@ async def clear_all_tasks(db: AsyncSession = Depends(get_db)):
     await db.execute(delete(TaskPRModel))
     await db.execute(delete(TaskModel))
     await db.commit()
+
+    # Fire-and-forget non-blocking bulk teardown of companion containers and workspaces
+    if targets:
+        asyncio.create_task(sandbox_manager.bulk_destroy(targets))
+
     return {"ok": True, "count": len(tasks), "message": "All sessions cleared"}
 
 
@@ -644,8 +670,10 @@ async def delete_task(task_id: str, db: AsyncSession = Depends(get_db)):
     stmt = select(TaskModel).where(TaskModel.id == task_id)
     result = await db.execute(stmt)
     task = result.scalars().first()
+
     if not task:
-        # Idempotent response: if already removed, succeed so UI is never stuck
+        # Defensive cleanup: even if missing in DB, ensure any stray container is pruned asynchronously
+        asyncio.create_task(sandbox_manager.destroy_by_task_id(task_id))
         return {"ok": True, "deleted_task_id": task_id, "already_deleted": True}
 
     # Find any subsession IDs associated with this parent task
@@ -654,7 +682,7 @@ async def delete_task(task_id: str, db: AsyncSession = Depends(get_db)):
     sub_ids = sub_res.scalars().all()
     all_target_ids = [task_id] + list(sub_ids)
 
-    # Cancel active agents for this task and its subsessions
+    # Cancel active agents in memory for this task and its subsessions
     for tid in all_target_ids:
         if tid in agent_pool.active_tasks:
             try:
@@ -662,10 +690,8 @@ async def delete_task(task_id: str, db: AsyncSession = Depends(get_db)):
                 agent_pool.active_tasks.pop(tid, None)
             except Exception:
                 pass
-        try:
-            await sandbox_manager.destroy_by_task_id(tid, task.workspace_path if tid == task_id else None)
-        except Exception as e:
-            logger.warning(f"Error destroying sandbox for task {tid}: {e}")
+
+    targets = [(tid, task.workspace_path if tid == task_id else None) for tid in all_target_ids]
 
     # Delete all associated records in dependency order
     await db.execute(delete(TaskMessageModel).where(TaskMessageModel.task_id.in_(all_target_ids)))
@@ -676,6 +702,10 @@ async def delete_task(task_id: str, db: AsyncSession = Depends(get_db)):
     await db.execute(delete(TaskModel).where(TaskModel.parent_task_id == task_id))
     await db.execute(delete(TaskModel).where(TaskModel.id == task_id))
     await db.commit()
+
+    # Fire-and-forget non-blocking container & workspace teardown
+    asyncio.create_task(sandbox_manager.bulk_destroy(targets))
+
     return {"ok": True, "deleted_task_id": task_id}
 
 

@@ -669,7 +669,7 @@ class OverlayFSSandboxProvider(SandboxProvider):
             return False
 
     async def destroy_by_task_id(self, task_id: str, workspace_path: Optional[str] = None) -> bool:
-        """Unmounts and wipes task overlay layers and workspace directory."""
+        """Unmounts and wipes task overlay layers and workspace directory asynchronously."""
         try:
             if task_id in self._active_sandboxes:
                 ctx = self._active_sandboxes.pop(task_id)
@@ -690,10 +690,10 @@ class OverlayFSSandboxProvider(SandboxProvider):
                     subprocess.run(["umount", "-f", str(target_ws)], capture_output=True, timeout=2)
                 except Exception:
                     pass
-                shutil.rmtree(target_ws, ignore_errors=True)
+                await asyncio.to_thread(shutil.rmtree, target_ws, ignore_errors=True)
 
             if task_overlay_root.exists():
-                shutil.rmtree(task_overlay_root, ignore_errors=True)
+                await asyncio.to_thread(shutil.rmtree, task_overlay_root, ignore_errors=True)
 
             self._snapshots.pop(task_id, None)
             logger.info(f"Cleaned up CoW sandbox workspace for task {task_id}")
@@ -701,6 +701,18 @@ class OverlayFSSandboxProvider(SandboxProvider):
         except Exception as e:
             logger.error(f"Error destroying sandbox by task_id {task_id}: {e}")
             return False
+
+    async def bulk_destroy(self, targets: List[tuple[str, Optional[str]]]) -> bool:
+        """
+        Destroys multiple workspace directories concurrently in worker threads.
+        targets is a list of (task_id, workspace_path) tuples.
+        """
+        if not targets:
+            return True
+
+        tasks = [self.destroy_by_task_id(tid, ws_path) for tid, ws_path in targets]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        return all(r is True for r in results if not isinstance(r, Exception))
 
 
 overlay_sandbox_provider = OverlayFSSandboxProvider()

@@ -26,14 +26,48 @@ from app.api.notebooks import router as notebooks_router
 from app.core.sandboxes.terminal_manager import terminal_manager
 
 
+import asyncio
+
+async def _periodic_sandbox_reconciler():
+    """Background task that reconciles and prunes orphaned containers periodically."""
+    # Run initial startup sweep after a short delay to allow system boot
+    await asyncio.sleep(3)
+    while True:
+        try:
+            from app.db.session import async_session_factory
+            from app.db.models import TaskModel
+            from app.core.sandboxes.manager import sandbox_manager
+            from sqlalchemy import select
+
+            async with async_session_factory() as session:
+                res = await session.execute(select(TaskModel.id))
+                active_ids = set(res.scalars().all())
+                await sandbox_manager.prune_orphans(active_ids)
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logger.debug(f"Periodic sandbox reconciler error: {e}")
+        
+        try:
+            await asyncio.sleep(600)
+        except asyncio.CancelledError:
+            break
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: initialize database tables and seed default rules
     await init_db()
     async with async_session_factory() as session:
         await ensure_default_rules(session)
+    reconciler_task = asyncio.create_task(_periodic_sandbox_reconciler())
     yield
-    # Shutdown: cleanup
+    # Shutdown: cleanup background reconciler
+    reconciler_task.cancel()
+    try:
+        await reconciler_task
+    except asyncio.CancelledError:
+        pass
 
 
 app = FastAPI(

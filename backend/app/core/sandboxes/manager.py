@@ -1,6 +1,7 @@
 from typing import Optional, Dict, Any
 from pathlib import Path
 import os
+import asyncio
 from app.core.sandboxes.base import SandboxProvider, SandboxContext
 from app.core.sandboxes.ephemeral_provider import ephemeral_sandbox_provider
 from app.core.sandboxes.overlay_provider import overlay_sandbox_provider
@@ -66,6 +67,35 @@ class SandboxManager:
 
     async def destroy_by_task_id(self, task_id: str, workspace_path: Optional[str] = None) -> bool:
         return await self.provider.destroy_by_task_id(task_id, workspace_path)
+
+    async def bulk_destroy(self, targets: list[tuple[str, Optional[str]]]) -> bool:
+        """Destroys multiple sandboxes (containers and workspaces) concurrently."""
+        if hasattr(self.provider, "bulk_destroy"):
+            return await self.provider.bulk_destroy(targets)
+        # Fallback
+        results = await asyncio.gather(
+            *[self.provider.destroy_by_task_id(tid, ws_path) for tid, ws_path in targets],
+            return_exceptions=True
+        )
+        return all(r is True for r in results if not isinstance(r, Exception))
+
+    async def prune_orphans(self, active_task_ids: set[str]) -> int:
+        """Prunes orphaned companion containers and stray scratch layers."""
+        if hasattr(self.provider, "prune_orphaned_sandboxes"):
+            return await self.provider.prune_orphaned_sandboxes(active_task_ids)
+        return 0
+
+    async def get_hygiene_summary(self, active_task_ids: set[str]) -> Dict[str, Any]:
+        """Retrieves container hygiene and orphan counts."""
+        if hasattr(self.provider, "get_container_hygiene_summary"):
+            return await self.provider.get_container_hygiene_summary(active_task_ids)
+        return {
+            "available": False,
+            "engine": "none",
+            "total_containers": 0,
+            "running_containers": 0,
+            "orphaned_containers": 0
+        }
 
     def get_sandbox_capabilities(self, context: Optional[SandboxContext] = None) -> Dict[str, Any]:
         """
