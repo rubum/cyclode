@@ -3,6 +3,9 @@ import re
 import html
 import mimetypes
 import logging
+import time
+import subprocess
+from collections import deque
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Set, Tuple
 from fastapi import APIRouter, HTTPException, Depends, Request, Response
@@ -16,6 +19,35 @@ from app.db.models import TaskModel
 
 logger = logging.getLogger("cyclode.api.preview")
 router = APIRouter(prefix="/api/tasks", tags=["App Preview"])
+
+_MAX_TELEMETRY_ENTRIES = 100
+_TASK_PREVIEW_TELEMETRY: Dict[str, deque] = {}
+
+
+def record_preview_telemetry(task_id: str, entry: Dict[str, Any]) -> None:
+    """Records an incoming preview error or console telemetry event into the in-memory ring buffer."""
+    if not task_id:
+        return
+    if task_id not in _TASK_PREVIEW_TELEMETRY:
+        _TASK_PREVIEW_TELEMETRY[task_id] = deque(maxlen=_MAX_TELEMETRY_ENTRIES)
+    entry["received_at"] = time.time()
+    _TASK_PREVIEW_TELEMETRY[task_id].append(entry)
+
+
+def get_preview_telemetry(task_id: str, level: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Returns recorded preview telemetry entries for a task, optionally filtered by log level."""
+    if not task_id or task_id not in _TASK_PREVIEW_TELEMETRY:
+        return []
+    entries = list(_TASK_PREVIEW_TELEMETRY[task_id])
+    if level:
+        entries = [e for e in entries if e.get("level") == level]
+    return entries
+
+
+def clear_preview_telemetry(task_id: str) -> None:
+    """Clears recorded preview telemetry for a task."""
+    if task_id in _TASK_PREVIEW_TELEMETRY:
+        _TASK_PREVIEW_TELEMETRY[task_id].clear()
 
 MIME_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -86,15 +118,19 @@ def _rewrite_asset_paths_for_preview(html_text: str) -> str:
     return html_text
 
 
-def _inject_html_telemetry_and_base(html_text: str, base_href: str) -> str:
+def _inject_html_telemetry_and_base(html_text: str, base_href: str, task_id: str = "") -> str:
     """
     Injects `<base href="...">` and an iframe telemetry/console capture script into HTML content.
+    Dual-dispatches events to window.parent (DevTools console) and backend telemetry buffer.
     """
     html_text = _rewrite_asset_paths_for_preview(html_text)
 
     telemetry_script = (
         "\n<script id=\"cyclode-preview-telemetry\">\n"
         "(function() {\n"
+        f"  var taskId = \"{task_id}\";\n"
+        "  var lastErrorMsg = '';\n"
+        "  var lastErrorTime = 0;\n"
         "  function serializeArg(arg) {\n"
         "    if (arg === null) return 'null';\n"
         "    if (arg === undefined) return 'undefined';\n"
@@ -104,15 +140,42 @@ def _inject_html_telemetry_and_base(html_text: str, base_href: str) -> str:
         "    }\n"
         "    return String(arg);\n"
         "  }\n"
-        "  function send(level, args) {\n"
+        "  function send(level, args, meta) {\n"
         "    try {\n"
+        "      meta = meta || {};\n"
         "      var strArgs = Array.prototype.slice.call(args).map(serializeArg).join(' ');\n"
-        "      window.parent.postMessage({\n"
+        "      if (level === 'error') {\n"
+        "        var now = Date.now();\n"
+        "        if (strArgs === lastErrorMsg && (now - lastErrorTime < 300)) return;\n"
+        "        lastErrorMsg = strArgs;\n"
+        "        lastErrorTime = now;\n"
+        "      }\n"
+        "      var payloadObj = {\n"
         "        source: 'cyclode-preview-console',\n"
         "        level: level,\n"
         "        payload: strArgs,\n"
-        "        timestamp: new Date().toISOString()\n"
-        "      }, '*');\n"
+        "        timestamp: new Date().toISOString(),\n"
+        "        errorName: meta.name || null,\n"
+        "        filename: meta.filename || null,\n"
+        "        lineno: meta.lineno || null,\n"
+        "        colno: meta.colno || null,\n"
+        "        stack: meta.stack || null\n"
+        "      };\n"
+        "      window.parent.postMessage(payloadObj, '*');\n"
+        "      if (taskId && (level === 'error' || level === 'warn')) {\n"
+        "        var beaconUrl = '/api/tasks/' + taskId + '/preview/telemetry';\n"
+        "        var bodyStr = JSON.stringify(payloadObj);\n"
+        "        if (navigator.sendBeacon) {\n"
+        "          navigator.sendBeacon(beaconUrl, new Blob([bodyStr], { type: 'application/json' }));\n"
+        "        } else if (window.fetch) {\n"
+        "          fetch(beaconUrl, {\n"
+        "            method: 'POST',\n"
+        "            headers: { 'Content-Type': 'application/json' },\n"
+        "            body: bodyStr,\n"
+        "            keepalive: true\n"
+        "          }).catch(function() {});\n"
+        "        }\n"
+        "      }\n"
         "    } catch (e) {}\n"
         "  }\n"
         "  var origLog = console.log, origWarn = console.warn, origErr = console.error, origInfo = console.info;\n"
@@ -120,20 +183,59 @@ def _inject_html_telemetry_and_base(html_text: str, base_href: str) -> str:
         "  console.warn = function() { send('warn', arguments); if (origWarn) origWarn.apply(console, arguments); };\n"
         "  console.error = function() { send('error', arguments); if (origErr) origErr.apply(console, arguments); };\n"
         "  console.info = function() { send('info', arguments); if (origInfo) origInfo.apply(console, arguments); };\n"
+        "  window.onerror = function(message, source, lineno, colno, error) {\n"
+        "    var errName = (error && error.name) || 'Uncaught Error';\n"
+        "    var stack = (error && error.stack) ? error.stack : '';\n"
+        "    var cleanSrc = source || '';\n"
+        "    try {\n"
+        "      var urlObj = new URL(cleanSrc, window.location.href);\n"
+        "      cleanSrc = urlObj.pathname.split('/').pop() || cleanSrc;\n"
+        "    } catch (_) {}\n"
+        "    var loc = cleanSrc + (lineno ? ':' + lineno : '') + (colno ? ':' + colno : '');\n"
+        "    var displayMsg = (message || 'Uncaught Error') + (loc ? ' (' + loc + ')' : '');\n"
+        "    send('error', [displayMsg], {\n"
+        "      name: errName,\n"
+        "      filename: cleanSrc,\n"
+        "      lineno: lineno,\n"
+        "      colno: colno,\n"
+        "      stack: stack\n"
+        "    });\n"
+        "  };\n"
         "  window.addEventListener('error', function(e) {\n"
-        "    if (e.target && (e.target.tagName === 'SCRIPT' || e.target.tagName === 'LINK' || e.target.tagName === 'IMG')) {\n"
+        "    if (e.target && e.target !== window && (e.target.tagName === 'LINK' || e.target.tagName === 'IMG' || (e.target.tagName === 'SCRIPT' && e.target.src && !e.message))) {\n"
         "      var resUrl = e.target.src || e.target.href || 'resource';\n"
-        "      send('error', ['Failed to load resource (404/Network Error): ' + resUrl]);\n"
+        "      send('error', ['Failed to load resource (404/Network Error): ' + resUrl], {\n"
+        "        name: 'ResourceError',\n"
+        "        filename: resUrl\n"
+        "      });\n"
         "      return;\n"
         "    }\n"
-        "    var loc = (e.filename || '') + (e.lineno ? ':' + e.lineno : '') + (e.colno ? ':' + e.colno : '');\n"
-        "    var stack = e.error && e.error.stack ? '\\n' + e.error.stack : '';\n"
-        "    send('error', [(e.message || 'Uncaught Error') + (loc ? ' (' + loc + ')' : '') + stack]);\n"
+        "    if (e.message) {\n"
+        "      var errName = (e.error && e.error.name) || 'Error';\n"
+        "      var src = e.filename || '';\n"
+        "      try {\n"
+        "        var u = new URL(src, window.location.href);\n"
+        "        src = u.pathname.split('/').pop() || src;\n"
+        "      } catch (_) {}\n"
+        "      var loc = src + (e.lineno ? ':' + e.lineno : '') + (e.colno ? ':' + e.colno : '');\n"
+        "      var stack = (e.error && e.error.stack) ? '\\n' + e.error.stack : '';\n"
+        "      send('error', [(e.message || 'Uncaught Error') + (loc ? ' (' + loc + ')' : '') + stack], {\n"
+        "        name: errName,\n"
+        "        filename: src,\n"
+        "        lineno: e.lineno,\n"
+        "        colno: e.colno,\n"
+        "        stack: e.error && e.error.stack ? e.error.stack : null\n"
+        "      });\n"
+        "    }\n"
         "  }, true);\n"
         "  window.addEventListener('unhandledrejection', function(e) {\n"
         "    var reason = e.reason;\n"
+        "    var errName = (reason instanceof Error && reason.name) ? reason.name : 'UnhandledPromiseRejection';\n"
         "    var msg = reason instanceof Error ? (reason.message + (reason.stack ? '\\n' + reason.stack : '')) : String(reason);\n"
-        "    send('error', ['Unhandled Promise Rejection: ' + msg]);\n"
+        "    send('error', ['Unhandled Promise Rejection: ' + msg], {\n"
+        "      name: errName,\n"
+        "      stack: reason instanceof Error ? reason.stack : null\n"
+        "    });\n"
         "  });\n"
         "  window.addEventListener('load', function() {\n"
         "    try {\n"
@@ -143,7 +245,9 @@ def _inject_html_telemetry_and_base(html_text: str, base_href: str) -> str:
         "        var parent = cvs.parentElement;\n"
         "        if (cvs.clientWidth === 0 || cvs.clientHeight === 0 || (parent && parent.clientHeight === 0 && parent.tagName !== 'BODY')) {\n"
         "          var targetId = cvs.id || (parent ? parent.id : '') || ('canvas-' + i);\n"
-        "          send('error', ['[CYCLODE_PREVIEW_ERROR] Canvas or mount container #' + targetId + ' has 0px computed dimensions. Ensure width and height are defined in CSS (e.g. width: 100%; height: 100%; position: absolute;).']);\n"
+        "          send('error', ['[CYCLODE_PREVIEW_ERROR] Canvas or mount container #' + targetId + ' has 0px computed dimensions. Ensure width and height are defined in CSS (e.g. width: 100%; height: 100%; position: absolute;).'], {\n"
+        "            name: 'LayoutError'\n"
+        "          });\n"
         "        }\n"
         "      }\n"
         "      var hiddens = document.querySelectorAll('.hidden');\n"
@@ -152,7 +256,9 @@ def _inject_html_telemetry_and_base(html_text: str, base_href: str) -> str:
         "        var compDisplay = window.getComputedStyle(el).display;\n"
         "        if (compDisplay !== 'none') {\n"
         "          var elDesc = el.id ? ('#' + el.id) : (el.tagName.toLowerCase() + '.' + (el.className.split(' ').join('.')));\n"
-        "          send('warn', ['[CYCLODE_PREVIEW_WARNING] Element ' + elDesc + ' has class=\"hidden\" but computed display is \"' + compDisplay + '\". Missing global .hidden { display: none !important; } in CSS.']);\n"
+        "          send('warn', ['[CYCLODE_PREVIEW_WARNING] Element ' + elDesc + ' has class=\"hidden\" but computed display is \"' + compDisplay + '\". Missing global .hidden { display: none !important; } in CSS.'], {\n"
+        "            name: 'StyleWarning'\n"
+        "          });\n"
         "        }\n"
         "      }\n"
         "    } catch (e) {}\n"
@@ -371,6 +477,59 @@ def _validate_canvas_and_state(html_text: str, combined_js: str, primary_entry: 
                     "Construct full domain-specific scene entities, illumination, camera navigation, and an interactive HUD overlay."
                 )
     return issues
+
+
+def _validate_js_syntax_with_node(js_content: str, filename: str = "index.html", line_offset: int = 0) -> Optional[Dict[str, Any]]:
+    """
+    Validates JavaScript syntax using `node --input-type=module -c -`.
+    Catches invalid or unexpected tokens, unmatched syntax, or uncompiled code in milliseconds.
+    """
+    if not js_content or not js_content.strip():
+        return None
+
+    try:
+        res = subprocess.run(
+            ["node", "--input-type=module", "-c", "-"],
+            input=js_content,
+            capture_output=True,
+            text=True,
+            timeout=2.0
+        )
+        if res.returncode == 0:
+            return None
+
+        stderr = res.stderr or ""
+        line_num: Optional[int] = None
+        col_num: Optional[int] = None
+        m_pos = re.search(r'\[stdin\]:(\d+)(?::(\d+))?', stderr)
+        if m_pos:
+            rel_line = int(m_pos.group(1))
+            line_num = rel_line + line_offset if line_offset > 0 else rel_line
+            if m_pos.group(2):
+                col_num = int(m_pos.group(2))
+
+        err_msg = "JavaScript Syntax Error"
+        for line in stderr.splitlines():
+            line_s = line.strip()
+            if line_s.startswith("SyntaxError:") or "SyntaxError" in line_s:
+                err_msg = line_s
+                break
+
+        return {
+            "type": "SyntaxError",
+            "message": err_msg,
+            "filename": filename,
+            "line": line_num,
+            "col": col_num,
+            "raw": stderr[:600]
+        }
+    except (FileNotFoundError, PermissionError):
+        return None
+    except subprocess.TimeoutExpired:
+        return None
+    except Exception as e:
+        logger.debug(f"Node syntax check failed: {e}")
+        return None
 
 
 def _validate_script_syntax_balance(combined_js: str, primary_entry: str) -> List[str]:
@@ -910,6 +1069,60 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
         syntax_issues = _validate_script_syntax_balance(combined_js, primary_entry)
         issues.extend(syntax_issues)
 
+        # 8. Node.js Pre-Flight Static Syntax Check (Detects SyntaxError, unexpected tokens, invalid syntax)
+        for m_scr in re.finditer(r'<script\b([^>]*)>([\s\S]*?)</script>', html_text, re.IGNORECASE):
+            attrs = m_scr.group(1)
+            scr_body = m_scr.group(2)
+            type_m = re.search(r'type=["\']([^"\']+)["\']', attrs, re.IGNORECASE)
+            if type_m:
+                scr_type = type_m.group(1).lower().strip()
+                if scr_type in ("application/json", "importmap", "text/babel", "text/jsx", "text/template", "text/html"):
+                    continue
+            if scr_body.strip():
+                start_line = html_text[:m_scr.start(2)].count('\n') + 1
+                syntax_err = _validate_js_syntax_with_node(scr_body, primary_entry, line_offset=start_line - 1)
+                if syntax_err:
+                    line_disp = f" (line {syntax_err['line']}" + (f":{syntax_err['col']})" if syntax_err.get('col') else ")") if syntax_err.get('line') else ""
+                    issues.append(f"JavaScript Syntax Error in '{primary_entry}'{line_disp}: {syntax_err['message']}")
+                    break
+
+        if not any("JavaScript Syntax Error" in iss for iss in issues):
+            for js_ref in js_scripts:
+                clean_ref = js_ref.split('?')[0].lstrip('./').lstrip('/')
+                js_path = entry_file.parent / clean_ref
+                if not js_path.exists():
+                    js_path = ws_path / clean_ref
+                if js_path.exists() and js_path.is_file():
+                    try:
+                        content = js_path.read_text(encoding="utf-8", errors="ignore")
+                        syntax_err = _validate_js_syntax_with_node(content, clean_ref)
+                        if syntax_err:
+                            line_disp = f" (line {syntax_err['line']}" + (f":{syntax_err['col']})" if syntax_err.get('col') else ")") if syntax_err.get('line') else ""
+                            issues.append(f"JavaScript Syntax Error in '{clean_ref}'{line_disp}: {syntax_err['message']}")
+                            break
+                    except Exception:
+                        pass
+
+    # 9. Ingest Live Browser Runtime Telemetry Errors
+    if task_id:
+        telemetry_errors = get_preview_telemetry(task_id, level="error")
+        if telemetry_errors:
+            seen_errs = set()
+            for r_err in telemetry_errors[-10:]:
+                raw_payload = r_err.get("payload") or r_err.get("message") or "Unknown error"
+                if raw_payload in seen_errs:
+                    continue
+                seen_errs.add(raw_payload)
+                loc_parts = []
+                if r_err.get("filename"):
+                    loc_parts.append(r_err["filename"].split("/")[-1])
+                if r_err.get("lineno"):
+                    loc_parts.append(str(r_err["lineno"]))
+                if r_err.get("colno"):
+                    loc_parts.append(str(r_err["colno"]))
+                loc_str = f" at {':'.join(loc_parts)}" if loc_parts else ""
+                issues.append(f"Browser Runtime Exception: {raw_payload}{loc_str}")
+
     has_dom_css_issues = any("Canvas container" in iss or "HTML elements use class='hidden'" in iss or "Canvas mount container" in iss for iss in issues)
     has_uncompiled_css = any("no CSS stylesheets" in iss or "uncompiled '@tailwind'" in iss for iss in issues)
     has_js_dom_mismatch = any("DOM Contract Violation" in iss for iss in issues)
@@ -918,8 +1131,15 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
     has_missing_dep = any("Missing Library Dependency" in iss for iss in issues)
     has_canvas_issues = any("Canvas Context Issue" in iss or "Canvas Animation Loop" in iss for iss in issues)
     has_syntax_issues = any("JavaScript Syntax" in iss for iss in issues)
+    has_runtime_error = any("Browser Runtime Exception" in iss for iss in issues)
 
-    if has_uncompiled_css:
+    if has_syntax_issues:
+        status_code = "runtime_syntax_error"
+        recommendation = "Fix the JavaScript syntax error: inspect the specified line/column and correct broken tokens, unclosed parentheses, or syntax errors."
+    elif has_runtime_error:
+        status_code = "runtime_error"
+        recommendation = "Fix the browser runtime exception: inspect the error stack trace, ensure all referenced functions/variables are defined, and verify the app preview renders cleanly."
+    elif has_uncompiled_css:
         status_code = "uncompiled_css"
         recommendation = "Link Tailwind CSS (<script src='https://cdn.tailwindcss.com'></script>) or embed comprehensive modern dark theme CSS tokens in <style> to render a styled, professional page."
     elif has_missing_dep:
@@ -937,9 +1157,6 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
     elif has_dom_css_issues or has_canvas_issues:
         status_code = "dom_css_mismatch"
         recommendation = "Harmonize DOM element IDs and CSS selectors between index.html and stylesheets, add missing '.hidden { display: none !important; }' utility, and ensure canvas containers are styled with width: 100%; height: 100%; position: absolute;."
-    elif has_syntax_issues:
-        status_code = "runtime_exception"
-        recommendation = "Fix unclosed brackets or syntax errors in JavaScript files and inline script blocks."
     elif issues:
         status_code = "issues_found"
         recommendation = "Resolve the detected workspace preview issues to ensure a fully functional application."
@@ -1113,7 +1330,54 @@ def _generate_diagnostic_html(task_id: str, task_title: str, ws_path: Optional[P
   </div>
 </body>
 </html>"""
-    return _inject_html_telemetry_and_base(html_content, f"/api/tasks/{task_id}/preview/")
+    return _inject_html_telemetry_and_base(html_content, f"/api/tasks/{task_id}/preview/", task_id=task_id)
+
+
+@router.post("/{task_id}/preview/telemetry")
+async def receive_preview_telemetry(task_id: str, request: Request):
+    """
+    Ingests live runtime error and telemetry events from the preview iframe.
+    Dispatched via navigator.sendBeacon or fetch keepalive.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        raw = await request.body()
+        try:
+            import json
+            body = json.loads(raw.decode("utf-8", errors="ignore"))
+        except Exception:
+            return {"status": "ignored"}
+
+    if isinstance(body, dict):
+        record_preview_telemetry(task_id, body)
+    elif isinstance(body, list):
+        for item in body:
+            if isinstance(item, dict):
+                record_preview_telemetry(task_id, item)
+    return {"status": "ok"}
+
+
+@router.get("/{task_id}/preview/telemetry")
+async def get_task_preview_telemetry(task_id: str, level: Optional[str] = None):
+    """
+    Returns recorded browser runtime events and errors for the task preview.
+    """
+    entries = get_preview_telemetry(task_id, level=level)
+    return {
+        "task_id": task_id,
+        "count": len(entries),
+        "entries": entries
+    }
+
+
+@router.delete("/{task_id}/preview/telemetry")
+async def clear_task_preview_telemetry(task_id: str):
+    """
+    Clears recorded preview telemetry for the task.
+    """
+    clear_preview_telemetry(task_id)
+    return {"status": "cleared", "task_id": task_id}
 
 
 @router.get("/{task_id}/preview/inspect")
@@ -1319,7 +1583,7 @@ async def serve_preview_file(task_id: str, file_path: str = "", db: AsyncSession
             else:
                 base_href = f"/api/tasks/{task_id}/preview/{parent_rel}/"
 
-            injected_html = _inject_html_telemetry_and_base(raw_html, base_href)
+            injected_html = _inject_html_telemetry_and_base(raw_html, base_href, task_id=task_id)
             return Response(
                 content=injected_html,
                 media_type="text/html; charset=utf-8",

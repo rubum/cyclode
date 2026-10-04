@@ -817,6 +817,175 @@ async def test_preview_missing_file_returns_html_diagnostic_404(temp_workspace: 
         assert not resp.text.startswith("{")
 
 
+@pytest.mark.asyncio
+async def test_preview_telemetry_buffer_and_api():
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
+    from app.api.preview import record_preview_telemetry, get_preview_telemetry, clear_preview_telemetry
+
+    task_id = "test-telemetry-task-123"
+    clear_preview_telemetry(task_id)
+
+    # 1. Direct buffer operations
+    record_preview_telemetry(task_id, {
+        "level": "error",
+        "payload": "Uncaught ReferenceError: hydrateIcons is not defined",
+        "filename": "index.html",
+        "lineno": 1880,
+        "colno": 35,
+    })
+    record_preview_telemetry(task_id, {
+        "level": "log",
+        "payload": "App initialized successfully",
+    })
+
+    entries = get_preview_telemetry(task_id)
+    assert len(entries) == 2
+    err_entries = get_preview_telemetry(task_id, level="error")
+    assert len(err_entries) == 1
+    assert err_entries[0]["lineno"] == 1880
+
+    # 2. HTTP POST ingestion
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        post_resp = await ac.post(f"/api/tasks/{task_id}/preview/telemetry", json={
+            "level": "error",
+            "payload": "Uncaught SyntaxError: Invalid or unexpected token",
+            "filename": "index.html",
+            "lineno": 42,
+            "colno": 10,
+        })
+        assert post_resp.status_code == 200
+        assert post_resp.json() == {"status": "ok"}
+
+        # HTTP GET retrieval
+        get_resp = await ac.get(f"/api/tasks/{task_id}/preview/telemetry?level=error")
+        assert get_resp.status_code == 200
+        data = get_resp.json()
+        assert data["count"] == 2
+        assert any("SyntaxError" in e["payload"] for e in data["entries"])
+
+        # HTTP DELETE clearing
+        del_resp = await ac.delete(f"/api/tasks/{task_id}/preview/telemetry")
+        assert del_resp.status_code == 200
+        assert del_resp.json() == {"status": "cleared", "task_id": task_id}
+
+        empty_entries = get_preview_telemetry(task_id)
+        assert len(empty_entries) == 0
+
+
+@pytest.mark.asyncio
+async def test_preview_telemetry_script_dual_dispatch_and_discrimination():
+    from app.api.preview import _inject_html_telemetry_and_base
+
+    raw_html = "<!DOCTYPE html><html><head><title>App</title></head><body><h1>Hello</h1></body></html>"
+    injected = _inject_html_telemetry_and_base(raw_html, "/api/tasks/test-task-99/preview/", task_id="test-task-99")
+
+    # Injected taskId
+    assert 'var taskId = "test-task-99";' in injected
+    # Dual dispatch via sendBeacon and fetch keepalive
+    assert "navigator.sendBeacon" in injected
+    assert "keepalive: true" in injected
+    assert "/api/tasks/" in injected and "/preview/telemetry" in injected
+    # Window onerror bound
+    assert "window.onerror = function" in injected
+    # Error event discrimination: resource error vs syntax error
+    assert "e.target.tagName === 'SCRIPT' && e.target.src && !e.message" in injected
+
+
+@pytest.mark.asyncio
+async def test_preview_node_syntax_validator_detects_broken_tokens():
+    from app.api.preview import _validate_js_syntax_with_node
+
+    valid_js = """
+    function greet(name) {
+        return `Hello, ${name}!`;
+    }
+    greet('World');
+    """
+    assert _validate_js_syntax_with_node(valid_js) is None
+
+    broken_js = """
+    function broken() {
+        const x = { a: 1, ;
+    }
+    """
+    err = _validate_js_syntax_with_node(broken_js, "app.js", line_offset=10)
+    assert err is not None
+    assert err["type"] == "SyntaxError"
+    assert "SyntaxError" in err["message"]
+    assert err["filename"] == "app.js"
+    assert err["line"] == 13  # line 3 in broken_js + offset 10
+
+
+@pytest.mark.asyncio
+async def test_verify_workspace_preview_detects_inline_syntax_error(temp_workspace: Path):
+    from app.api.preview import verify_workspace_preview
+
+    (temp_workspace / "index.html").write_text("""<!DOCTYPE html>
+    <html>
+    <head><script src="https://cdn.tailwindcss.com"></script></head>
+    <body>
+      <div id="app"><button id="btn">Click</button></div>
+      <script>
+        function broken() {
+          const foo = ;
+        }
+      </script>
+    </body>
+    </html>""", encoding="utf-8")
+
+    res = verify_workspace_preview(temp_workspace, "test-syntax-err")
+    assert res["status"] == "runtime_syntax_error"
+    assert any("JavaScript Syntax Error" in iss for iss in res["issues"])
+    assert any("SyntaxError" in iss for iss in res["issues"])
+
+
+@pytest.mark.asyncio
+async def test_verify_workspace_preview_detects_browser_runtime_telemetry_errors(temp_workspace: Path):
+    from app.api.preview import verify_workspace_preview, record_preview_telemetry, clear_preview_telemetry
+
+    task_id = "test-runtime-telemetry-task"
+    clear_preview_telemetry(task_id)
+
+    # Workspace has clean HTML without static syntax errors
+    (temp_workspace / "index.html").write_text("""<!DOCTYPE html>
+    <html>
+    <head><script src="https://cdn.tailwindcss.com"></script></head>
+    <body>
+      <div id="app">
+        <h1 id="title">Dashboard</h1>
+        <button id="btn" onclick="handleClick()">Run</button>
+      </div>
+      <script>
+        function handleClick() {
+          hydrateIcons(); // Not defined at runtime!
+        }
+      </script>
+    </body>
+    </html>""", encoding="utf-8")
+
+    # Before runtime error: preview is ready
+    res_before = verify_workspace_preview(temp_workspace, task_id)
+    assert res_before["status"] == "ready"
+
+    # Simulate browser iframe sending runtime error
+    record_preview_telemetry(task_id, {
+        "level": "error",
+        "payload": "Uncaught ReferenceError: hydrateIcons is not defined",
+        "filename": "index.html",
+        "lineno": 1880,
+        "colno": 35
+    })
+
+    # After runtime error: preview detects runtime_error!
+    res_after = verify_workspace_preview(temp_workspace, task_id)
+    assert res_after["status"] == "runtime_error"
+    assert any("Browser Runtime Exception" in iss for iss in res_after["issues"])
+    assert any("hydrateIcons is not defined" in iss for iss in res_after["issues"])
+    assert any("index.html:1880:35" in iss for iss in res_after["issues"])
+
+
+
 
 
 

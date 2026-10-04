@@ -36,6 +36,11 @@ interface ConsoleEntry {
   type: 'log' | 'warn' | 'error' | 'info';
   message: string;
   timestamp: string;
+  filename?: string;
+  lineno?: number;
+  colno?: number;
+  stack?: string;
+  errorName?: string;
 }
 
 interface DiagnosticData {
@@ -216,6 +221,11 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
             type: newLevel,
             message: formattedMsg,
             timestamp: new Date().toLocaleTimeString(),
+            filename: e.data.filename || undefined,
+            lineno: e.data.lineno || undefined,
+            colno: e.data.colno || undefined,
+            stack: e.data.stack || undefined,
+            errorName: e.data.errorName || undefined,
           },
         ]);
 
@@ -249,7 +259,10 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
   };
 
   const handleCopyAllLogs = () => {
-    const logsText = consoleLogs.map((l) => `[${l.timestamp}] [${l.type.toUpperCase()}] ${l.message}`).join('\n');
+    const logsText = consoleLogs.map((l) => {
+      const loc = l.filename ? ` (${l.filename}${l.lineno ? `:${l.lineno}` : ''}${l.colno ? `:${l.colno}` : ''})` : '';
+      return `[${l.timestamp}] [${l.type.toUpperCase()}] ${l.errorName ? `${l.errorName}: ` : ''}${l.message}${loc}${l.stack ? `\n${l.stack}` : ''}`;
+    }).join('\n');
     navigator.clipboard.writeText(logsText);
     setLogsCopied(true);
     setTimeout(() => setLogsCopied(false), 2000);
@@ -263,10 +276,17 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
   const handleAskAgentToFixPreview = () => {
     const errorLogs = consoleLogs.filter((l) => l.type === 'error');
     const errorDetails = errorLogs.length > 0
-      ? errorLogs.map((e) => `[${e.timestamp}] ${e.message}`).join('\n')
-      : 'The app preview is not rendering properly or encountered runtime errors.';
+      ? errorLogs.map((e) => {
+          let loc = '';
+          if (e.filename) {
+            loc = ` at ${e.filename}${e.lineno ? `:${e.lineno}` : ''}${e.colno ? `:${e.colno}` : ''}`;
+          }
+          const stackStr = e.stack ? `\nStack trace:\n${e.stack}` : '';
+          return `[${e.timestamp}] ${e.errorName ? `${e.errorName}: ` : ''}${e.message}${loc}${stackStr}`;
+        }).join('\n\n')
+      : 'The app preview encountered runtime errors or failed to render.';
 
-    const prompt = `I noticed runtime errors in the App Preview:\n\`\`\`\n${errorDetails}\n\`\`\`\nPlease inspect the workspace files, fix the issue causing this error, and verify the application runs smoothly.`;
+    const prompt = `I noticed runtime errors in the App Preview DevTools Console:\n\`\`\`\n${errorDetails}\n\`\`\`\nPlease inspect the workspace files, fix the root cause of these errors, and run verify_app_preview to confirm the application renders without errors.`;
     onAskAgent?.(prompt);
   };
 
@@ -511,6 +531,12 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
                   </div>
                   {latestError && (
                     <div className="text-[11px] font-mono text-onedark-fg truncate mt-0.5 opacity-90">
+                      {latestError.filename && (
+                        <span className="text-onedark-accent font-semibold mr-1.5">
+                          [{latestError.filename.split('/').pop()}{latestError.lineno ? `:${latestError.lineno}` : ''}]
+                        </span>
+                      )}
+                      {latestError.errorName ? <span className="font-semibold text-onedark-red mr-1">{latestError.errorName}:</span> : null}
                       {latestError.message}
                     </div>
                   )}
@@ -823,6 +849,11 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
                     }`}>
                       {log.type}
                     </span>
+                    {log.filename && (
+                      <span className="text-[9.5px] px-1 py-0.2 rounded bg-onedark-surface border border-onedark-borderSubtle text-onedark-accent select-none flex-shrink-0 mt-0.5 font-mono" title={`${log.filename}${log.lineno ? `:${log.lineno}` : ''}${log.colno ? `:${log.colno}` : ''}`}>
+                        {log.filename.split('/').pop()}{log.lineno ? `:${log.lineno}` : ''}{log.colno ? `:${log.colno}` : ''}
+                      </span>
+                    )}
                     <span className="break-all whitespace-pre-wrap flex-1">{log.message}</span>
                   </div>
                 ))

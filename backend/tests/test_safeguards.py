@@ -787,6 +787,59 @@ def test_harness_surrender_bailing_detection():
     assert reason is None
 
 
+@pytest.mark.asyncio
+async def test_preview_runtime_and_syntax_errors_block_evaluation_runner(tmp_path):
+    from app.core.evals.runner import evaluation_runner
+
+    # 1. Preview with runtime syntax error
+    syntax_error_preview = {
+        "status": "runtime_syntax_error",
+        "framework": "Static Web",
+        "issues": ["JavaScript Syntax Error in 'index.html' (line 1880): SyntaxError: Invalid or unexpected token"]
+    }
+
+    scorecard = await evaluation_runner.evaluate_task(
+        workspace_path=tmp_path,
+        intent_category="app_building",
+        is_app_task=True,
+        preview_info=syntax_error_preview,
+        tool_call_count=3,
+        final_agent_text="Application created.",
+        model_succeeded=True
+    )
+
+    assert scorecard.status == "needs_revision"
+    preview_checks = [c for c in scorecard.checks if c.name == "Live Application Preview"]
+    assert len(preview_checks) == 1
+    assert preview_checks[0].passed is False
+    assert "runtime_syntax_error" in preview_checks[0].diagnostics
+    assert "SyntaxError" in preview_checks[0].diagnostics
+
+    # 2. Preview with live browser runtime exception
+    runtime_error_preview = {
+        "status": "runtime_error",
+        "framework": "Static Web",
+        "issues": ["Browser Runtime Exception: Uncaught ReferenceError: hydrateIcons is not defined at index.html:1880:35"]
+    }
+
+    scorecard_rt = await evaluation_runner.evaluate_task(
+        workspace_path=tmp_path,
+        intent_category="app_building",
+        is_app_task=True,
+        preview_info=runtime_error_preview,
+        tool_call_count=3,
+        final_agent_text="Application created.",
+        model_succeeded=True
+    )
+
+    assert scorecard_rt.status == "needs_revision"
+    preview_checks_rt = [c for c in scorecard_rt.checks if c.name == "Live Application Preview"]
+    assert len(preview_checks_rt) == 1
+    assert preview_checks_rt[0].passed is False
+    assert "runtime_error" in preview_checks_rt[0].diagnostics
+    assert "hydrateIcons is not defined" in preview_checks_rt[0].diagnostics
+
+
 
 
 

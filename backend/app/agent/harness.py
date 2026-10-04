@@ -2487,7 +2487,7 @@ class AntigravityHarness:
                             verification = verify_workspace_preview(workspace_path, task_id)
                             status_val = verification.get("status")
                             needs_preview_correction = (
-                                status_val in ["missing_entry_point", "missing_workspace", "needs_build", "uncompiled_css", "unlinked_assets", "empty_ui", "dom_css_mismatch", "js_dom_mismatch", "dead_buttons", "runtime_exception", "issues_found"]
+                                status_val in ["missing_entry_point", "missing_workspace", "needs_build", "uncompiled_css", "unlinked_assets", "empty_ui", "dom_css_mismatch", "js_dom_mismatch", "dead_buttons", "runtime_exception", "runtime_error", "runtime_syntax_error", "issues_found"]
                                 or bool(verification.get("issues"))
                             )
 
@@ -3359,6 +3359,8 @@ class AntigravityHarness:
                                     f"Entry Point: {entry_str}",
                                     f"Build Status: {build_st}"
                                 ]
+                                if status_str in ["runtime_error", "runtime_syntax_error", "runtime_exception"]:
+                                    out_lines.insert(1, "❌ BROWSER EXECUTION FAULT DETECTED: Application preview failed to execute or encountered uncaught runtime errors.")
                                 if issues_list:
                                     out_lines.append("Issues Detected:")
                                     for iss in issues_list:
@@ -4151,7 +4153,11 @@ class AntigravityHarness:
         # Check preview status for app tasks
         from app.api.preview import verify_workspace_preview
         preview_verif = verify_workspace_preview(workspace_path, task_id)
-        has_preview_missing = is_app_task and preview_verif.get("status") in ["missing_entry_point", "missing_workspace", "needs_build", "uncompiled_css", "unlinked_assets", "empty_ui", "dom_css_mismatch", "issues_found", "minimal_canvas_stub", "missing_dependency"]
+        has_preview_missing = is_app_task and preview_verif.get("status") in [
+            "missing_entry_point", "missing_workspace", "needs_build", "uncompiled_css",
+            "unlinked_assets", "empty_ui", "dom_css_mismatch", "issues_found",
+            "minimal_canvas_stub", "missing_dependency", "runtime_error", "runtime_syntax_error", "runtime_exception"
+        ]
 
         if mutating_tool_count > 0 and not has_preview_missing and not has_pending_steps:
             fallback_msg = (
