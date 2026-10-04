@@ -1461,10 +1461,25 @@ async def get_preview_diagnostics(task_id: str, db: AsyncSession = Depends(get_d
         return {
             "task_id": task_id,
             "workspace_exists": False,
+            "has_preview": False,
+            "entry_point": None,
+            "available_entry_points": [],
             "framework": "None",
+            "title": "No Preview",
             "build_status": "none",
+            "files_count": 0,
             "files": [],
-            "suggestions": ["Task workspace has not been created on disk yet."]
+            "assets_found": [],
+            "diagnostics": {
+                "entry_point_exists": False,
+                "has_html_files": False,
+                "has_js_bundles": False,
+                "has_package_json": False,
+                "has_vite_config": False,
+                "workspace_total_files": 0
+            },
+            "suggestions": ["Task workspace has not been created on disk yet."],
+            "suggested_actions": ["Task workspace has not been created on disk yet."]
         }
 
     verification = verify_workspace_preview(ws_path, task_id)
@@ -1489,14 +1504,40 @@ async def get_preview_diagnostics(task_id: str, db: AsyncSession = Depends(get_d
     if verification.get("recommendation"):
         suggestions.append(verification["recommendation"])
 
+    has_entry = verification.get("has_preview", False) and bool(verification.get("entry_point"))
+    has_html = any(f["path"].endswith((".html", ".htm")) for f in files)
+    has_js = any(f["path"].endswith((".js", ".mjs", ".jsx", ".ts", ".tsx")) for f in files)
+    has_pkg = any(f["path"] == "package.json" or f["path"].endswith("/package.json") for f in files)
+    has_vite = any("vite.config" in f["path"] for f in files)
+
+    assets_found = [
+        {"name": f["path"], "type": Path(f["path"]).suffix.lstrip("."), "size": f["size"]}
+        for f in files
+        if f["path"].endswith((".html", ".htm", ".css", ".js", ".mjs", ".ts", ".tsx", ".svg", ".png", ".jpg", ".jpeg", ".json"))
+    ]
+
     return {
         "task_id": task_id,
         "workspace_exists": True,
+        "has_preview": verification.get("has_preview", False),
+        "entry_point": verification.get("entry_point"),
+        "available_entry_points": verification.get("available_entry_points", []),
         "framework": framework,
+        "title": verification.get("title") or "App Preview",
         "build_status": verification.get("build_status", "static"),
         "files_count": len(files),
         "files": files[:50],
-        "suggestions": suggestions
+        "assets_found": assets_found[:50],
+        "diagnostics": {
+            "entry_point_exists": has_entry,
+            "has_html_files": has_html,
+            "has_js_bundles": has_js,
+            "has_package_json": has_pkg,
+            "has_vite_config": has_vite,
+            "workspace_total_files": len(files)
+        },
+        "suggestions": suggestions,
+        "suggested_actions": suggestions
     }
 
 

@@ -295,6 +295,9 @@ async def test_preview_diagnostic_fallback_on_missing_index(temp_workspace: Path
         assert data["workspace_exists"] is True
         assert "React" in data["framework"]
         assert data["files_count"] >= 2
+        assert "diagnostics" in data
+        assert "entry_point_exists" in data["diagnostics"]
+        assert "assets_found" in data
 
 
 @pytest.mark.asyncio

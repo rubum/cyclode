@@ -45,13 +45,13 @@ interface ConsoleEntry {
 
 interface DiagnosticData {
   task_id: string;
-  has_preview: boolean;
+  has_preview?: boolean;
   entry_point?: string;
-  available_entry_points: string[];
+  available_entry_points?: string[];
   framework?: string;
   title?: string;
-  assets_found: Array<{ name: string; type: string; size: number }>;
-  diagnostics: {
+  assets_found?: Array<{ name: string; type: string; size: number }>;
+  diagnostics?: {
     entry_point_exists: boolean;
     has_html_files: boolean;
     has_js_bundles: boolean;
@@ -59,7 +59,12 @@ interface DiagnosticData {
     has_vite_config: boolean;
     workspace_total_files: number;
   };
-  suggested_actions: string[];
+  suggested_actions?: string[];
+  workspace_exists?: boolean;
+  build_status?: string;
+  files_count?: number;
+  files?: Array<{ path: string; size: number; is_entry?: boolean }>;
+  suggestions?: string[];
 }
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -880,7 +885,7 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
                       <div className="p-2 rounded-lg bg-onedark-surface/50 border border-onedark-borderSubtle">
                         <div className="text-[10px] text-onedark-muted uppercase font-medium">Entry Point</div>
                         <div className="text-xs font-semibold text-onedark-fgBright mt-0.5 flex items-center space-x-1">
-                          {diagnosticsData?.diagnostics.entry_point_exists !== false ? (
+                          {diagnosticsData?.diagnostics?.entry_point_exists !== false && (diagnosticsData?.has_preview !== false) ? (
                             <CheckCircle2 className="w-3 h-3 text-onedark-green" />
                           ) : (
                             <XCircle className="w-3 h-3 text-onedark-red" />
@@ -900,65 +905,84 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
                       <div className="p-2 rounded-lg bg-onedark-surface/50 border border-onedark-borderSubtle">
                         <div className="text-[10px] text-onedark-muted uppercase font-medium">Total Files</div>
                         <div className="text-xs font-semibold text-onedark-fg mt-0.5 font-mono">
-                          {diagnosticsData?.diagnostics.workspace_total_files ?? 0} files
+                          {diagnosticsData?.diagnostics?.workspace_total_files ?? diagnosticsData?.files_count ?? (diagnosticsData?.files?.length ?? 0)} files
                         </div>
                       </div>
                     </div>
 
                     {/* Discovered Web Assets */}
-                    <div>
-                      <div className="text-[11px] font-semibold text-onedark-fg mb-1.5 flex items-center justify-between">
-                        <span>Discovered Assets ({diagnosticsData?.assets_found?.length || 0})</span>
-                        <span className="text-[10px] font-normal text-onedark-muted">Workspace root</span>
-                      </div>
-                      <div className="bg-onedark-bg rounded-lg border border-onedark-borderSubtle overflow-hidden max-h-32 overflow-y-auto">
-                        {(diagnosticsData?.assets_found || []).length === 0 ? (
-                          <div className="p-2 text-center text-xs text-onedark-muted/60">No web assets found in workspace</div>
-                        ) : (
-                          <table className="w-full text-[11px] font-mono">
-                            <tbody>
-                              {(diagnosticsData?.assets_found || []).map((asset) => (
-                                <tr key={asset.name} className="border-b border-onedark-borderSubtle hover:bg-onedark-surface/40">
-                                  <td className="px-2 py-1 text-onedark-fg flex items-center space-x-1.5">
-                                    <FileCode className="w-3 h-3 text-onedark-accent flex-shrink-0" />
-                                    <span className="truncate">{asset.name}</span>
-                                  </td>
-                                  <td className="px-2 py-1 text-right text-onedark-muted text-[10px]">
-                                    {asset.size ? `${(asset.size / 1024).toFixed(1)} KB` : '0 KB'}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        )}
-                      </div>
-                    </div>
+                    {(() => {
+                      const assetsList = diagnosticsData?.assets_found?.length
+                        ? diagnosticsData.assets_found
+                        : (diagnosticsData?.files || []).map((f) => ({
+                            name: f.path,
+                            type: f.path.split('.').pop() || 'file',
+                            size: f.size
+                          }));
+                      return (
+                        <div>
+                          <div className="text-[11px] font-semibold text-onedark-fg mb-1.5 flex items-center justify-between">
+                            <span>Discovered Assets ({assetsList.length})</span>
+                            <span className="text-[10px] font-normal text-onedark-muted">Workspace root</span>
+                          </div>
+                          <div className="bg-onedark-bg rounded-lg border border-onedark-borderSubtle overflow-hidden max-h-32 overflow-y-auto">
+                            {assetsList.length === 0 ? (
+                              <div className="p-2 text-center text-xs text-onedark-muted/60">No web assets found in workspace</div>
+                            ) : (
+                              <table className="w-full text-[11px] font-mono">
+                                <tbody>
+                                  {assetsList.map((asset) => (
+                                    <tr key={asset.name} className="border-b border-onedark-borderSubtle hover:bg-onedark-surface/40">
+                                      <td className="px-2 py-1 text-onedark-fg flex items-center space-x-1.5">
+                                        <FileCode className="w-3 h-3 text-onedark-accent flex-shrink-0" />
+                                        <span className="truncate">{asset.name}</span>
+                                      </td>
+                                      <td className="px-2 py-1 text-right text-onedark-muted text-[10px]">
+                                        {asset.size ? `${(asset.size / 1024).toFixed(1)} KB` : '0 KB'}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Suggested Actions */}
-                    {diagnosticsData?.suggested_actions && diagnosticsData.suggested_actions.length > 0 && (
-                      <div>
-                        <div className="text-[11px] font-semibold text-onedark-fg mb-1.5">Recommendations</div>
-                        <div className="space-y-1">
-                          {diagnosticsData.suggested_actions.map((action, i) => (
-                            <div
-                              key={i}
-                              className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-onedark-surface/40 border border-onedark-borderSubtle text-xs"
-                            >
-                              <span className="text-onedark-fg text-[11px]">{action}</span>
-                              {onAskAgent && (
-                                <button
-                                  onClick={() => handleAskAgentSuggestion(action)}
-                                  className="px-2 py-0.5 rounded bg-onedark-accent/15 hover:bg-onedark-accent/25 text-onedark-accent text-[10.5px] font-medium transition-colors flex items-center space-x-1 cursor-pointer flex-shrink-0 ml-2"
-                                >
-                                  <span>Apply</span>
-                                  <ArrowRight className="w-2.5 h-2.5" />
-                                </button>
-                              )}
-                            </div>
-                          ))}
+                    {(() => {
+                      const actionsList = (diagnosticsData?.suggested_actions && diagnosticsData.suggested_actions.length > 0)
+                        ? diagnosticsData.suggested_actions
+                        : (diagnosticsData?.suggestions && diagnosticsData.suggestions.length > 0)
+                        ? diagnosticsData.suggestions
+                        : [];
+                      if (actionsList.length === 0) return null;
+                      return (
+                        <div>
+                          <div className="text-[11px] font-semibold text-onedark-fg mb-1.5">Recommendations</div>
+                          <div className="space-y-1">
+                            {actionsList.map((action, i) => (
+                              <div
+                                key={i}
+                                className="flex items-center justify-between px-2.5 py-1.5 rounded-lg bg-onedark-surface/40 border border-onedark-borderSubtle text-xs"
+                              >
+                                <span className="text-onedark-fg text-[11px]">{action}</span>
+                                {onAskAgent && (
+                                  <button
+                                    onClick={() => handleAskAgentSuggestion(action)}
+                                    className="px-2 py-0.5 rounded bg-onedark-accent/15 hover:bg-onedark-accent/25 text-onedark-accent text-[10.5px] font-medium transition-colors flex items-center space-x-1 cursor-pointer flex-shrink-0 ml-2"
+                                  >
+                                    <span>Apply</span>
+                                    <ArrowRight className="w-2.5 h-2.5" />
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    )}
+                      );
+                    })()}
                   </>
                 )}
               </div>
