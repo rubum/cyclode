@@ -4073,16 +4073,16 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
           <button
             type="button"
             onClick={() => scrollToBottom(true)}
-            className="flex items-center space-x-2 px-3.5 py-1.5 rounded-full bg-onedark-accent hover:bg-onedark-accent/90 text-white shadow-xl text-xs font-medium cursor-pointer transition-all active:scale-95 border border-white/20 backdrop-blur-md group select-none"
+            className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker shadow-xl shadow-black/40 text-xs font-bold cursor-pointer transition-all active:scale-95 border border-black/15 backdrop-blur-md group select-none"
             title="Resume auto-scroll & jump to latest responses"
           >
             {isRunning ? (
-              <span className="w-2 h-2 rounded-full bg-onedark-yellow animate-pulse shrink-0" />
+              <span className="w-2 h-2 rounded-full bg-onedark-darker animate-pulse shrink-0" />
             ) : (
-              <ChevronDown className="w-3.5 h-3.5 group-hover:translate-y-0.5 transition-transform" />
+              <ChevronDown className="w-3.5 h-3.5 group-hover:translate-y-0.5 transition-transform shrink-0" />
             )}
-            <span>{isRunning ? 'New activity below' : 'Jump to latest'}</span>
-            <ChevronDown className="w-3.5 h-3.5" />
+            <span className="tracking-wide">{isRunning ? 'New activity below' : 'Jump to latest'}</span>
+            <ChevronDown className="w-3.5 h-3.5 group-hover:translate-y-0.5 transition-transform shrink-0" />
           </button>
         </div>
       )}

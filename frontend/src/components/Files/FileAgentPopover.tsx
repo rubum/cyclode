@@ -1194,16 +1194,16 @@ export const FileAgentPopover: React.FC<FileAgentPopoverProps> = ({
         <div className="absolute bottom-20 right-5 z-20 animate-in fade-in slide-in-from-bottom-2 duration-150">
           <button
             onClick={() => scrollToBottom(true)}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-onedark-accent hover:bg-onedark-accent/90 text-white shadow-lg text-[11px] font-medium transition-all backdrop-blur-xs cursor-pointer active:scale-95 border border-white/20 select-none group"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker shadow-lg shadow-black/35 text-[11px] font-bold transition-all backdrop-blur-xs cursor-pointer active:scale-95 border border-black/15 select-none group"
             title="Resume auto-scroll & jump to latest responses"
           >
             {isLoading ? (
-              <span className="w-2 h-2 rounded-full bg-onedark-yellow animate-pulse shrink-0" />
+              <span className="w-2 h-2 rounded-full bg-onedark-darker animate-pulse shrink-0" />
             ) : (
-              <ChevronDown className="w-3.5 h-3.5 group-hover:translate-y-0.5 transition-transform" />
+              <ChevronDown className="w-3.5 h-3.5 group-hover:translate-y-0.5 transition-transform shrink-0" />
             )}
             <span>{isLoading ? 'New responses below' : 'Scroll to bottom'}</span>
-            <ChevronDown className="w-3.5 h-3.5" />
+            <ChevronDown className="w-3.5 h-3.5 group-hover:translate-y-0.5 transition-transform shrink-0" />
           </button>
         </div>
       )}
