@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { 
   Folder, 
   FolderOpen, 
@@ -199,6 +199,18 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
 
   const collapseAll = () => {
     setExpandedFolders({});
+  };
+
+  const isAnyFolderExpanded = useMemo(() => {
+    return Object.values(expandedFolders).some(Boolean);
+  }, [expandedFolders]);
+
+  const toggleAllFolders = () => {
+    if (isAnyFolderExpanded) {
+      collapseAll();
+    } else {
+      expandAll();
+    }
   };
 
   const formatBytes = (bytes: number) => {
@@ -740,24 +752,18 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
             )}
 
             {searchMode === 'files' && (
-              <div className="flex items-center space-x-0.5 border-l border-onedark-borderSubtle/60 pl-1 ml-0.5">
-                <button
-                  type="button"
-                  onClick={expandAll}
-                  className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright transition-colors cursor-pointer"
-                  title="Expand All Folders"
-                >
-                  <UnfoldVertical className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={collapseAll}
-                  className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright transition-colors cursor-pointer"
-                  title="Collapse All Folders"
-                >
+              <button
+                type="button"
+                onClick={toggleAllFolders}
+                className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright transition-colors cursor-pointer border border-transparent hover:border-onedark-borderSubtle"
+                title={isAnyFolderExpanded ? "Collapse All Folders" : "Expand All Folders"}
+              >
+                {isAnyFolderExpanded ? (
                   <FoldVertical className="w-3.5 h-3.5" />
-                </button>
-              </div>
+                ) : (
+                  <UnfoldVertical className="w-3.5 h-3.5" />
+                )}
+              </button>
             )}
 
             {onToggleCollapse && (

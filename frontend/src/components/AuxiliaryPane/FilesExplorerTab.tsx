@@ -48,6 +48,10 @@ const sandboxCache = new Map<string, SandboxInfo>();
 // Client-side cache for last viewed file and line per task
 const taskActiveFileCache = new Map<string, { filePath: string; line: number | null }>();
 
+const DEFAULT_TREE_WIDTH = 280;
+const MIN_TREE_WIDTH = 180;
+const MAX_TREE_WIDTH = 600;
+
 export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ 
   task,
   selectedFilePath,
@@ -131,6 +135,76 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleToggleTreeCollapsed]);
+
+  // File tree explorer sidebar resizer state
+  const tabContainerRef = useRef<HTMLDivElement>(null);
+  const [treeWidth, setTreeWidth] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('cyclode_file_tree_width');
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed) && parsed >= MIN_TREE_WIDTH && parsed <= MAX_TREE_WIDTH) {
+          return parsed;
+        }
+      }
+    } catch {}
+    return DEFAULT_TREE_WIDTH;
+  });
+
+  const isDraggingResizer = useRef(false);
+  const [isResizingTree, setIsResizingTree] = useState(false);
+  const treeWidthRef = useRef<number>(treeWidth);
+
+  useEffect(() => {
+    treeWidthRef.current = treeWidth;
+  }, [treeWidth]);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isDraggingResizer.current && tabContainerRef.current) {
+        const containerRect = tabContainerRef.current.getBoundingClientRect();
+        const maxWidth = Math.min(MAX_TREE_WIDTH, Math.max(MIN_TREE_WIDTH, containerRect.width - 200));
+        const newWidth = Math.max(MIN_TREE_WIDTH, Math.min(maxWidth, e.clientX - containerRect.left));
+        setTreeWidth(newWidth);
+        treeWidthRef.current = newWidth;
+      }
+    };
+
+    const handleMouseUp = () => {
+      if (isDraggingResizer.current) {
+        try {
+          localStorage.setItem('cyclode_file_tree_width', String(treeWidthRef.current));
+        } catch {}
+        isDraggingResizer.current = false;
+        setIsResizingTree(false);
+        document.body.style.cursor = 'default';
+        document.body.style.userSelect = 'auto';
+      }
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
+
+  const handleResizerMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingResizer.current = true;
+    setIsResizingTree(true);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, []);
+
+  const handleResetTreeWidth = useCallback(() => {
+    setTreeWidth(DEFAULT_TREE_WIDTH);
+    treeWidthRef.current = DEFAULT_TREE_WIDTH;
+    try {
+      localStorage.setItem('cyclode_file_tree_width', String(DEFAULT_TREE_WIDTH));
+    } catch {}
+  }, []);
 
   // Navigation History Stack Hook
   const {
@@ -425,25 +499,45 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
   }
 
   return (
-    <div className="h-full flex flex-col md:flex-row overflow-hidden font-sans relative">
+    <div
+      ref={tabContainerRef}
+      style={{ '--tree-w': `${treeWidth}px` } as React.CSSProperties}
+      className="h-full flex flex-col md:flex-row overflow-hidden font-sans relative"
+    >
       {/* Left Tree Explorer */}
       {fileTree.length > 0 && (
         <>
           {!isTreeCollapsed ? (
-            <div className="w-full md:w-72 lg:w-80 h-1/2 md:h-full border-b md:border-b-0 md:border-r border-onedark-borderSubtle flex-shrink-0 transition-all duration-150 relative">
-              <FileTreeExplorer
-                taskId={task.id}
-                tree={fileTree}
-                selectedFile={selectedFile}
-                onSelectFile={(path, line) => {
-                  pushPoint({ filePath: path, line: line || 1 });
-                  handleSelectFile(path, line || null);
-                }}
-                externalSearch={externalSearch}
-                title="Sandbox Files"
-                onToggleCollapse={handleToggleTreeCollapsed}
-              />
-            </div>
+            <>
+              <div
+                className={`w-full md:w-[var(--tree-w)] h-1/2 md:h-full border-b md:border-b-0 md:border-r border-onedark-borderSubtle flex-shrink-0 relative ${
+                  isResizingTree ? 'transition-none select-none' : 'transition-[width] duration-150'
+                }`}
+              >
+                <FileTreeExplorer
+                  taskId={task.id}
+                  tree={fileTree}
+                  selectedFile={selectedFile}
+                  onSelectFile={(path, line) => {
+                    pushPoint({ filePath: path, line: line || 1 });
+                    handleSelectFile(path, line || null);
+                  }}
+                  externalSearch={externalSearch}
+                  title="Sandbox Files"
+                  onToggleCollapse={handleToggleTreeCollapsed}
+                />
+              </div>
+
+              {/* Draggable Vertical Splitter Handle (Desktop) */}
+              <div
+                onMouseDown={handleResizerMouseDown}
+                onDoubleClick={handleResetTreeWidth}
+                className="hidden md:flex w-1.5 -ml-1 hover:bg-onedark-accent/60 active:bg-onedark-accent cursor-col-resize transition-colors flex-shrink-0 z-20 bg-transparent items-center justify-center group"
+                title="Drag to resize file tree (Double-click to reset)"
+              >
+                <div className="w-0.5 h-6 bg-onedark-borderSubtle/60 rounded-full group-hover:bg-onedark-accent transition-colors" />
+              </div>
+            </>
           ) : (
             <>
               {/* Desktop slim collapsed rail */}
