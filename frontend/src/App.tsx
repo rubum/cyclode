@@ -45,9 +45,27 @@ const MainApp: React.FC = () => {
   const [activeAuxTab, setActiveAuxTab] = useState<AuxTabType>('terminal');
   const [sessionPreviews, setSessionPreviews] = useState<Record<string, { url: string; title?: string } | null>>({});
   const [sessionFiles, setSessionFiles] = useState<Record<string, string | null>>({});
+  const [sessionFileLines, setSessionFileLines] = useState<Record<string, number | null>>({});
+  const [sessionAuxTabs, setSessionAuxTabs] = useState<Record<string, AuxTabType>>({});
 
+  const currentTaskAuxTab = activeTaskId ? (sessionAuxTabs[activeTaskId] || activeAuxTab) : activeAuxTab;
   const activePreviewTarget = activeTaskId ? (sessionPreviews[activeTaskId] || null) : (sessionPreviews['draft'] || null);
   const selectedAuxFilePath = activeTaskId ? (sessionFiles[activeTaskId] || null) : (sessionFiles['draft'] || null);
+  const selectedAuxFileLine = activeTaskId ? (sessionFileLines[activeTaskId] || null) : (sessionFileLines['draft'] || null);
+
+  const handleAuxTabChange = useCallback((tab: AuxTabType) => {
+    setActiveAuxTab(tab);
+    const sessionKey = activeTaskIdRef.current || 'draft';
+    setSessionAuxTabs((prev) => ({ ...prev, [sessionKey]: tab }));
+  }, []);
+
+  const handleAuxSelectFile = useCallback((filePath: string, line?: number) => {
+    const sessionKey = activeTaskIdRef.current || 'draft';
+    setSessionFiles((prev) => ({ ...prev, [sessionKey]: filePath }));
+    if (line !== undefined) {
+      setSessionFileLines((prev) => ({ ...prev, [sessionKey]: line }));
+    }
+  }, []);
   const [isClearingAll, setIsClearingAll] = useState<boolean>(false);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
 
@@ -1287,13 +1305,13 @@ const MainApp: React.FC = () => {
   const handleOpenFile = (filePath: string) => {
     const sessionKey = activeTaskId || 'draft';
     setSessionFiles((prev) => ({ ...prev, [sessionKey]: filePath }));
-    setActiveAuxTab('files');
+    handleAuxTabChange('files');
   };
 
   const handleOpenDoc = (target: { url: string; title?: string }) => {
     const sessionKey = activeTaskId || 'draft';
     setSessionPreviews((prev) => ({ ...prev, [sessionKey]: target }));
-    setActiveAuxTab('docs');
+    handleAuxTabChange('docs');
   };
 
   const renderCenterView = () => {
@@ -1413,7 +1431,7 @@ const MainApp: React.FC = () => {
   const activeTask = tasks.find((t) => t.id === activeTaskId);
 
   const handleSelectAuxTab = (tab: 'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'docs' | 'preview' | 'changes') => {
-    setActiveAuxTab(tab);
+    handleAuxTabChange(tab as AuxTabType);
     if (currentPreset === 'fullscreen') {
       handleSetPreset('split');
     }
@@ -1492,7 +1510,7 @@ const MainApp: React.FC = () => {
         title: planTitle
       }
     }));
-    setActiveAuxTab('docs');
+    handleAuxTabChange('docs');
     if (currentPreset === 'fullscreen') {
       handleSetPreset('split');
     }
@@ -1538,13 +1556,16 @@ const MainApp: React.FC = () => {
           <AuxiliaryPane 
             task={activeTaskDetails} 
             repositories={repositories}
-            activeTab={activeAuxTab} 
-            onTabChange={setActiveAuxTab}
+            activeTab={currentTaskAuxTab} 
+            onTabChange={handleAuxTabChange}
             previewTarget={activePreviewTarget}
             selectedFilePath={selectedAuxFilePath}
+            selectedLineNumber={selectedAuxFileLine}
+            onSelectFile={handleAuxSelectFile}
             onClearSelectedFilePath={() => {
               const sessionKey = activeTaskId || 'draft';
               setSessionFiles((prev) => ({ ...prev, [sessionKey]: null }));
+              setSessionFileLines((prev) => ({ ...prev, [sessionKey]: null }));
             }}
             onClearPreview={handleClearPreview}
             onAskAboutRepo={(repoName) => {

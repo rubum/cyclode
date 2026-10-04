@@ -87,6 +87,9 @@ export type ViewerMode = 'code' | 'preview' | 'table' | 'tree' | 'image' | 'medi
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
+// Client-side scroll position cache across file switches and navigation tabs
+const fileScrollCache = new Map<string, number>();
+
 export const CodeViewer: React.FC<CodeViewerProps> = ({ 
   taskId, 
   filePath, 
@@ -258,7 +261,11 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
   }, []);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
-    setScrollTop(e.currentTarget.scrollTop);
+    const top = e.currentTarget.scrollTop;
+    setScrollTop(top);
+    if (taskId && filePath) {
+      fileScrollCache.set(`${taskId}:${filePath}`, top);
+    }
     if (activeBlameCard) {
       setActiveBlameCard(null);
     }
@@ -349,29 +356,37 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
     }
   };
 
-  // Handle auto-scroll to targetLine with virtual window calculation
+  // Handle auto-scroll to targetLine with virtual window calculation, or restore cached scroll
   useEffect(() => {
-    if (!targetLine || !data) return;
+    if (!data) return;
 
-    setActiveHighlightLine(targetLine);
-    const fileBaseLine = data.start_line || 1;
-    const targetIdx = targetLine - fileBaseLine;
-    if (targetIdx >= 0 && scrollContainerRef.current) {
-      const targetOffset = (targetIdx * ROW_HEIGHT) - (viewportHeight / 2) + (ROW_HEIGHT / 2);
-      scrollContainerRef.current.scrollTo({
-        top: Math.max(0, targetOffset),
-        behavior: 'smooth'
-      });
+    if (targetLine) {
+      setActiveHighlightLine(targetLine);
+      const fileBaseLine = data.start_line || 1;
+      const targetIdx = targetLine - fileBaseLine;
+      if (targetIdx >= 0 && scrollContainerRef.current) {
+        const targetOffset = (targetIdx * ROW_HEIGHT) - (viewportHeight / 2) + (ROW_HEIGHT / 2);
+        scrollContainerRef.current.scrollTo({
+          top: Math.max(0, targetOffset),
+          behavior: 'smooth'
+        });
+      }
+
+      const fadeTimer = setTimeout(() => {
+        setActiveHighlightLine(null);
+      }, 4000);
+
+      return () => {
+        clearTimeout(fadeTimer);
+      };
+    } else if (taskId && filePath && fileScrollCache.has(`${taskId}:${filePath}`)) {
+      const savedScroll = fileScrollCache.get(`${taskId}:${filePath}`) || 0;
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTop = savedScroll;
+      }
+      setScrollTop(savedScroll);
     }
-
-    const fadeTimer = setTimeout(() => {
-      setActiveHighlightLine(null);
-    }, 4000);
-
-    return () => {
-      clearTimeout(fadeTimer);
-    };
-  }, [targetLine, data, viewportHeight]);
+  }, [targetLine, data, viewportHeight, taskId, filePath]);
 
   const handleCopy = () => {
     if (!data?.content) return;

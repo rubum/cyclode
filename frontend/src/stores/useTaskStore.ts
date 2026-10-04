@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Task, TaskMessage } from "../types";
+import { Task, TaskMessage, AuxTabType } from "../types";
 
 const API_BASE = import.meta.env.VITE_API_URL || "";
 
@@ -8,6 +8,9 @@ export interface TaskStoreState {
   activeTaskId: string | null;
   activeTaskDetails: Task | null;
   sessionPreviews: Record<string, { url: string; title?: string } | null>;
+  sessionFiles: Record<string, string | null>;
+  sessionFileLines: Record<string, number | null>;
+  sessionAuxTabs: Record<string, AuxTabType>;
   isClearingAll: boolean;
   deletingTaskId: string | null;
   fetchTasks: () => Promise<void>;
@@ -16,6 +19,9 @@ export interface TaskStoreState {
   setActiveTaskDetails: React.Dispatch<React.SetStateAction<Task | null>>;
   setTasks: React.Dispatch<React.SetStateAction<Task[]>>;
   setSessionPreviews: React.Dispatch<React.SetStateAction<Record<string, { url: string; title?: string } | null>>>;
+  setSessionFiles: React.Dispatch<React.SetStateAction<Record<string, string | null>>>;
+  setSessionFileLines: React.Dispatch<React.SetStateAction<Record<string, number | null>>>;
+  setSessionAuxTabs: React.Dispatch<React.SetStateAction<Record<string, AuxTabType>>>;
   setIsClearingAll: (clearing: boolean) => void;
   setDeletingTaskId: (id: string | null) => void;
   activeTaskIdRef: React.MutableRefObject<string | null>;
@@ -26,6 +32,9 @@ export function useTaskStore(): TaskStoreState {
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [activeTaskDetails, setActiveTaskDetails] = useState<Task | null>(null);
   const [sessionPreviews, setSessionPreviews] = useState<Record<string, { url: string; title?: string } | null>>({});
+  const [sessionFiles, setSessionFiles] = useState<Record<string, string | null>>({});
+  const [sessionFileLines, setSessionFileLines] = useState<Record<string, number | null>>({});
+  const [sessionAuxTabs, setSessionAuxTabs] = useState<Record<string, AuxTabType>>({});
   const [isClearingAll, setIsClearingAll] = useState<boolean>(false);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
 
@@ -101,6 +110,9 @@ export function useTaskStore(): TaskStoreState {
     activeTaskId,
     activeTaskDetails,
     sessionPreviews,
+    sessionFiles,
+    sessionFileLines,
+    sessionAuxTabs,
     isClearingAll,
     deletingTaskId,
     fetchTasks,
@@ -109,6 +121,9 @@ export function useTaskStore(): TaskStoreState {
     setActiveTaskDetails,
     setTasks,
     setSessionPreviews,
+    setSessionFiles,
+    setSessionFileLines,
+    setSessionAuxTabs,
     setIsClearingAll,
     setDeletingTaskId,
     activeTaskIdRef,

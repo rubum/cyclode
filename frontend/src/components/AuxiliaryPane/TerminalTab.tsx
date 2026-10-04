@@ -39,6 +39,7 @@ interface TerminalSessionState {
 interface TerminalTabProps {
   task?: Task | null;
   onOpenFile?: (filePath: string) => void;
+  isActive?: boolean;
 }
 
 const ONEDARK_TERMINAL_THEME = {
@@ -91,7 +92,7 @@ const ONELIGHT_TERMINAL_THEME = {
   brightWhite: '#24292e',
 };
 
-export const TerminalTab: React.FC<TerminalTabProps> = ({ task, onOpenFile }) => {
+export const TerminalTab: React.FC<TerminalTabProps> = ({ task, onOpenFile, isActive = true }) => {
   const taskId = task?.id;
   const { isConnected, sendMessage, subscribe } = useWebSocket();
 
@@ -450,9 +451,9 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({ task, onOpenFile }) =>
     };
   }, [activeSessionId, sendMessage]);
 
-  // Trigger fit and focus when activeSessionId changes
+  // Trigger fit and focus when activeSessionId changes or tab becomes active
   useEffect(() => {
-    if (activeSessionId) {
+    if (activeSessionId && isActive) {
       setTimeout(() => {
         const inst = terminalInstancesRef.current.get(activeSessionId);
         if (inst) {
@@ -465,7 +466,7 @@ export const TerminalTab: React.FC<TerminalTabProps> = ({ task, onOpenFile }) =>
         }
       }, 50);
     }
-  }, [activeSessionId]);
+  }, [activeSessionId, isActive]);
 
   // Teardown all instances on unmount
   useEffect(() => {

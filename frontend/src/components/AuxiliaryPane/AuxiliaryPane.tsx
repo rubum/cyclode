@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { GitPullRequest, Activity, Cpu, Inbox, Folder, Compass, Play, GitCompare, Terminal as TerminalIcon } from 'lucide-react';
 import { Task, WorkspacePreviewInfo } from '../../types';
 import { PullRequestsTab } from './PullRequestsTab';
@@ -24,6 +24,8 @@ interface AuxiliaryPaneProps {
   onTabChange?: (tab: AuxTabType) => void;
   previewTarget?: { url: string; title?: string } | null;
   selectedFilePath?: string | null;
+  selectedLineNumber?: number | null;
+  onSelectFile?: (filePath: string, line?: number) => void;
   onClearSelectedFilePath?: () => void;
   onClearPreview?: () => void;
   onAskAboutRepo?: (repoName: string) => void;
@@ -52,6 +54,8 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
   onTabChange,
   previewTarget,
   selectedFilePath,
+  selectedLineNumber,
+  onSelectFile,
   onClearSelectedFilePath,
   onClearPreview,
   onAskAboutRepo,
@@ -60,6 +64,9 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
 }) => {
   const [previewInfo, setPreviewInfo] = useState<WorkspacePreviewInfo | null>(null);
   const [targetCommitSha, setTargetCommitSha] = useState<string | null>(null);
+
+  const sessionKey = task?.id || 'draft';
+  const [visitedTabsMap, setVisitedTabsMap] = useState<Record<string, Set<AuxTabType>>>({});
 
   const checkPreviewStatus = useCallback(async () => {
     if (!task?.id || task.id.startsWith('temp-')) {
@@ -91,6 +98,22 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
   });
 
   const activeTab = controlledTab ?? internalTab;
+
+  const visitedTabs = useMemo(() => {
+    const existing = visitedTabsMap[sessionKey];
+    if (existing) return existing;
+    return new Set<AuxTabType>([activeTab]);
+  }, [visitedTabsMap, sessionKey, activeTab]);
+
+  useEffect(() => {
+    setVisitedTabsMap((prev) => {
+      const current = prev[sessionKey];
+      if (current && current.has(activeTab)) return prev;
+      const next = new Set(current || []);
+      next.add(activeTab);
+      return { ...prev, [sessionKey]: next };
+    });
+  }, [activeTab, sessionKey]);
 
   const handleTabClick = (tab: AuxTabType) => {
     setInternalTab(tab);
@@ -179,81 +202,197 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
         })}
       </div>
 
-      {/* Tab body with smooth enter transition */}
-      <div className="flex-1 overflow-hidden animate-stream-fade-in" key={activeTab}>
-        <ErrorBoundary key={`${activeTab}-${task?.id || 'none'}`} fallbackTitle={`Error Loading ${activeTab.toUpperCase()} Tab`}>
-          {activeTab === 'docs' && (
-            <DocsViewerTab
-              url={previewTarget?.url || null}
-              initialTitle={previewTarget?.title}
-              onClear={onClearPreview}
-              onAskAboutRepo={onAskAboutRepo}
-              onCloneToSession={onCloneToSession}
-              onAskAgent={onAskAboutComment}
-              task={task}
-              repositories={repositories}
-            />
-          )}
-          {activeTab === 'files' && task && (
-            <FilesExplorerTab 
-              task={task} 
-              selectedFilePath={selectedFilePath} 
-              onClearSelectedFilePath={onClearSelectedFilePath}
-              onViewCommitDiff={(sha) => {
-                setTargetCommitSha(sha);
-                handleTabClick('changes');
-              }}
-            />
-          )}
-          {activeTab === 'files' && !task && (
-            <div className="h-full flex flex-col items-center justify-center p-6 text-center text-onedark-muted font-mono select-none bg-onedark-darker">
-              <div className="p-3 rounded-2xl bg-onedark-surface/40 border border-onedark-borderSubtle/80 mb-3 shadow-xs">
-                <Folder className="w-8 h-8 text-onedark-folder/80 stroke-[1.5]" />
-              </div>
-              <div className="text-xs font-semibold text-onedark-fg">No active task selected</div>
-              <div className="text-[11px] text-onedark-muted mt-1.5 max-w-xs leading-relaxed">
-                Select or launch an engineering task to inspect its workspace repository files.
-              </div>
-            </div>
-          )}
-          {activeTab === 'terminal' && (
-            <TerminalTab
-              task={task}
-              onOpenFile={(filePath) => {
-                if (filePath) {
-                  handleTabClick('files');
-                }
-              }}
-            />
-          )}
-          {activeTab === 'preview' && (
-            <AppPreviewTab
-              task={task}
-              onSelectAuxTab={handleTabClick}
-              onAskAgent={onAskAboutComment}
-            />
-          )}
-          {activeTab === 'changes' && (
-            <ChangesDiffTab 
-              task={task} 
-              onSelectAuxTab={handleTabClick} 
-              targetCommitSha={targetCommitSha}
-              onClearTargetCommitSha={() => setTargetCommitSha(null)}
-            />
-          )}
-          {activeTab === 'prs' && (
-            <PullRequestsTab
-              task={task}
-              selectedPrUrl={isPrForTask(previewTarget?.url, task) ? previewTarget?.url : undefined}
-              onClearSelectedPr={onClearPreview}
-              onCloneToSession={onCloneToSession}
-              onAskAboutComment={onAskAboutComment}
-            />
-          )}
-          {activeTab === 'activity' && <ToolActivityTab logs={task?.logs} />}
-          {(activeTab === 'agents' || activeTab === 'subagents') && <AgentsTab task={task} />}
-          {activeTab === 'event' && <EventInspectorTab task={task} />}
-        </ErrorBoundary>
+      {/* Tab body with persistent keep-alive state across tab switches */}
+      <div className="flex-1 relative overflow-hidden">
+        {visitedTabs.has('docs') && (
+          <div
+            className={`absolute inset-0 w-full h-full transition-opacity duration-150 ${
+              activeTab === 'docs'
+                ? 'opacity-100 pointer-events-auto z-10 visible'
+                : 'opacity-0 pointer-events-none z-0 invisible'
+            }`}
+            aria-hidden={activeTab !== 'docs'}
+          >
+            <ErrorBoundary fallbackTitle="Error Loading DOCS Tab">
+              <DocsViewerTab
+                url={previewTarget?.url || null}
+                initialTitle={previewTarget?.title}
+                onClear={onClearPreview}
+                onAskAboutRepo={onAskAboutRepo}
+                onCloneToSession={onCloneToSession}
+                onAskAgent={onAskAboutComment}
+                task={task}
+                repositories={repositories}
+              />
+            </ErrorBoundary>
+          </div>
+        )}
+
+        {visitedTabs.has('files') && (
+          <div
+            className={`absolute inset-0 w-full h-full transition-opacity duration-150 ${
+              activeTab === 'files'
+                ? 'opacity-100 pointer-events-auto z-10 visible'
+                : 'opacity-0 pointer-events-none z-0 invisible'
+            }`}
+            aria-hidden={activeTab !== 'files'}
+          >
+            <ErrorBoundary fallbackTitle="Error Loading FILES Tab">
+              {task ? (
+                <FilesExplorerTab 
+                  task={task} 
+                  selectedFilePath={selectedFilePath} 
+                  selectedLineNumber={selectedLineNumber}
+                  onSelectFile={onSelectFile}
+                  onClearSelectedFilePath={onClearSelectedFilePath}
+                  onViewCommitDiff={(sha) => {
+                    setTargetCommitSha(sha);
+                    handleTabClick('changes');
+                  }}
+                />
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center p-6 text-center text-onedark-muted font-mono select-none bg-onedark-darker">
+                  <div className="p-3 rounded-2xl bg-onedark-surface/40 border border-onedark-borderSubtle/80 mb-3 shadow-xs">
+                    <Folder className="w-8 h-8 text-onedark-folder/80 stroke-[1.5]" />
+                  </div>
+                  <div className="text-xs font-semibold text-onedark-fg">No active task selected</div>
+                  <div className="text-[11px] text-onedark-muted mt-1.5 max-w-xs leading-relaxed">
+                    Select or launch an engineering task to inspect its workspace repository files.
+                  </div>
+                </div>
+              )}
+            </ErrorBoundary>
+          </div>
+        )}
+
+        {visitedTabs.has('terminal') && (
+          <div
+            className={`absolute inset-0 w-full h-full transition-opacity duration-150 ${
+              activeTab === 'terminal'
+                ? 'opacity-100 pointer-events-auto z-10 visible'
+                : 'opacity-0 pointer-events-none z-0 invisible'
+            }`}
+            aria-hidden={activeTab !== 'terminal'}
+          >
+            <ErrorBoundary fallbackTitle="Error Loading TERMINAL Tab">
+              <TerminalTab
+                task={task}
+                isActive={activeTab === 'terminal'}
+                onOpenFile={(filePath) => {
+                  if (filePath) {
+                    onSelectFile?.(filePath);
+                    handleTabClick('files');
+                  }
+                }}
+              />
+            </ErrorBoundary>
+          </div>
+        )}
+
+        {visitedTabs.has('preview') && (
+          <div
+            className={`absolute inset-0 w-full h-full transition-opacity duration-150 ${
+              activeTab === 'preview'
+                ? 'opacity-100 pointer-events-auto z-10 visible'
+                : 'opacity-0 pointer-events-none z-0 invisible'
+            }`}
+            aria-hidden={activeTab !== 'preview'}
+          >
+            <ErrorBoundary fallbackTitle="Error Loading PREVIEW Tab">
+              <AppPreviewTab
+                task={task}
+                onSelectAuxTab={handleTabClick}
+                onAskAgent={onAskAboutComment}
+              />
+            </ErrorBoundary>
+          </div>
+        )}
+
+        {visitedTabs.has('changes') && (
+          <div
+            className={`absolute inset-0 w-full h-full transition-opacity duration-150 ${
+              activeTab === 'changes'
+                ? 'opacity-100 pointer-events-auto z-10 visible'
+                : 'opacity-0 pointer-events-none z-0 invisible'
+            }`}
+            aria-hidden={activeTab !== 'changes'}
+          >
+            <ErrorBoundary fallbackTitle="Error Loading CHANGES Tab">
+              <ChangesDiffTab 
+                task={task} 
+                onSelectAuxTab={handleTabClick} 
+                targetCommitSha={targetCommitSha}
+                onClearTargetCommitSha={() => setTargetCommitSha(null)}
+              />
+            </ErrorBoundary>
+          </div>
+        )}
+
+        {visitedTabs.has('prs') && (
+          <div
+            className={`absolute inset-0 w-full h-full transition-opacity duration-150 ${
+              activeTab === 'prs'
+                ? 'opacity-100 pointer-events-auto z-10 visible'
+                : 'opacity-0 pointer-events-none z-0 invisible'
+            }`}
+            aria-hidden={activeTab !== 'prs'}
+          >
+            <ErrorBoundary fallbackTitle="Error Loading PRs Tab">
+              <PullRequestsTab
+                task={task}
+                selectedPrUrl={isPrForTask(previewTarget?.url, task) ? previewTarget?.url : undefined}
+                onClearSelectedPr={onClearPreview}
+                onCloneToSession={onCloneToSession}
+                onAskAboutComment={onAskAboutComment}
+              />
+            </ErrorBoundary>
+          </div>
+        )}
+
+        {visitedTabs.has('activity') && (
+          <div
+            className={`absolute inset-0 w-full h-full transition-opacity duration-150 ${
+              activeTab === 'activity'
+                ? 'opacity-100 pointer-events-auto z-10 visible'
+                : 'opacity-0 pointer-events-none z-0 invisible'
+            }`}
+            aria-hidden={activeTab !== 'activity'}
+          >
+            <ErrorBoundary fallbackTitle="Error Loading ACTIVITY Tab">
+              <ToolActivityTab logs={task?.logs} />
+            </ErrorBoundary>
+          </div>
+        )}
+
+        {(visitedTabs.has('agents') || visitedTabs.has('subagents')) && (
+          <div
+            className={`absolute inset-0 w-full h-full transition-opacity duration-150 ${
+              (activeTab === 'agents' || activeTab === 'subagents')
+                ? 'opacity-100 pointer-events-auto z-10 visible'
+                : 'opacity-0 pointer-events-none z-0 invisible'
+            }`}
+            aria-hidden={activeTab !== 'agents' && activeTab !== 'subagents'}
+          >
+            <ErrorBoundary fallbackTitle="Error Loading AGENTS Tab">
+              <AgentsTab task={task} />
+            </ErrorBoundary>
+          </div>
+        )}
+
+        {visitedTabs.has('event') && (
+          <div
+            className={`absolute inset-0 w-full h-full transition-opacity duration-150 ${
+              activeTab === 'event'
+                ? 'opacity-100 pointer-events-auto z-10 visible'
+                : 'opacity-0 pointer-events-none z-0 invisible'
+            }`}
+            aria-hidden={activeTab !== 'event'}
+          >
+            <ErrorBoundary fallbackTitle="Error Loading EVENT Tab">
+              <EventInspectorTab task={task} />
+            </ErrorBoundary>
+          </div>
+        )}
       </div>
     </div>
   );
