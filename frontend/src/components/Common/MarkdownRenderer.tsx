@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Copy, Check, Info, AlertTriangle, AlertCircle, Sparkles, Flame, ChevronRight, ChevronDown, Compass, ArrowRight, Maximize2, Minimize2, ArrowLeftRight } from 'lucide-react';
 import katex from 'katex';
 import { highlightCode, resolveLanguage, escapeHtml } from '../../utils/syntaxHighlighter';
+import { MermaidDiagram } from './MermaidDiagram';
+import { ChatChartBlock } from '../Chat/ChatChartBlock';
 
 interface MarkdownRendererProps {
   content: string;
@@ -164,9 +166,32 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
           const lines = part.slice(3, -3).trim().split('\n');
           const firstLine = lines[0].trim();
           const hasLang = /^[a-zA-Z0-9_-]+$/.test(firstLine);
-          const language = hasLang ? firstLine : '';
+          const rawLanguage = hasLang ? firstLine : '';
+          const language = rawLanguage.toLowerCase();
           const codeLines = hasLang ? lines.slice(1) : lines;
           const code = codeLines.join('\n');
+
+          // Dynamic in-chat chart visualization (Recharts)
+          if (language === 'chart') {
+            return (
+              <ChatChartBlock
+                key={index}
+                rawJson={code}
+                isStreaming={isStreaming}
+              />
+            );
+          }
+
+          // Dynamic in-chat & plan workflow diagram (Mermaid)
+          if (language === 'mermaid') {
+            return (
+              <MermaidDiagram
+                key={index}
+                code={code}
+              />
+            );
+          }
+
           const isCollapsed = !!collapsedCodeBlocks[index];
           const isFullHeight = !!fullHeightCodeBlocks[index];
           const isFullWidth = !!fullWidthCodeBlocks[index];

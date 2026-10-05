@@ -18,8 +18,24 @@ import {
   Info,
   ChevronDown,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  BarChart3
 } from 'lucide-react';
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  LineChart,
+  Line,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  Legend
+} from 'recharts';
+import { CHART_THEME } from '../../Charts/ChartTheme';
 
 interface DataTableViewProps {
   taskId?: string;
@@ -61,6 +77,11 @@ export const DataTableView: React.FC<DataTableViewProps> = ({
   const [sqlError, setSqlError] = useState<string | null>(null);
   const [serverStats, setServerStats] = useState<Record<string, ColumnStat>>({});
   const [showStats, setShowStats] = useState<boolean>(false);
+  // View mode & charting state
+  const [viewMode, setViewMode] = useState<'table' | 'chart'>('table');
+  const [chartType, setChartType] = useState<'bar' | 'line' | 'area'>('bar');
+  const [chartXCol, setChartXCol] = useState<string>('');
+  const [chartYCol, setChartYCol] = useState<string>('');
 
   // Server table data state for binary files (xlsx, xls, parquet) or server-streamed tables
   const isBinaryTable = useMemo(() => {
@@ -258,6 +279,36 @@ export const DataTableView: React.FC<DataTableViewProps> = ({
     return sortedRows.slice(start, start + pageSize);
   }, [sortedRows, currentPage, pageSize]);
 
+  // Derive chart dataset
+  const resolvedXCol = chartXCol || activeHeaders[0] || '';
+  const xColIdx = Math.max(0, activeHeaders.indexOf(resolvedXCol));
+
+  // Auto-detect first numeric column for Y axis if not chosen
+  const resolvedYCol = useMemo(() => {
+    if (chartYCol && activeHeaders.includes(chartYCol)) return chartYCol;
+    for (let i = 0; i < activeHeaders.length; i++) {
+      if (i !== xColIdx && activeRows.some((r) => typeof r[i] === 'number' || (!isNaN(Number(r[i])) && r[i] !== ''))) {
+        return activeHeaders[i];
+      }
+    }
+    return activeHeaders[1] || activeHeaders[0] || '';
+  }, [chartYCol, activeHeaders, xColIdx, activeRows]);
+
+  const yColIdx = Math.max(0, activeHeaders.indexOf(resolvedYCol));
+
+  const chartData = useMemo(() => {
+    if (activeHeaders.length === 0 || activeRows.length === 0) return [];
+    return sortedRows.slice(0, 100).map((r) => {
+      const rawX = r[xColIdx];
+      const rawY = r[yColIdx];
+      const numY = typeof rawY === 'number' ? rawY : parseFloat(String(rawY));
+      return {
+        [resolvedXCol]: rawX != null ? String(rawX) : '',
+        [resolvedYCol]: isNaN(numY) ? 0 : numY,
+      };
+    });
+  }, [sortedRows, activeHeaders, xColIdx, yColIdx, resolvedXCol, resolvedYCol]);
+
   const handleHeaderClick = (colIdx: number) => {
     if (sortCol === colIdx) {
       if (sortDir === 'asc') setSortDir('desc');
@@ -349,8 +400,32 @@ export const DataTableView: React.FC<DataTableViewProps> = ({
           </div>
         </div>
 
-        {/* Right: Delimiter, Stats & Settings */}
+        {/* Right: View mode, Delimiter, Stats & Settings */}
         <div className="flex items-center space-x-2 flex-shrink-0">
+          {/* Table / Chart Toggle */}
+          <div className="flex items-center bg-onedark-surface/60 rounded-md p-0.5 border border-onedark-borderSubtle">
+            <button
+              type="button"
+              onClick={() => setViewMode('table')}
+              className={`flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-mono cursor-pointer transition-colors ${
+                viewMode === 'table' ? 'bg-onedark-accent text-onedark-darker font-bold shadow-xs' : 'text-onedark-muted hover:text-onedark-fg'
+              }`}
+            >
+              <Table className="w-3 h-3" />
+              <span>Table</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('chart')}
+              className={`flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-mono cursor-pointer transition-colors ${
+                viewMode === 'chart' ? 'bg-onedark-accent text-onedark-darker font-bold shadow-xs' : 'text-onedark-muted hover:text-onedark-fg'
+              }`}
+            >
+              <BarChart3 className="w-3 h-3" />
+              <span>Chart</span>
+            </button>
+          </div>
+
           {/* Stats Toggle */}
           <button
             type="button"
@@ -478,102 +553,196 @@ export const DataTableView: React.FC<DataTableViewProps> = ({
         </div>
       )}
 
-      {/* Grid Container */}
-      <div className="flex-1 overflow-auto bg-onedark-bg relative [scrollbar-gutter:stable]">
-        <table className="w-full text-left border-collapse font-mono text-[11.5px] select-text">
-          <thead className="bg-onedark-surface sticky top-0 z-10 border-b border-onedark-borderSubtle shadow-xs">
-            <tr>
-              <th className="w-12 px-2.5 py-1.5 text-onedark-muted/60 text-right font-normal border-r border-onedark-borderSubtle/60 select-none">
-                #
-              </th>
-              {activeHeaders.map((h, idx) => (
-                <th
-                  key={idx}
-                  onClick={() => handleHeaderClick(idx)}
-                  className="px-3 py-1.5 text-onedark-fgBright font-semibold hover:bg-onedark-darker/60 cursor-pointer border-r border-onedark-borderSubtle/40 transition-colors select-none"
+      {viewMode === 'chart' ? (
+        <div className="flex-1 flex flex-col p-4 bg-onedark-darker overflow-auto">
+          {/* Chart Controls Bar */}
+          <div className="flex items-center justify-between pb-3 mb-3 border-b border-onedark-borderSubtle flex-wrap gap-2 text-xs font-mono">
+            <div className="flex items-center space-x-3">
+              <div className="flex items-center space-x-1.5">
+                <span className="text-onedark-muted">Type:</span>
+                <select
+                  value={chartType}
+                  onChange={(e) => setChartType(e.target.value as any)}
+                  className="bg-onedark-surface border border-onedark-borderSubtle rounded px-2 py-1 text-onedark-fg text-xs font-mono cursor-pointer focus:outline-none"
                 >
-                  <div className="flex items-center justify-between space-x-1">
-                    <span className="truncate">{h || `Column ${idx + 1}`}</span>
-                    {sortCol === idx ? (
-                      sortDir === 'asc' ? (
-                        <ArrowUp className="w-3 h-3 text-onedark-accent flex-shrink-0" />
-                      ) : (
-                        <ArrowDown className="w-3 h-3 text-onedark-accent flex-shrink-0" />
-                      )
-                    ) : (
-                      <ArrowUpDown className="w-2.5 h-2.5 text-onedark-muted/40 opacity-0 group-hover:opacity-100 flex-shrink-0" />
-                    )}
-                  </div>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-onedark-borderSubtle/30">
-            {paginatedRows.length === 0 ? (
-              <tr>
-                <td colSpan={activeHeaders.length + 1} className="py-12 text-center text-onedark-muted">
-                  {filterQuery ? 'No matching rows found.' : 'Dataset is empty.'}
-                </td>
-              </tr>
-            ) : (
-              paginatedRows.map((row, rowIdx) => {
-                const globalRowIdx = (currentPage - 1) * pageSize + rowIdx + 1;
-                return (
-                  <tr
-                    key={rowIdx}
-                    className="hover:bg-onedark-surface/40 transition-colors even:bg-onedark-surface/10"
-                  >
-                    <td className="px-2.5 py-1 text-onedark-muted/60 text-right border-r border-onedark-borderSubtle/40 select-none font-mono text-[10.5px]">
-                      {globalRowIdx}
-                    </td>
-                    {activeHeaders.map((_, colIdx) => (
-                      <td
-                        key={colIdx}
-                        className="px-3 py-1 text-onedark-fg border-r border-onedark-borderSubtle/20 max-w-xs truncate"
-                        title={String(row[colIdx] ?? '')}
-                      >
-                        {highlightMatch(String(row[colIdx] ?? ''), filterQuery)}
-                      </td>
-                    ))}
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
+                  <option value="bar">Bar Chart</option>
+                  <option value="line">Line Chart</option>
+                  <option value="area">Area Chart</option>
+                </select>
+              </div>
 
-      {/* Pagination Footer */}
-      {totalPages > 1 && (
-        <div className="px-3 py-1.5 bg-onedark-darker/90 border-t border-onedark-borderSubtle flex items-center justify-between flex-shrink-0 font-mono text-[11px] text-onedark-muted">
-          <div>
-            Showing {(currentPage - 1) * pageSize + 1}–
-            {Math.min(currentPage * pageSize, sortedRows.length)} of {sortedRows.length} rows
-            {filterQuery && ` (filtered from ${activeRows.length})`}
+              <div className="flex items-center space-x-1.5">
+                <span className="text-onedark-muted">X-Axis:</span>
+                <select
+                  value={resolvedXCol}
+                  onChange={(e) => setChartXCol(e.target.value)}
+                  className="bg-onedark-surface border border-onedark-borderSubtle rounded px-2 py-1 text-onedark-fg text-xs font-mono cursor-pointer focus:outline-none"
+                >
+                  {activeHeaders.map((h, i) => (
+                    <option key={i} value={h}>{h || `Col ${i + 1}`}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center space-x-1.5">
+                <span className="text-onedark-muted">Y-Axis:</span>
+                <select
+                  value={resolvedYCol}
+                  onChange={(e) => setChartYCol(e.target.value)}
+                  className="bg-onedark-surface border border-onedark-borderSubtle rounded px-2 py-1 text-onedark-fg text-xs font-mono cursor-pointer focus:outline-none"
+                >
+                  {activeHeaders.map((h, i) => (
+                    <option key={i} value={h}>{h || `Col ${i + 1}`}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="text-[11px] text-onedark-muted">
+              Plotting {Math.min(sortedRows.length, 100)} data points
+            </div>
           </div>
 
-          <div className="flex items-center space-x-1.5">
-            <button
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
-              className="p-1 rounded bg-onedark-surface hover:bg-onedark-surface/80 text-onedark-fg disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed border border-onedark-borderSubtle"
-              title="Previous page"
-            >
-              <ChevronLeft className="w-3.5 h-3.5" />
-            </button>
-            <span className="px-2 font-semibold text-onedark-fg">
-              Page {currentPage} of {totalPages}
-            </span>
-            <button
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}
-              className="p-1 rounded bg-onedark-surface hover:bg-onedark-surface/80 text-onedark-fg disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed border border-onedark-borderSubtle"
-              title="Next page"
-            >
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
+          {/* Chart Display Canvas */}
+          <div className="flex-1 min-h-[300px] w-full pt-2">
+            <ResponsiveContainer width="100%" height="100%">
+              {chartType === 'line' ? (
+                <LineChart data={chartData} margin={{ top: 12, right: 20, left: 10, bottom: 20 }}>
+                  <CartesianGrid {...CHART_THEME.grid} />
+                  <XAxis dataKey={resolvedXCol} {...CHART_THEME.axis} tick={{ fontSize: 10 }} />
+                  <YAxis {...CHART_THEME.axis} tick={{ fontSize: 10 }} />
+                  <Tooltip {...CHART_THEME.tooltip} />
+                  <Legend wrapperStyle={{ paddingTop: 8, fontSize: 11, fontFamily: 'JetBrains Mono, Menlo, monospace', color: '#CBD5E1' }} />
+                  <Line type="monotone" dataKey={resolvedYCol} stroke={CHART_THEME.colors.accent} strokeWidth={2.2} dot={{ r: 3, fill: CHART_THEME.colors.accent }} />
+                </LineChart>
+              ) : chartType === 'area' ? (
+                <AreaChart data={chartData} margin={{ top: 12, right: 20, left: 10, bottom: 20 }}>
+                  <defs>
+                    <linearGradient id="dataAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={CHART_THEME.colors.accent} stopOpacity={0.4} />
+                      <stop offset="95%" stopColor={CHART_THEME.colors.accent} stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid {...CHART_THEME.grid} />
+                  <XAxis dataKey={resolvedXCol} {...CHART_THEME.axis} tick={{ fontSize: 10 }} />
+                  <YAxis {...CHART_THEME.axis} tick={{ fontSize: 10 }} />
+                  <Tooltip {...CHART_THEME.tooltip} />
+                  <Legend wrapperStyle={{ paddingTop: 8, fontSize: 11, fontFamily: 'JetBrains Mono, Menlo, monospace', color: '#CBD5E1' }} />
+                  <Area type="monotone" dataKey={resolvedYCol} stroke={CHART_THEME.colors.accent} fillOpacity={1} fill="url(#dataAreaGrad)" strokeWidth={2} />
+                </AreaChart>
+              ) : (
+                <BarChart data={chartData} margin={{ top: 12, right: 20, left: 10, bottom: 20 }}>
+                  <CartesianGrid {...CHART_THEME.grid} />
+                  <XAxis dataKey={resolvedXCol} {...CHART_THEME.axis} tick={{ fontSize: 10 }} />
+                  <YAxis {...CHART_THEME.axis} tick={{ fontSize: 10 }} />
+                  <Tooltip {...CHART_THEME.tooltip} />
+                  <Legend wrapperStyle={{ paddingTop: 8, fontSize: 11, fontFamily: 'JetBrains Mono, Menlo, monospace', color: '#CBD5E1' }} />
+                  <Bar dataKey={resolvedYCol} fill={CHART_THEME.colors.accent} radius={[4, 4, 0, 0]} maxBarSize={48} />
+                </BarChart>
+              )}
+            </ResponsiveContainer>
           </div>
         </div>
+      ) : (
+        <>
+          {/* Grid Container */}
+          <div className="flex-1 overflow-auto bg-onedark-bg relative [scrollbar-gutter:stable]">
+            <table className="w-full text-left border-collapse font-mono text-[11.5px] select-text">
+              <thead className="bg-onedark-surface sticky top-0 z-10 border-b border-onedark-borderSubtle shadow-xs">
+                <tr>
+                  <th className="w-12 px-2.5 py-1.5 text-onedark-muted/60 text-right font-normal border-r border-onedark-borderSubtle/60 select-none">
+                    #
+                  </th>
+                  {activeHeaders.map((h, idx) => (
+                    <th
+                      key={idx}
+                      onClick={() => handleHeaderClick(idx)}
+                      className="px-3 py-1.5 text-onedark-fgBright font-semibold hover:bg-onedark-darker/60 cursor-pointer border-r border-onedark-borderSubtle/40 transition-colors select-none"
+                    >
+                      <div className="flex items-center justify-between space-x-1">
+                        <span className="truncate">{h || `Column ${idx + 1}`}</span>
+                        {sortCol === idx ? (
+                          sortDir === 'asc' ? (
+                            <ArrowUp className="w-3 h-3 text-onedark-accent flex-shrink-0" />
+                          ) : (
+                            <ArrowDown className="w-3 h-3 text-onedark-accent flex-shrink-0" />
+                          )
+                        ) : (
+                          <ArrowUpDown className="w-2.5 h-2.5 text-onedark-muted/40 opacity-0 group-hover:opacity-100 flex-shrink-0" />
+                        )}
+                      </div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-onedark-borderSubtle/30">
+                {paginatedRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={activeHeaders.length + 1} className="py-12 text-center text-onedark-muted">
+                      {filterQuery ? 'No matching rows found.' : 'Dataset is empty.'}
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedRows.map((row, rowIdx) => {
+                    const globalRowIdx = (currentPage - 1) * pageSize + rowIdx + 1;
+                    return (
+                      <tr
+                        key={rowIdx}
+                        className="hover:bg-onedark-surface/40 transition-colors even:bg-onedark-surface/10"
+                      >
+                        <td className="px-2.5 py-1 text-onedark-muted/60 text-right border-r border-onedark-borderSubtle/40 select-none font-mono text-[10.5px]">
+                          {globalRowIdx}
+                        </td>
+                        {activeHeaders.map((_, colIdx) => (
+                          <td
+                            key={colIdx}
+                            className="px-3 py-1 text-onedark-fg border-r border-onedark-borderSubtle/20 max-w-xs truncate"
+                            title={String(row[colIdx] ?? '')}
+                          >
+                            {highlightMatch(String(row[colIdx] ?? ''), filterQuery)}
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination Footer */}
+          {totalPages > 1 && (
+            <div className="px-3 py-1.5 bg-onedark-darker/90 border-t border-onedark-borderSubtle flex items-center justify-between flex-shrink-0 font-mono text-[11px] text-onedark-muted">
+              <div>
+                Showing {(currentPage - 1) * pageSize + 1}–
+                {Math.min(currentPage * pageSize, sortedRows.length)} of {sortedRows.length} rows
+                {filterQuery && ` (filtered from ${activeRows.length})`}
+              </div>
+
+              <div className="flex items-center space-x-1.5">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="p-1 rounded bg-onedark-surface hover:bg-onedark-surface/80 text-onedark-fg disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed border border-onedark-borderSubtle"
+                  title="Previous page"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+                <span className="px-2 font-semibold text-onedark-fg">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="p-1 rounded bg-onedark-surface hover:bg-onedark-surface/80 text-onedark-fg disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed border border-onedark-borderSubtle"
+                  title="Next page"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

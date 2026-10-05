@@ -846,6 +846,44 @@ async def test_approval_directive_adopts_existing_plan_and_locks_execution():
         assert "Phase 1: Design and User Interface" in plan["steps"][0]["title"]
 
 
+def test_generate_plan_markdown_mermaid_from_steps():
+    from app.agent.engine.planning import generate_plan_markdown
+    plan = {
+        "title": "Migrate Database Schema",
+        "objective": "Apply migration and verify constraints",
+        "steps": [
+            {"title": "Inspect current schema", "status": "completed"},
+            {"title": "Run Alembic migration", "status": "in_progress"},
+            {"title": "Verify data integrity", "status": "pending"}
+        ]
+    }
+    md = generate_plan_markdown(plan)
+    assert "```mermaid" in md
+    assert "flowchart LR" in md
+    assert 'S1["1. Inspect current schema"]' in md
+    assert 'S2["2. Run Alembic migration"]' in md
+    assert 'S3["3. Verify data integrity"]' in md
+    assert "S1 --> S2 --> S3" in md
+
+
+def test_generate_plan_markdown_mermaid_from_phases():
+    from app.agent.engine.planning import generate_plan_markdown
+    plan = {
+        "title": "Build Realtime Dashboard",
+        "objective": "Implement charts and websocket streaming",
+        "phases": [
+            {"phase_number": 1, "title": "Design Chart Components"},
+            {"phase_number": 2, "title": "Wire WebSocket Streams"}
+        ]
+    }
+    md = generate_plan_markdown(plan)
+    assert "```mermaid" in md
+    assert "flowchart LR" in md
+    assert 'P1["Phase 1: Design Chart Components"]' in md
+    assert 'P2["Phase 2: Wire WebSocket Streams"]' in md
+    assert "P1 --> P2" in md
+
+
 
 
 

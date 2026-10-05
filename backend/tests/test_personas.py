@@ -42,6 +42,14 @@ def test_persona_zero_internal_leakage_invariant_in_all_personas():
         assert "Zero Chain-of-Thought Residue" in instructions
 
 
+def test_persona_dynamic_visualization_standards_in_all_personas():
+    for name, persona in PERSONAS.items():
+        instructions = persona["system_instructions"]
+        assert "Dynamic In-Chat Visualization & Diagramming Standards" in instructions
+        assert "```chart" in instructions
+        assert "```mermaid" in instructions
+
+
 def test_infer_task_intent_general_persona():
     # Q&A / URL queries with General persona
     assert Harness.infer_task_intent("Summarize URL", "Summarize this https://gemini.google.com/updates", "General") == "qa_research"

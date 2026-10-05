@@ -15,21 +15,28 @@ def generate_plan_markdown(plan: Dict[str, Any], title: str = "", prompt: str = 
     steps = plan.get("steps", [])
     eval_info = plan.get("evaluation") or {}
     
+    phases = plan.get("phases") or []
+    
     # Format mermaid diagram
     mermaid_steps = []
-    for idx, s in enumerate(steps):
-        s_title = s.get("title", f"Step {idx+1}").replace('"', "'")
-        step_id = f"S{idx+1}"
-        mermaid_steps.append(f'    {step_id}["{idx+1}. {s_title}"]')
+    if steps and isinstance(steps, list):
+        for idx, s in enumerate(steps):
+            s_title = s.get("title", f"Step {idx+1}").replace('"', "'")
+            step_id = f"S{idx+1}"
+            mermaid_steps.append(f'    {step_id}["{idx+1}. {s_title}"]')
+    elif phases and isinstance(phases, list):
+        for idx, p in enumerate(phases):
+            p_title = p.get("title", f"Phase {idx+1}").replace('"', "'")
+            step_id = f"P{idx+1}"
+            mermaid_steps.append(f'    {step_id}["Phase {idx+1}: {p_title}"]')
     
     mermaid_flow = ""
     if len(mermaid_steps) > 1:
-        arrows = " --> ".join([f"S{i+1}" for i in range(len(mermaid_steps))])
+        prefix = "S" if (steps and isinstance(steps, list) and len(steps) > 0) else "P"
+        arrows = " --> ".join([f"{prefix}{i+1}" for i in range(len(mermaid_steps))])
         mermaid_flow = "```mermaid\nflowchart LR\n" + "\n".join(mermaid_steps) + f"\n    {arrows}\n```\n"
     elif len(mermaid_steps) == 1:
         mermaid_flow = "```mermaid\nflowchart LR\n" + mermaid_steps[0] + "\n```\n"
-
-    phases = plan.get("phases")
     if phases and isinstance(phases, list) and len(phases) > 0:
         raw_title = plan.get("title") or title or obj
         clean_title = raw_title if raw_title.startswith("Implementation Plan:") else f"Implementation Plan: {raw_title}"

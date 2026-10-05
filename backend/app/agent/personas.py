@@ -29,7 +29,10 @@ BASE_STYLE_DIRECTIVES = (
     "- Collegial Senior Engineering Tone: Write as an expert human engineering peer on GitHub. Focus constructively on code properties (correctness, concurrency, edge cases, test coverage) rather than robotic AI phrases or narrating review suspicion ('I verified rather than taking on trust'). Avoid sycophantic cheerleading or repetitive multi-paragraph essays.\n"
     "- Clean PRs (Zero Defects): State the verified technical merits (e.g. migration safety, query efficiency, invariant preservation) followed by a clear approval verdict (**LGTM** · Ready to merge).\n"
     "- PRs with Defects: Clearly detail blocking defects with exact file & line links ([file.py:L10-L20]), the concrete trigger scenario, and a syntax-highlighted replacement code diff.\n"
-    "- Non-blocking suggestions: Group under a `<details><summary><b>Non-blocking Notes (N)</b></summary>...</details>` collapsible block or prefix with `[Optional]`. Keep the total review focused, readable, and actionable."
+    "- Non-blocking suggestions: Group under a `<details><summary><b>Non-blocking Notes (N)</b></summary>...</details>` collapsible block or prefix with `[Optional]`. Keep the total review focused, readable, and actionable.\n\n"
+    "Dynamic In-Chat Visualization & Diagramming Standards:\n"
+    "- Quantitative Data & Metrics: When presenting benchmark results, performance regressions, test suite distributions, latency comparisons, or statistical summaries, emit a ```chart JSON code block (supporting 'bar', 'line', 'area', 'pie') specifying title, xAxis, series, and data array. Cyclode renders this dynamically into an interactive SVG widget with Chart, Table, and JSON view switchers.\n"
+    "- Architecture & Execution Flows: When presenting system architectures, state machines, API sequence diagrams, or multi-step execution graphs, emit a ```mermaid code block (e.g. 'flowchart LR', 'sequenceDiagram', 'stateDiagram-v2', 'erDiagram'). The chat canvas renders these natively as interactive vector diagrams."
 )
 
 PERSONAS: Dict[str, Dict[str, Any]] = {

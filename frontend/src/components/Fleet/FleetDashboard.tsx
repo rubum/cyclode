@@ -17,10 +17,23 @@ import {
   Bot, 
   FolderGit2, 
   Sparkles,
-  Zap
+  Zap,
+  BarChart3
 } from 'lucide-react';
+import { 
+  ResponsiveContainer, 
+  BarChart, 
+  Bar, 
+  AreaChart, 
+  Area, 
+  XAxis, 
+  YAxis, 
+  Tooltip, 
+  CartesianGrid 
+} from 'recharts';
 import { Task } from '../../types';
 import { formatRelativeTime, formatFullDateTime } from '../../utils/date';
+import { CHART_THEME } from '../Charts/ChartTheme';
 
 interface FleetDashboardProps {
   tasks: Task[];
@@ -47,6 +60,32 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
     const completed = tasks.filter((t) => t.status === 'COMPLETED').length;
     const failed = tasks.filter((t) => t.status === 'FAILED' || t.status === 'CANCELLED').length;
     return { total, running, awaiting, completed, failed };
+  }, [tasks]);
+
+  const personaTokenData = useMemo(() => {
+    const map: Record<string, { persona: string; tokens: number; sessions: number }> = {};
+    for (const t of tasks) {
+      const p = t.persona || 'General';
+      if (!map[p]) {
+        map[p] = { persona: p, tokens: 0, sessions: 0 };
+      }
+      map[p].tokens += t.total_tokens || 0;
+      map[p].sessions += 1;
+    }
+    return Object.values(map);
+  }, [tasks]);
+
+  const recentTaskTimeline = useMemo(() => {
+    const sorted = [...tasks]
+      .filter((t) => t.created_at)
+      .sort((a, b) => new Date(a.created_at || '').getTime() - new Date(b.created_at || '').getTime())
+      .slice(-8);
+
+    return sorted.map((t, idx) => ({
+      name: t.title ? (t.title.length > 14 ? t.title.slice(0, 14) + '...' : t.title) : `#${idx + 1}`,
+      tokens: t.total_tokens || 0,
+      persona: t.persona || 'General',
+    }));
   }, [tasks]);
 
   const filteredTasks = useMemo(() => {
@@ -287,7 +326,8 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
           </div>
 
           {!isBannerCollapsed && (
-            <div className="p-4 pt-0 border-t border-onedark-borderSubtle grid grid-cols-2 md:grid-cols-4 gap-3 pt-3">
+            <>
+              <div className="p-4 pt-0 border-t border-onedark-borderSubtle grid grid-cols-2 md:grid-cols-4 gap-3 pt-3">
               <div className="p-3 rounded-lg bg-onedark-bg border border-onedark-borderSubtle">
                 <div className="text-[10px] font-semibold text-onedark-fg/60 uppercase">Active Workers</div>
                 <div className="text-base font-bold text-onedark-yellow mt-0.5">{counts.running} Active</div>
@@ -311,8 +351,66 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
                 </div>
               </div>
             </div>
-          )}
-        </div>
+
+            {/* Visual Analytics Row */}
+            {tasks.length > 0 && (
+              <div className="p-4 pt-3 border-t border-onedark-borderSubtle grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* Token Burn by Persona */}
+                <div className="p-3.5 rounded-lg bg-onedark-bg border border-onedark-borderSubtle flex flex-col">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center space-x-1.5 text-xs font-semibold text-onedark-fgBright">
+                      <BarChart3 className="w-3.5 h-3.5 text-onedark-accent" />
+                      <span>Token Consumption by Persona</span>
+                    </div>
+                    <span className="text-[10px] font-mono text-onedark-muted">
+                      {personaTokenData.reduce((acc, p) => acc + p.tokens, 0).toLocaleString()} Total Tokens
+                    </span>
+                  </div>
+                  <div className="h-44 w-full pt-1">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={personaTokenData} margin={{ top: 8, right: 10, left: -10, bottom: 0 }}>
+                        <CartesianGrid {...CHART_THEME.grid} />
+                        <XAxis dataKey="persona" {...CHART_THEME.axis} tick={{ fontSize: 10 }} />
+                        <YAxis {...CHART_THEME.axis} tick={{ fontSize: 10 }} />
+                        <Tooltip {...CHART_THEME.tooltip} />
+                        <Bar dataKey="tokens" name="Tokens" fill={CHART_THEME.colors.accent} radius={[4, 4, 0, 0]} maxBarSize={36} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Recent Sessions Token Velocity */}
+                <div className="p-3.5 rounded-lg bg-onedark-bg border border-onedark-borderSubtle flex flex-col">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center space-x-1.5 text-xs font-semibold text-onedark-fgBright">
+                      <Activity className="w-3.5 h-3.5 text-onedark-green" />
+                      <span>Recent Sessions Velocity</span>
+                    </div>
+                    <span className="text-[10px] font-mono text-onedark-muted">Last {recentTaskTimeline.length} Sessions</span>
+                  </div>
+                  <div className="h-44 w-full pt-1">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={recentTaskTimeline} margin={{ top: 8, right: 10, left: -10, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor={CHART_THEME.colors.green} stopOpacity={0.4} />
+                            <stop offset="95%" stopColor={CHART_THEME.colors.green} stopOpacity={0.02} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid {...CHART_THEME.grid} />
+                        <XAxis dataKey="name" {...CHART_THEME.axis} tick={{ fontSize: 10 }} />
+                        <YAxis {...CHART_THEME.axis} tick={{ fontSize: 10 }} />
+                        <Tooltip {...CHART_THEME.tooltip} />
+                        <Area type="monotone" dataKey="tokens" name="Tokens" stroke={CHART_THEME.colors.green} fillOpacity={1} fill="url(#areaGrad)" strokeWidth={2} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
 
         {/* Main List / Grid View */}
       <div className="space-y-3">
