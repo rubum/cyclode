@@ -111,6 +111,11 @@ class TaskListenConfigRequest(BaseModel):
     auto_commit_fixes: Optional[bool] = True
 
 
+class RenameFileRequest(BaseModel):
+    old_path: str
+    new_path: str
+
+
 @router.get("")
 async def list_tasks(
     status: Optional[str] = None,
@@ -1892,6 +1897,152 @@ async def upload_sandbox_files(
             logger.debug(f"Git snapshot for uploaded files notice: {snap_err}")
 
     return {"uploaded": uploaded_records, "count": len(uploaded_records)}
+
+
+@router.post("/{task_id}/files/rename")
+async def rename_sandbox_file(
+    task_id: str,
+    req: RenameFileRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Safely renames or moves a file or directory within the task sandbox workspace.
+    Enforces path traversal defenses, CoW hardlink protections, Git-awareness (git mv),
+    and broadcasts real-time filesystem updates over WebSockets.
+    """
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    result = await db.execute(stmt)
+    task = result.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    ws_path = Path(task.workspace_path).resolve() if task.workspace_path else None
+    if ws_path and ws_path.name != f"sandbox-{task.id}":
+        specific_sb = Path(settings.WORKSPACE_ROOT) / f"sandbox-{task.id}"
+        if specific_sb.exists() and specific_sb.is_dir():
+            ws_path = specific_sb
+
+    if not ws_path or not ws_path.exists() or not ws_path.is_dir():
+        raise HTTPException(status_code=404, detail="Sandbox workspace does not exist on disk")
+
+    raw_old = unquote(req.old_path or "").strip()
+    raw_new = unquote(req.new_path or "").strip()
+
+    if not raw_old or not raw_new:
+        raise HTTPException(status_code=400, detail="Both old_path and new_path must be non-empty")
+
+    def _sanitize_rel_path(p_str: str) -> str:
+        clean = p_str.replace("\\", "/").lstrip("/")
+        if clean.startswith(ws_path.name + "/"):
+            clean = clean[len(ws_path.name) + 1:]
+        elif clean.startswith("sandbox-"):
+            parts = re.split(r"[/\\]", clean, 1)
+            if len(parts) > 1 and parts[0].startswith("sandbox-"):
+                clean = parts[1]
+        return clean.strip("/")
+
+    clean_old = _sanitize_rel_path(raw_old)
+    clean_new = _sanitize_rel_path(raw_new)
+
+    if not clean_old or not clean_new:
+        raise HTTPException(status_code=400, detail="Cannot rename workspace root")
+
+    source_path = (ws_path / clean_old).resolve()
+    dest_path = (ws_path / clean_new).resolve()
+
+    # Path traversal validation: both must reside strictly inside workspace
+    try:
+        source_path.relative_to(ws_path)
+        dest_path.relative_to(ws_path)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Path traversal outside sandbox workspace is forbidden")
+
+    if source_path == ws_path or dest_path == ws_path:
+        raise HTTPException(status_code=400, detail="Cannot rename workspace root")
+
+    # Guard internal/critical system directories
+    for part in source_path.relative_to(ws_path).parts:
+        if part == ".git":
+            raise HTTPException(status_code=403, detail="Direct operations on .git internal directories are forbidden")
+    for part in dest_path.relative_to(ws_path).parts:
+        if part == ".git":
+            raise HTTPException(status_code=403, detail="Direct operations on .git internal directories are forbidden")
+
+    if not source_path.exists():
+        raise HTTPException(status_code=404, detail=f"Source file '{clean_old}' not found")
+
+    if dest_path.exists() and dest_path != source_path:
+        raise HTTPException(status_code=409, detail=f"Destination '{clean_new}' already exists")
+
+    if dest_path == source_path:
+        return {
+            "success": True,
+            "old_path": clean_old,
+            "new_path": clean_new,
+            "is_dir": source_path.is_dir()
+        }
+
+    # Ensure intermediate destination directories exist
+    dest_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Inode CoW safety: if source is a shared hardlink, unlink and re-create before moving
+    if source_path.is_file() and source_path.stat().st_nlink > 1:
+        file_bytes = source_path.read_bytes()
+        source_path.unlink()
+        source_path.write_bytes(file_bytes)
+
+    # Git-aware rename: attempt `git mv` if inside an initialized git worktree
+    git_dir = ws_path / ".git"
+    git_success = False
+    if git_dir.exists() and git_dir.is_dir():
+        from app.agent.engine.snapshots import _get_isolated_git_env
+        git_env = _get_isolated_git_env()
+        try:
+            rel_src = str(source_path.relative_to(ws_path))
+            rel_dst = str(dest_path.relative_to(ws_path))
+            res = subprocess.run(
+                ["git", "mv", rel_src, rel_dst],
+                cwd=str(ws_path),
+                capture_output=True,
+                text=True,
+                timeout=5,
+                env=git_env
+            )
+            if res.returncode == 0:
+                git_success = True
+            else:
+                logger.debug(f"git mv returned {res.returncode}: {res.stderr}; falling back to standard move")
+        except Exception as git_err:
+            logger.debug(f"git mv failed ({git_err}), falling back to filesystem move")
+
+    if not git_success:
+        try:
+            shutil.move(str(source_path), str(dest_path))
+        except Exception as move_err:
+            raise HTTPException(status_code=500, detail=f"Failed to rename file: {str(move_err)}")
+
+    # Broadcast DIFF_UPDATED to all connected clients
+    try:
+        await ws_manager.broadcast_task_event(
+            task_id,
+            "DIFF_UPDATED",
+            {
+                "task_id": task_id,
+                "renamed": {
+                    "old_path": clean_old,
+                    "new_path": str(dest_path.relative_to(ws_path)),
+                }
+            }
+        )
+    except Exception as ws_err:
+        logger.debug(f"WebSocket broadcast error on file rename: {ws_err}")
+
+    return {
+        "success": True,
+        "old_path": clean_old,
+        "new_path": str(dest_path.relative_to(ws_path)),
+        "is_dir": dest_path.is_dir()
+    }
 
 
 def _parse_docx_native(file_path: Path) -> Dict[str, Any]:

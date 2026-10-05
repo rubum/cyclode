@@ -20,6 +20,7 @@ import {
   Zap
 } from 'lucide-react';
 import { Task } from '../../types';
+import { formatRelativeTime, formatFullDateTime } from '../../utils/date';
 
 interface FleetDashboardProps {
   tasks: Task[];
@@ -357,6 +358,7 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
                   <th className="py-3 px-4">Task Title</th>
                   <th className="py-3 px-3">Persona & Repo</th>
                   <th className="py-3 px-3">Branch</th>
+                  <th className="py-3 px-3">Created</th>
                   <th className="py-3 px-3">Status</th>
                   <th className="py-3 px-3 text-right">Action</th>
                 </tr>
@@ -389,6 +391,15 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
                         <span className="bg-onedark-bg px-2 py-0.5 rounded border border-onedark-borderSubtle">
                           {t.git_branch || 'main'}
                         </span>
+                      </td>
+                      <td className="py-3 px-3 font-mono text-[11px] text-onedark-muted">
+                        {t.created_at ? (
+                          <span title={formatFullDateTime(t.created_at)} className="hover:text-onedark-fg transition-colors">
+                            {formatRelativeTime(t.created_at)}
+                          </span>
+                        ) : (
+                          '—'
+                        )}
                       </td>
                       <td className="py-3 px-3">
                         <span className={`inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${statusInfo.className}`}>
@@ -432,6 +443,11 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
                         <div className="text-xs text-onedark-fg/70 font-mono flex items-center space-x-1.5 truncate">
                           <span className="font-semibold text-onedark-accent">{t.persona}</span>
                           {t.repo_name && <span>• {t.repo_name}</span>}
+                          {t.created_at && (
+                            <span title={formatFullDateTime(t.created_at)} className="text-onedark-muted font-normal">
+                              • {formatRelativeTime(t.created_at)}
+                            </span>
+                          )}
                         </div>
                       </div>
 

@@ -18,7 +18,9 @@ import {
   Plus,
   FoldVertical,
   UnfoldVertical,
-  PanelLeftClose
+  PanelLeftClose,
+  Pencil,
+  Check
 } from 'lucide-react';
 import { createGrepMatcher } from '../../utils/grepMatcher';
 import { readDroppedFileSystemEntries, extractFilesFromInput, openNativeFolderPicker, UploadableItem } from '../../utils/fileUpload';
@@ -67,6 +69,7 @@ interface FileTreeExplorerProps {
   tree: FileNode[];
   selectedFile: string | null;
   onSelectFile: (path: string, line?: number) => void;
+  onRenameFile?: (oldPath: string, newPath: string) => Promise<boolean>;
   externalSearch?: ExternalSearchRequest | null;
   title?: string;
   subtitle?: string;
@@ -81,6 +84,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
   tree,
   selectedFile,
   onSelectFile,
+  onRenameFile,
   externalSearch,
   title = 'Sandbox Files',
   subtitle,
@@ -102,6 +106,67 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
   const [searchError, setSearchError] = useState<string | null>(null);
   const [scopeFilter, setScopeFilter] = useState<'all' | 'current' | 'workspace'>('all');
   const [collapsedSearchFiles, setCollapsedSearchFiles] = useState<Record<string, boolean>>({});
+
+  // Inline rename state
+  const [renamingPath, setRenamingPath] = useState<string | null>(null);
+  const [renamingName, setRenamingName] = useState<string>('');
+  const [isSubmittingRename, setIsSubmittingRename] = useState<boolean>(false);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-focus and preselect filename (excluding extension) when entering rename mode
+  useEffect(() => {
+    if (renamingPath && renameInputRef.current) {
+      renameInputRef.current.focus();
+      const dotIdx = renamingName.lastIndexOf('.');
+      if (dotIdx > 0) {
+        renameInputRef.current.setSelectionRange(0, dotIdx);
+      } else {
+        renameInputRef.current.select();
+      }
+    }
+  }, [renamingPath]);
+
+  // F2 keyboard shortcut to trigger rename on selectedFile
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'F2' && selectedFile && onRenameFile && !renamingPath) {
+        e.preventDefault();
+        const baseName = selectedFile.includes('/')
+          ? selectedFile.split('/').pop() || selectedFile
+          : selectedFile;
+        setRenamingPath(selectedFile);
+        setRenamingName(baseName);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedFile, onRenameFile, renamingPath]);
+
+  const handleCommitRename = async (node: FileNode) => {
+    const trimmed = renamingName.trim();
+    if (!trimmed || trimmed === node.name) {
+      setRenamingPath(null);
+      return;
+    }
+    if (!onRenameFile) return;
+
+    const parentDir = node.path.includes('/')
+      ? node.path.substring(0, node.path.lastIndexOf('/') + 1)
+      : '';
+    const newPath = `${parentDir}${trimmed}`;
+
+    setIsSubmittingRename(true);
+    try {
+      const success = await onRenameFile(node.path, newPath);
+      if (success) {
+        setRenamingPath(null);
+      }
+    } catch (err) {
+      console.error('Failed to commit rename:', err);
+    } finally {
+      setIsSubmittingRename(false);
+    }
+  };
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -490,6 +555,63 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
           const dynamicList = dynamicChildren[node.path];
           const isLoading = loadingFolders[node.path];
 
+          // Inline rename form active for this node
+          if (renamingPath === node.path) {
+            return (
+              <div
+                key={node.path}
+                style={{ paddingLeft: `${depth * 14 + (node.is_dir ? 6 : 20)}px` }}
+                className="flex items-center space-x-1.5 py-1 px-1.5 rounded-md bg-onedark-bg border border-onedark-accent shadow-xs"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <span className="w-3.5 h-3.5 flex items-center justify-center flex-shrink-0">
+                  {node.is_dir ? (
+                    <Folder className="w-3.5 h-3.5 text-onedark-folder" />
+                  ) : (
+                    <FileCode className="w-3.5 h-3.5 text-onedark-accent" />
+                  )}
+                </span>
+                <input
+                  ref={renameInputRef}
+                  type="text"
+                  value={renamingName}
+                  onChange={(e) => setRenamingName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleCommitRename(node);
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      setRenamingPath(null);
+                    }
+                  }}
+                  disabled={isSubmittingRename}
+                  className="flex-1 bg-transparent border-none text-xs text-onedark-fgBright outline-none font-mono py-0 px-0 min-w-0"
+                />
+                {isSubmittingRename ? (
+                  <Loader2 className="w-3 h-3 animate-spin text-onedark-accent flex-shrink-0" />
+                ) : (
+                  <div className="flex items-center space-x-0.5 flex-shrink-0">
+                    <button
+                      onClick={() => handleCommitRename(node)}
+                      className="p-0.5 rounded hover:bg-onedark-green/20 text-onedark-green transition-all cursor-pointer"
+                      title="Confirm rename (Enter)"
+                    >
+                      <Check className="w-3 h-3" />
+                    </button>
+                    <button
+                      onClick={() => setRenamingPath(null)}
+                      className="p-0.5 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-all cursor-pointer"
+                      title="Cancel (Esc)"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          }
+
           if (node.is_dir) {
             return (
               <div key={node.path} className="select-none">
@@ -499,7 +621,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
                   style={{ paddingLeft: `${depth * 14 + 6}px` }}
                   className="flex items-center justify-between py-1 px-1.5 rounded-md hover:bg-onedark-surface/60 text-onedark-fg text-xs font-mono cursor-pointer transition-colors group"
                 >
-                  <div className="flex items-center space-x-1.5 min-w-0">
+                  <div className="flex items-center space-x-1.5 min-w-0 flex-1">
                     <span className="w-3.5 h-3.5 flex items-center justify-center flex-shrink-0">
                       {isLoading ? (
                         <Loader2 className="w-3 h-3 animate-spin text-onedark-accent" />
@@ -514,11 +636,26 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
                     )}
                     <span className="truncate group-hover:text-onedark-fgBright transition-colors duration-150">{node.name}</span>
                   </div>
-                  {node.child_count !== undefined && (
-                    <span className="text-[10px] text-onedark-muted/60 opacity-0 group-hover:opacity-100 pr-1 font-mono transition-opacity duration-150">
-                      {node.child_count}
-                    </span>
-                  )}
+                  <div className="flex items-center space-x-1 flex-shrink-0">
+                    {onRenameFile && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRenamingPath(node.path);
+                          setRenamingName(node.name);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-onedark-accent/20 text-onedark-muted hover:text-onedark-accent transition-all flex-shrink-0 cursor-pointer"
+                        title="Rename directory"
+                      >
+                        <Pencil className="w-2.5 h-2.5" />
+                      </button>
+                    )}
+                    {node.child_count !== undefined && (
+                      <span className="text-[10px] text-onedark-muted/60 opacity-0 group-hover:opacity-100 pr-1 font-mono transition-opacity duration-150">
+                        {node.child_count}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {isExpanded && (
@@ -544,16 +681,31 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
                   : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40 border-l-2 border-transparent'
               }`}
             >
-              <div className="flex items-center space-x-1.5 min-w-0">
+              <div className="flex items-center space-x-1.5 min-w-0 flex-1">
                 <FileCode className={`w-3.5 h-3.5 flex-shrink-0 transition-colors duration-150 ${isSelected ? 'text-onedark-accent' : 'text-onedark-muted'}`} />
                 <span className="truncate transition-colors duration-150">{node.name}</span>
               </div>
 
-              {typeof node.size === 'number' && (
-                <span className="text-[10px] text-onedark-muted/50 group-hover:text-onedark-muted pr-1 font-mono flex-shrink-0 transition-colors duration-150">
-                  {formatBytes(node.size)}
-                </span>
-              )}
+              <div className="flex items-center space-x-1 flex-shrink-0">
+                {onRenameFile && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setRenamingPath(node.path);
+                      setRenamingName(node.name);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-onedark-accent/20 text-onedark-muted hover:text-onedark-accent transition-all flex-shrink-0 cursor-pointer"
+                    title="Rename file (F2)"
+                  >
+                    <Pencil className="w-2.5 h-2.5" />
+                  </button>
+                )}
+                {typeof node.size === 'number' && (
+                  <span className="text-[10px] text-onedark-muted/50 group-hover:text-onedark-muted pr-1 font-mono flex-shrink-0 transition-colors duration-150">
+                    {formatBytes(node.size)}
+                  </span>
+                )}
+              </div>
             </div>
           );
         })}

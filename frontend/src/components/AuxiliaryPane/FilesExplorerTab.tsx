@@ -316,6 +316,47 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
     }
   };
 
+  const handleRenameFile = useCallback(async (oldPath: string, newPath: string): Promise<boolean> => {
+    if (!task?.id || task.id.startsWith('temp-')) return false;
+    try {
+      const res = await fetch(`${API_BASE}/api/tasks/${task.id}/files/rename`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ old_path: oldPath, new_path: newPath }),
+      });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.detail || `Failed to rename file (${res.status})`);
+      }
+      const renameResult = await res.json();
+
+      setSelectedFile((prev) => {
+        if (!prev) return prev;
+        if (prev === oldPath) {
+          if (task?.id) {
+            taskActiveFileCache.set(task.id, { filePath: renameResult.new_path, line: targetLine });
+          }
+          return renameResult.new_path;
+        }
+        if (prev.startsWith(oldPath + '/')) {
+          const updated = renameResult.new_path + prev.slice(oldPath.length);
+          if (task?.id) {
+            taskActiveFileCache.set(task.id, { filePath: updated, line: targetLine });
+          }
+          return updated;
+        }
+        return prev;
+      });
+
+      await fetchFilesystem(true);
+      return true;
+    } catch (err: any) {
+      console.error('Rename file error:', err);
+      alert(err.message || 'Failed to rename file');
+      return false;
+    }
+  }, [task?.id, targetLine]);
+
   const { subscribe } = useWebSocketContext();
 
   useEffect(() => {
@@ -522,6 +563,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
                     pushPoint({ filePath: path, line: line || 1 });
                     handleSelectFile(path, line || null);
                   }}
+                  onRenameFile={handleRenameFile}
                   externalSearch={externalSearch}
                   title="Sandbox Files"
                   onToggleCollapse={handleToggleTreeCollapsed}

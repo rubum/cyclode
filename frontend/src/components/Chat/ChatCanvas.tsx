@@ -68,6 +68,7 @@ import { ConfirmModal } from '../Common/ConfirmModal';
 import { SandboxInspectorModal } from '../Sandbox/SandboxInspectorModal';
 import { PRReviewApprovalCard } from './PRReviewApprovalCard';
 import { readDroppedFileSystemEntries, extractFilesFromInput, groupAttachmentsByFolder, openNativeFolderPicker, UploadableItem } from '../../utils/fileUpload';
+import { formatRelativeTime, formatFullDateTime } from '../../utils/date';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -2794,8 +2795,19 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
           )}
         </div>
 
-        {/* Right: Sandbox, Model Badge, Status Badge, Presets, Retry */}
+        {/* Right: Creation Time, Model Badge, Status Badge, Presets, Retry */}
         <div className="flex items-center space-x-1.5 flex-shrink-0">
+          {/* Creation Time Badge */}
+          {task.created_at && (
+            <div 
+              className="hidden lg:flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10.5px] font-mono text-onedark-muted bg-onedark-surface/40 border border-onedark-borderSubtle cursor-default"
+              title={`Created: ${formatFullDateTime(task.created_at)}`}
+            >
+              <Clock className="w-3 h-3 text-onedark-muted/70 flex-shrink-0" />
+              <span>{formatRelativeTime(task.created_at)}</span>
+            </div>
+          )}
+
           {/* Model Badge */}
           {task.model_name && (
             <div 

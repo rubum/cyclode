@@ -31,6 +31,7 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
 import { ConfirmModal } from '../Common/ConfirmModal';
 import { CyclodeIcon } from '../Common/CyclodeIcon';
 import { ThemeColorPicker } from '../Theme/ThemeColorPicker';
+import { formatRelativeTime, formatFullDateTime } from '../../utils/date';
 
 interface SidebarProps {
   activeView: string;
@@ -242,6 +243,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         <span>{formatStatus(task.status)}</span>
                       </span>
                     </div>
+
+                    {task.created_at && (
+                      <div className="flex items-center space-x-1.5 text-[10.5px] text-onedark-muted font-sans">
+                        <Clock className="w-3 h-3 text-onedark-muted/70 flex-shrink-0" />
+                        <span title={formatFullDateTime(task.created_at)}>
+                          Created {formatRelativeTime(task.created_at)}
+                        </span>
+                      </div>
+                    )}
 
                     <div className="flex items-center flex-wrap gap-1 text-[10px]">
                       {task.persona && (
@@ -583,10 +593,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   )}
                 </div>
                 <div className="flex items-center justify-between mt-0.5 text-[10px]">
-                  <span className="text-onedark-muted font-sans text-[10px] truncate max-w-[130px]">
-                    {task.persona}
-                  </span>
-                  <span className={`inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[9px] font-mono leading-none ${getStatusColor(task.status)}`}>
+                  <div className="flex items-center space-x-1.5 min-w-0 flex-1 mr-1">
+                    <span className="text-onedark-muted font-sans text-[10px] truncate max-w-[95px]">
+                      {task.persona}
+                    </span>
+                    {task.created_at && (
+                      <>
+                        <span className="text-onedark-muted/40 text-[9px] flex-shrink-0">•</span>
+                        <span 
+                          className="text-onedark-muted/70 text-[10px] font-mono truncate cursor-default flex-shrink-0 hover:text-onedark-fg transition-colors"
+                          title={`Created: ${formatFullDateTime(task.created_at)}`}
+                        >
+                          {formatRelativeTime(task.created_at)}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  <span className={`inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[9px] font-mono leading-none flex-shrink-0 ${getStatusColor(task.status)}`}>
                     <span className={`w-1.5 h-1.5 rounded-full ${getStatusDot(task.status)}`} />
                     <span>{formatStatus(task.status)}</span>
                   </span>
