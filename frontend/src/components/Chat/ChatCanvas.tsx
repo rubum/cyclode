@@ -58,11 +58,13 @@ import {
   ZoomIn,
   ZoomOut,
   RotateCw,
-  Download
+  Download,
+  Trash2
 } from 'lucide-react';
 import { Task, TaskMessage, TaskLog, RepositoryConfig, TaskPR, WorkspacePreviewInfo, TaskPlan, LayoutPreset } from '../../types';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { FormattedLogView } from '../Common/FormattedLogView';
+import { ConfirmModal } from '../Common/ConfirmModal';
 import { SandboxInspectorModal } from '../Sandbox/SandboxInspectorModal';
 import { PRReviewApprovalCard } from './PRReviewApprovalCard';
 import { readDroppedFileSystemEntries, extractFilesFromInput, groupAttachmentsByFolder, openNativeFolderPicker, UploadableItem } from '../../utils/fileUpload';
@@ -577,6 +579,7 @@ interface ChatCanvasProps {
   onResetTurn?: (turnIndex?: number) => void;
   onStopTask?: () => void;
   onUpdateTaskTitle?: (taskId: string, newTitle: string) => void;
+  onDeleteTask?: (taskId: string) => void;
   isSidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
   currentPreset?: LayoutPreset;
@@ -1200,6 +1203,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   onResetTurn,
   onStopTask,
   onUpdateTaskTitle,
+  onDeleteTask,
   isSidebarCollapsed,
   onToggleSidebar,
   currentPreset,
@@ -1223,6 +1227,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const [editValue, setEditValue] = useState<string>('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isSandboxModalOpen, setIsSandboxModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeletingSession, setIsDeletingSession] = useState(false);
   const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState('');
@@ -2768,10 +2774,20 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               {onUpdateTaskTitle && (
                 <button
                   onClick={handleStartEditTitle}
-                  className="opacity-0 group-hover/title:opacity-100 p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-all flex-shrink-0"
+                  className="opacity-0 group-hover/title:opacity-100 p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-all flex-shrink-0 cursor-pointer"
                   title="Rename session"
                 >
                   <Pencil className="w-3 h-3" />
+                </button>
+              )}
+              {onDeleteTask && (
+                <button
+                  type="button"
+                  onClick={() => setIsDeleteModalOpen(true)}
+                  className="opacity-0 group-hover/title:opacity-100 p-1 rounded hover:bg-onedark-red/20 text-onedark-muted hover:text-onedark-red transition-all flex-shrink-0 cursor-pointer"
+                  title="Delete session"
+                >
+                  <Trash2 className="w-3 h-3" />
                 </button>
               )}
             </div>
@@ -4545,6 +4561,41 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
             <span>Esc to Close</span>
           </div>
         </div>
+      )}
+
+      {/* Delete Current Session Confirm Modal */}
+      {task && (
+        <ConfirmModal
+          isOpen={isDeleteModalOpen}
+          isLoading={isDeletingSession}
+          title="Delete Agent Session"
+          description={`Are you sure you want to delete session "${task.title || 'Untitled'}"?`}
+          confirmText="Delete Session"
+          cancelText="Cancel"
+          variant="danger"
+          impactItems={[
+            'Removes chat conversation history and agent thought logs',
+            'Ephemeral workspace scratch directory will be cleaned up',
+            'You will be taken back to the home launchpad',
+          ]}
+          safeItems={[
+            'Remote repositories and code branches are completely untouched',
+          ]}
+          onConfirm={async () => {
+            if (onDeleteTask && task.id) {
+              try {
+                setIsDeletingSession(true);
+                await onDeleteTask(task.id);
+              } finally {
+                setIsDeletingSession(false);
+                setIsDeleteModalOpen(false);
+              }
+            }
+          }}
+          onCancel={() => {
+            if (!isDeletingSession) setIsDeleteModalOpen(false);
+          }}
+        />
       )}
     </div>
   );

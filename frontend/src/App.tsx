@@ -1236,6 +1236,7 @@ const MainApp: React.FC = () => {
     const prevTasks = [...tasks];
     const prevActiveId = activeTaskId;
     const prevActiveDetails = activeTaskDetails;
+    const prevActiveView = activeView;
 
     // 2. Optimistic local state eviction
     setTasks((prev) => prev.filter((t) => t.id !== taskId));
@@ -1244,15 +1245,27 @@ const MainApp: React.FC = () => {
       delete next[taskId];
       return next;
     });
+    setSessionFiles((prev) => {
+      const next = { ...prev };
+      delete next[taskId];
+      return next;
+    });
+    setSessionFileLines((prev) => {
+      const next = { ...prev };
+      delete next[taskId];
+      return next;
+    });
+    setSessionAuxTabs((prev) => {
+      const next = { ...prev };
+      delete next[taskId];
+      return next;
+    });
 
     if (activeTaskId === taskId) {
-      const remaining = prevTasks.filter((t) => t.id !== taskId && !t.is_subsession);
-      if (remaining.length > 0) {
-        setActiveTaskId(remaining[0].id);
-      } else {
-        setActiveTaskId(null);
-        setActiveTaskDetails(null);
-      }
+      setActiveTaskId(null);
+      setActiveTaskDetails(null);
+      setActiveView('chat');
+      activeTaskIdRef.current = null;
     }
 
     try {
@@ -1264,12 +1277,16 @@ const MainApp: React.FC = () => {
         setTasks(prevTasks);
         setActiveTaskId(prevActiveId);
         setActiveTaskDetails(prevActiveDetails);
+        setActiveView(prevActiveView);
+        activeTaskIdRef.current = prevActiveId;
       }
     } catch (err) {
       console.error('Error deleting task:', err);
       setTasks(prevTasks);
       setActiveTaskId(prevActiveId);
       setActiveTaskDetails(prevActiveDetails);
+      setActiveView(prevActiveView);
+      activeTaskIdRef.current = prevActiveId;
     }
   };
 
@@ -1277,12 +1294,18 @@ const MainApp: React.FC = () => {
     const prevTasks = [...tasks];
     const prevActiveId = activeTaskId;
     const prevActiveDetails = activeTaskDetails;
+    const prevActiveView = activeView;
 
     // Optimistically clear all local sessions immediately
     setTasks([]);
     setActiveTaskId(null);
     setActiveTaskDetails(null);
+    setActiveView('chat');
+    activeTaskIdRef.current = null;
     setSessionPreviews({});
+    setSessionFiles({});
+    setSessionFileLines({});
+    setSessionAuxTabs({});
 
     try {
       const res = await fetch(`${API_BASE}/api/tasks`, {
@@ -1293,12 +1316,16 @@ const MainApp: React.FC = () => {
         setTasks(prevTasks);
         setActiveTaskId(prevActiveId);
         setActiveTaskDetails(prevActiveDetails);
+        setActiveView(prevActiveView);
+        activeTaskIdRef.current = prevActiveId;
       }
     } catch (err) {
       console.error('Error clearing all tasks:', err);
       setTasks(prevTasks);
       setActiveTaskId(prevActiveId);
       setActiveTaskDetails(prevActiveDetails);
+      setActiveView(prevActiveView);
+      activeTaskIdRef.current = prevActiveId;
     }
   };
 
@@ -1330,6 +1357,7 @@ const MainApp: React.FC = () => {
             onResetTurn={handleResetTurn}
             onStopTask={handleStopTask}
             onUpdateTaskTitle={handleUpdateTaskTitle}
+            onDeleteTask={handleDeleteTask}
             isSidebarCollapsed={isSidebarCollapsed}
             onToggleSidebar={handleToggleSidebar}
             currentPreset={currentPreset}
