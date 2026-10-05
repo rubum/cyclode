@@ -313,11 +313,50 @@ export const DocxViewer: React.FC<DocxViewerProps> = ({
         .docx-rendered-content.docx-dark a:hover {
           color: #79c0ff;
         }
-        .docx-rendered-content.docx-dark ul, .docx-rendered-content.docx-dark ol {
-          color: #c9d1d9;
-          padding-left: 1.5em;
+        /* Lists & Nesting in Dark Theme */
+        .docx-rendered-content.docx-dark ul {
+          list-style-type: disc !important;
+          list-style-position: outside;
+          padding-left: 2rem;
           margin-top: 0.4em;
           margin-bottom: 0.4em;
+          color: #c9d1d9;
+        }
+        .docx-rendered-content.docx-dark ul ul {
+          list-style-type: circle !important;
+          padding-left: 1.5rem;
+          margin-top: 0.25em;
+          margin-bottom: 0.25em;
+        }
+        .docx-rendered-content.docx-dark ul ul ul {
+          list-style-type: square !important;
+        }
+        .docx-rendered-content.docx-dark ol {
+          list-style-type: decimal !important;
+          list-style-position: outside;
+          padding-left: 2rem;
+          margin-top: 0.4em;
+          margin-bottom: 0.4em;
+          color: #c9d1d9;
+        }
+        .docx-rendered-content.docx-dark ol ol {
+          list-style-type: lower-alpha !important;
+          padding-left: 1.5rem;
+          margin-top: 0.25em;
+          margin-bottom: 0.25em;
+        }
+        .docx-rendered-content.docx-dark ol ol ol {
+          list-style-type: lower-roman !important;
+        }
+        .docx-rendered-content.docx-dark li {
+          margin-top: 0.3em;
+          margin-bottom: 0.3em;
+          line-height: 1.65;
+          padding-left: 0.25em;
+        }
+        .docx-rendered-content.docx-dark li::marker {
+          color: #79c0ff;
+          font-weight: 600;
         }
         .docx-rendered-content.docx-dark table {
           border-collapse: collapse;
@@ -385,6 +424,51 @@ export const DocxViewer: React.FC<DocxViewerProps> = ({
           color: #1f170c;
           font-weight: 600;
         }
+        /* Lists & Nesting in Sepia Theme */
+        .docx-rendered-content.docx-sepia ul {
+          list-style-type: disc !important;
+          list-style-position: outside;
+          padding-left: 2rem;
+          margin-top: 0.4em;
+          margin-bottom: 0.4em;
+          color: #3e3223;
+        }
+        .docx-rendered-content.docx-sepia ul ul {
+          list-style-type: circle !important;
+          padding-left: 1.5rem;
+          margin-top: 0.25em;
+          margin-bottom: 0.25em;
+        }
+        .docx-rendered-content.docx-sepia ul ul ul {
+          list-style-type: square !important;
+        }
+        .docx-rendered-content.docx-sepia ol {
+          list-style-type: decimal !important;
+          list-style-position: outside;
+          padding-left: 2rem;
+          margin-top: 0.4em;
+          margin-bottom: 0.4em;
+          color: #3e3223;
+        }
+        .docx-rendered-content.docx-sepia ol ol {
+          list-style-type: lower-alpha !important;
+          padding-left: 1.5rem;
+          margin-top: 0.25em;
+          margin-bottom: 0.25em;
+        }
+        .docx-rendered-content.docx-sepia ol ol ol {
+          list-style-type: lower-roman !important;
+        }
+        .docx-rendered-content.docx-sepia li {
+          margin-top: 0.3em;
+          margin-bottom: 0.3em;
+          line-height: 1.65;
+          padding-left: 0.25em;
+        }
+        .docx-rendered-content.docx-sepia li::marker {
+          color: #8f5902;
+          font-weight: 600;
+        }
         .docx-rendered-content.docx-sepia table, .docx-rendered-content.docx-sepia th, .docx-rendered-content.docx-sepia td {
           border: 1px solid #d9c89e;
         }
@@ -411,6 +495,51 @@ export const DocxViewer: React.FC<DocxViewerProps> = ({
         .docx-rendered-content.docx-light a {
           color: #2563eb;
           text-decoration: underline;
+        }
+        /* Lists & Nesting in Light Theme */
+        .docx-rendered-content.docx-light ul {
+          list-style-type: disc !important;
+          list-style-position: outside;
+          padding-left: 2rem;
+          margin-top: 0.4em;
+          margin-bottom: 0.4em;
+          color: #1f2937;
+        }
+        .docx-rendered-content.docx-light ul ul {
+          list-style-type: circle !important;
+          padding-left: 1.5rem;
+          margin-top: 0.25em;
+          margin-bottom: 0.25em;
+        }
+        .docx-rendered-content.docx-light ul ul ul {
+          list-style-type: square !important;
+        }
+        .docx-rendered-content.docx-light ol {
+          list-style-type: decimal !important;
+          list-style-position: outside;
+          padding-left: 2rem;
+          margin-top: 0.4em;
+          margin-bottom: 0.4em;
+          color: #1f2937;
+        }
+        .docx-rendered-content.docx-light ol ol {
+          list-style-type: lower-alpha !important;
+          padding-left: 1.5rem;
+          margin-top: 0.25em;
+          margin-bottom: 0.25em;
+        }
+        .docx-rendered-content.docx-light ol ol ol {
+          list-style-type: lower-roman !important;
+        }
+        .docx-rendered-content.docx-light li {
+          margin-top: 0.3em;
+          margin-bottom: 0.3em;
+          line-height: 1.65;
+          padding-left: 0.25em;
+        }
+        .docx-rendered-content.docx-light li::marker {
+          color: #2563eb;
+          font-weight: 600;
         }
         .docx-rendered-content.docx-light table, .docx-rendered-content.docx-light th, .docx-rendered-content.docx-light td {
           border: 1px solid #e5e7eb;

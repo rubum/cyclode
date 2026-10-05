@@ -2045,10 +2045,89 @@ async def rename_sandbox_file(
     }
 
 
+def _parse_docx_numbering(z: zipfile.ZipFile, w: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """
+    Parses word/numbering.xml from a DOCX zip archive.
+    Returns:
+      abstract_nums: {abstract_num_id: {ilvl: {"numFmt": str, "lvlText": str, "start": int}}}
+      num_map: {num_id: {"abstractNumId": str, "start_overrides": {ilvl: int}}}
+    """
+    import xml.etree.ElementTree as ET
+    abstract_nums: Dict[str, Any] = {}
+    num_map: Dict[str, Any] = {}
+    if "word/numbering.xml" not in z.namelist():
+        return abstract_nums, num_map
+
+    try:
+        num_xml = z.read("word/numbering.xml")
+        tree = ET.fromstring(num_xml)
+        for abs_elem in tree.findall(f"{w}abstractNum"):
+            abs_id = abs_elem.attrib.get(f"{w}abstractNumId") or abs_elem.attrib.get("abstractNumId")
+            if not abs_id:
+                continue
+            levels: Dict[int, Any] = {}
+            for lvl_elem in abs_elem.findall(f"{w}lvl"):
+                ilvl_str = lvl_elem.attrib.get(f"{w}ilvl") or lvl_elem.attrib.get("ilvl") or "0"
+                try:
+                    ilvl = int(ilvl_str)
+                except ValueError:
+                    ilvl = 0
+
+                numFmt = ""
+                fmt_elem = lvl_elem.find(f"{w}numFmt")
+                if fmt_elem is not None:
+                    numFmt = (fmt_elem.attrib.get(f"{w}val") or fmt_elem.attrib.get("val") or "").lower()
+
+                lvlText = ""
+                text_elem = lvl_elem.find(f"{w}lvlText")
+                if text_elem is not None:
+                    lvlText = text_elem.attrib.get(f"{w}val") or text_elem.attrib.get("val") or ""
+
+                start = 1
+                start_elem = lvl_elem.find(f"{w}start")
+                if start_elem is not None:
+                    try:
+                        start = int(start_elem.attrib.get(f"{w}val") or start_elem.attrib.get("val") or "1")
+                    except ValueError:
+                        start = 1
+
+                levels[ilvl] = {"numFmt": numFmt, "lvlText": lvlText, "start": start}
+            abstract_nums[abs_id] = levels
+
+        for num_elem in tree.findall(f"{w}num"):
+            num_id = num_elem.attrib.get(f"{w}numId") or num_elem.attrib.get("numId")
+            if not num_id:
+                continue
+            abs_ref_elem = num_elem.find(f"{w}abstractNumId")
+            abs_id = ""
+            if abs_ref_elem is not None:
+                abs_id = abs_ref_elem.attrib.get(f"{w}val") or abs_ref_elem.attrib.get("val") or ""
+
+            overrides: Dict[int, int] = {}
+            for lvl_ov in num_elem.findall(f"{w}lvlOverride"):
+                ov_ilvl_str = lvl_ov.attrib.get(f"{w}ilvl") or lvl_ov.attrib.get("ilvl") or "0"
+                try:
+                    ov_ilvl = int(ov_ilvl_str)
+                except ValueError:
+                    ov_ilvl = 0
+                start_ov = lvl_ov.find(f"{w}startOverride")
+                if start_ov is not None:
+                    try:
+                        overrides[ov_ilvl] = int(start_ov.attrib.get(f"{w}val") or start_ov.attrib.get("val") or "1")
+                    except ValueError:
+                        pass
+            num_map[num_id] = {"abstractNumId": abs_id, "start_overrides": overrides}
+    except Exception as e:
+        logger.debug(f"Error parsing numbering.xml: {e}")
+
+    return abstract_nums, num_map
+
+
 def _parse_docx_native(file_path: Path) -> Dict[str, Any]:
     """
     Zero-dependency pure-Python OOXML parser for Microsoft Word (.docx) documents
     extracting clean HTML, headings hierarchy, styled paragraphs, tables, and metadata.
+    Faithfully parses list numbering, bullet hierarchies, font weights, and nested document outlines.
     """
     import xml.etree.ElementTree as ET
 
@@ -2066,6 +2145,8 @@ def _parse_docx_native(file_path: Path) -> Dict[str, Any]:
                     "characters_count": 0,
                     "tables_count": 0
                 }
+
+            abstract_nums, num_map = _parse_docx_numbering(z, w)
 
             doc_xml = z.read("word/document.xml")
             tree = ET.fromstring(doc_xml)
@@ -2087,21 +2168,32 @@ def _parse_docx_native(file_path: Path) -> Dict[str, Any]:
             p_count = 0
             tbl_count = 0
 
+            # List nesting stack: [{'tag': 'ol'|'ul', 'ilvl': int, 'has_open_li': bool}]
+            list_stack: List[Dict[str, Any]] = []
+            # Numbering counters per (num_id, ilvl)
+            counters: Dict[Tuple[str, int], int] = {}
+
+            def close_list_stack():
+                while list_stack:
+                    top = list_stack.pop()
+                    if top.get("has_open_li"):
+                        html_parts.append(f"</li></{top['tag']}>")
+                    else:
+                        html_parts.append(f"</{top['tag']}>")
+
             for elem in body:
                 tag = elem.tag
                 if tag == f"{w}p":
                     p_count += 1
                     pPr = elem.find(f"{w}pPr")
                     style_val = ""
-                    is_num = False
                     align = ""
+                    numPr = None
                     if pPr is not None:
                         pStyle = pPr.find(f"{w}pStyle")
                         if pStyle is not None:
                             style_val = pStyle.attrib.get(f"{w}val", "") or pStyle.attrib.get("val", "")
                         numPr = pPr.find(f"{w}numPr")
-                        if numPr is not None:
-                            is_num = True
                         jc = pPr.find(f"{w}jc")
                         if jc is not None:
                             align = jc.attrib.get(f"{w}val", "") or jc.attrib.get("val", "")
@@ -2176,30 +2268,124 @@ def _parse_docx_native(file_path: Path) -> Dict[str, Any]:
                     full_p_text = "".join(p_text_parts).strip()
                     full_p_html = "".join(p_html_parts)
 
-                    if full_p_text:
-                        text_parts.append(full_p_text)
-
                     style_lower = style_val.lower()
+                    clean_style = style_lower.replace(" ", "").replace("_", "").replace("-", "")
                     align_style = f' style="text-align: {align};"' if align in ("center", "right", "justify") else ""
 
-                    if "heading1" in style_lower or style_lower == "title" or style_lower == "h1":
-                        headings.append({"level": 1, "text": full_p_text})
-                        html_parts.append(f"<h1{align_style}>{full_p_html or '&nbsp;'}</h1>")
-                    elif "heading2" in style_lower or style_lower == "subtitle" or style_lower == "h2":
-                        headings.append({"level": 2, "text": full_p_text})
-                        html_parts.append(f"<h2{align_style}>{full_p_html or '&nbsp;'}</h2>")
-                    elif "heading3" in style_lower or style_lower == "h3":
-                        headings.append({"level": 3, "text": full_p_text})
-                        html_parts.append(f"<h3{align_style}>{full_p_html or '&nbsp;'}</h3>")
-                    elif "heading4" in style_lower or style_lower == "h4":
-                        headings.append({"level": 4, "text": full_p_text})
-                        html_parts.append(f"<h4{align_style}>{full_p_html or '&nbsp;'}</h4>")
-                    elif is_num or "list" in style_lower or "bullet" in style_lower:
-                        html_parts.append(f"<ul><li{align_style}>{full_p_html or '&nbsp;'}</li></ul>")
+                    # 1. Heading Detection
+                    is_heading = False
+                    h_level = 0
+                    for h_i in range(1, 7):
+                        if f"heading{h_i}" in clean_style or (h_i == 1 and clean_style == "title") or (h_i == 2 and clean_style == "subtitle") or clean_style == f"h{h_i}":
+                            is_heading = True
+                            h_level = h_i
+                            break
+
+                    if is_heading:
+                        close_list_stack()
+                        headings.append({"level": h_level, "text": full_p_text})
+                        html_parts.append(f"<h{h_level}{align_style}>{full_p_html or '&nbsp;'}</h{h_level}>")
+                        if full_p_text:
+                            text_parts.append(f"{'#' * h_level} {full_p_text}")
+                        continue
+
+                    # 2. List Detection & Hierarchy Resolution
+                    is_list = False
+                    ilvl = 0
+                    num_id = ""
+
+                    if numPr is not None:
+                        is_list = True
+                        ilvl_elem = numPr.find(f"{w}ilvl")
+                        if ilvl_elem is not None:
+                            try:
+                                ilvl = int(ilvl_elem.attrib.get(f"{w}val") or ilvl_elem.attrib.get("val") or "0")
+                            except ValueError:
+                                ilvl = 0
+                        numId_elem = numPr.find(f"{w}numId")
+                        if numId_elem is not None:
+                            num_id = numId_elem.attrib.get(f"{w}val") or numId_elem.attrib.get("val") or ""
+                    elif "bullet" in style_lower or "listbullet" in clean_style:
+                        is_list = True
+                        ilvl = 1 if "bullet2" in clean_style else (2 if "bullet3" in clean_style else 0)
+                    elif "number" in style_lower or "listnumber" in clean_style:
+                        is_list = True
+                        ilvl = 1 if "number2" in clean_style else (2 if "number3" in clean_style else 0)
+                    elif "listparagraph" in clean_style or clean_style == "list":
+                        is_list = True
+                        ilvl = 0
+
+                    if is_list:
+                        num_info = num_map.get(num_id, {})
+                        abs_id = num_info.get("abstractNumId", "")
+                        lvl_info = abstract_nums.get(abs_id, {}).get(ilvl, {})
+                        numFmt = lvl_info.get("numFmt", "")
+                        lvlText = lvl_info.get("lvlText", "")
+
+                        # Determine if this level is a bullet (ul) or ordered (ol)
+                        is_bullet = False
+                        if numFmt == "bullet" or any(b in lvlText for b in ["•", "-", "–", "—", "o", "▪", "·", "", ""]):
+                            is_bullet = True
+                        elif numFmt in ("decimal", "decimalzero", "upperletter", "lowerletter", "upperroman", "lowerroman", "ordinal"):
+                            is_bullet = False
+                        elif "bullet" in style_lower:
+                            is_bullet = True
+                        elif "number" in style_lower:
+                            is_bullet = False
+                        elif lvlText and re.search(r"%\d", lvlText):
+                            is_bullet = False
+                        elif lvlText and not re.search(r"\d", lvlText):
+                            is_bullet = True
+                        else:
+                            is_bullet = (ilvl > 0)
+
+                        list_tag = "ul" if is_bullet else "ol"
+
+                        # Track number counters for ordered lists
+                        current_num = 1
+                        if not is_bullet:
+                            start_val = num_info.get("start_overrides", {}).get(ilvl) or lvl_info.get("start", 1)
+                            c_key = (num_id, ilvl)
+                            if c_key not in counters:
+                                counters[c_key] = start_val
+                            else:
+                                counters[c_key] += 1
+                            current_num = counters[c_key]
+                            # Reset any deeper levels under this list
+                            for deeper in range(ilvl + 1, 10):
+                                counters.pop((num_id, deeper), None)
+
+                        # Adjust stack for nesting
+                        while list_stack and list_stack[-1]["ilvl"] > ilvl:
+                            top = list_stack.pop()
+                            html_parts.append(f"</li></{top['tag']}>")
+
+                        if not list_stack or list_stack[-1]["ilvl"] < ilvl:
+                            start_attr = f' start="{current_num}"' if list_tag == "ol" and current_num != 1 else ""
+                            html_parts.append(f'<{list_tag}{start_attr}><li{align_style}>{full_p_html or "&nbsp;"}')
+                            list_stack.append({"tag": list_tag, "ilvl": ilvl, "has_open_li": True})
+                        else:
+                            # At current ilvl
+                            if list_stack[-1]["tag"] == list_tag:
+                                html_parts.append(f'</li><li{align_style}>{full_p_html or "&nbsp;"}')
+                            else:
+                                top = list_stack.pop()
+                                html_parts.append(f"</li></{top['tag']}>")
+                                start_attr = f' start="{current_num}"' if list_tag == "ol" and current_num != 1 else ""
+                                html_parts.append(f'<{list_tag}{start_attr}><li{align_style}>{full_p_html or "&nbsp;"}')
+                                list_stack.append({"tag": list_tag, "ilvl": ilvl, "has_open_li": True})
+
+                        # Format plain text with accurate indentation and markers
+                        prefix = f"{'  ' * ilvl}- " if is_bullet else f"{'  ' * ilvl}{current_num}. "
+                        text_parts.append(f"{prefix}{full_p_text}")
                     else:
+                        close_list_stack()
                         html_parts.append(f"<p{align_style}>{full_p_html or '&nbsp;'}</p>")
+                        if full_p_text:
+                            text_parts.append(full_p_text)
 
                 elif tag == f"{w}tbl":
+                    close_list_stack()
                     tbl_count += 1
                     table_html_rows: List[str] = []
                     for tr in elem.findall(f"{w}tr"):
@@ -2217,11 +2403,13 @@ def _parse_docx_native(file_path: Path) -> Dict[str, Any]:
                         table_html_rows.append(f"<tr>{''.join(cells_html)}</tr>")
                     html_parts.append(f'<table class="w-full border-collapse border border-onedark-borderSubtle my-3"><tbody>{"".join(table_html_rows)}</tbody></table>')
 
+            close_list_stack()
+
             full_raw_text = "\n\n".join(text_parts)
             words_count = len(full_raw_text.split())
             chars_count = len(full_raw_text)
 
-            final_html = "".join(html_parts).replace("</ul><ul>", "")
+            final_html = "".join(html_parts)
 
             return {
                 "html": final_html,
@@ -2249,6 +2437,7 @@ def _save_docx_native(file_path: Path, html_content_or_text: str) -> Dict[str, A
     """
     Zero-dependency pure-Python OOXML serializer for Microsoft Word (.docx) documents.
     Preserves template assets if present or constructs a complete OOXML package from HTML/text.
+    Accurately supports ordered lists (ListNumber) and unordered lists (ListBullet) with nesting.
     """
     from bs4 import BeautifulSoup, NavigableString, Tag
 
@@ -2303,6 +2492,22 @@ def _save_docx_native(file_path: Path, html_content_or_text: str) -> Dict[str, A
     body_nodes = soup.body.contents if soup.body else soup.contents
     xml_body_parts: List[str] = []
 
+    def process_list_element(list_elem: Tag, depth: int = 0):
+        is_ol = list_elem.name.lower() == "ol"
+        style_name = "ListNumber" if is_ol else "ListBullet"
+        for li in list_elem.find_all("li", recursive=False):
+            direct_runs: List[str] = []
+            nested_lists: List[Tag] = []
+            for child in li.children:
+                if isinstance(child, Tag) and child.name.lower() in ("ul", "ol"):
+                    nested_lists.append(child)
+                else:
+                    direct_runs.extend(process_inline(child))
+            runs_str = "".join(direct_runs)
+            xml_body_parts.append(f'<w:p><w:pPr><w:pStyle w:val="{style_name}"/></w:pPr>{runs_str}</w:p>')
+            for nested in nested_lists:
+                process_list_element(nested, depth=depth + 1)
+
     for item in body_nodes:
         if isinstance(item, NavigableString):
             txt = str(item).strip()
@@ -2321,9 +2526,7 @@ def _save_docx_native(file_path: Path, html_content_or_text: str) -> Dict[str, A
                 runs_xml = "".join(process_inline(item))
                 xml_body_parts.append(f'<w:p><w:pPr><w:pStyle w:val="Heading3"/></w:pPr>{runs_xml}</w:p>')
             elif tname in ("ul", "ol"):
-                for li in item.find_all("li", recursive=False):
-                    li_runs = "".join(process_inline(li))
-                    xml_body_parts.append(f'<w:p><w:pPr><w:pStyle w:val="ListBullet"/></w:pPr>{li_runs}</w:p>')
+                process_list_element(item)
             elif tname == "table":
                 tbl_rows = []
                 for tr in item.find_all("tr"):
@@ -4145,6 +4348,8 @@ class CreateSubagentRequest(BaseModel):
     title: str
     description: str
     persona: str = "SoftwareEngineer"
+    persona_instructions: Optional[str] = None
+    role_definition: Optional[str] = None
     model_name: Optional[str] = None
     session_key: Optional[str] = None
     target_branch: Optional[str] = None
@@ -4180,6 +4385,8 @@ async def get_task_subagents(task_id: str, db: AsyncSession = Depends(get_db)):
             "title": s.title,
             "description": s.description,
             "persona": s.persona,
+            "persona_instructions": s.persona_instructions,
+            "role_definition": s.role_definition,
             "model_name": s.model_name,
             "status": s.status,
             "plan": s.plan,
@@ -4224,6 +4431,8 @@ async def create_task_subagent(
         title=req.title,
         description=req.description,
         persona=req.persona,
+        persona_instructions=req.persona_instructions,
+        role_definition=req.role_definition,
         model_name=req.model_name or parent_task.model_name,
         session_key=req.session_key,
         repo_name=parent_task.repo_name,

@@ -178,9 +178,15 @@ def _clean_html_to_markdown(html_text: str, base_url: str = "") -> str:
                 lines.append("\n\n")
             elif tag_name in ["ul", "ol"]:
                 lines.append("\n")
-                for li in node.find_all("li", recursive=False):
-                    lines.append(f"- {li.get_text(strip=True)}\n")
-                lines.append("\n")
+                is_ol = tag_name == "ol"
+                start_attr = node.get("start")
+                start_val = int(start_attr) if start_attr and str(start_attr).isdigit() else 1
+                for idx, li in enumerate(node.find_all("li", recursive=False)):
+                    prefix = f"{start_val + idx}. " if is_ol else "- "
+                    lines.append(f"\n{prefix}")
+                    for child in li.children:
+                        traverse(child)
+                lines.append("\n\n")
             elif tag_name == "pre":
                 code = node.find("code")
                 lang = ""
@@ -1307,6 +1313,35 @@ async def get_url_reader(url: str = Query(..., description="Target URL to read")
             "raw_pdf_url": clean_url,
             "content_markdown": f"# {doc_title}\n\n[Open Direct PDF]({clean_url})\n\n*(PDF document loaded in embedded viewport)*",
         }
+
+    # Check for direct Word document URL extension (.docx / .doc)
+    if parsed.path.lower().endswith((".docx", ".doc")):
+        doc_title = parsed.path.split("/")[-1] or hostname
+        try:
+            async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+                res = await client.get(clean_url)
+                if res.status_code == 200:
+                    import tempfile
+                    with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp_f:
+                        tmp_f.write(res.content)
+                        tmp_path = Path(tmp_f.name)
+                    try:
+                        from app.api.tasks import _parse_docx_native
+                        parsed_docx = _parse_docx_native(tmp_path)
+                        return {
+                            "type": "web",
+                            "url": clean_url,
+                            "title": doc_title,
+                            "domain": hostname,
+                            "description": f"Word Document from {hostname}",
+                            "content_markdown": parsed_docx.get("text", ""),
+                            "html": parsed_docx.get("html", ""),
+                        }
+                    finally:
+                        if tmp_path.exists():
+                            tmp_path.unlink()
+        except Exception as e:
+            logger.warning(f"Error resolving docx document {clean_url}: {e}")
 
     # Check for Linear issue URL: https://linear.app/<org>/issue/PD-1236/... or ticket key
     if "linear.app" in hostname:

@@ -668,6 +668,144 @@ async def test_multiturn_uploaded_files_persistence(tmp_path):
     assert notes_path.read_text(encoding="utf-8") == "# Design Notes\nPersistent across turns."
 
 
+@pytest.mark.asyncio
+async def test_docx_numbering_and_hierarchical_lists(tmp_path):
+    """
+    Tests that word/numbering.xml lists (ordered decimal with custom start numbers
+    and unordered sub-bullets) are parsed with correct HTML tags, start offsets,
+    and preserved text markers.
+    """
+    import zipfile
+    from app.api.tasks import _parse_docx_native, _save_docx_native
+
+    doc_xml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="ListParagraph"/>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+      </w:pPr>
+      <w:r>
+        <w:rPr><w:b/></w:rPr>
+        <w:t>Indexed in Typesense.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="ListParagraph"/>
+        <w:numPr>
+          <w:ilvl w:val="1"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+      </w:pPr>
+      <w:r>
+        <w:t>Every saved or changed file is split by Waylo into passages.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="ListParagraph"/>
+        <w:numPr>
+          <w:ilvl w:val="1"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+      </w:pPr>
+      <w:r>
+        <w:t>Each passage is indexed with the tenant.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="ListParagraph"/>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+      </w:pPr>
+      <w:r>
+        <w:rPr><w:b/></w:rPr>
+        <w:t>Treated as data, never as instructions.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="ListParagraph"/>
+        <w:numPr>
+          <w:ilvl w:val="1"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+      </w:pPr>
+      <w:r>
+        <w:t>Text in knowledge files is shown inside wrapper.</w:t>
+      </w:r>
+    </w:p>
+    <w:p>
+      <w:pPr>
+        <w:pStyle w:val="ListParagraph"/>
+        <w:numPr>
+          <w:ilvl w:val="0"/>
+          <w:numId w:val="1"/>
+        </w:numPr>
+      </w:pPr>
+      <w:r>
+        <w:rPr><w:b/></w:rPr>
+        <w:t>Limits and visibility.</w:t>
+      </w:r>
+    </w:p>
+  </w:body>
+</w:document>
+'''
+
+    numbering_xml = '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:numbering xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:abstractNum w:abstractNumId="0">
+    <w:lvl w:ilvl="0">
+      <w:start w:val="4"/>
+      <w:numFmt w:val="decimal"/>
+      <w:lvlText w:val="%1."/>
+    </w:lvl>
+    <w:lvl w:ilvl="1">
+      <w:start w:val="1"/>
+      <w:numFmt w:val="bullet"/>
+      <w:lvlText w:val="-"/>
+    </w:lvl>
+  </w:abstractNum>
+  <w:num w:numId="1">
+    <w:abstractNumId w:val="0"/>
+  </w:num>
+</w:numbering>
+'''
+
+    test_docx = tmp_path / "typesense_spec.docx"
+    with zipfile.ZipFile(test_docx, "w") as z:
+        z.writestr("word/document.xml", doc_xml)
+        z.writestr("word/numbering.xml", numbering_xml)
+
+    parsed = _parse_docx_native(test_docx)
+
+    # Verify HTML maintains ordered list with start="4"
+    assert '<ol start="4">' in parsed["html"]
+    assert "<strong>Indexed in Typesense.</strong>" in parsed["html"]
+    # Verify sub-bullets are nested in <ul>
+    assert "<ul>" in parsed["html"]
+    assert "<li>Every saved or changed file is split by Waylo into passages.</li>" in parsed["html"]
+    assert "<strong>Treated as data, never as instructions.</strong>" in parsed["html"]
+    assert "<strong>Limits and visibility.</strong>" in parsed["html"]
+
+    # Verify plain text contains the numbering and bullets
+    assert "4. Indexed in Typesense." in parsed["text"]
+    assert "- Every saved or changed file is split by Waylo into passages." in parsed["text"]
+    assert "- Each passage is indexed with the tenant." in parsed["text"]
+    assert "5. Treated as data, never as instructions." in parsed["text"]
+    assert "- Text in knowledge files is shown inside wrapper." in parsed["text"]
+    assert "6. Limits and visibility." in parsed["text"]
+
+
+
 
 
 

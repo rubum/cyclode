@@ -54,7 +54,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
           className={`list-decimal list-outside ${depth === 0 ? 'pl-5 my-2 space-y-2' : 'pl-4 my-1 space-y-1'} marker:text-onedark-accent marker:font-semibold font-sans text-[14px] leading-[1.7]`}
         >
           {items.map((item, idx) => (
-            <li key={idx} className="leading-[1.7] pl-1 text-onedark-fg">
+            <li key={idx} value={item.orderNumber} className="leading-[1.7] pl-1 text-onedark-fg">
               <span>{inline(item.content)}</span>
               {item.children && item.children.length > 0 && (
                 <div className="mt-1.5 mb-1 pl-2 border-l border-onedark-borderSubtle ml-1">
