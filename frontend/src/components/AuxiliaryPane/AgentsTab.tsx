@@ -35,7 +35,9 @@ import {
   Sparkles,
   GitBranch,
   ArrowRight,
-  Workflow
+  Workflow,
+  TrendingUp,
+  Database
 } from 'lucide-react';
 import { Task, SubagentPod, TaskPlan, TaskLog, TaskDiff } from '../../types';
 import { useWebSocket } from '../../contexts/WebSocketContext';
@@ -582,13 +584,16 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
     return 'Lead Orchestrator is coordinating sequential phases and verifying deliverables.';
   }, [task, subagents]);
 
-  const getPersonaConfig = (persona: string) => {
-    switch (persona.toLowerCase()) {
+  const getPersonaConfig = (persona: string, roleDefinition?: string) => {
+    const pLower = (persona || '').toLowerCase();
+    const effectiveLabel = roleDefinition || persona || 'SoftwareEngineer';
+
+    switch (pLower) {
       case 'securityauditor':
       case 'security':
         return {
           icon: ShieldCheck,
-          label: 'SecurityAuditor',
+          label: effectiveLabel,
           badgeClass: 'bg-onedark-red/10 text-onedark-red border-onedark-red/20',
           iconColor: 'text-onedark-red',
           borderGlow: 'hover:border-onedark-red/40'
@@ -597,7 +602,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
       case 'performance':
         return {
           icon: Flame,
-          label: 'PerformanceEngineer',
+          label: effectiveLabel,
           badgeClass: 'bg-onedark-yellow/10 text-onedark-yellow border-onedark-yellow/20',
           iconColor: 'text-onedark-yellow',
           borderGlow: 'hover:border-onedark-yellow/40'
@@ -606,7 +611,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
       case 'reviewer':
         return {
           icon: GitPullRequest,
-          label: 'CodeReviewer',
+          label: effectiveLabel,
           badgeClass: 'bg-onedark-purple/10 text-onedark-purple border-onedark-purple/20',
           iconColor: 'text-onedark-purple',
           borderGlow: 'hover:border-onedark-purple/40'
@@ -615,7 +620,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
       case 'qa':
         return {
           icon: CheckCheck,
-          label: 'TestEngineer',
+          label: effectiveLabel,
           badgeClass: 'bg-onedark-green/10 text-onedark-green border-onedark-green/20',
           iconColor: 'text-onedark-green',
           borderGlow: 'hover:border-onedark-green/40'
@@ -624,19 +629,58 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
       case 'docs':
         return {
           icon: FileCode2,
-          label: 'DocumentationWriter',
+          label: effectiveLabel,
           badgeClass: 'bg-onedark-accent/10 text-onedark-accent border-onedark-accent/20',
           iconColor: 'text-onedark-accent',
           borderGlow: 'hover:border-onedark-accent/40'
         };
-      default:
+      case 'tradeanalyst':
+      case 'marketanalyst':
+      case 'commoditiesanalyst':
+      case 'analyst':
+        return {
+          icon: TrendingUp,
+          label: effectiveLabel,
+          badgeClass: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+          iconColor: 'text-emerald-400',
+          borderGlow: 'hover:border-emerald-500/40'
+        };
+      default: {
+        if (pLower.includes('analyst') || pLower.includes('trade') || pLower.includes('finance') || pLower.includes('market') || pLower.includes('quant')) {
+          return {
+            icon: TrendingUp,
+            label: effectiveLabel,
+            badgeClass: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+            iconColor: 'text-emerald-400',
+            borderGlow: 'hover:border-emerald-500/40'
+          };
+        }
+        if (pLower.includes('data') || pLower.includes('sql') || pLower.includes('etl') || pLower.includes('db')) {
+          return {
+            icon: Database,
+            label: effectiveLabel,
+            badgeClass: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
+            iconColor: 'text-cyan-400',
+            borderGlow: 'hover:border-cyan-500/40'
+          };
+        }
+        if (pLower.includes('security') || pLower.includes('audit')) {
+          return {
+            icon: ShieldCheck,
+            label: effectiveLabel,
+            badgeClass: 'bg-onedark-red/10 text-onedark-red border-onedark-red/20',
+            iconColor: 'text-onedark-red',
+            borderGlow: 'hover:border-onedark-red/40'
+          };
+        }
         return {
           icon: Code2,
-          label: 'SoftwareEngineer',
+          label: effectiveLabel,
           badgeClass: 'bg-onedark-accent/10 text-onedark-accent border-onedark-accent/20',
           iconColor: 'text-onedark-accent',
           borderGlow: 'hover:border-onedark-accent/40'
         };
+      }
     }
   };
 
@@ -811,7 +855,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
             <div className="flex items-center space-x-3 shrink-0">
               {subagents.length > 0 ? (
                 subagents.map((sub, idx) => {
-                  const conf = getPersonaConfig(sub.persona);
+                  const conf = getPersonaConfig(sub.persona, sub.role_definition);
                   const IconComp = conf.icon;
                   const isRunning = sub.status === 'RUNNING' || sub.status === 'INITIALIZING';
                   const isDone = sub.status === 'COMPLETED';
@@ -821,7 +865,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
                       key={sub.id}
                       onClick={() => scrollToCard(sub.id)}
                       className="flex flex-col items-center space-y-1 cursor-pointer group"
-                      title={`${sub.title} (${sub.persona})`}
+                      title={`${sub.title} (${sub.role_definition || sub.persona})`}
                     >
                       <div className={`w-9 h-9 rounded-xl bg-onedark-surface border flex items-center justify-center transition-all ${
                         isRunning
@@ -853,7 +897,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
           {subagents.length > 0 && (
             <div className="flex flex-wrap gap-1.5 pt-1">
               {subagents.map((sub, idx) => {
-                const conf = getPersonaConfig(sub.persona);
+                const conf = getPersonaConfig(sub.persona, sub.role_definition);
                 const IconComp = conf.icon;
                 const isRunning = sub.status === 'RUNNING' || sub.status === 'INITIALIZING';
 
@@ -866,7 +910,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
                     <IconComp className={`w-3 h-3 ${conf.iconColor}`} />
                     <span className="font-bold text-onedark-fgBright truncate max-w-[150px]">{sub.title}</span>
                     <span className={`px-1 py-0.2 rounded text-[8.5px] border ${conf.badgeClass}`}>
-                      {sub.persona}
+                      {sub.role_definition || sub.persona}
                     </span>
                     {isRunning && (
                       <span className="w-1.5 h-1.5 rounded-full bg-onedark-yellow animate-ping" />
@@ -1151,7 +1195,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
             const isExpanded = expandedAgentIds.has(sub.id);
             const currentDrawer = activeDrawers[sub.id] || 'results';
             const isRunning = sub.status === 'RUNNING' || sub.status === 'INITIALIZING';
-            const conf = getPersonaConfig(sub.persona);
+            const conf = getPersonaConfig(sub.persona, sub.role_definition);
             const IconComp = conf.icon;
 
             return (
@@ -1182,7 +1226,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
                         <div className="flex items-center space-x-2">
                           <span className="text-xs font-bold text-onedark-fgBright">{sub.title}</span>
                           <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono border ${conf.badgeClass}`}>
-                            {sub.persona}
+                            {sub.role_definition ? `${sub.persona} · ${sub.role_definition}` : sub.persona}
                           </span>
                         </div>
                         <div className="flex items-center space-x-2 text-[10px] font-mono text-onedark-muted mt-0.5">

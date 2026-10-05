@@ -68,7 +68,9 @@ class AgentTaskPool:
         target_branch: Optional[str] = None,
         commit_sha: Optional[str] = None,
         is_subsession: bool = False,
-        parent_task_id: Optional[str] = None
+        parent_task_id: Optional[str] = None,
+        persona_instructions: Optional[str] = None,
+        role_definition: Optional[str] = None
     ) -> str:
         """
         Creates a new task in the database and dispatches it to an asynchronous worker
@@ -170,6 +172,8 @@ class AgentTaskPool:
                 custom_title=False,
                 description=description,
                 persona=persona,
+                persona_instructions=persona_instructions,
+                role_definition=role_definition,
                 model_name=chosen_model,
                 status="INITIALIZING",
                 event_id=event_id,
@@ -194,6 +198,7 @@ class AgentTaskPool:
             "id": task_id,
             "title": initial_title,
             "persona": persona,
+            "role_definition": role_definition,
             "model_name": chosen_model,
             "status": "INITIALIZING",
             "session_key": session_key,
@@ -399,12 +404,16 @@ class AgentTaskPool:
             task_model_name = settings.ANTIGRAVITY_MODEL
 
             task_branch = None
+            task_persona_instructions = None
+            task_role_definition = None
             async with async_session_factory() as session:
                 task_rec = await session.get(TaskModel, task_id)
                 if task_rec:
                     if task_rec.model_name:
                         task_model_name = task_rec.model_name
                     task_branch = task_rec.git_branch
+                    task_persona_instructions = task_rec.persona_instructions
+                    task_role_definition = task_rec.role_definition
                 await session.execute(
                     update(TaskModel)
                     .where(TaskModel.id == task_id)
@@ -771,7 +780,9 @@ class AgentTaskPool:
                 on_stream_end=on_stream_end,
                 on_inquiry=on_inquiry,
                 on_plan=on_plan,
-                steering_queue=task_steering_q
+                steering_queue=task_steering_q,
+                persona_instructions=task_persona_instructions,
+                role_definition=task_role_definition
             )
 
             # Determine final status

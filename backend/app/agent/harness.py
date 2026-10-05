@@ -940,9 +940,10 @@ class AntigravityHarness:
             f"Prompt: {prompt}\n\n"
             f"{workspace_grounding}"
             f"{conversation_context}"
-            f"Allowed intent_category values: ['planning', 'qa_research', 'app_building', 'code_modification', 'review_audit', 'debugging', 'devops']\n"
+            f"Allowed intent_category values: ['planning', 'qa_research', 'app_building', 'code_modification', 'review_audit', 'debugging', 'devops', 'parallel_swarm']\n"
             f"Guidelines:\n"
             f"- If the prompt asks for a plan, roadmap, proposal, architecture proposal, or says 'what\\'s the plan', 'so what\\'s the plan', 'plan this', set intent_category='planning'.\n"
+            f"- If the prompt involves comparing, benchmarking, researching, or analyzing multiple distinct entities (e.g. PRs, repositories, services, stocks, countries, libraries), discrete time slices, or orthogonal domains/facets in parallel, set intent_category='parallel_swarm'. The milestones must decompose into parallel worker pods dispatched via `delegate_subtasks` with tailored dynamic domain personas (e.g. TradeAnalyst, SecurityAuditor, AgronomySpecialist, MicroserviceAuditor) and centralized synthesis. When more than 5 entities are requested (e.g. 10 items), chunk or bin-pack them across up to 5 pods (e.g. 5 pods analyzing 2 items each) to stay within concurrency bounds while ensuring 100% coverage.\n"
             f"- If the prompt is asking a question, conceptual explanation, trade-off discussion, advisory feedback (e.g. 'Does it make sense...', 'Discuss that first', 'What do you think', 'Should we...', 'dont submit'), web research, or URL summarization, set intent_category='qa_research'. NEVER generate a multi-phase implementation plan for conversational or advisory questions!\n"
             f"  CRITICAL FOR QA & RESEARCH INTENT: The plan milestones must represent research/reading steps (e.g. Step 1: Retrieve external intelligence / URL, Step 2: Synthesize comprehensive analytical briefing with hyperlinked citations directly in chat). 'file_touchpoints' MUST be an empty array []! NEVER propose creating workspace files (such as source.md, summary.md, notes.txt), NEVER propose git log audits, and NEVER propose bash unit testing for text research!\n"
             f"- For engineering/coding phases, provide descriptive title, 1-sentence objective, specific file touchpoints with bulleted action items under each file, and concrete verification criteria (e.g. exact pytest or build commands).\n"
@@ -956,7 +957,7 @@ class AntigravityHarness:
             f"- ABSOLUTE STRUCTURAL INTEGRITY RULE: NEVER propose deleting, removing, or 'deduplicating' root codebase directories (such as 'app/', 'src/', 'tests/', 'backend/', 'frontend/'). Repositories often maintain dual-tree structures for container or packaging reasons. Always propose resolving path/import errors via configuration (pyproject.toml, pytest settings, PYTHONPATH), NEVER via mass directory deletion!\n\n"
             f"Respond ONLY with a valid JSON object matching this schema:\n"
             f"{{\n"
-            f'  "intent_category": "planning | qa_research | app_building | code_modification | review_audit | debugging | devops",\n'
+            f'  "intent_category": "planning | qa_research | app_building | code_modification | review_audit | debugging | devops | parallel_swarm",\n'
             f'  "title": "Implementation Plan: [Crisp Descriptive Title]",\n'
             f'  "overview": "1-2 sentence executive summary outlining the phased remediation or development strategy",\n'
             f'  "phases": [\n'
@@ -1076,7 +1077,9 @@ class AntigravityHarness:
         on_stream_end: Optional[Callable[[str, str, str], Any]] = None,
         on_inquiry: Optional[Callable[[str, List[Dict[str, Any]], str, int], Any]] = None,
         on_plan: Optional[Callable[[Dict[str, Any]], Any]] = None,
-        steering_queue: Optional[asyncio.Queue] = None
+        steering_queue: Optional[asyncio.Queue] = None,
+        persona_instructions: Optional[str] = None,
+        role_definition: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Executes an agent task directly via the LLM-First ReAct engine with native function calling.
@@ -1139,7 +1142,9 @@ class AntigravityHarness:
             on_stream_end=on_stream_end,
             on_inquiry=on_inquiry,
             on_plan=on_plan,
-            steering_queue=steering_queue
+            steering_queue=steering_queue,
+            persona_instructions=persona_instructions,
+            role_definition=role_definition
         )
 
     async def _execute_with_llm(
@@ -1162,7 +1167,9 @@ class AntigravityHarness:
         on_stream_end: Optional[Callable[[str, str, str], Any]] = None,
         on_inquiry: Optional[Callable[[str, List[Dict[str, Any]], str, int], Any]] = None,
         on_plan: Optional[Callable[[Dict[str, Any]], Any]] = None,
-        steering_queue: Optional[asyncio.Queue] = None
+        steering_queue: Optional[asyncio.Queue] = None,
+        persona_instructions: Optional[str] = None,
+        role_definition: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Primary LLM-first ReAct engine: invokes model with comprehensive tool declarations.
@@ -1623,7 +1630,9 @@ class AntigravityHarness:
                                         "properties": {
                                             "title": {"type": "STRING", "description": "Short descriptive title of the subtask"},
                                             "prompt": {"type": "STRING", "description": "Detailed instructions and objective for the subagent"},
-                                            "persona": {"type": "STRING", "description": "Persona to run (e.g. 'CodeReviewer', 'SecurityAuditor', 'SoftwareEngineer', 'TestEngineer', 'PerformanceEngineer')"},
+                                            "persona": {"type": "STRING", "description": "Persona to run (e.g. 'TradeAnalyst', 'CodeReviewer', 'SecurityAuditor', 'SoftwareEngineer', 'TestEngineer')"},
+                                            "role_definition": {"type": "STRING", "description": "Optional 1-sentence role title for custom persona (e.g. 'Quantitative Commodities & Trade Analyst')"},
+                                            "persona_instructions": {"type": "STRING", "description": "Optional custom system prompt defining domain directives, methodologies, and analytical guidelines"},
                                             "model_name": {"type": "STRING", "description": "Optional model name override (e.g. 'gemini-3.7-flash', 'deepseek-chat')"},
                                             "session_key": {"type": "STRING", "description": "Optional session grouping key (e.g. 'pr-42', 'auth-spec')"},
                                             "repo_name": {"type": "STRING", "description": "Optional repository handle"}
@@ -1703,8 +1712,12 @@ class AntigravityHarness:
             }
         ]
 
-        persona_obj = get_persona(persona_name)
-        persona_instructions = persona_obj.get("system_instructions", "")
+        persona_obj = get_persona(
+            persona_name,
+            custom_instructions=persona_instructions,
+            role_definition=role_definition
+        )
+        resolved_persona_instructions = persona_obj.get("system_instructions", "")
 
         now = datetime.now(timezone.utc)
         current_date_str = now.strftime('%A, %B %d, %Y')
@@ -1721,7 +1734,7 @@ class AntigravityHarness:
             f"Workspace: {workspace_path}\n"
             f"Task Context: {title}\n"
             f"CURRENT TEMPORAL BASELINE: {current_date_str} (Current Year: {current_year}, Current Month: {now.strftime('%B')})\n\n"
-            f"{persona_instructions}\n\n"
+            f"{resolved_persona_instructions}\n\n"
             f"{skills_prompt}\n"
             f"Core Operational Directives:\n"
             f"1. DIRECT TOOL INVOCATION & REASONING:\n"
@@ -1729,7 +1742,7 @@ class AntigravityHarness:
             f"   - When reviewing PRs or summarizing changes: call `get_pull_request_diff` and `get_pull_request_details` to analyze the exact code hunks.\n"
             f"   - When referencing, tracking, or resolving Linear tickets (e.g. 'PD-1198'): call Linear tools directly (`get_linear_issue`, `search_linear_issues`, `post_linear_comment`, `update_linear_issue_status`).\n"
             f"   - When answering user questions about the workspace: use `read_file`, `search_code`, `find_symbols`, and `run_command`.\n"
-            f"   - When asked to perform multi-agent analysis, delegate subtasks across multiple topics/companies, or run parallel investigations: call `delegate_subtasks` with focused subtasks to launch concurrent worker pods with live telemetry in the Agents tab.\n"
+            f"   - AUTONOMOUS SWARM DECOMPOSITION & DYNAMIC PERSONAS: Whenever an inquiry requires evaluating, researching, benchmarking, or comparing multiple distinct entities (e.g. code modules, pull requests, services, stocks, countries, frameworks), orthogonal domain facets (e.g. agriculture, mining, tourism; or security, performance, ergonomics), or time slices, DO NOT process them sequentially in a single turn. Autonomously call `delegate_subtasks` to launch concurrent worker pods. You have full authority to fabricate domain-specific personas on the fly (specifying `persona`, `role_definition`, and `persona_instructions`) tailored to the exact subject matter. If more than 5 entities are requested (e.g. 10 items), bin-pack/partition them into up to 5 balanced pods (e.g. 5 pods handling 2 items each). Upon completion, aggregate the findings and formulate the comprehensive comparative matrix.\n"
             f"   - When asked to search the web: call `search_web` or `fetch_url`. Formulate clean, concise keyword queries without redundant boolean operators or nested quotes. Complete web research in 1–3 focused tool queries and promptly deliver your full analytical synthesis.\n"
             f"2. ANALYTICAL PROSE & RICH CITATIONS:\n"
             f"   - Lead with an Executive Summary in fluid analytical prose.\n"

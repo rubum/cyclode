@@ -3238,6 +3238,8 @@ class WorkspaceTools:
             s_title = item.get("title") or f"Subtask {idx + 1}"
             s_prompt = item.get("prompt") or item.get("description") or s_title
             s_persona = item.get("persona") or "SoftwareEngineer"
+            s_persona_inst = item.get("persona_instructions") or item.get("system_instructions")
+            s_role_def = item.get("role_definition")
             s_model = item.get("model_name")
             s_session_key = item.get("session_key")
             s_repo_name = item.get("repo_name")
@@ -3264,6 +3266,8 @@ class WorkspaceTools:
                     title=s_title,
                     description=s_prompt,
                     persona=s_persona,
+                    persona_instructions=s_persona_inst,
+                    role_definition=s_role_def,
                     model_name=s_model,
                     session_key=s_session_key,
                     repo_name=s_repo_name,

@@ -201,6 +201,8 @@ export interface Task {
   custom_title?: boolean;
   description: string;
   persona: string;
+  persona_instructions?: string;
+  role_definition?: string;
   model_name: string;
   status: TaskStatus;
   is_listening?: boolean;
@@ -547,6 +549,8 @@ export interface SubagentPod {
   title: string;
   description: string;
   persona: string;
+  persona_instructions?: string;
+  role_definition?: string;
   model_name: string;
   status: TaskStatus;
   plan?: TaskPlan | null;

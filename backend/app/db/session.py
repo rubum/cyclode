@@ -111,6 +111,8 @@ def _migrate_db(connection):
         ("listening_events", "TEXT DEFAULT 'check_run,pull_request_review_comment,push'"),
         ("listener_persona", "VARCHAR(50) DEFAULT 'PAIR_PROGRAMMER'"),
         ("auto_commit_fixes", "BOOLEAN DEFAULT 1"),
+        ("persona_instructions", "TEXT"),
+        ("role_definition", "VARCHAR(200)"),
     ]
     for col_name, col_type in new_task_columns:
         if col_name not in tasks_cols:

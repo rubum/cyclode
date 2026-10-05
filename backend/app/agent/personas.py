@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 
 BASE_STYLE_DIRECTIVES = (
@@ -193,6 +193,33 @@ PERSONA_ALIASES: Dict[str, str] = {
 }
 
 
-def get_persona(persona_name: str) -> Dict[str, Any]:
+def get_persona(
+    persona_name: str,
+    custom_instructions: Optional[str] = None,
+    role_definition: Optional[str] = None
+) -> Dict[str, Any]:
     resolved_name = PERSONA_ALIASES.get(persona_name, persona_name)
-    return PERSONAS.get(resolved_name, PERSONAS.get("General", PERSONAS["General"]))
+    base = PERSONAS.get(resolved_name)
+    if not custom_instructions and not role_definition:
+        return base if base else PERSONAS.get("General", PERSONAS["General"])
+
+    role_title = role_definition or (base["description"] if base else f"Autonomous {persona_name or 'Specialist'} Specialist")
+    specialized_block = (
+        f"\n\nSPECIALIZED DOMAIN ROLE & DIRECTIVES ({(persona_name or 'SPECIALIST').upper()}):\n{custom_instructions}\n"
+        if custom_instructions else ""
+    )
+    base_inst = base["system_instructions"] if base else (
+        f"You are the {role_title} in Cyclode, an autonomous intelligence agent specialized in domain analysis and problem solving."
+    )
+
+    composed_instructions = (
+        f"{base_inst}\n{specialized_block}\n{BASE_STYLE_DIRECTIVES}"
+        if base is None else f"{base_inst}\n{specialized_block}"
+    )
+
+    return {
+        "name": persona_name or "General",
+        "description": role_title,
+        "system_instructions": composed_instructions,
+        "default_model": base.get("default_model", "gemini-3.8-flash") if base else "gemini-3.8-flash"
+    }
