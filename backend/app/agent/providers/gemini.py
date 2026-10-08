@@ -66,7 +66,8 @@ class GeminiProvider(BaseLLMProvider):
             "contents": messages,
             "system_instruction": {"parts": [{"text": system_instruction}]},
             "generationConfig": {
-                "temperature": temperature
+                "temperature": temperature,
+                "maxOutputTokens": 8192
             }
         }
         if active_tools:
@@ -246,3 +247,69 @@ class GeminiProvider(BaseLLMProvider):
         finally:
             if should_close:
                 await client.aclose()
+
+    async def analyze_visual(
+        self,
+        b64_data: str,
+        mime_type: str,
+        prompt: str,
+        system_instruction: Optional[str] = None,
+        client: Optional[httpx.AsyncClient] = None
+    ) -> Optional[str]:
+        """
+        Executes multimodal vision analysis using Google Gemini (gemini-3.7-flash or gemini-2.5-flash).
+        """
+        api_key = self.get_api_key()
+        if not api_key:
+            return None
+
+        clean_model = "gemini-3.7-flash"
+        api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent?key={api_key}"
+        sys_inst = system_instruction or (
+            "You are Cyclode's high-precision multimodal vision analysis engine. "
+            "Provide accurate OCR, UI element descriptions, visual hierarchy, and diagnose any errors shown in screenshots or diagrams."
+        )
+
+        payload = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {"text": prompt},
+                        {
+                            "inlineData": {
+                                "mimeType": mime_type,
+                                "data": b64_data
+                            }
+                        }
+                    ]
+                }
+            ],
+            "system_instruction": {
+                "parts": [{"text": sys_inst}]
+            },
+            "generationConfig": {"temperature": 0.2}
+        }
+
+        should_close = False
+        if client is None:
+            client = httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0))
+            should_close = True
+
+        try:
+            resp = await client.post(api_url, json=payload)
+            if resp.status_code == 200:
+                data = resp.json()
+                candidates = data.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    text_parts = [p.get("text", "") for p in parts if "text" in p]
+                    return "\n".join(text_parts).strip() or None
+            else:
+                logger.debug(f"Gemini vision inspection returned HTTP {resp.status_code}: {getattr(resp, 'text', '')[:120]}")
+        except Exception as e:
+            logger.debug(f"Gemini vision inspection error: {e}")
+        finally:
+            if should_close:
+                await client.aclose()
+        return None

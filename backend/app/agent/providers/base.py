@@ -100,12 +100,58 @@ class BaseLLMProvider(ABC):
             client=client
         )
 
+    async def analyze_visual(
+        self,
+        b64_data: str,
+        mime_type: str,
+        prompt: str,
+        system_instruction: Optional[str] = None,
+        client: Optional[httpx.AsyncClient] = None
+    ) -> Optional[str]:
+        """
+        Analyzes an image and returns textual descriptions (OCR, UI components, layout).
+        Returns None if the provider does not support direct visual inspection or fails.
+        """
+        return None
+
     def estimate_tokens(self, text: str) -> int:
         if not text:
             return 0
         words = len(text.split())
         chars = len(text)
         return max(1, int(max(words * 1.3, chars / 4)))
+
+    def get_context_window(self, model_name: str) -> int:
+        """
+        Returns maximum input context window capacity (in tokens) for a given model.
+        """
+        clean = (model_name or "").lower()
+        if "deepseek" in clean:
+            return 1_048_576
+        if "claude" in clean or "anthropic" in clean:
+            return 200_000
+        if "o1" in clean or "o3" in clean:
+            return 200_000
+        if "gpt-4o" in clean or "openai" in clean:
+            return 128_000
+        if "gemini" in clean:
+            return 1_000_000
+        return 128_000
+
+    def supports_inline_vision(self, model_name: str) -> bool:
+        """
+        Returns whether the model natively supports base64 inline image URLs in chat messages.
+        """
+        clean = (model_name or "").lower()
+        if "deepseek" in clean:
+            return "flash" in clean or "vision" in clean
+        if "claude" in clean or "anthropic" in clean:
+            return True
+        if "gemini" in clean:
+            return True
+        if "gpt-4o" in clean or "gpt-4-turbo" in clean or "gpt-4.5" in clean:
+            return True
+        return False
 
 
 def normalize_json_schema(schema: Any) -> Any:

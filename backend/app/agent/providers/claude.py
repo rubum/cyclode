@@ -441,3 +441,75 @@ class ClaudeProvider(BaseLLMProvider):
         finally:
             if should_close:
                 await client.aclose()
+
+    async def analyze_visual(
+        self,
+        b64_data: str,
+        mime_type: str,
+        prompt: str,
+        system_instruction: Optional[str] = None,
+        client: Optional[httpx.AsyncClient] = None
+    ) -> Optional[str]:
+        """
+        Executes multimodal vision analysis using Anthropic Claude.
+        """
+        api_key = self.get_api_key()
+        if not api_key:
+            return None
+
+        clean_model = "claude-3-5-haiku"
+        api_url = "https://api.anthropic.com/v1/messages"
+        sys_inst = system_instruction or (
+            "You are Cyclode's high-precision multimodal vision analysis engine. "
+            "Provide accurate OCR, UI element descriptions, visual hierarchy, and diagnose any errors shown in screenshots or diagrams."
+        )
+
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json"
+        }
+
+        payload = {
+            "model": clean_model,
+            "system": sys_inst,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": mime_type,
+                                "data": b64_data
+                            }
+                        },
+                        {"type": "text", "text": prompt}
+                    ]
+                }
+            ],
+            "max_tokens": 4096,
+            "temperature": 0.2
+        }
+
+        should_close = False
+        if client is None:
+            client = httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=10.0, read=45.0))
+            should_close = True
+
+        try:
+            resp = await client.post(api_url, json=payload, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                content = data.get("content", [])
+                text_parts = [c.get("text", "") for c in content if c.get("type") == "text"]
+                return "\n".join(text_parts).strip() or None
+            else:
+                logger.debug(f"Claude vision inspection returned HTTP {resp.status_code}: {getattr(resp, 'text', '')[:120]}")
+        except Exception as e:
+            logger.debug(f"Claude vision inspection error: {e}")
+        finally:
+            if should_close:
+                await client.aclose()
+        return None

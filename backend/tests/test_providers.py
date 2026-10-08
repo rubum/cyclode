@@ -495,7 +495,9 @@ def test_openai_multi_round_tool_conversation():
 
 def test_deepseek_model_normalization():
     ds = DeepSeekProvider(api_key="mock-key", base_url="https://api.deepseek.com")
-    assert ds._normalize_model_name("deepseek-flash") == "deepseek-chat"
+    assert ds._normalize_model_name("deepseek-flash") == "deepseek-flash"
+    assert ds._normalize_model_name("deepseek:deepseek-flash") == "deepseek-flash"
+    assert ds._normalize_model_name("deepseek-v4-flash-vision-exp") == "deepseek-flash"
     assert ds._normalize_model_name("deepseek-v4-pro") == "deepseek-chat"
     assert ds._normalize_model_name("deepseek-reasoner") == "deepseek-reasoner"
     assert ds._normalize_model_name("deepseek-r1") == "deepseek-reasoner"
@@ -1052,14 +1054,34 @@ def test_multimodal_image_conversion_across_providers():
     assert doc_block["source"]["media_type"] == "application/pdf"
 
 
+@pytest.mark.asyncio
+async def test_deepseek_analyze_visual():
+    from unittest.mock import AsyncMock, MagicMock
+    ds = DeepSeekProvider(api_key="mock-key", base_url="https://api.deepseek.com")
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "choices": [
+            {"message": {"content": "UI layout: Primary button [Submit], login card in center."}}
+        ]
+    }
+    mock_client.post.return_value = mock_resp
 
+    res = await ds.analyze_visual(
+        b64_data="iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+        mime_type="image/png",
+        prompt="Analyze UI",
+        client=mock_client
+    )
+    assert res is not None
+    assert "UI layout: Primary button" in res
 
-
-
-
-
-
-
-
-
-
+    # Verify payload format
+    call_args = mock_client.post.call_args
+    assert call_args is not None
+    payload = call_args.kwargs.get("json") or call_args[1].get("json")
+    assert payload["model"] == "deepseek-flash"
+    assert payload["messages"][1]["role"] == "user"
+    assert payload["messages"][1]["content"][1]["type"] == "image_url"
+    assert payload["messages"][1]["content"][1]["image_url"]["url"].startswith("data:image/png;base64,")

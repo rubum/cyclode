@@ -575,3 +575,72 @@ class OpenAIProvider(BaseLLMProvider):
         finally:
             if should_close:
                 await client.aclose()
+
+    async def analyze_visual(
+        self,
+        b64_data: str,
+        mime_type: str,
+        prompt: str,
+        system_instruction: Optional[str] = None,
+        client: Optional[httpx.AsyncClient] = None
+    ) -> Optional[str]:
+        """
+        Executes multimodal vision analysis using OpenAI (gpt-4o-mini or gpt-4o).
+        """
+        api_key = self.get_api_key()
+        if not api_key:
+            return None
+
+        base_url = self.get_base_url()
+        sys_inst = system_instruction or (
+            "You are Cyclode's high-precision multimodal vision analysis engine. "
+            "Provide accurate OCR, UI element descriptions, visual hierarchy, and diagnose any errors shown in screenshots or diagrams."
+        )
+
+        messages = [
+            {"role": "system", "content": sys_inst},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{mime_type};base64,{b64_data}"
+                        }
+                    }
+                ]
+            }
+        ]
+
+        payload = {
+            "model": "gpt-4o-mini",
+            "messages": messages,
+            "max_tokens": 4096,
+            "temperature": 0.2
+        }
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
+        }
+
+        should_close = False
+        if client is None:
+            client = httpx.AsyncClient(timeout=httpx.Timeout(45.0, connect=10.0, read=45.0))
+            should_close = True
+
+        try:
+            resp = await client.post(f"{base_url}/chat/completions", json=payload, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                choices = data.get("choices", [])
+                if choices:
+                    return choices[0].get("message", {}).get("content", "").strip() or None
+            else:
+                logger.debug(f"OpenAI vision API returned HTTP {resp.status_code}: {getattr(resp, 'text', '')[:120]}")
+        except Exception as e:
+            logger.debug(f"OpenAI vision API error: {e}")
+        finally:
+            if should_close:
+                await client.aclose()
+        return None
