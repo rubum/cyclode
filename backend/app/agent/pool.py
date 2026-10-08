@@ -392,15 +392,34 @@ class AgentTaskPool:
     ):
         sandbox_ctx = None
         try:
-            # 1. Provision Ephemeral Sandbox
-            sandbox_ctx = await sandbox_manager.get_or_create(
-                task_id=task_id,
-                repo_name=repo_name,
-                repo_url=repo_url,
-                branch=target_branch,
-                commit_sha=commit_sha
-            )
-            workspace_path = sandbox_ctx.workspace_path
+            # 1. Provision Ephemeral Sandbox or attach parent subsession workspace
+            parent_task_rec = None
+            async with async_session_factory() as session:
+                t_check = await session.get(TaskModel, task_id)
+                if t_check and t_check.is_subsession and t_check.parent_task_id:
+                    parent_task_rec = await session.get(TaskModel, t_check.parent_task_id)
+
+            if parent_task_rec and parent_task_rec.workspace_path and Path(parent_task_rec.workspace_path).exists():
+                workspace_path = Path(parent_task_rec.workspace_path)
+                try:
+                    sandbox_ctx = await sandbox_manager.get_or_create(
+                        task_id=parent_task_rec.id,
+                        repo_name=repo_name or parent_task_rec.repo_name,
+                        repo_url=repo_url or parent_task_rec.repo_url,
+                        branch=parent_task_rec.target_branch,
+                        commit_sha=parent_task_rec.commit_sha
+                    )
+                except Exception as e:
+                    logger.warning(f"Subsession {task_id} attaching parent sandbox {parent_task_rec.id}: {e}")
+            else:
+                sandbox_ctx = await sandbox_manager.get_or_create(
+                    task_id=task_id,
+                    repo_name=repo_name,
+                    repo_url=repo_url,
+                    branch=target_branch,
+                    commit_sha=commit_sha
+                )
+                workspace_path = sandbox_ctx.workspace_path
             task_model_name = settings.ANTIGRAVITY_MODEL
 
             task_branch = None

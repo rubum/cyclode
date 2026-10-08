@@ -1,5 +1,6 @@
 import os
 import re
+import time
 import shutil
 import subprocess
 import logging
@@ -3436,8 +3437,30 @@ async def get_task_pr_diff(task_id: str, pr_number: int, db: AsyncSession = Depe
     }
 
 
+class PRTestRequest(BaseModel):
+    command: Optional[str] = None
+    target_files: Optional[List[str]] = None
+    auto_heal: bool = False
+
+
+class PRTestRemediateRequest(BaseModel):
+    command: Optional[str] = None
+    user_instruction: Optional[str] = None
+    mode: Optional[str] = "agent"
+
+
+class PRTestMessageRequest(BaseModel):
+    message: str
+
+
 @router.post("/{task_id}/prs/{pr_number}/test")
-async def run_task_pr_test(task_id: str, pr_number: int, db: AsyncSession = Depends(get_db)):
+@router.post("/{task_id}/prs/{pr_number}/run_tests")
+async def run_task_pr_test(
+    task_id: str,
+    pr_number: int,
+    req: Optional[PRTestRequest] = None,
+    db: AsyncSession = Depends(get_db)
+):
     task_stmt = select(TaskModel).where(TaskModel.id == task_id)
     task_res = await db.execute(task_stmt)
     task = task_res.scalars().first()
@@ -3450,9 +3473,9 @@ async def run_task_pr_test(task_id: str, pr_number: int, db: AsyncSession = Depe
     if not pr:
         raise HTTPException(status_code=404, detail=f"PR #{pr_number} not found in this task")
 
-    # Resolve test command
-    test_cmd = "python3 -m unittest discover tests"
-    if task.repo_name:
+    # Resolve test command override from request or repository configuration
+    test_cmd = req.command.strip() if (req and req.command and req.command.strip()) else None
+    if not test_cmd and task.repo_name:
         from app.db.models import RepositoryConfigModel
         repo_stmt = select(RepositoryConfigModel).where(
             (RepositoryConfigModel.full_name == task.repo_name) | (RepositoryConfigModel.name == task.repo_name)
@@ -3463,16 +3486,44 @@ async def run_task_pr_test(task_id: str, pr_number: int, db: AsyncSession = Depe
             test_cmd = repo_obj.test_command
 
     workspace_path = Path(task.workspace_path)
-    test_result = worktree_manager.run_test_in_pr_worktree(workspace_path, pr_number, test_cmd)
+    
+    # Extract changed files for targeted test prioritization
+    changed_files = []
+    if req and req.target_files:
+        changed_files = req.target_files
+    elif pr.diff_stats and isinstance(pr.diff_stats.get("files"), list):
+        changed_files = [f.get("filename") for f in pr.diff_stats["files"] if f.get("filename")]
+
+    try:
+        test_result = await worktree_manager.run_test_in_pr_worktree(
+            workspace_path=workspace_path,
+            pr_num=pr_number,
+            test_command=test_cmd,
+            head_branch=pr.head_branch,
+            changed_files=changed_files,
+            task_id=task_id,
+            auto_heal=req.auto_heal if req else False
+        )
+    except Exception as e:
+        logger.exception("PR sandbox test execution error: %s", e)
+        test_result = {
+            "ok": False,
+            "command": test_cmd or "test",
+            "exit_code": 1,
+            "stdout": "",
+            "stderr": f"Sandbox runner error: {str(e)}",
+            "duration_ms": 0
+        }
 
     pr.status = "TESTS_PASSING" if test_result.get("ok") else "TESTS_FAILED"
     pr.test_output = test_result.get("stdout", "") or test_result.get("stderr", "")
 
     # Record log
+    resolved_cmd = test_result.get("command") or test_cmd or "test"
     log = TaskLogModel(
         task_id=task_id,
         tool_name=f"run_pr_test (PR #{pr_number})",
-        tool_input={"command": test_cmd, "pr_number": pr_number, "worktree": pr.worktree_path},
+        tool_input={"command": resolved_cmd, "pr_number": pr_number, "worktree": pr.worktree_path, "auto_heal": req.auto_heal if req else False},
         tool_output=pr.test_output[:2000],
         exit_code=test_result.get("exit_code", 0),
         duration_ms=test_result.get("duration_ms", 0)
@@ -3493,6 +3544,370 @@ async def run_task_pr_test(task_id: str, pr_number: int, db: AsyncSession = Depe
         "pr_number": pr_number,
         "status": pr.status,
         "test_result": test_result
+    }
+
+
+@router.delete("/{task_id}/prs/{pr_number}/test")
+async def clear_task_pr_test_output(
+    task_id: str,
+    pr_number: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Clears the recorded test console output for a PR and resets test status to OPEN.
+    """
+    pr_stmt = select(TaskPRModel).where(TaskPRModel.task_id == task_id, TaskPRModel.pr_number == pr_number)
+    pr_res = await db.execute(pr_stmt)
+    pr = pr_res.scalars().first()
+    if not pr:
+        raise HTTPException(status_code=404, detail=f"PR #{pr_number} not found in this task")
+
+    pr.test_output = None
+    pr.status = "OPEN"
+    await db.commit()
+    await db.refresh(pr)
+
+    await ws_manager.broadcast_task_event(task_id, "TASK_PR_TEST_CLEARED", {
+        "task_id": task_id,
+        "pr_number": pr_number,
+        "status": pr.status
+    })
+
+    return {
+        "ok": True,
+        "pr_number": pr_number,
+        "status": pr.status
+    }
+
+
+@router.get("/{task_id}/prs/{pr_number}/test/remediate")
+async def get_task_pr_test_remediation_status(
+    task_id: str,
+    pr_number: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Retrieves the status, messages, and telemetry of the dedicated Testing Agent
+    subsession for this specific PR.
+    """
+    task_stmt = select(TaskModel).where(TaskModel.id == task_id)
+    task_res = await db.execute(task_stmt)
+    task = task_res.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    session_key = f"test:{task.repo_name or task_id}:pr:{pr_number}"
+    sub_stmt = (
+        select(TaskModel)
+        .where(
+            TaskModel.parent_task_id == task_id,
+            TaskModel.session_key == session_key
+        )
+        .order_by(TaskModel.created_at.desc())
+        .options(
+            selectinload(TaskModel.messages),
+            selectinload(TaskModel.logs)
+        )
+    )
+    sub_res = await db.execute(sub_stmt)
+    subtask = sub_res.scalars().first()
+
+    if not subtask:
+        return {
+            "exists": False,
+            "session_key": session_key,
+            "subsession": None
+        }
+
+    msgs = []
+    for m in (subtask.messages or []):
+        msgs.append({
+            "id": str(m.id),
+            "sender": m.sender,
+            "content": m.content,
+            "thought": m.thought,
+            "created_at": m.created_at.isoformat() if m.created_at else None
+        })
+
+    logs = []
+    for l in (subtask.logs or []):
+        logs.append({
+            "id": str(l.id),
+            "tool_name": l.tool_name,
+            "tool_input": l.tool_input,
+            "tool_output": l.tool_output,
+            "exit_code": l.exit_code,
+            "duration_ms": l.duration_ms,
+            "created_at": l.created_at.isoformat() if l.created_at else None
+        })
+
+    return {
+        "exists": True,
+        "session_key": session_key,
+        "subsession": {
+            "id": subtask.id,
+            "status": subtask.status,
+            "persona": subtask.persona,
+            "title": subtask.title,
+            "result_summary": subtask.result_summary,
+            "created_at": subtask.created_at.isoformat() if subtask.created_at else None,
+            "completed_at": subtask.completed_at.isoformat() if subtask.completed_at else None,
+            "plan": subtask.plan,
+            "messages": msgs,
+            "logs": logs
+        }
+    }
+
+
+@router.post("/{task_id}/prs/{pr_number}/test/remediate")
+async def remediate_task_pr_test(
+    task_id: str,
+    pr_number: int,
+    req: Optional[PRTestRemediateRequest] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Dispatches or resumes the autonomous Testing Agent (TestRemediator) in a dedicated
+    subsession strictly confined to the 'Sandbox tests' tab.
+    """
+    task_stmt = select(TaskModel).where(TaskModel.id == task_id)
+    task_res = await db.execute(task_stmt)
+    task = task_res.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    pr_stmt = select(TaskPRModel).where(TaskPRModel.task_id == task_id, TaskPRModel.pr_number == pr_number)
+    pr_res = await db.execute(pr_stmt)
+    pr = pr_res.scalars().first()
+    if not pr:
+        raise HTTPException(status_code=404, detail=f"PR #{pr_number} not found in this task")
+
+    from app.agent.pool import agent_pool
+
+    session_key = f"test:{task.repo_name or task_id}:pr:{pr_number}"
+
+    # Check for existing subsession
+    sub_stmt = (
+        select(TaskModel)
+        .where(
+            TaskModel.parent_task_id == task_id,
+            TaskModel.session_key == session_key
+        )
+        .order_by(TaskModel.created_at.desc())
+    )
+    sub_res = await db.execute(sub_stmt)
+    subtask = sub_res.scalars().first()
+
+    # If subsession exists and is currently running, return active state
+    if subtask and subtask.status in ["RUNNING", "INITIALIZING"]:
+        return {
+            "ok": True,
+            "status": subtask.status,
+            "subsession_task_id": subtask.id,
+            "message": "Testing Agent is currently investigating this PR test failure."
+        }
+
+    # If subsession exists and completed/idle, send follow-up message to resume
+    if subtask:
+        follow_up_prompt = (
+            req.user_instruction
+            if (req and req.user_instruction)
+            else (
+                f"Automated test suite failed in PR #{pr_number} ({pr.title}).\n"
+                f"Target Worktree: prs/pr-{pr_number}\n"
+                f"Latest Failure Output:\n```\n{pr.test_output or 'No output recorded'}\n```\n\n"
+                "Please investigate and patch the failure in 'prs/pr-{pr_number}', install missing dependencies, "
+                "or update broken test cases, and verify tests pass."
+            )
+        )
+        asyncio.create_task(
+            agent_pool.send_user_message(
+                task_id=subtask.id,
+                message_text=follow_up_prompt
+            )
+        )
+        return {
+            "ok": True,
+            "status": "RESUMED",
+            "subsession_task_id": subtask.id,
+            "message": "Testing Agent subsession resumed to resolve test failure."
+        }
+
+    # Otherwise, spawn new dedicated Testing Agent subsession
+    initial_prompt = (
+        f"Automated test suite failed in PR #{pr_number} ({pr.title}).\n"
+        f"Branch: {pr.head_branch or f'pr-{pr_number}'}\n"
+        f"Target PR Worktree: prs/pr-{pr_number}\n\n"
+        f"Test Command: {req.command if (req and req.command) else 'dynamic discovery'}\n\n"
+        f"Failure Output:\n```\n{pr.test_output or 'No output recorded'}\n```\n\n"
+        "Directives:\n"
+        "1. Diagnose the root cause of the failure directly inside 'prs/pr-{pr_number}'.\n"
+        "2. Dynamically execute needed dependency installations or system commands using `run_command` (e.g. cwd='prs/pr-{pr_number}').\n"
+        "3. Edit source files or test fixtures using `edit_file` / `replace_file_content`.\n"
+        "4. Verify that tests pass cleanly before concluding.\n"
+        "5. Conclude with a clear summary of what was causing the failure and the solution implemented."
+    )
+    if req and req.user_instruction:
+        initial_prompt += f"\n\nAdditional user notes:\n{req.user_instruction}"
+
+    sub_id = await agent_pool.spawn_task(
+        title=f"Fix Tests: PR #{pr_number}",
+        description=initial_prompt,
+        persona="TestRemediator",
+        model_name=task.model_name,
+        session_key=session_key,
+        repo_name=task.repo_name,
+        repo_url=task.repo_url,
+        target_branch=pr.head_branch or task.target_branch,
+        is_subsession=True,
+        parent_task_id=task_id
+    )
+
+    return {
+        "ok": True,
+        "status": "LAUNCHED",
+        "subsession_task_id": sub_id,
+        "message": f"Testing Agent subsession launched for PR #{pr_number}."
+    }
+
+
+@router.post("/{task_id}/prs/{pr_number}/test/message")
+async def send_task_pr_test_message(
+    task_id: str,
+    pr_number: int,
+    req: PRTestMessageRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Sends a user follow-up prompt directly to the dedicated Testing Agent subsession
+    from within the 'Sandbox tests' tab.
+    """
+    task_stmt = select(TaskModel).where(TaskModel.id == task_id)
+    task_res = await db.execute(task_stmt)
+    task = task_res.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    from app.agent.pool import agent_pool
+
+    session_key = f"test:{task.repo_name or task_id}:pr:{pr_number}"
+    sub_stmt = (
+        select(TaskModel)
+        .where(
+            TaskModel.parent_task_id == task_id,
+            TaskModel.session_key == session_key
+        )
+        .order_by(TaskModel.created_at.desc())
+    )
+    sub_res = await db.execute(sub_stmt)
+    subtask = sub_res.scalars().first()
+
+    if not subtask:
+        raise HTTPException(status_code=404, detail="No active Testing Agent subsession found for this PR")
+
+    asyncio.create_task(
+        agent_pool.send_user_message(
+            task_id=subtask.id,
+            message_text=req.message
+        )
+    )
+
+    return {
+        "ok": True,
+        "subsession_task_id": subtask.id,
+        "message": "Message delivered to Testing Agent subsession."
+    }
+
+
+@router.post("/{task_id}/prs/{pr_number}/test/cancel")
+async def cancel_task_pr_test_remediation(
+    task_id: str,
+    pr_number: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Cancels the running Testing Agent subsession for this PR.
+    """
+    task_stmt = select(TaskModel).where(TaskModel.id == task_id)
+    task_res = await db.execute(task_stmt)
+    task = task_res.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    from app.agent.pool import agent_pool
+
+    session_key = f"test:{task.repo_name or task_id}:pr:{pr_number}"
+    sub_stmt = (
+        select(TaskModel)
+        .where(
+            TaskModel.parent_task_id == task_id,
+            TaskModel.session_key == session_key
+        )
+        .order_by(TaskModel.created_at.desc())
+    )
+    sub_res = await db.execute(sub_stmt)
+    subtask = sub_res.scalars().first()
+
+    if not subtask:
+        return {"ok": False, "message": "No Testing Agent subsession found"}
+
+    await agent_pool.stop_task(subtask.id, "Testing Agent subsession cancelled by user")
+    return {
+        "ok": True,
+        "subsession_task_id": subtask.id,
+        "message": "Testing Agent subsession cancelled."
+    }
+
+
+@router.delete("/{task_id}/prs/{pr_number}/test/remediate")
+async def reset_task_pr_test_remediator(
+    task_id: str,
+    pr_number: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Resets/clears the Testing Agent subsession for this PR, archiving historical subtasks
+    and freeing the session key so the user can start a completely fresh remediation run.
+    """
+    task_stmt = select(TaskModel).where(TaskModel.id == task_id)
+    task_res = await db.execute(task_stmt)
+    task = task_res.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    from app.agent.pool import agent_pool
+
+    session_key = f"test:{task.repo_name or task_id}:pr:{pr_number}"
+    sub_stmt = (
+        select(TaskModel)
+        .where(
+            TaskModel.parent_task_id == task_id,
+            TaskModel.session_key == session_key
+        )
+    )
+    sub_res = await db.execute(sub_stmt)
+    subtasks = sub_res.scalars().all()
+
+    for sub in subtasks:
+        if sub.status in ("RUNNING", "INITIALIZING"):
+            try:
+                await agent_pool.stop_task(sub.id, "Testing Agent subsession reset")
+            except Exception:
+                pass
+        sub.status = "ARCHIVED"
+        sub.session_key = f"{session_key}:archived:{int(time.time())}:{sub.id[:6]}"
+
+    await db.commit()
+
+    await ws_manager.broadcast_task_event(task_id, "TASK_PR_TEST_REMEDIATION_RESET", {
+        "task_id": task_id,
+        "pr_number": pr_number
+    })
+
+    return {
+        "ok": True,
+        "reset": True,
+        "archived_count": len(subtasks)
     }
 
 

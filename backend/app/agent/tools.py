@@ -1236,10 +1236,17 @@ class WorkspaceTools:
             return {"error": str(e)}
 
     @staticmethod
-    def run_command(workspace_path: Path, command: str, bypass_safety: bool = False) -> Dict[str, Any]:
+    def run_command(workspace_path: Path, command: str, cwd: Optional[str] = None, bypass_safety: bool = False) -> Dict[str, Any]:
         from app.core.sandboxes.jailer import jailer
         try:
-            is_safe, safety_err = jailer.validate_command_safety(command, workspace_path, bypass_safety=bypass_safety)
+            target_dir = workspace_path
+            if cwd:
+                raw_cwd = Path(cwd)
+                cand = (workspace_path / raw_cwd).resolve() if not raw_cwd.is_absolute() else raw_cwd.resolve()
+                if cand.is_relative_to(workspace_path.resolve()) and cand.is_dir():
+                    target_dir = cand
+
+            is_safe, safety_err = jailer.validate_command_safety(command, target_dir, bypass_safety=bypass_safety)
             if not is_safe:
                 return {
                     "command": command,
@@ -1249,13 +1256,13 @@ class WorkspaceTools:
                     "stdout": ""
                 }
 
-            cmd_args, use_shell = jailer.wrap_command(workspace_path, command)
+            cmd_args, use_shell = jailer.wrap_command(target_dir, command)
             clean_env = jailer.get_clean_environment()
 
             proc = subprocess.run(
                 cmd_args if not use_shell else command,
                 shell=use_shell,
-                cwd=workspace_path,
+                cwd=target_dir,
                 capture_output=True,
                 text=True,
                 timeout=60,
@@ -1263,6 +1270,7 @@ class WorkspaceTools:
             )
             return {
                 "command": command,
+                "cwd": str(target_dir.relative_to(workspace_path.resolve())) if target_dir != workspace_path else None,
                 "exit_code": proc.returncode,
                 "stdout": compact_command_output(proc.stdout),
                 "stderr": compact_command_output(proc.stderr),

@@ -19,7 +19,7 @@ class ImageResolver:
         "rust": "rust:1.80-slim-bookworm",
         "go": "golang:1.22-bookworm",
         "python": "python:3.11-slim-bookworm",
-        "elixir": "elixir:1.16-slim",
+        "elixir": "hexpm/elixir:1.20-erlang-29.0.1-debian-trixie-20260518-slim",
         "ruby": "ruby:3.3-slim-bookworm",
         "php": "php:8.3-cli-bookworm",
         "default": "debian:bookworm-slim",
@@ -28,6 +28,19 @@ class ImageResolver:
     def __init__(self):
         self._cached_images: set[str] = set()
 
+    def _image_exists_locally(self, image_name: str) -> bool:
+        if image_name in self._cached_images:
+            return True
+        try:
+            import subprocess
+            res = subprocess.run(["docker", "image", "inspect", image_name], capture_output=True, timeout=2.0)
+            if res.returncode == 0:
+                self._cached_images.add(image_name)
+                return True
+        except Exception:
+            pass
+        return False
+
     def resolve_image_for_workspace(self, workspace_path: Optional[Path] = None) -> str:
         """Inspects workspace files to select the ideal runtime image."""
         if hasattr(settings, "SANDBOX_CONTAINER_IMAGE") and settings.SANDBOX_CONTAINER_IMAGE:
@@ -35,6 +48,35 @@ class ImageResolver:
 
         if not workspace_path or not workspace_path.exists():
             return self.IMAGE_MAP["default"]
+
+        # 1. Check for custom project Dockerfiles or local dev image
+        custom_dockerfiles = [
+            workspace_path / "auth" / "Dockerfile.dev",
+            workspace_path / "Dockerfile.dev",
+            workspace_path / "docker" / "Dockerfile.dev",
+            workspace_path / ".devcontainer" / "Dockerfile"
+        ]
+        for df in custom_dockerfiles:
+            if df.exists():
+                try:
+                    for line in df.read_text(encoding="utf-8", errors="ignore").splitlines():
+                        trimmed = line.strip()
+                        if trimmed.upper().startswith("FROM "):
+                            img = trimmed.split()[1].strip()
+                            if img:
+                                return img
+                except Exception:
+                    pass
+
+        # 2. Check .tool-versions for runtime pinning
+        tv_path = workspace_path / ".tool-versions"
+        if tv_path.exists():
+            try:
+                tv_text = tv_path.read_text(encoding="utf-8", errors="ignore")
+                if "elixir" in tv_text:
+                    return "hexpm/elixir:1.20-erlang-29.0.1-debian-trixie-20260518-slim"
+            except Exception:
+                pass
 
         if (workspace_path / "pubspec.yaml").exists():
             return self.IMAGE_MAP["flutter"]

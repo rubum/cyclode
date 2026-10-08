@@ -771,64 +771,351 @@ class WorktreeManager:
 
         return diffs
 
-    def run_test_in_pr_worktree(
+    def detect_test_command(
+        self,
+        worktree_dir: Path,
+        changed_files: Optional[List[str]] = None
+    ) -> str:
+        """
+        Dynamically discovers the appropriate test command without hardcoded framework catalogs:
+        1. CI/CD workflow manifests (.github/workflows/*.yml, .gitlab-ci.yml)
+        2. Universal ecosystem task contracts (package.json scripts.test, pyproject.toml, Cargo.toml, Makefile, go.mod)
+        3. PR diff targeted test resolution (e.g. pytest tests/test_feature.py)
+        """
+        import sys
+        import json
+
+        # 1. Inspect CI/CD workflows (.github/workflows/*.yml)
+        workflows_dir = worktree_dir / ".github" / "workflows"
+        if workflows_dir.is_dir():
+            for wf_path in sorted(workflows_dir.glob("*.yml")) + sorted(workflows_dir.glob("*.yaml")):
+                try:
+                    content = wf_path.read_text(encoding="utf-8", errors="ignore")
+                    for line in content.splitlines():
+                        trimmed = line.strip()
+                        if trimmed.startswith("run:"):
+                            cmd_candidate = trimmed.replace("run:", "", 1).strip()
+                            if any(k in cmd_candidate.lower() for k in ["pytest", "npm test", "pnpm test", "yarn test", "cargo test", "go test", "make test", "vitest", "jest", "unittest"]):
+                                return cmd_candidate
+                except Exception:
+                    pass
+
+        # 2. Universal ecosystem manifests
+        # JavaScript / TypeScript (package.json scripts.test)
+        pkg_json = worktree_dir / "package.json"
+        if pkg_json.exists():
+            try:
+                data = json.loads(pkg_json.read_text(encoding="utf-8", errors="ignore"))
+                if data.get("scripts", {}).get("test"):
+                    if (worktree_dir / "pnpm-lock.yaml").exists():
+                        pm = "pnpm"
+                    elif (worktree_dir / "yarn.lock").exists():
+                        pm = "yarn"
+                    elif (worktree_dir / "bun.lockb").exists() or (worktree_dir / "bun.lock").exists():
+                        pm = "bun"
+                    else:
+                        pm = "npm"
+                    return f"{pm} test"
+            except Exception:
+                pass
+
+        # Elixir (mix.exs)
+        if (worktree_dir / "mix.exs").exists():
+            return "mix test"
+
+        # Ruby (Gemfile, Rakefile)
+        if (worktree_dir / "bin" / "rails").exists():
+            return "bin/rails test"
+        if (worktree_dir / "bin" / "rspec").exists():
+            return "bin/rspec"
+        if (worktree_dir / "Rakefile").exists():
+            return "bundle exec rake test"
+
+        # Rust (Cargo.toml)
+        if (worktree_dir / "Cargo.toml").exists():
+            return "cargo test"
+
+        # Go (go.mod)
+        if (worktree_dir / "go.mod").exists():
+            return "go test ./..."
+
+        # Makefile (check for test: target)
+        makefile_path = worktree_dir / "Makefile"
+        if makefile_path.exists():
+            try:
+                mf_text = makefile_path.read_text(encoding="utf-8", errors="ignore")
+                if re.search(r"^test\s*:", mf_text, re.MULTILINE):
+                    return "make test"
+            except Exception:
+                pass
+
+        # Python / pytest resolution
+        venv_pytest = worktree_dir / ".venv" / "bin" / "pytest"
+        if not venv_pytest.exists():
+            venv_pytest = worktree_dir / "venv" / "bin" / "pytest"
+        
+        has_python_tests = (
+            (worktree_dir / "pyproject.toml").exists()
+            or (worktree_dir / "setup.cfg").exists()
+            or (worktree_dir / "pytest.ini").exists()
+            or (worktree_dir / "conftest.py").exists()
+            or (worktree_dir / "tests").is_dir()
+            or (worktree_dir / "backend" / "tests").is_dir()
+        )
+
+        if venv_pytest.exists():
+            cmd = str(venv_pytest)
+        elif has_python_tests:
+            cmd = f"{sys.executable} -m pytest"
+        else:
+            cmd = "python3 -m unittest discover tests"
+
+        # 3. Targeted test file resolution if changed files exist
+        if changed_files and ("pytest" in cmd or "test" in cmd):
+            py_tests = [
+                f for f in changed_files 
+                if (("test_" in f or "_test.py" in f) and f.endswith(".py"))
+                and (worktree_dir / f).exists()
+            ]
+            if py_tests:
+                return f"{cmd} {py_tests[0]}"
+
+        return cmd
+
+    async def run_test_in_pr_worktree(
         self,
         workspace_path: Path,
         pr_num: int,
-        test_command: Optional[str] = None
+        test_command: Optional[str] = None,
+        head_branch: Optional[str] = None,
+        changed_files: Optional[List[str]] = None,
+        task_id: Optional[str] = None,
+        auto_heal: bool = False,
+        **kwargs: Any
     ) -> Dict[str, Any]:
         """
         Runs unit tests inside the isolated PR worktree directory.
+        Lazily provisions the worktree if not already present.
+        Prioritizes isolated OCI companion container execution when available.
         """
         import time
-        pr_worktree_dir = workspace_path / "prs" / f"pr-{pr_num}"
-        if not pr_worktree_dir.exists():
-            return {
-                "ok": False,
-                "exit_code": 1,
-                "stdout": "",
-                "stderr": f"Worktree directory '{pr_worktree_dir}' does not exist.",
-                "duration_ms": 0
-            }
+        import sys
+        
+        prs_dir = workspace_path / "prs"
+        pr_worktree_dir = prs_dir / f"pr-{pr_num}"
+        git_env = self._get_git_env()
 
-        cmd = test_command or "python3 -m unittest discover tests"
+        # 1. Lazy worktree provisioning if not present
+        if not pr_worktree_dir.exists():
+            prs_dir.mkdir(parents=True, exist_ok=True)
+            is_git = (workspace_path / ".git").exists()
+            if is_git:
+                branch_name = f"pr-{pr_num}"
+                if head_branch:
+                    bc = subprocess.run(
+                        ["git", "rev-parse", "--verify", head_branch],
+                        cwd=workspace_path,
+                        capture_output=True,
+                        text=True,
+                        env=git_env
+                    )
+                    if bc.returncode == 0:
+                        branch_name = head_branch
+
+                res = subprocess.run(
+                    ["git", "worktree", "add", str(pr_worktree_dir), branch_name],
+                    cwd=workspace_path,
+                    capture_output=True,
+                    text=True,
+                    env=git_env
+                )
+                if res.returncode != 0:
+                    res_b = subprocess.run(
+                        ["git", "worktree", "add", "-B", branch_name, str(pr_worktree_dir)],
+                        cwd=workspace_path,
+                        capture_output=True,
+                        text=True,
+                        env=git_env
+                    )
+                    if res_b.returncode != 0:
+                        shutil.copytree(workspace_path, pr_worktree_dir, dirs_exist_ok=True, ignore=shutil.ignore_patterns("prs", ".git"))
+            else:
+                shutil.copytree(workspace_path, pr_worktree_dir, dirs_exist_ok=True, ignore=shutil.ignore_patterns("prs", ".git"))
+
+        target_dir = pr_worktree_dir if pr_worktree_dir.exists() else workspace_path
+
+        # 2. Dynamic command discovery if not explicitly passed
+        cmd = test_command.strip() if (test_command and test_command.strip()) else None
+        if not cmd:
+            cmd = self.detect_test_command(target_dir, changed_files)
+
+        # 3. Share vendor & dependency caches (deps, _build, node_modules, .venv) from parent workspace
+        if target_dir != workspace_path:
+            for cache_name in ["deps", "_build", "node_modules", ".venv"]:
+                parent_cache = workspace_path / cache_name
+                worktree_cache = target_dir / cache_name
+                if parent_cache.exists() and not worktree_cache.exists():
+                    try:
+                        worktree_cache.symlink_to(parent_cache)
+                    except Exception:
+                        pass
+
         start_time = time.time()
-        try:
-            proc = subprocess.run(
-                cmd,
-                shell=True,
-                cwd=pr_worktree_dir,
-                capture_output=True,
-                text=True,
-                timeout=90
-            )
-            duration_ms = int((time.time() - start_time) * 1000)
-            return {
-                "ok": proc.returncode == 0,
-                "command": cmd,
-                "exit_code": proc.returncode,
-                "stdout": proc.stdout,
-                "stderr": proc.stderr,
-                "duration_ms": duration_ms
-            }
-        except subprocess.TimeoutExpired:
-            return {
-                "ok": False,
-                "command": cmd,
-                "exit_code": 124,
-                "stdout": "",
-                "stderr": "Test execution timed out after 90 seconds.",
-                "duration_ms": int((time.time() - start_time) * 1000)
-            }
-        except Exception as e:
-            return {
-                "ok": False,
-                "command": cmd,
-                "exit_code": 1,
-                "stdout": "",
-                "stderr": str(e),
-                "duration_ms": int((time.time() - start_time) * 1000)
-            }
+        res_ok = False
+        res_exit_code = 1
+        res_stdout = ""
+        res_stderr = ""
+        used_container = False
+
+        # 4. Check for Container Sandbox Execution
+        if task_id:
+            try:
+                from app.core.sandboxes.container.lifecycle import container_lifecycle
+                from app.core.sandboxes.container.client import container_client
+                from app.core.sandboxes.container.executor import container_executor
+
+                if await container_client.is_available():
+                    c_name = container_lifecycle.get_container_name(task_id)
+                    code, out, _ = await container_client.run_cli(["inspect", "--format", "{{.State.Running}}", c_name], timeout=5.0)
+                    is_running = (code == 0 and out.strip().lower() == "true")
+                    if not is_running:
+                        c_name = await container_lifecycle.ensure_container_running(task_id, workspace_path)
+
+                    if c_name:
+                        try:
+                            rel = target_dir.resolve().relative_to(workspace_path.resolve())
+                            container_workdir = f"/workspace/{rel}"
+                        except Exception:
+                            container_workdir = "/workspace"
+
+                        res = await container_executor.execute_command(
+                            container_id=c_name,
+                            command=cmd,
+                            workdir=container_workdir,
+                            timeout=180
+                        )
+                        res_ok = (res.exit_code == 0)
+                        res_exit_code = res.exit_code
+                        res_stdout = res.stdout
+                        res_stderr = res.stderr
+                        used_container = True
+            except Exception as e:
+                import logging
+                logging.getLogger("cyclode.worktree").warning(f"Container sandbox execution failed, falling back to local runner: {e}")
+
+        # 5. Fallback: Local Subprocess Execution
+        env = dict(os.environ)
+        if not used_container:
+            extra_paths = [
+                str(target_dir / ".venv" / "bin"),
+                str(target_dir / "venv" / "bin"),
+                str(target_dir / "node_modules" / ".bin"),
+                str(workspace_path / ".venv" / "bin"),
+                str(workspace_path / "venv" / "bin"),
+                str(Path(sys.executable).parent)
+            ]
+            existing_path = env.get("PATH", "")
+            valid_paths = [p for p in extra_paths if Path(p).exists()]
+            if valid_paths:
+                env["PATH"] = os.pathsep.join(valid_paths + [existing_path])
+
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    shell=True,
+                    cwd=target_dir,
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                    timeout=120
+                )
+                res_ok = (proc.returncode == 0)
+                res_exit_code = proc.returncode
+                res_stdout = proc.stdout
+                res_stderr = proc.stderr
+            except subprocess.TimeoutExpired:
+                res_ok = False
+                res_exit_code = 124
+                res_stdout = ""
+                res_stderr = "Test execution timed out after 120 seconds."
+            except Exception as e:
+                res_ok = False
+                res_exit_code = 1
+                res_stdout = ""
+                res_stderr = str(e)
+
+        # 6. Auto-heal dependencies if enabled and tests failed due to missing packages
+        if auto_heal and not res_ok:
+            combined_err = f"{res_stdout}\n{res_stderr}"
+            heal_cmd = None
+            if "Shall I install Hex" in combined_err or "mix local.hex" in combined_err:
+                heal_cmd = "mix local.hex --force && mix local.rebar --force && mix deps.get"
+            elif ("the dependency" in combined_err and "is not available" in combined_err) or "mix deps.get" in combined_err:
+                heal_cmd = "mix deps.get"
+            elif ("ModuleNotFoundError" in combined_err or "No module named" in combined_err) and (target_dir / "requirements.txt").exists():
+                heal_cmd = "pip install -r requirements.txt"
+            elif ("Cannot find module" in combined_err or "ERR_MODULE_NOT_FOUND" in combined_err) and (target_dir / "package.json").exists():
+                heal_cmd = "npm install"
+            elif "can't find crate for" in combined_err and (target_dir / "Cargo.toml").exists():
+                heal_cmd = "cargo fetch"
+
+            if heal_cmd:
+                try:
+                    if used_container and c_name:
+                        heal_res = await container_executor.execute_command(
+                            container_id=c_name,
+                            command=heal_cmd,
+                            workdir=container_workdir,
+                            timeout=90
+                        )
+                        if heal_res.exit_code == 0:
+                            retry_res = await container_executor.execute_command(
+                                container_id=c_name,
+                                command=cmd,
+                                workdir=container_workdir,
+                                timeout=180
+                            )
+                            res_ok = (retry_res.exit_code == 0)
+                            res_exit_code = retry_res.exit_code
+                            res_stdout = f"[Auto-heal: {heal_cmd} succeeded]\n{retry_res.stdout}"
+                            res_stderr = retry_res.stderr
+                    else:
+                        heal_proc = subprocess.run(
+                            heal_cmd,
+                            shell=True,
+                            cwd=target_dir,
+                            capture_output=True,
+                            text=True,
+                            env=env,
+                            timeout=90
+                        )
+                        if heal_proc.returncode == 0:
+                            retry_proc = subprocess.run(
+                                cmd,
+                                shell=True,
+                                cwd=target_dir,
+                                capture_output=True,
+                                text=True,
+                                env=env,
+                                timeout=120
+                            )
+                            res_ok = (retry_proc.returncode == 0)
+                            res_exit_code = retry_proc.returncode
+                            res_stdout = f"[Auto-heal: {heal_cmd} succeeded]\n{retry_proc.stdout}"
+                            res_stderr = retry_proc.stderr
+                except Exception as ex:
+                    import logging
+                    logging.getLogger("cyclode.worktree").warning(f"Auto-heal execution failed: {ex}")
+
+        duration_ms = int((time.time() - start_time) * 1000)
+        return {
+            "ok": res_ok,
+            "command": cmd,
+            "exit_code": res_exit_code,
+            "stdout": res_stdout,
+            "stderr": res_stderr,
+            "duration_ms": duration_ms
+        }
 
     def get_diff_context(
         self,

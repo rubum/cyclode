@@ -1349,7 +1349,8 @@ class AntigravityHarness:
                         "parameters": {
                             "type": "OBJECT",
                             "properties": {
-                                "command": {"type": "STRING", "description": "Shell command line"}
+                                "command": {"type": "STRING", "description": "Shell command line"},
+                                "cwd": {"type": "STRING", "description": "Optional subdirectory relative to workspace root (e.g. 'prs/pr-1258')"}
                             },
                             "required": ["command"]
                         }
@@ -3371,7 +3372,8 @@ class AntigravityHarness:
                                     out_str += f"- {r.get('hypothesis_name')}: {status_label} ({r.get('duration_ms', 0)}ms)\n"
                             elif fn_name == "run_command":
                                 cmd = args.get("command", "")
-                                tool_result = WorkspaceTools.run_command(workspace_path, cmd)
+                                cwd_arg = args.get("cwd")
+                                tool_result = WorkspaceTools.run_command(workspace_path, cmd, cwd=cwd_arg)
                                 exit_code = tool_result.get("exit_code", 0)
                                 stdout = tool_result.get("stdout", "")
                                 stderr = tool_result.get("stderr", "")
