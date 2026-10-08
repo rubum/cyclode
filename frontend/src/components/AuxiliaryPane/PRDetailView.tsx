@@ -43,6 +43,7 @@ import {
   AlertTriangle,
   Download, 
   AlertCircle, 
+  Trash2,
   Terminal, 
   Sparkles, 
   Layers, 
@@ -60,11 +61,14 @@ import {
   AlignJustify,
   Columns,
   LayoutGrid,
-  WrapText
+  WrapText,
+  GitBranch,
+  Package
 } from 'lucide-react';
 import { isProseFile } from '../../utils/syntaxHighlighter';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { PRReviewAgentPopover, LineContext } from './PRReviewAgentPopover';
+import { PRTestingAgentPanel } from './PRTestingAgentPanel';
 import { LinearIssueDetailView } from './LinearIssueDetailView';
 import { PRListenerConfigModal } from './PRListenerConfigModal';
 import { Task, TaskPR, PRCommentItem } from '../../types';
@@ -808,9 +812,10 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
       {/* Sticky Files Summary & Filter Bar */}
       <div 
         data-sticky-diff-header="true"
-        className="sticky -top-4 z-20 -mx-4 px-4 py-2 bg-onedark-darker/95 backdrop-blur-md border-b border-onedark-borderSubtle flex flex-wrap items-center justify-between gap-2.5 text-xs select-none shadow-sm transition-all"
+        className="sticky -top-4 z-20 -mx-4 px-4 py-2 bg-onedark-darker/95 backdrop-blur-md border-b border-onedark-borderSubtle flex flex-col gap-2 text-xs select-none shadow-sm transition-all"
       >
-        <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+        {/* Tier 1: Files Summary & Diff Toolbar */}
+        <div className="flex flex-wrap items-center justify-between gap-2 min-w-0">
           {/* Main Title & Count */}
           <div className="flex items-center space-x-1.5 flex-shrink-0">
             <span className="font-semibold text-onedark-fgBright whitespace-nowrap">
@@ -820,7 +825,7 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
               {filteredFiles.length}{filteredFiles.length !== files.length ? ` / ${files.length}` : ''}
             </span>
             {files.length > 0 && (
-              <span className="hidden 2xl:inline-flex items-center space-x-1 px-1.5 py-0.2 rounded bg-onedark-surface text-[10px] font-mono text-onedark-muted border border-onedark-borderSubtle">
+              <span className="inline-flex items-center space-x-1 px-1.5 py-0.2 rounded bg-onedark-surface text-[10px] font-mono text-onedark-muted border border-onedark-borderSubtle">
                 <span className="text-onedark-green font-semibold">+{files.reduce((acc, f) => acc + (f.additions || 0), 0)}</span>
                 <span className="text-onedark-border">/</span>
                 <span className="text-onedark-red font-semibold">-{files.reduce((acc, f) => acc + (f.deletions || 0), 0)}</span>
@@ -828,21 +833,195 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
             )}
           </div>
 
-          {/* Current File in View Breadcrumb */}
-          {activeFile && (
-            <div className="flex items-center space-x-2 min-w-0 bg-onedark-surface/60 hover:bg-onedark-surface/80 border border-onedark-borderSubtle rounded-lg px-2.5 py-1 text-xs text-onedark-fg transition-colors group flex-1 max-w-xl">
-              <span className="px-1.5 py-0.2 rounded font-mono text-[9.5px] font-bold bg-onedark-darker text-onedark-muted border border-onedark-borderSubtle whitespace-nowrap flex-shrink-0">
+          {/* Global Controls: Search, Match Stepper, View Layouts, Wrap, Collapse */}
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 flex-shrink-0">
+            {files.length > 0 && (
+              <div className="flex items-center space-x-1.5">
+                <div className="relative">
+                  <Search className="w-3 h-3 text-onedark-muted absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={fileFilter}
+                    onChange={(e) => setFileFilter(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (e.shiftKey) {
+                          handlePrevMatch();
+                        } else {
+                          handleNextMatch();
+                        }
+                      }
+                    }}
+                    placeholder={isRegex ? "Grep files & diffs (/pattern/)..." : "Grep files & diffs..."}
+                    className={`w-28 sm:w-40 lg:w-48 pl-6 pr-14 py-1 text-[10.5px] rounded-lg bg-onedark-bg border ${
+                      isRegex
+                        ? grepMatcher.isValid
+                          ? 'border-onedark-purple/60 focus:border-onedark-purple text-onedark-fg'
+                          : 'border-onedark-red/60 focus:border-onedark-red text-onedark-red'
+                        : 'border-onedark-borderSubtle focus:border-onedark-accent text-onedark-fg'
+                    } placeholder:text-onedark-muted focus:outline-none transition-all`}
+                  />
+                  <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
+                    {fileFilter && (
+                      <button
+                        type="button"
+                        onClick={() => setFileFilter('')}
+                        className="p-0.5 rounded text-onedark-muted hover:text-onedark-fg cursor-pointer"
+                        title="Clear filter"
+                      >
+                        <X className="w-2.5 h-2.5" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setIsRegex((prev) => !prev)}
+                      className={`px-1 py-0.2 rounded font-mono text-[9.5px] font-bold transition-all cursor-pointer ${
+                        isRegex
+                          ? 'bg-onedark-purple text-white shadow-xs'
+                          : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface'
+                      }`}
+                      title={
+                        isRegex
+                          ? grepMatcher.isValid
+                            ? 'Grep / Regular Expression active (Click to disable)'
+                            : `Regex error: ${grepMatcher.error || 'Invalid regex'}`
+                          : 'Enable Grep / Regular Expression mode'
+                      }
+                    >
+                      .*
+                    </button>
+                  </div>
+                </div>
+
+                {/* Grep matches stepper */}
+                {fileFilter.trim() && (
+                  <div className="flex items-center space-x-1 px-2 py-0.5 rounded-lg bg-onedark-surface border border-onedark-borderSubtle text-[11px] font-mono text-onedark-fg select-none">
+                    {allMatches.length > 0 ? (
+                      <>
+                        <span className="text-onedark-purple font-semibold">
+                          {currentMatchIndex + 1}/{allMatches.length}
+                        </span>
+                        <span className="text-onedark-muted hidden sm:inline">match{allMatches.length > 1 ? 'es' : ''}</span>
+                        <div className="flex items-center space-x-0.5 ml-1 border-l border-onedark-borderSubtle pl-1">
+                          <button
+                            type="button"
+                            onClick={handlePrevMatch}
+                            className="p-0.5 rounded hover:bg-onedark-darker text-onedark-muted hover:text-onedark-fg cursor-pointer transition-colors"
+                            title="Previous match (Shift+Enter / ▲)"
+                          >
+                            <ChevronUp className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleNextMatch}
+                            className="p-0.5 rounded hover:bg-onedark-darker text-onedark-muted hover:text-onedark-fg cursor-pointer transition-colors"
+                            title="Next match (Enter / ▼)"
+                          >
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <span className="text-onedark-muted text-[10.5px]">0 diff matches</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Auto / Unified / Split View Toggle */}
+            <div className="flex items-center rounded-lg bg-onedark-bg p-0.5 border border-onedark-borderSubtle">
+              <button
+                onClick={() => setLayoutPreference('auto')}
+                className={`px-2 py-1 rounded-md text-[10.5px] font-medium transition-all cursor-pointer flex items-center space-x-1 ${
+                  layoutPreference === 'auto'
+                    ? 'bg-onedark-surface text-onedark-fgBright shadow-xs'
+                    : 'text-onedark-muted hover:text-onedark-fg'
+                }`}
+                title="Auto responsive layout (hotkey: 0)"
+              >
+                <LayoutGrid className="w-3 h-3" />
+                <span className="hidden sm:inline">Auto</span>
+                {layoutPreference === 'auto' && (
+                  <span className="text-[9px] text-onedark-blue font-mono ml-0.5 uppercase">
+                    {effectiveLayout[0]}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => setLayoutPreference('unified')}
+                className={`px-2 py-1 rounded-md text-[10.5px] font-medium transition-all cursor-pointer flex items-center space-x-1 ${
+                  layoutPreference === 'unified'
+                    ? 'bg-onedark-surface text-onedark-fgBright shadow-xs'
+                    : 'text-onedark-muted hover:text-onedark-fg'
+                }`}
+                title="Unified Diff View (hotkey: 1)"
+              >
+                <AlignJustify className="w-3 h-3" />
+                <span className="hidden sm:inline">Unified</span>
+              </button>
+              <button
+                onClick={() => setLayoutPreference('split')}
+                className={`px-2 py-1 rounded-md text-[10.5px] font-medium transition-all cursor-pointer flex items-center space-x-1 ${
+                  layoutPreference === 'split'
+                    ? 'bg-onedark-surface text-onedark-fgBright shadow-xs'
+                    : 'text-onedark-muted hover:text-onedark-fg'
+                }`}
+                title="Side-by-side Split View (hotkey: 2)"
+              >
+                <Columns className="w-3 h-3" />
+                <span className="hidden sm:inline">Split</span>
+              </button>
+            </div>
+
+            {/* Soft Line Wrap Toggle */}
+            <button
+              onClick={toggleWrapLines}
+              className={`px-2 py-1 rounded-md border text-[10.5px] font-medium transition-all cursor-pointer flex items-center space-x-1 ${
+                wrapLines
+                  ? 'bg-onedark-accent/15 border-onedark-accent/40 text-onedark-accent'
+                  : 'bg-onedark-surface hover:bg-onedark-surface/80 border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fg'
+              }`}
+              title={`Toggle soft line wrap (hotkey: w) - currently ${wrapLines ? 'ON' : 'OFF'}`}
+            >
+              <WrapText className="w-3 h-3" />
+              <span className="hidden sm:inline">{wrapLines ? 'Wrap' : 'No Wrap'}</span>
+            </button>
+
+            <button
+              onClick={() => {
+                const allCollapsed = filteredFiles.every((f) => collapsedFiles[f.filename]);
+                const next: Record<string, boolean> = {};
+                filteredFiles.forEach((f) => {
+                  next[f.filename] = !allCollapsed;
+                });
+                setCollapsedFiles(next);
+              }}
+              className="px-2 py-1 rounded-md bg-onedark-surface hover:bg-onedark-surface/80 border border-onedark-borderSubtle text-[10.5px] text-onedark-fg hover:text-onedark-fgBright cursor-pointer font-medium whitespace-nowrap transition-colors"
+            >
+              {filteredFiles.every((f) => collapsedFiles[f.filename]) ? 'Expand all' : 'Collapse all'}
+            </button>
+          </div>
+        </div>
+
+        {/* Tier 2: Dedicated Active File Navigator Strip */}
+        {activeFile && (
+          <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-onedark-borderSubtle/60 text-xs min-w-0">
+            {/* Left: Active File Info & Breadcrumb */}
+            <div className="flex items-center space-x-2 min-w-0 flex-1">
+              <span className="px-1.5 py-0.5 rounded font-mono text-[9.5px] font-bold bg-onedark-surface text-onedark-muted border border-onedark-borderSubtle whitespace-nowrap flex-shrink-0">
                 {activeFileIndex + 1} / {filteredFiles.length}
               </span>
 
               <button
                 type="button"
                 onClick={() => scrollToDiffFile(activeFile.filename)}
-                className="flex items-center space-x-1.5 min-w-0 flex-1 cursor-pointer text-left overflow-hidden group-hover:text-onedark-accent transition-colors"
+                className="flex items-center space-x-1.5 min-w-0 cursor-pointer text-left overflow-hidden hover:text-onedark-accent transition-colors group"
                 title={`Jump to top of ${activeFile.filename}`}
               >
                 <FileCode2 className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
-                <span className="font-mono text-[11.5px] flex items-center min-w-0">
+                <span className="font-mono text-[11.5px] flex items-center min-w-0 truncate">
                   {(() => {
                     const parts = activeFile.filename.split('/');
                     const fname = parts.pop();
@@ -865,14 +1044,48 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
 
               {getStatusBadge(activeFile.status)}
 
+              <button
+                type="button"
+                onClick={(e) => handleCopyPath(activeFile.filename, e)}
+                className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-colors cursor-pointer flex-shrink-0"
+                title="Copy file path"
+              >
+                {copiedFile === activeFile.filename ? (
+                  <Check className="w-3 h-3 text-onedark-green" />
+                ) : (
+                  <Copy className="w-3 h-3" />
+                )}
+              </button>
+
               <div className="hidden sm:flex items-center space-x-1 font-mono text-[10px] text-onedark-muted flex-shrink-0 pl-1.5 border-l border-onedark-borderSubtle whitespace-nowrap">
                 <span className="text-onedark-green font-semibold">+{activeFile.additions || 0}</span>
                 <span className="text-onedark-red font-semibold">-{activeFile.deletions || 0}</span>
               </div>
+            </div>
 
-              {/* Prev / Next File Quick Stepper */}
+            {/* Right: Matches in file & File Stepper */}
+            <div className="flex items-center space-x-2 flex-shrink-0">
+              {(() => {
+                const grepInfo = fileGrepMap.get(activeFile.filename);
+                if (grepInfo && grepInfo.patchMatchCount > 0) {
+                  return (
+                    <button
+                      type="button"
+                      onClick={(e) => handleJumpToNextMatchInFile(activeFile.filename, e)}
+                      className="px-1.5 py-0.5 rounded text-[9.5px] font-mono bg-onedark-purple/20 hover:bg-onedark-purple/30 text-onedark-purple border border-onedark-purple/40 flex items-center gap-1 whitespace-nowrap cursor-pointer transition-colors"
+                      title="Cycle through search matches in this file"
+                    >
+                      <Terminal className="w-2.5 h-2.5" />
+                      <span>{grepInfo.patchMatchCount} match{grepInfo.patchMatchCount > 1 ? 'es' : ''} in diff</span>
+                      <ChevronDown className="w-2.5 h-2.5 opacity-60" />
+                    </button>
+                  );
+                }
+                return null;
+              })()}
+
               {filteredFiles.length > 1 && (
-                <div className="flex items-center space-x-0.5 ml-0.5 pl-1.5 border-l border-onedark-borderSubtle flex-shrink-0">
+                <div className="flex items-center space-x-0.5 bg-onedark-surface/60 border border-onedark-borderSubtle rounded px-1 py-0.5">
                   <button
                     type="button"
                     disabled={activeFileIndex <= 0}
@@ -880,11 +1093,14 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
                       e.stopPropagation();
                       scrollToDiffFile(filteredFiles[activeFileIndex - 1]?.filename);
                     }}
-                    className="p-0.5 rounded hover:bg-onedark-darker text-onedark-muted hover:text-onedark-fg disabled:opacity-20 disabled:pointer-events-none cursor-pointer transition-colors"
+                    className="p-0.5 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg disabled:opacity-20 disabled:pointer-events-none cursor-pointer transition-colors"
                     title="Previous file"
                   >
                     <ChevronUp className="w-3.5 h-3.5" />
                   </button>
+                  <span className="text-[10px] font-mono text-onedark-muted px-1 select-none">
+                    {activeFileIndex + 1}/{filteredFiles.length}
+                  </span>
                   <button
                     type="button"
                     disabled={activeFileIndex >= filteredFiles.length - 1}
@@ -892,7 +1108,7 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
                       e.stopPropagation();
                       scrollToDiffFile(filteredFiles[activeFileIndex + 1]?.filename);
                     }}
-                    className="p-0.5 rounded hover:bg-onedark-darker text-onedark-muted hover:text-onedark-fg disabled:opacity-20 disabled:pointer-events-none cursor-pointer transition-colors"
+                    className="p-0.5 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg disabled:opacity-20 disabled:pointer-events-none cursor-pointer transition-colors"
                     title="Next file"
                   >
                     <ChevronDown className="w-3.5 h-3.5" />
@@ -900,178 +1116,8 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
                 </div>
               )}
             </div>
-          )}
-        </div>
-
-        <div className="flex items-center space-x-2 flex-shrink-0">
-          {files.length > 0 && (
-            <div className="flex items-center space-x-1.5">
-              <div className="relative">
-                <Search className="w-3 h-3 text-onedark-muted absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  type="text"
-                  value={fileFilter}
-                  onChange={(e) => setFileFilter(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      if (e.shiftKey) {
-                        handlePrevMatch();
-                      } else {
-                        handleNextMatch();
-                      }
-                    }
-                  }}
-                  placeholder={isRegex ? "Grep files & diffs (/pattern/)..." : "Grep files & diffs..."}
-                  className={`w-32 sm:w-44 lg:w-52 pl-6 pr-14 py-1 text-[10.5px] rounded-lg bg-onedark-bg border ${
-                    isRegex
-                      ? grepMatcher.isValid
-                        ? 'border-onedark-purple/60 focus:border-onedark-purple text-onedark-fg'
-                        : 'border-onedark-red/60 focus:border-onedark-red text-onedark-red'
-                      : 'border-onedark-borderSubtle focus:border-onedark-accent text-onedark-fg'
-                  } placeholder:text-onedark-muted focus:outline-none transition-all`}
-                />
-                <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
-                  {fileFilter && (
-                    <button
-                      type="button"
-                      onClick={() => setFileFilter('')}
-                      className="p-0.5 rounded text-onedark-muted hover:text-onedark-fg cursor-pointer"
-                      title="Clear filter"
-                    >
-                      <X className="w-2.5 h-2.5" />
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => setIsRegex((prev) => !prev)}
-                    className={`px-1 py-0.2 rounded font-mono text-[9.5px] font-bold transition-all cursor-pointer ${
-                      isRegex
-                        ? 'bg-onedark-purple text-white shadow-xs'
-                        : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface'
-                    }`}
-                    title={
-                      isRegex
-                        ? grepMatcher.isValid
-                          ? 'Grep / Regular Expression active (Click to disable)'
-                          : `Regex error: ${grepMatcher.error || 'Invalid regex'}`
-                        : 'Enable Grep / Regular Expression mode'
-                    }
-                  >
-                    .*
-                  </button>
-                </div>
-              </div>
-
-              {/* Grep matches stepper */}
-              {fileFilter.trim() && (
-                <div className="flex items-center space-x-1 px-2 py-0.5 rounded-lg bg-onedark-surface border border-onedark-borderSubtle text-[11px] font-mono text-onedark-fg select-none">
-                  {allMatches.length > 0 ? (
-                    <>
-                      <span className="text-onedark-purple font-semibold">
-                        {currentMatchIndex + 1}/{allMatches.length}
-                      </span>
-                      <span className="text-onedark-muted hidden sm:inline">match{allMatches.length > 1 ? 'es' : ''}</span>
-                      <div className="flex items-center space-x-0.5 ml-1 border-l border-onedark-borderSubtle pl-1">
-                        <button
-                          type="button"
-                          onClick={handlePrevMatch}
-                          className="p-0.5 rounded hover:bg-onedark-darker text-onedark-muted hover:text-onedark-fg cursor-pointer transition-colors"
-                          title="Previous match (Shift+Enter / ▲)"
-                        >
-                          <ChevronUp className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleNextMatch}
-                          className="p-0.5 rounded hover:bg-onedark-darker text-onedark-muted hover:text-onedark-fg cursor-pointer transition-colors"
-                          title="Next match (Enter / ▼)"
-                        >
-                          <ChevronDown className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <span className="text-onedark-muted text-[10.5px]">0 diff matches</span>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Auto / Unified / Split View Toggle */}
-          <div className="flex items-center rounded-lg bg-onedark-bg p-0.5 border border-onedark-borderSubtle">
-            <button
-              onClick={() => setLayoutPreference('auto')}
-              className={`px-2 py-1 rounded-md text-[10.5px] font-medium transition-all cursor-pointer flex items-center space-x-1 ${
-                layoutPreference === 'auto'
-                  ? 'bg-onedark-surface text-onedark-fgBright shadow-xs'
-                  : 'text-onedark-muted hover:text-onedark-fg'
-              }`}
-              title="Auto responsive layout (hotkey: 0)"
-            >
-              <LayoutGrid className="w-3 h-3" />
-              <span className="hidden sm:inline">Auto</span>
-              {layoutPreference === 'auto' && (
-                <span className="text-[9px] text-onedark-blue font-mono ml-0.5 uppercase">
-                  {effectiveLayout[0]}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setLayoutPreference('unified')}
-              className={`px-2 py-1 rounded-md text-[10.5px] font-medium transition-all cursor-pointer flex items-center space-x-1 ${
-                layoutPreference === 'unified'
-                  ? 'bg-onedark-surface text-onedark-fgBright shadow-xs'
-                  : 'text-onedark-muted hover:text-onedark-fg'
-              }`}
-              title="Unified Diff View (hotkey: 1)"
-            >
-              <AlignJustify className="w-3 h-3" />
-              <span className="hidden sm:inline">Unified</span>
-            </button>
-            <button
-              onClick={() => setLayoutPreference('split')}
-              className={`px-2 py-1 rounded-md text-[10.5px] font-medium transition-all cursor-pointer flex items-center space-x-1 ${
-                layoutPreference === 'split'
-                  ? 'bg-onedark-surface text-onedark-fgBright shadow-xs'
-                  : 'text-onedark-muted hover:text-onedark-fg'
-              }`}
-              title="Side-by-side Split View (hotkey: 2)"
-            >
-              <Columns className="w-3 h-3" />
-              <span className="hidden sm:inline">Split</span>
-            </button>
           </div>
-
-          {/* Soft Line Wrap Toggle */}
-          <button
-            onClick={toggleWrapLines}
-            className={`px-2 py-1 rounded-md border text-[10.5px] font-medium transition-all cursor-pointer flex items-center space-x-1 ${
-              wrapLines
-                ? 'bg-onedark-accent/15 border-onedark-accent/40 text-onedark-accent'
-                : 'bg-onedark-surface hover:bg-onedark-surface/80 border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fg'
-            }`}
-            title={`Toggle soft line wrap (hotkey: w) - currently ${wrapLines ? 'ON' : 'OFF'}`}
-          >
-            <WrapText className="w-3 h-3" />
-            <span className="hidden sm:inline">{wrapLines ? 'Wrap' : 'No Wrap'}</span>
-          </button>
-
-          <button
-            onClick={() => {
-              const allCollapsed = filteredFiles.every((f) => collapsedFiles[f.filename]);
-              const next: Record<string, boolean> = {};
-              filteredFiles.forEach((f) => {
-                next[f.filename] = !allCollapsed;
-              });
-              setCollapsedFiles(next);
-            }}
-            className="px-2 py-1 rounded-md bg-onedark-surface hover:bg-onedark-surface/80 border border-onedark-borderSubtle text-[10.5px] text-onedark-fg hover:text-onedark-fgBright cursor-pointer font-medium whitespace-nowrap transition-colors"
-          >
-            {filteredFiles.every((f) => collapsedFiles[f.filename]) ? 'Expand all' : 'Collapse all'}
-          </button>
-        </div>
+        )}
       </div>
 
       {/* Render Each File Diff */}
@@ -3113,7 +3159,7 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
                           </div>
                         </div>
 
-                        <pre className="p-2.5 rounded-lg bg-black/40 border border-onedark-borderSubtle text-[11px] font-mono text-onedark-fg/90 whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto select-text">
+                        <pre className="p-2.5 rounded-lg bg-onedark-darker border border-onedark-borderSubtle text-[11px] font-mono text-onedark-fgBright whitespace-pre-wrap leading-relaxed max-h-48 overflow-y-auto select-text">
                           {botMeta.aiPrompt}
                         </pre>
                       </div>
@@ -3683,6 +3729,35 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'reader' | 'webview'>('reader');
   const [isCopied, setIsCopied] = useState<boolean>(false);
+  const [isBranchCopied, setIsBranchCopied] = useState<boolean>(false);
+  const [isCheckoutCopied, setIsCheckoutCopied] = useState<boolean>(false);
+  const [branchMenuOpen, setBranchMenuOpen] = useState<boolean>(false);
+  const branchMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close branch dropdown on outside click
+  useEffect(() => {
+    if (!branchMenuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (branchMenuRef.current && !branchMenuRef.current.contains(e.target as Node)) {
+        setBranchMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [branchMenuOpen]);
+
+  const handleCopyBranch = useCallback((branchName: string) => {
+    navigator.clipboard.writeText(branchName);
+    setIsBranchCopied(true);
+    setTimeout(() => setIsBranchCopied(false), 2000);
+  }, []);
+
+  const handleCopyCheckout = useCallback((branchName: string) => {
+    navigator.clipboard.writeText(`git checkout ${branchName}`);
+    setIsCheckoutCopied(true);
+    setTimeout(() => setIsCheckoutCopied(false), 2000);
+  }, []);
+
   const [prTab, setPrTab] = useState<'overview' | 'diff' | 'commits' | 'comments' | 'tests' | 'review'>('overview');
   const [comments, setComments] = useState<PRCommentItem[]>([]);
   const [isSyncingComments, setIsSyncingComments] = useState<boolean>(false);
@@ -3713,6 +3788,111 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
   const [isMergeModalOpen, setIsMergeModalOpen] = useState<boolean>(false);
   const [selectedLinearTicket, setSelectedLinearTicket] = useState<string | null>(null);
   const [submittedVerdict, setSubmittedVerdict] = useState<'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | null>(null);
+
+  // Dynamic PR Test Runner States
+  const [localTestOutput, setLocalTestOutput] = useState<string | null>(prRecord?.test_output || null);
+  const [testStatus, setTestStatus] = useState<'idle' | 'running' | 'passed' | 'failed'>(() => {
+    if (prRecord?.status === 'TESTS_PASSING') return 'passed';
+    if (prRecord?.status === 'TESTS_FAILED') return 'failed';
+    return prRecord?.test_output ? 'passed' : 'idle';
+  });
+  const [testCommand, setTestCommand] = useState<string>('');
+  const [customTestCommand, setCustomTestCommand] = useState<string>('');
+  const [testExitCode, setTestExitCode] = useState<number | null>(null);
+  const [testDurationMs, setTestDurationMs] = useState<number | null>(null);
+  const [isTestOutputCopied, setIsTestOutputCopied] = useState<boolean>(false);
+  const [autoHealEnabled, setAutoHealEnabled] = useState<boolean>(true);
+  const [testingAgentSubsessionId, setTestingAgentSubsessionId] = useState<string | null>(null);
+  const [isTestingAgentActive, setIsTestingAgentActive] = useState<boolean>(false);
+  const [showTestingAgentPanel, setShowTestingAgentPanel] = useState<boolean>(false);
+  const [sandboxSubTab, setSandboxSubTab] = useState<'agent' | 'console'>('agent');
+
+  useEffect(() => {
+    if (prRecord?.test_output && !localTestOutput) {
+      setLocalTestOutput(prRecord.test_output);
+      if (prRecord.status === 'TESTS_PASSING') setTestStatus('passed');
+      else if (prRecord.status === 'TESTS_FAILED') setTestStatus('failed');
+    }
+  }, [prRecord?.test_output, prRecord?.status]);
+
+  // Fetch existing Testing Agent subsession for this PR if already spawned
+  useEffect(() => {
+    const effectivePrNum = data?.pr_number || prNumber || prRecord?.pr_number;
+    if (!task?.id || !effectivePrNum || prTab !== 'tests') return;
+    fetch(`${API_BASE}/api/tasks/${task.id}/prs/${effectivePrNum}/test/remediate`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.exists && d.subsession) {
+          setTestingAgentSubsessionId(d.subsession.id);
+          setShowTestingAgentPanel(true);
+          setSandboxSubTab('agent');
+          if (d.subsession.status === 'RUNNING' || d.subsession.status === 'INITIALIZING') {
+            setIsTestingAgentActive(true);
+          }
+        }
+      })
+      .catch(() => {});
+  }, [task?.id, data?.pr_number, prNumber, prRecord?.pr_number, prTab]);
+
+  // Synchronize active Testing Agent subsession in real time via WebSocket
+  useEffect(() => {
+    const effectivePrNum = data?.pr_number || prNumber || prRecord?.pr_number;
+    if (!task?.id || !effectivePrNum) return;
+
+    const sessionKey = `test:${task.repo_name || task.id}:pr:${effectivePrNum}`;
+
+    const unsubCreated = subscribe('TASK_CREATED', (newTask: any) => {
+      if (
+        newTask?.is_subsession &&
+        newTask?.parent_task_id === task.id &&
+        (newTask?.session_key === sessionKey || newTask?.session_key?.endsWith(`:pr:${effectivePrNum}`))
+      ) {
+        setTestingAgentSubsessionId(newTask.id);
+        setShowTestingAgentPanel(true);
+        setIsTestingAgentActive(true);
+        setSandboxSubTab('agent');
+      }
+    });
+
+    const unsubStatus = subscribe('TASK_STATUS_CHANGE', (statusData: any) => {
+      if (statusData?.task_id && statusData.task_id === testingAgentSubsessionId) {
+        if (statusData.status === 'RUNNING' || statusData.status === 'INITIALIZING') {
+          setIsTestingAgentActive(true);
+        } else if (statusData.status === 'COMPLETED' || statusData.status === 'IDLE' || statusData.status === 'FAILED') {
+          setIsTestingAgentActive(false);
+        }
+      }
+    });
+
+    return () => {
+      unsubCreated();
+      unsubStatus();
+    };
+  }, [subscribe, task?.id, task?.repo_name, data?.pr_number, prNumber, prRecord?.pr_number, testingAgentSubsessionId]);
+
+  const handleClearTestOutput = useCallback(async () => {
+    const effectivePrNum = data?.pr_number || prNumber || prRecord?.pr_number;
+    setLocalTestOutput('');
+    setTestStatus('idle');
+    setTestExitCode(null);
+    setTestDurationMs(null);
+    if (!task?.id || !effectivePrNum) return;
+    try {
+      await fetch(`${API_BASE}/api/tasks/${task.id}/prs/${effectivePrNum}/test`, {
+        method: 'DELETE'
+      });
+    } catch (e) {
+      console.error('Failed to clear PR test output on server:', e);
+    }
+  }, [data?.pr_number, prNumber, prRecord?.pr_number, task?.id]);
+
+  const handleCopyTestOutput = useCallback(() => {
+    const textToCopy = localTestOutput || prRecord?.test_output || '';
+    if (!textToCopy) return;
+    navigator.clipboard.writeText(textToCopy);
+    setIsTestOutputCopied(true);
+    setTimeout(() => setIsTestOutputCopied(false), 2000);
+  }, [localTestOutput, prRecord?.test_output]);
 
   const contentScrollRef = useRef<HTMLDivElement>(null);
 
@@ -3764,7 +3944,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
     }
   };
 
-  // WebSocket live auto-sync listener for PR comments and listener state
+  // WebSocket live auto-sync listener for PR comments, listener state, and test execution
   useEffect(() => {
     if (!task?.id || !effectivePrNum) return;
     const unsub = subscribe('PR_COMMENTS_UPDATED', (payload: any) => {
@@ -3779,9 +3959,44 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
       }
     });
 
+    const unsubTest = subscribe('TASK_PR_TEST_COMPLETED', (payload: any) => {
+      if (payload.task_id === task.id && Number(payload.pr_number) === Number(effectivePrNum)) {
+        const tr = payload.test_result || {};
+        const out = (tr.stdout || '') + (tr.stderr ? (tr.stdout ? '\n' : '') + tr.stderr : '') || payload.test_output || '';
+        if (out) setLocalTestOutput(out);
+        setTestStatus(payload.status === 'TESTS_PASSING' || tr.ok ? 'passed' : 'failed');
+        if (tr.command) {
+          setTestCommand(tr.command);
+          setCustomTestCommand(prev => prev || tr.command);
+        }
+        if (tr.exit_code !== undefined) setTestExitCode(tr.exit_code);
+        if (tr.duration_ms !== undefined) setTestDurationMs(tr.duration_ms);
+        setActionLoading(null);
+      }
+    });
+
+    const unsubCleared = subscribe('TASK_PR_TEST_CLEARED', (payload: any) => {
+      if (payload.task_id === task.id && Number(payload.pr_number) === Number(effectivePrNum)) {
+        setLocalTestOutput('');
+        setTestStatus('idle');
+        setTestExitCode(null);
+        setTestDurationMs(null);
+      }
+    });
+
+    const unsubRemediateReset = subscribe('TASK_PR_TEST_REMEDIATION_RESET', (payload: any) => {
+      if (payload.task_id === task.id && Number(payload.pr_number) === Number(effectivePrNum)) {
+        setTestingAgentSubsessionId(null);
+        setIsTestingAgentActive(false);
+      }
+    });
+
     return () => {
       unsub();
       unsubListener();
+      unsubTest();
+      unsubCleared();
+      unsubRemediateReset();
     };
   }, [subscribe, task?.id, effectivePrNum]);
 
@@ -3847,18 +4062,87 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
   };
 
   // Actions: Run sandbox tests & AI review
-  const handleRunTests = async () => {
+  const handleRunTests = async (overrideCommand?: string) => {
     const effectivePrNum = data?.pr_number || prNumber || prRecord?.pr_number;
     if (!task?.id || !effectivePrNum) return;
     setActionLoading('test');
+    setTestStatus('running');
+    setPrTab('tests');
+    const cmdToRun = overrideCommand !== undefined ? overrideCommand : customTestCommand;
     try {
       const apiBase = import.meta.env.VITE_API_URL || '';
-      await fetch(`${apiBase}/api/tasks/${task.id}/prs/${effectivePrNum}/run_tests`, {
-        method: 'POST'
+      const res = await fetch(`${apiBase}/api/tasks/${task.id}/prs/${effectivePrNum}/test`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          command: cmdToRun.trim() || undefined,
+          target_files: data?.files?.map(f => f.filename) || [],
+          auto_heal: autoHealEnabled
+        })
       });
-      setPrTab('tests');
-    } catch (e) {
+      if (res.ok) {
+        const json = await res.json();
+        const tr = json.test_result || {};
+        const out = (tr.stdout || '') + (tr.stderr ? (tr.stdout ? '\n' : '') + tr.stderr : '') || '';
+        setLocalTestOutput(out || 'Tests completed with no console output.');
+        setTestStatus(tr.ok ? 'passed' : 'failed');
+        if (tr.command) {
+          setTestCommand(tr.command);
+          if (!customTestCommand) setCustomTestCommand(tr.command);
+        }
+        if (tr.exit_code !== undefined) setTestExitCode(tr.exit_code);
+        if (tr.duration_ms !== undefined) setTestDurationMs(tr.duration_ms);
+
+        // Auto-remediation trigger: If tests failed, immediately dispatch/resume the Testing Agent
+        if (!tr.ok) {
+          handleLaunchTestingAgent(out);
+        }
+      } else {
+        const errJson = await res.json().catch(() => ({}));
+        setTestStatus('failed');
+        const errOut = `Test run failed (HTTP ${res.status}): ${errJson.detail || 'Unknown error'}`;
+        setLocalTestOutput(errOut);
+        handleLaunchTestingAgent(errOut);
+      }
+    } catch (e: any) {
       console.error('Error running PR sandbox tests:', e);
+      setTestStatus('failed');
+      const errOut = `Error executing tests: ${e?.message || e}`;
+      setLocalTestOutput(errOut);
+      handleLaunchTestingAgent(errOut);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleLaunchTestingAgent = async (failureOutput?: string) => {
+    const effectivePrNum = data?.pr_number || prNumber || prRecord?.pr_number;
+    if (!task?.id || !effectivePrNum) return;
+    setActionLoading('remediate');
+    setIsTestingAgentActive(true);
+    setShowTestingAgentPanel(true);
+    setSandboxSubTab('agent');
+
+    try {
+      const res = await fetch(`${API_BASE}/api/tasks/${task.id}/prs/${effectivePrNum}/test/remediate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'agent',
+          command: customTestCommand || undefined,
+          user_instruction: failureOutput
+            ? `Automated test suite failed in PR #${effectivePrNum}.\nFailure Output:\n\`\`\`\n${failureOutput.slice(0, 3000)}\n\`\`\`\n\nPlease investigate and remedy the failure directly in 'prs/pr-${effectivePrNum}'.`
+            : undefined
+        })
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.subsession_task_id) {
+          setTestingAgentSubsessionId(json.subsession_task_id);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to dispatch testing agent:', err);
     } finally {
       setActionLoading(null);
     }
@@ -4275,7 +4559,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
       <div className="bg-onedark-surface/30 border-b border-onedark-borderSubtle select-none flex-shrink-0">
         <div className="px-3 py-2 flex flex-wrap items-center justify-between gap-2 border-b border-onedark-borderSubtle text-xs">
           {/* Metadata Row */}
-          <div className="flex flex-wrap items-center gap-2 min-w-0">
+          <div className="flex flex-wrap items-center gap-2 min-w-0 select-text">
             {/* Status Badge */}
             <span className={`px-2 py-0.5 rounded-full font-mono text-[10.5px] font-bold uppercase whitespace-nowrap flex-shrink-0 ${
               effectiveState === 'MERGED'
@@ -4302,12 +4586,105 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
               </span>
             )}
 
-            {/* Branch Flow */}
+            {/* Branch Flow with Interactive Copy & Checkout */}
             {effectiveHeadBranch && effectiveBaseBranch && (
-              <div className="flex items-center space-x-1 font-mono text-[11px] bg-onedark-surface/40 px-2 py-0.5 rounded whitespace-nowrap flex-shrink-0">
-                <span className="text-onedark-accent font-semibold">{effectiveHeadBranch}</span>
-                <span className="text-onedark-muted">➔</span>
-                <span className="text-onedark-muted">{effectiveBaseBranch}</span>
+              <div 
+                ref={branchMenuRef}
+                className="relative inline-flex items-center select-text"
+              >
+                <div className="flex items-center space-x-1.5 font-mono text-[11px] bg-onedark-surface/60 hover:bg-onedark-surface border border-onedark-borderSubtle px-2 py-0.5 rounded transition-all group">
+                  <GitBranch className="w-3 h-3 text-onedark-accent flex-shrink-0" />
+                  
+                  {/* Clickable Head Branch */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCopyBranch(effectiveHeadBranch);
+                    }}
+                    className="font-semibold text-onedark-accent hover:underline cursor-pointer transition-colors"
+                    title={`Click to copy branch name "${effectiveHeadBranch}"`}
+                  >
+                    {effectiveHeadBranch}
+                  </button>
+
+                  {/* Copy Branch Button */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCopyBranch(effectiveHeadBranch);
+                    }}
+                    className="p-0.5 rounded hover:bg-onedark-bg text-onedark-muted hover:text-onedark-fg transition-colors cursor-pointer"
+                    title={isBranchCopied ? "Copied branch name!" : "Copy branch name"}
+                  >
+                    {isBranchCopied ? (
+                      <Check className="w-3 h-3 text-onedark-green" />
+                    ) : (
+                      <Copy className="w-3 h-3 opacity-60 group-hover:opacity-100" />
+                    )}
+                  </button>
+
+                  {/* Dropdown Toggle for Checkout Command */}
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setBranchMenuOpen((prev) => !prev);
+                    }}
+                    className="p-0.5 rounded hover:bg-onedark-bg text-onedark-muted hover:text-onedark-fg transition-colors cursor-pointer"
+                    title="Branch options"
+                  >
+                    <ChevronDown className="w-2.5 h-2.5 opacity-60 group-hover:opacity-100" />
+                  </button>
+
+                  <span className="text-onedark-muted select-none">➔</span>
+                  <span className="text-onedark-muted">{effectiveBaseBranch}</span>
+                </div>
+
+                {/* Dropdown Menu for Checkout Command */}
+                {branchMenuOpen && (
+                  <div 
+                    className="absolute left-0 top-full mt-1 z-30 w-72 bg-onedark-bg border border-onedark-border rounded-lg shadow-xl p-1 text-xs select-none"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleCopyBranch(effectiveHeadBranch);
+                        setBranchMenuOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between px-2.5 py-1.5 rounded hover:bg-onedark-surface text-left cursor-pointer text-onedark-fgBright group"
+                    >
+                      <div className="flex items-center space-x-2 min-w-0">
+                        <Copy className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />
+                        <div className="min-w-0">
+                          <div className="font-medium text-[11px]">Copy Branch Name</div>
+                          <div className="font-mono text-[10px] text-onedark-muted truncate">{effectiveHeadBranch}</div>
+                        </div>
+                      </div>
+                      {isBranchCopied && <Check className="w-3.5 h-3.5 text-onedark-green flex-shrink-0" />}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleCopyCheckout(effectiveHeadBranch);
+                        setBranchMenuOpen(false);
+                      }}
+                      className="w-full flex items-center justify-between px-2.5 py-1.5 rounded hover:bg-onedark-surface text-left cursor-pointer text-onedark-fgBright group mt-0.5"
+                    >
+                      <div className="flex items-center space-x-2 min-w-0">
+                        <Terminal className="w-3.5 h-3.5 text-onedark-green flex-shrink-0" />
+                        <div className="min-w-0">
+                          <div className="font-medium text-[11px]">Copy Checkout Command</div>
+                          <div className="font-mono text-[10px] text-onedark-muted truncate">git checkout {effectiveHeadBranch}</div>
+                        </div>
+                      </div>
+                      {isCheckoutCopied && <Check className="w-3.5 h-3.5 text-onedark-green flex-shrink-0" />}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -4338,17 +4715,41 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
           <div className="flex flex-wrap items-center gap-1.5 flex-shrink-0">
             {/* Run Tests Button */}
             <button
-              onClick={handleRunTests}
-              disabled={Boolean(actionLoading)}
-              className="flex items-center space-x-1 px-2.5 py-1 rounded-md bg-onedark-surface hover:bg-onedark-surface/80 text-[11px] text-onedark-fgBright font-medium transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap flex-shrink-0"
+              onClick={() => handleRunTests()}
+              disabled={Boolean(actionLoading) || testStatus === 'running'}
+              className={`flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-[11px] font-medium transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap flex-shrink-0 ${
+                testStatus === 'passed'
+                  ? 'bg-onedark-green/15 text-onedark-green border border-onedark-green/30'
+                  : isTestingAgentActive
+                  ? 'bg-onedark-accent/15 text-onedark-accent border border-onedark-accent/30'
+                  : testStatus === 'failed'
+                  ? 'bg-onedark-red/15 text-onedark-red border border-onedark-red/30'
+                  : 'bg-onedark-surface hover:bg-onedark-surface/80 text-onedark-fgBright'
+              }`}
               title="Run test suite in ephemeral container"
             >
-              {actionLoading === 'test' ? (
+              {actionLoading === 'test' || testStatus === 'running' ? (
                 <Loader2 className="w-3.5 h-3.5 text-onedark-accent animate-spin" />
+              ) : isTestingAgentActive ? (
+                <Loader2 className="w-3.5 h-3.5 text-onedark-accent animate-spin" />
+              ) : testStatus === 'passed' ? (
+                <CheckCircle2 className="w-3.5 h-3.5 text-onedark-green" />
+              ) : testStatus === 'failed' ? (
+                <AlertCircle className="w-3.5 h-3.5 text-onedark-red" />
               ) : (
                 <Play className="w-3.5 h-3.5 text-onedark-green fill-onedark-green" />
               )}
-              <span>Run Tests</span>
+              <span>
+                {actionLoading === 'test' || testStatus === 'running'
+                  ? 'Running Tests...'
+                  : isTestingAgentActive
+                  ? 'Remediating Tests...'
+                  : testStatus === 'passed'
+                  ? 'Tests Passed'
+                  : testStatus === 'failed'
+                  ? 'Tests Failed'
+                  : 'Run Tests'}
+              </span>
             </button>
 
 
@@ -4596,19 +4997,40 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
             )}
           </button>
 
-          {prRecord?.test_output && (
-            <button
-              onClick={() => setPrTab('tests')}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-t-md text-xs font-medium border-b-2 transition-all cursor-pointer whitespace-nowrap flex-shrink-0 ${
-                prTab === 'tests'
-                  ? 'border-onedark-accent text-onedark-fgBright bg-onedark-darker font-semibold'
-                  : 'border-transparent text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
-              }`}
-            >
-              <Terminal className="w-3.5 h-3.5 text-onedark-green flex-shrink-0" />
-              <span>Test Output</span>
-            </button>
-          )}
+          <button
+            onClick={() => setPrTab('tests')}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-t-md text-xs font-medium border-b-2 transition-all cursor-pointer whitespace-nowrap flex-shrink-0 ${
+              prTab === 'tests'
+                ? 'border-onedark-accent text-onedark-fgBright bg-onedark-darker font-semibold'
+                : 'border-transparent text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
+            }`}
+            title="Ephemeral sandbox test suite execution"
+          >
+            <Terminal className="w-3.5 h-3.5 text-onedark-green flex-shrink-0" />
+            <span>Sandbox Tests</span>
+            {testStatus === 'running' ? (
+              <Loader2 className="w-3 h-3 text-onedark-accent animate-spin" />
+            ) : isTestingAgentActive ? (
+              <span className="flex items-center space-x-1 px-1.5 py-0.2 rounded-full bg-onedark-accent/20 text-onedark-accent text-[9.5px] font-mono font-semibold animate-pulse">
+                <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                <span>REMEDYING</span>
+              </span>
+            ) : testStatus === 'passed' ? (
+              <span className="flex items-center space-x-0.5 px-1.5 py-0.2 rounded-full bg-onedark-green/20 text-onedark-green text-[10px] font-mono font-semibold">
+                <Check className="w-2.5 h-2.5" />
+                <span>PASS</span>
+              </span>
+            ) : testStatus === 'failed' ? (
+              <span className="flex items-center space-x-0.5 px-1.5 py-0.2 rounded-full bg-onedark-red/20 text-onedark-red text-[10px] font-mono font-semibold">
+                <X className="w-2.5 h-2.5" />
+                <span>FAIL</span>
+              </span>
+            ) : (localTestOutput || prRecord?.test_output) ? (
+              <span className="px-1.5 py-0.2 rounded-full bg-onedark-surface text-[10px] font-mono text-onedark-muted">
+                logs
+              </span>
+            ) : null}
+          </button>
 
           {prRecord?.review_summary && (
             <button
@@ -5037,15 +5459,327 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
                 onJumpToDiff={handleJumpToDiff}
               />
             ) : prTab === 'tests' ? (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between px-3 py-2 bg-onedark-surface/50 border border-onedark-borderSubtle rounded-xl text-xs select-none">
-                  <span className="font-semibold text-onedark-fgBright">
-                    Sandbox Test Execution Logs
-                  </span>
+              <div className="space-y-3 animate-fadeIn">
+                {/* Unified Sandbox Runner Bar */}
+                <div className="p-3 bg-onedark-surface/60 border border-onedark-borderSubtle rounded-xl flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5 text-xs">
+                  {/* Left: Status & Identity */}
+                  <div className="flex items-center space-x-2.5 min-w-0">
+                    <div className="p-1.5 rounded-lg bg-onedark-bg border border-onedark-borderSubtle text-onedark-accent flex-shrink-0">
+                      <Terminal className="w-4 h-4" />
+                    </div>
+                    <div className="flex items-center space-x-2 min-w-0">
+                      <span className="font-semibold text-onedark-fgBright whitespace-nowrap">
+                        Sandbox Tests
+                      </span>
+                      {testStatus === 'running' ? (
+                        <span className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-onedark-accent/20 border border-onedark-accent/30 text-onedark-accent text-[10.5px] font-semibold">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          <span>Running</span>
+                        </span>
+                      ) : isTestingAgentActive ? (
+                        <span className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-onedark-accent/20 border border-onedark-accent/30 text-onedark-accent text-[10.5px] font-semibold animate-pulse">
+                          <Sparkles className="w-3 h-3 text-onedark-accent animate-spin" />
+                          <span>Remediating</span>
+                        </span>
+                      ) : testStatus === 'passed' ? (
+                        <span className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-onedark-green/20 border border-onedark-green/30 text-onedark-green text-[10.5px] font-semibold">
+                          <CheckCircle2 className="w-3 h-3" />
+                          <span>Passed {testExitCode !== null ? `(code ${testExitCode})` : ''}</span>
+                        </span>
+                      ) : testStatus === 'failed' ? (
+                        <span className="flex items-center space-x-1 px-2 py-0.5 rounded-full bg-onedark-red/20 border border-onedark-red/30 text-onedark-red text-[10.5px] font-semibold">
+                          <AlertCircle className="w-3 h-3" />
+                          <span>Failed {testExitCode !== null ? `(code ${testExitCode})` : ''}</span>
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full bg-onedark-surface border border-onedark-borderSubtle text-onedark-muted text-[10.5px]">
+                          Ready
+                        </span>
+                      )}
+                      {testDurationMs !== null && (
+                        <span className="hidden sm:inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-onedark-bg border border-onedark-borderSubtle text-[10.5px] font-mono text-onedark-muted">
+                          <Clock className="w-2.5 h-2.5 text-onedark-muted" />
+                          <span>{(testDurationMs / 1000).toFixed(2)}s</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Center / Input: Custom Command with auto-heal */}
+                  <div className="flex-1 max-w-xl flex items-center space-x-2">
+                    <div className="flex-1 relative flex items-center">
+                      <span className="absolute left-2.5 text-onedark-muted font-mono text-xs select-none">$</span>
+                      <input
+                        type="text"
+                        value={customTestCommand}
+                        onChange={(e) => setCustomTestCommand(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleRunTests(customTestCommand);
+                          }
+                        }}
+                        placeholder={testCommand || "Auto-detect (pytest, npm test, mix test, cargo test...)"}
+                        className="w-full pl-6 pr-3 py-1 bg-onedark-bg border border-onedark-borderSubtle focus:border-onedark-accent rounded-lg text-xs font-mono text-onedark-fgBright placeholder:text-onedark-muted/60 outline-none transition-all shadow-inner"
+                      />
+                    </div>
+                    <label className="hidden lg:flex items-center space-x-1.5 text-onedark-muted hover:text-onedark-fg text-[11px] cursor-pointer select-none whitespace-nowrap">
+                      <input
+                        type="checkbox"
+                        checked={autoHealEnabled}
+                        onChange={(e) => setAutoHealEnabled(e.target.checked)}
+                        className="rounded border-onedark-border text-onedark-accent focus:ring-0 cursor-pointer w-3.5 h-3.5"
+                      />
+                      <span>Auto-heal</span>
+                    </label>
+                  </div>
+
+                  {/* Right: Primary Run Button & Actions */}
+                  <div className="flex items-center space-x-1.5 flex-shrink-0 justify-end">
+                    {(localTestOutput || prRecord?.test_output) && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={handleClearTestOutput}
+                          className="p-1.5 rounded-lg bg-onedark-bg hover:bg-onedark-surface border border-onedark-borderSubtle text-onedark-muted hover:text-onedark-red transition-all cursor-pointer shadow-xs active:scale-95"
+                          title="Clear test output and reset status"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleCopyTestOutput}
+                          className="p-1.5 rounded-lg bg-onedark-bg hover:bg-onedark-surface border border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fg transition-all cursor-pointer shadow-xs active:scale-95"
+                          title="Copy test output"
+                        >
+                          {isTestOutputCopied ? (
+                            <Check className="w-3.5 h-3.5 text-onedark-green" />
+                          ) : (
+                            <Copy className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleRunTests(customTestCommand)}
+                      disabled={Boolean(actionLoading) || testStatus === 'running'}
+                      className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-white text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap shadow-xs active:scale-95"
+                      title="Execute test suite in isolated sandbox worktree"
+                    >
+                      {actionLoading === 'test' || testStatus === 'running' ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Play className="w-3.5 h-3.5 fill-white" />
+                      )}
+                      <span>{testStatus === 'running' ? 'Running...' : (localTestOutput || prRecord?.test_output) ? 'Re-Run Tests' : 'Run Tests'}</span>
+                    </button>
+                  </div>
                 </div>
-                <pre className="p-3 rounded-xl bg-onedark-bg border border-onedark-border text-onedark-fg font-mono text-xs overflow-x-auto whitespace-pre-wrap leading-relaxed">
-                  {prRecord?.test_output || 'No test output recorded yet. Click "Run Tests" above to execute tests.'}
-                </pre>
+
+                {/* Running Banner */}
+                {testStatus === 'running' && (
+                  <div className="flex items-center space-x-3 p-3.5 rounded-xl bg-onedark-accent/10 border border-onedark-accent/30 animate-pulse">
+                    <Loader2 className="w-4 h-4 text-onedark-accent animate-spin flex-shrink-0" />
+                    <div className="text-xs">
+                      <p className="font-semibold text-onedark-fgBright">
+                        Executing test suite in isolated PR worktree sandbox...
+                      </p>
+                      <p className="text-onedark-muted text-[11px] mt-0.5">
+                        Capturing live stdout/stderr streams. Process timeout set to 120 seconds.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Sub-tab switcher: Autonomous Remediation vs Test Console Output */}
+                <div className="flex items-center justify-between border-b border-onedark-borderSubtle/60 px-1 pt-1">
+                  <div className="flex items-center space-x-1">
+                    <button
+                      type="button"
+                      onClick={() => setSandboxSubTab('agent')}
+                      className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-t-lg text-xs font-medium border-b-2 transition-all cursor-pointer ${
+                        sandboxSubTab === 'agent'
+                          ? 'border-onedark-accent text-onedark-fgBright bg-onedark-surface/40 font-semibold'
+                          : 'border-transparent text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/20'
+                      }`}
+                    >
+                      <Sparkles className={`w-3.5 h-3.5 ${isTestingAgentActive ? 'text-onedark-accent animate-spin' : 'text-onedark-accent'}`} />
+                      <span>Autonomous Remediation</span>
+                      {isTestingAgentActive ? (
+                        <span className="flex h-2 w-2 relative ml-0.5">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-onedark-accent opacity-75" />
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-onedark-accent" />
+                        </span>
+                      ) : (testingAgentSubsessionId || showTestingAgentPanel) ? (
+                        <span className="px-1.5 py-0.2 rounded-full bg-onedark-surface text-[9.5px] font-mono text-onedark-muted">
+                          active
+                        </span>
+                      ) : null}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setSandboxSubTab('console')}
+                      className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-t-lg text-xs font-medium border-b-2 transition-all cursor-pointer ${
+                        sandboxSubTab === 'console'
+                          ? 'border-onedark-accent text-onedark-fgBright bg-onedark-surface/40 font-semibold'
+                          : 'border-transparent text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/20'
+                      }`}
+                    >
+                      <Terminal className="w-3.5 h-3.5 text-onedark-muted" />
+                      <span>Test Console Output</span>
+                      {(localTestOutput || prRecord?.test_output) && (
+                        <span className="px-1.5 py-0.2 rounded-full bg-onedark-surface text-[9.5px] font-mono text-onedark-muted">
+                          {(localTestOutput || prRecord?.test_output || '').split('\n').length} lines
+                        </span>
+                      )}
+                    </button>
+                  </div>
+
+                  {testCommand && (
+                    <div className="hidden sm:flex items-center space-x-1.5 text-[10.5px] text-onedark-muted font-mono pb-1 pr-1">
+                      <span>Command:</span>
+                      <code className="px-1.5 py-0.5 rounded bg-onedark-surface text-onedark-fgBright">
+                        {testCommand}
+                      </code>
+                    </div>
+                  )}
+                </div>
+
+                {/* Sub-tab Body */}
+                {sandboxSubTab === 'agent' ? (
+                  <div className="space-y-3">
+                    {(isTestingAgentActive || showTestingAgentPanel || testingAgentSubsessionId) && task?.id ? (
+                      <PRTestingAgentPanel
+                        taskId={task.id}
+                        prNumber={Number(effectivePrNum || 0)}
+                        initialSubsessionId={testingAgentSubsessionId}
+                        onReRunTests={() => handleRunTests(customTestCommand)}
+                        isTestRunning={actionLoading === 'test' || testStatus === 'running'}
+                        onActiveChange={setIsTestingAgentActive}
+                        onLaunchAgent={() => handleLaunchTestingAgent(localTestOutput || prRecord?.test_output)}
+                        testStatus={testStatus}
+                        initialFailureOutput={localTestOutput || prRecord?.test_output}
+                        testCommand={testCommand || customTestCommand}
+                      />
+                    ) : testStatus === 'failed' ? (
+                      <div className="p-4 rounded-xl border border-onedark-red/30 bg-onedark-red/10 space-y-3 text-xs animate-in fade-in">
+                        <div className="flex items-start space-x-3">
+                          <div className="p-2 rounded-lg bg-onedark-red/20 text-onedark-red flex-shrink-0 mt-0.5">
+                            <AlertCircle className="w-5 h-5" />
+                          </div>
+                          <div className="space-y-1">
+                            <h4 className="font-semibold text-onedark-fgBright text-sm">
+                              Test Suite Failed in Sandbox
+                            </h4>
+                            <p className="text-onedark-muted text-xs leading-relaxed">
+                              The test suite encountered errors in the isolated PR worktree sandbox. Launch the autonomous Testing Agent to investigate the stack trace, patch dependencies or code, and re-verify tests.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => handleLaunchTestingAgent(localTestOutput || prRecord?.test_output)}
+                            disabled={Boolean(actionLoading)}
+                            className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-white font-semibold text-xs transition-all shadow-xs active:scale-95 cursor-pointer disabled:opacity-50"
+                            title="Dispatches autonomous TestRemediator agent directly inside this PR worktree"
+                          >
+                            {actionLoading === 'remediate' ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Sparkles className="w-3.5 h-3.5" />
+                            )}
+                            <span>Resolve with Testing Agent</span>
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center justify-center py-12 px-4 text-center rounded-xl bg-onedark-surface/20 border border-dashed border-onedark-borderSubtle select-none">
+                        <div className="w-12 h-12 rounded-xl bg-onedark-surface border border-onedark-border flex items-center justify-center mb-3 text-onedark-accent">
+                          <Sparkles className="w-6 h-6" />
+                        </div>
+                        <h4 className="text-sm font-semibold text-onedark-fgBright">Autonomous Remediation Workspace</h4>
+                        <p className="text-xs text-onedark-muted max-w-md mt-1 mb-4 leading-relaxed">
+                          When sandbox tests fail or require environment repairs, the Testing Agent can autonomously diagnose stack traces, synthesize fixes, and re-run verification directly in this isolated worktree.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => handleLaunchTestingAgent()}
+                          disabled={Boolean(actionLoading)}
+                          className="flex items-center space-x-1.5 px-4 py-2 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-white text-xs font-semibold shadow-md transition-all cursor-pointer disabled:opacity-50 active:scale-95"
+                        >
+                          <Sparkles className="w-4 h-4" />
+                          <span>Launch Remediation Agent</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {localTestOutput || prRecord?.test_output ? (
+                      <div className="relative group rounded-xl border border-onedark-border bg-onedark-darker shadow-inner overflow-hidden flex flex-col font-mono text-xs">
+                        <div className="flex items-center justify-between px-3 py-1.5 bg-onedark-surface/60 border-b border-onedark-borderSubtle text-[11px] select-none text-onedark-muted">
+                          <div className="flex items-center space-x-2">
+                            <div className="flex space-x-1.5">
+                              <div className="w-2.5 h-2.5 rounded-full bg-onedark-red/60" />
+                              <div className="w-2.5 h-2.5 rounded-full bg-onedark-yellow/60" />
+                              <div className="w-2.5 h-2.5 rounded-full bg-onedark-green/60" />
+                            </div>
+                            <span className="text-onedark-muted font-mono text-[10.5px]">console output</span>
+                          </div>
+                          <div className="flex items-center space-x-3">
+                            <span className="text-[10px] text-onedark-muted font-mono">
+                              {(localTestOutput || prRecord?.test_output || '').split('\n').length} lines
+                            </span>
+                            <button
+                              type="button"
+                              onClick={handleCopyTestOutput}
+                              className="flex items-center space-x-1 px-1.5 py-0.5 rounded text-[10.5px] text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface/80 transition-colors cursor-pointer"
+                              title="Copy test output"
+                            >
+                              {isTestOutputCopied ? (
+                                <>
+                                  <Check className="w-3 h-3 text-onedark-green" />
+                                  <span className="text-onedark-green">Copied</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3 h-3" />
+                                  <span>Copy</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                        <pre className="p-4 text-onedark-fgBright font-mono text-[11.5px] leading-relaxed overflow-x-auto whitespace-pre-wrap max-h-[600px] overflow-y-auto selection:bg-onedark-accent/30 select-text">
+                          {localTestOutput || prRecord?.test_output}
+                        </pre>
+                      </div>
+                    ) : testStatus !== 'running' && (
+                      <div className="flex flex-col items-center justify-center py-16 px-4 text-center rounded-xl bg-onedark-surface/20 border border-dashed border-onedark-borderSubtle select-none">
+                        <div className="w-12 h-12 rounded-xl bg-onedark-surface border border-onedark-border flex items-center justify-center mb-3 text-onedark-accent">
+                          <Terminal className="w-6 h-6" />
+                        </div>
+                        <h4 className="text-sm font-semibold text-onedark-fgBright">No test output recorded yet</h4>
+                        <p className="text-xs text-onedark-muted max-w-md mt-1 mb-4 leading-relaxed">
+                          Cyclode dynamically discovers test frameworks from CI workflows, package manifests, or PR test diffs, running them in an isolated ephemeral worktree.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => handleRunTests()}
+                          disabled={Boolean(actionLoading)}
+                          className="flex items-center space-x-1.5 px-4 py-2 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-white text-xs font-semibold shadow-md transition-all cursor-pointer disabled:opacity-50 active:scale-95"
+                        >
+                          <Play className="w-4 h-4 fill-white" />
+                          <span>Run Test Suite Now</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             ) : (
               <div className="space-y-3">
