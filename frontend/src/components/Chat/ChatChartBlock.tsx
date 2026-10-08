@@ -29,7 +29,7 @@ import {
   AlertCircle,
   Sparkles
 } from 'lucide-react';
-import { CHART_THEME } from '../Charts/ChartTheme';
+import { useChartTheme } from '../Charts/ChartTheme';
 import { ErrorBoundary } from '../Common/ErrorBoundary';
 
 export interface ChartSeriesConfig {
@@ -59,6 +59,7 @@ const ChatChartBlockInner: React.FC<ChatChartBlockProps> = ({
   isStreaming = false,
   className = ''
 }) => {
+  const chartTheme = useChartTheme();
   const [viewMode, setViewMode] = useState<'chart' | 'table' | 'json'>('chart');
   const [copied, setCopied] = useState<boolean>(false);
   const [isFullWidth, setIsFullWidth] = useState<boolean>(false);
@@ -150,13 +151,13 @@ const ChatChartBlockInner: React.FC<ChatChartBlockProps> = ({
       series = availableSeriesKeys.map((k, idx) => ({
         key: k,
         label: k.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-        color: CHART_THEME.colors.palette[idx % CHART_THEME.colors.palette.length],
+        color: chartTheme.colors.palette[idx % chartTheme.colors.palette.length],
       }));
     } else {
       series = rawSeries.map((s: any, idx: number) => {
         let rawKey = typeof s === 'string' ? s : String(s?.key || s?.dataKey || s?.name || '');
         let rawLabel = typeof s === 'object' && s?.label ? String(s.label) : (typeof s === 'object' && s?.name ? String(s.name) : rawKey);
-        let rawColor = typeof s === 'object' && s?.color ? String(s.color) : CHART_THEME.colors.palette[idx % CHART_THEME.colors.palette.length];
+        let rawColor = typeof s === 'object' && s?.color ? String(s.color) : chartTheme.colors.palette[idx % chartTheme.colors.palette.length];
 
         // Resolve rawKey against actual keys in firstRow
         let resolvedKey = rawKey;
@@ -187,7 +188,7 @@ const ChatChartBlockInner: React.FC<ChatChartBlockProps> = ({
 
     const type = spec.type || 'bar';
     return { derivedXAxis: xAxis, derivedSeries: series, chartType: type, normalizedData, xAxisTitle };
-  }, [spec]);
+  }, [spec, chartTheme.colors.palette]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(rawJson);
@@ -255,26 +256,26 @@ const ChatChartBlockInner: React.FC<ChatChartBlockProps> = ({
         return (
           <ResponsiveContainer width="100%" height={height}>
             <LineChart data={normalizedData} margin={{ top: 16, right: 24, left: 10, bottom: 24 }}>
-              <CartesianGrid {...CHART_THEME.grid} />
+              <CartesianGrid {...chartTheme.grid} />
               <XAxis
                 dataKey={derivedXAxis}
-                stroke={CHART_THEME.axis.stroke}
-                tickLine={CHART_THEME.axis.tickLine}
-                tick={CHART_THEME.axis.tick}
+                stroke={chartTheme.axis.stroke}
+                tickLine={chartTheme.axis.tickLine}
+                tick={chartTheme.axis.tick}
               />
               <YAxis
-                stroke={CHART_THEME.axis.stroke}
-                tickLine={CHART_THEME.axis.tickLine}
-                tick={CHART_THEME.axis.tick}
+                stroke={chartTheme.axis.stroke}
+                tickLine={chartTheme.axis.tickLine}
+                tick={chartTheme.axis.tick}
                 unit={spec.yAxisUnit ? ` ${spec.yAxisUnit}` : undefined}
               />
-              <Tooltip {...CHART_THEME.tooltip} />
+              <Tooltip {...chartTheme.tooltip} />
               <Legend
                 wrapperStyle={{
                   paddingTop: 10,
                   fontSize: 11,
                   fontFamily: 'JetBrains Mono, Menlo, monospace',
-                  color: '#CBD5E1'
+                  color: chartTheme.axis.tick.fill
                 }}
               />
               {derivedSeries.map((s) => (
@@ -305,26 +306,26 @@ const ChatChartBlockInner: React.FC<ChatChartBlockProps> = ({
                   </linearGradient>
                 ))}
               </defs>
-              <CartesianGrid {...CHART_THEME.grid} />
+              <CartesianGrid {...chartTheme.grid} />
               <XAxis
                 dataKey={derivedXAxis}
-                stroke={CHART_THEME.axis.stroke}
-                tickLine={CHART_THEME.axis.tickLine}
-                tick={CHART_THEME.axis.tick}
+                stroke={chartTheme.axis.stroke}
+                tickLine={chartTheme.axis.tickLine}
+                tick={chartTheme.axis.tick}
               />
               <YAxis
-                stroke={CHART_THEME.axis.stroke}
-                tickLine={CHART_THEME.axis.tickLine}
-                tick={CHART_THEME.axis.tick}
+                stroke={chartTheme.axis.stroke}
+                tickLine={chartTheme.axis.tickLine}
+                tick={chartTheme.axis.tick}
                 unit={spec.yAxisUnit ? ` ${spec.yAxisUnit}` : undefined}
               />
-              <Tooltip {...CHART_THEME.tooltip} />
+              <Tooltip {...chartTheme.tooltip} />
               <Legend
                 wrapperStyle={{
                   paddingTop: 10,
                   fontSize: 11,
                   fontFamily: 'JetBrains Mono, Menlo, monospace',
-                  color: '#CBD5E1'
+                  color: chartTheme.axis.tick.fill
                 }}
               />
               {derivedSeries.map((s) => (
@@ -348,13 +349,13 @@ const ChatChartBlockInner: React.FC<ChatChartBlockProps> = ({
         return (
           <ResponsiveContainer width="100%" height={height}>
             <PieChart margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
-              <Tooltip {...CHART_THEME.tooltip} />
+              <Tooltip {...chartTheme.tooltip} />
               <Legend
                 wrapperStyle={{
                   paddingTop: 10,
                   fontSize: 11,
                   fontFamily: 'JetBrains Mono, Menlo, monospace',
-                  color: '#CBD5E1'
+                  color: chartTheme.axis.tick.fill
                 }}
               />
               <Pie
@@ -370,7 +371,7 @@ const ChatChartBlockInner: React.FC<ChatChartBlockProps> = ({
                 {normalizedData.map((_, index) => (
                   <Cell
                     key={`cell-${index}`}
-                    fill={CHART_THEME.colors.palette[index % CHART_THEME.colors.palette.length]}
+                    fill={chartTheme.colors.palette[index % chartTheme.colors.palette.length]}
                   />
                 ))}
               </Pie>
@@ -384,26 +385,26 @@ const ChatChartBlockInner: React.FC<ChatChartBlockProps> = ({
         return (
           <ResponsiveContainer width="100%" height={height}>
             <BarChart data={normalizedData} margin={{ top: 16, right: 24, left: 10, bottom: 24 }}>
-              <CartesianGrid {...CHART_THEME.grid} />
+              <CartesianGrid {...chartTheme.grid} />
               <XAxis
                 dataKey={derivedXAxis}
-                stroke={CHART_THEME.axis.stroke}
-                tickLine={CHART_THEME.axis.tickLine}
-                tick={CHART_THEME.axis.tick}
+                stroke={chartTheme.axis.stroke}
+                tickLine={chartTheme.axis.tickLine}
+                tick={chartTheme.axis.tick}
               />
               <YAxis
-                stroke={CHART_THEME.axis.stroke}
-                tickLine={CHART_THEME.axis.tickLine}
-                tick={CHART_THEME.axis.tick}
+                stroke={chartTheme.axis.stroke}
+                tickLine={chartTheme.axis.tickLine}
+                tick={chartTheme.axis.tick}
                 unit={spec.yAxisUnit ? ` ${spec.yAxisUnit}` : undefined}
               />
-              <Tooltip {...CHART_THEME.tooltip} />
+              <Tooltip {...chartTheme.tooltip} />
               <Legend
                 wrapperStyle={{
                   paddingTop: 10,
                   fontSize: 11,
                   fontFamily: 'JetBrains Mono, Menlo, monospace',
-                  color: '#CBD5E1'
+                  color: chartTheme.axis.tick.fill
                 }}
               />
               {derivedSeries.map((s) => (

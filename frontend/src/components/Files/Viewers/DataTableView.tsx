@@ -35,7 +35,7 @@ import {
   CartesianGrid,
   Legend
 } from 'recharts';
-import { CHART_THEME } from '../../Charts/ChartTheme';
+import { useChartTheme } from '../../Charts/ChartTheme';
 
 interface DataTableViewProps {
   taskId?: string;
@@ -61,6 +61,7 @@ export const DataTableView: React.FC<DataTableViewProps> = ({
   filePath,
   rawUrl,
 }) => {
+  const chartTheme = useChartTheme();
   const [filterQuery, setFilterQuery] = useState('');
   const [sortCol, setSortCol] = useState<number | null>(null);
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
@@ -608,36 +609,63 @@ export const DataTableView: React.FC<DataTableViewProps> = ({
             <ResponsiveContainer width="100%" height="100%">
               {chartType === 'line' ? (
                 <LineChart data={chartData} margin={{ top: 12, right: 20, left: 10, bottom: 20 }}>
-                  <CartesianGrid {...CHART_THEME.grid} />
-                  <XAxis dataKey={resolvedXCol} {...CHART_THEME.axis} tick={{ fontSize: 10 }} />
-                  <YAxis {...CHART_THEME.axis} tick={{ fontSize: 10 }} />
-                  <Tooltip {...CHART_THEME.tooltip} />
-                  <Legend wrapperStyle={{ paddingTop: 8, fontSize: 11, fontFamily: 'JetBrains Mono, Menlo, monospace', color: '#CBD5E1' }} />
-                  <Line type="monotone" dataKey={resolvedYCol} stroke={CHART_THEME.colors.accent} strokeWidth={2.2} dot={{ r: 3, fill: CHART_THEME.colors.accent }} />
+                  <CartesianGrid {...chartTheme.grid} />
+                  <XAxis
+                    dataKey={resolvedXCol}
+                    stroke={chartTheme.axis.stroke}
+                    tickLine={chartTheme.axis.tickLine}
+                    tick={{ ...chartTheme.axis.tick, fontSize: 10 }}
+                  />
+                  <YAxis
+                    stroke={chartTheme.axis.stroke}
+                    tickLine={chartTheme.axis.tickLine}
+                    tick={{ ...chartTheme.axis.tick, fontSize: 10 }}
+                  />
+                  <Tooltip {...chartTheme.tooltip} />
+                  <Legend wrapperStyle={{ paddingTop: 8, fontSize: 11, fontFamily: 'JetBrains Mono, Menlo, monospace', color: chartTheme.axis.tick.fill }} />
+                  <Line type="monotone" dataKey={resolvedYCol} stroke={chartTheme.colors.accent} strokeWidth={2.2} dot={{ r: 3, fill: chartTheme.colors.accent }} />
                 </LineChart>
               ) : chartType === 'area' ? (
                 <AreaChart data={chartData} margin={{ top: 12, right: 20, left: 10, bottom: 20 }}>
                   <defs>
                     <linearGradient id="dataAreaGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor={CHART_THEME.colors.accent} stopOpacity={0.4} />
-                      <stop offset="95%" stopColor={CHART_THEME.colors.accent} stopOpacity={0.02} />
+                      <stop offset="5%" stopColor={chartTheme.colors.accent} stopOpacity={0.4} />
+                      <stop offset="95%" stopColor={chartTheme.colors.accent} stopOpacity={0.02} />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid {...CHART_THEME.grid} />
-                  <XAxis dataKey={resolvedXCol} {...CHART_THEME.axis} tick={{ fontSize: 10 }} />
-                  <YAxis {...CHART_THEME.axis} tick={{ fontSize: 10 }} />
-                  <Tooltip {...CHART_THEME.tooltip} />
-                  <Legend wrapperStyle={{ paddingTop: 8, fontSize: 11, fontFamily: 'JetBrains Mono, Menlo, monospace', color: '#CBD5E1' }} />
-                  <Area type="monotone" dataKey={resolvedYCol} stroke={CHART_THEME.colors.accent} fillOpacity={1} fill="url(#dataAreaGrad)" strokeWidth={2} />
+                  <CartesianGrid {...chartTheme.grid} />
+                  <XAxis
+                    dataKey={resolvedXCol}
+                    stroke={chartTheme.axis.stroke}
+                    tickLine={chartTheme.axis.tickLine}
+                    tick={{ ...chartTheme.axis.tick, fontSize: 10 }}
+                  />
+                  <YAxis
+                    stroke={chartTheme.axis.stroke}
+                    tickLine={chartTheme.axis.tickLine}
+                    tick={{ ...chartTheme.axis.tick, fontSize: 10 }}
+                  />
+                  <Tooltip {...chartTheme.tooltip} />
+                  <Legend wrapperStyle={{ paddingTop: 8, fontSize: 11, fontFamily: 'JetBrains Mono, Menlo, monospace', color: chartTheme.axis.tick.fill }} />
+                  <Area type="monotone" dataKey={resolvedYCol} stroke={chartTheme.colors.accent} fillOpacity={1} fill="url(#dataAreaGrad)" strokeWidth={2} />
                 </AreaChart>
               ) : (
                 <BarChart data={chartData} margin={{ top: 12, right: 20, left: 10, bottom: 20 }}>
-                  <CartesianGrid {...CHART_THEME.grid} />
-                  <XAxis dataKey={resolvedXCol} {...CHART_THEME.axis} tick={{ fontSize: 10 }} />
-                  <YAxis {...CHART_THEME.axis} tick={{ fontSize: 10 }} />
-                  <Tooltip {...CHART_THEME.tooltip} />
-                  <Legend wrapperStyle={{ paddingTop: 8, fontSize: 11, fontFamily: 'JetBrains Mono, Menlo, monospace', color: '#CBD5E1' }} />
-                  <Bar dataKey={resolvedYCol} fill={CHART_THEME.colors.accent} radius={[4, 4, 0, 0]} maxBarSize={48} />
+                  <CartesianGrid {...chartTheme.grid} />
+                  <XAxis
+                    dataKey={resolvedXCol}
+                    stroke={chartTheme.axis.stroke}
+                    tickLine={chartTheme.axis.tickLine}
+                    tick={{ ...chartTheme.axis.tick, fontSize: 10 }}
+                  />
+                  <YAxis
+                    stroke={chartTheme.axis.stroke}
+                    tickLine={chartTheme.axis.tickLine}
+                    tick={{ ...chartTheme.axis.tick, fontSize: 10 }}
+                  />
+                  <Tooltip {...chartTheme.tooltip} />
+                  <Legend wrapperStyle={{ paddingTop: 8, fontSize: 11, fontFamily: 'JetBrains Mono, Menlo, monospace', color: chartTheme.axis.tick.fill }} />
+                  <Bar dataKey={resolvedYCol} fill={chartTheme.colors.accent} radius={[4, 4, 0, 0]} maxBarSize={48} />
                 </BarChart>
               )}
             </ResponsiveContainer>

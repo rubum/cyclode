@@ -33,7 +33,7 @@ import {
 } from 'recharts';
 import { Task } from '../../types';
 import { formatRelativeTime, formatFullDateTime } from '../../utils/date';
-import { CHART_THEME } from '../Charts/ChartTheme';
+import { useChartTheme } from '../Charts/ChartTheme';
 
 interface FleetDashboardProps {
   tasks: Task[];
@@ -48,6 +48,7 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
   onNewChat,
   onBackToChat,
 }) => {
+  const chartTheme = useChartTheme();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'RUNNING' | 'AWAITING_APPROVAL' | 'COMPLETED' | 'FAILED'>('all');
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
@@ -369,11 +370,20 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
                   <div className="h-44 w-full pt-1">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={personaTokenData} margin={{ top: 8, right: 10, left: -10, bottom: 0 }}>
-                        <CartesianGrid {...CHART_THEME.grid} />
-                        <XAxis dataKey="persona" {...CHART_THEME.axis} tick={{ fontSize: 10 }} />
-                        <YAxis {...CHART_THEME.axis} tick={{ fontSize: 10 }} />
-                        <Tooltip {...CHART_THEME.tooltip} />
-                        <Bar dataKey="tokens" name="Tokens" fill={CHART_THEME.colors.accent} radius={[4, 4, 0, 0]} maxBarSize={36} />
+                        <CartesianGrid {...chartTheme.grid} />
+                        <XAxis
+                          dataKey="persona"
+                          stroke={chartTheme.axis.stroke}
+                          tickLine={chartTheme.axis.tickLine}
+                          tick={{ ...chartTheme.axis.tick, fontSize: 10 }}
+                        />
+                        <YAxis
+                          stroke={chartTheme.axis.stroke}
+                          tickLine={chartTheme.axis.tickLine}
+                          tick={{ ...chartTheme.axis.tick, fontSize: 10 }}
+                        />
+                        <Tooltip {...chartTheme.tooltip} />
+                        <Bar dataKey="tokens" name="Tokens" fill={chartTheme.colors.accent} radius={[4, 4, 0, 0]} maxBarSize={36} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
@@ -393,15 +403,24 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
                       <AreaChart data={recentTaskTimeline} margin={{ top: 8, right: 10, left: -10, bottom: 0 }}>
                         <defs>
                           <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor={CHART_THEME.colors.green} stopOpacity={0.4} />
-                            <stop offset="95%" stopColor={CHART_THEME.colors.green} stopOpacity={0.02} />
+                            <stop offset="5%" stopColor={chartTheme.colors.green} stopOpacity={0.4} />
+                            <stop offset="95%" stopColor={chartTheme.colors.green} stopOpacity={0.02} />
                           </linearGradient>
                         </defs>
-                        <CartesianGrid {...CHART_THEME.grid} />
-                        <XAxis dataKey="name" {...CHART_THEME.axis} tick={{ fontSize: 10 }} />
-                        <YAxis {...CHART_THEME.axis} tick={{ fontSize: 10 }} />
-                        <Tooltip {...CHART_THEME.tooltip} />
-                        <Area type="monotone" dataKey="tokens" name="Tokens" stroke={CHART_THEME.colors.green} fillOpacity={1} fill="url(#areaGrad)" strokeWidth={2} />
+                        <CartesianGrid {...chartTheme.grid} />
+                        <XAxis
+                          dataKey="name"
+                          stroke={chartTheme.axis.stroke}
+                          tickLine={chartTheme.axis.tickLine}
+                          tick={{ ...chartTheme.axis.tick, fontSize: 10 }}
+                        />
+                        <YAxis
+                          stroke={chartTheme.axis.stroke}
+                          tickLine={chartTheme.axis.tickLine}
+                          tick={{ ...chartTheme.axis.tick, fontSize: 10 }}
+                        />
+                        <Tooltip {...chartTheme.tooltip} />
+                        <Area type="monotone" dataKey="tokens" name="Tokens" stroke={chartTheme.colors.green} fillOpacity={1} fill="url(#areaGrad)" strokeWidth={2} />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
