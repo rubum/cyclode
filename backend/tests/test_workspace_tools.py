@@ -136,6 +136,17 @@ async def test_github_pr_tools(monkeypatch):
     assert details["number"] == 101
     assert "title" in details
     assert "head_branch" in details
+    assert "mergeable" in details
+    assert "checks_summary" in details
+    assert details["checks_summary"]["conclusion"] == "success"
+    assert "reviews_summary" in details
+    assert details["reviews_summary"]["verdict"] == "APPROVED"
+
+    # Also test get_pull_request_checks
+    checks_res = await WorkspaceTools.get_pull_request_checks("confident-ai/deepeval", 101)
+    assert checks_res["repository"] == "confident-ai/deepeval"
+    assert checks_res["conclusion"] == "success"
+    assert checks_res["total_checks"] == 3
 
     # 2. Test get_pull_request_diff
     diff_res = await WorkspaceTools.get_pull_request_diff("confident-ai/deepeval", 101)

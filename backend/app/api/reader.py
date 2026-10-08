@@ -767,6 +767,34 @@ async def _fetch_github_pr_info(owner: str, repo: str, pr_number: int) -> Dict[s
         except Exception:
             pass
 
+        # Fetch check-runs for head SHA or branch
+        head_sha = pr_data.get("head", {}).get("sha", "") if isinstance(pr_data.get("head"), dict) else ""
+        checks_data = {"total_count": 0, "conclusion": "unknown", "check_runs": []}
+        try:
+            from app.integrations.github_client import github_client
+            check_target = head_sha or head_ref
+            if check_target:
+                checks_data = await github_client.get_check_runs(owner, repo, check_target, custom_token=token)
+        except Exception as e:
+            logger.debug(f"Failed to fetch check-runs in reader: {e}")
+
+        # Compute review verdict from comments/reviews
+        latest_review_by_user = {}
+        for c in comments_list:
+            if c.get("type") == "review":
+                user = c.get("author") or "unknown"
+                r_state = (c.get("review_state") or "COMMENTED").upper()
+                if r_state in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED", "COMMENTED"):
+                    latest_review_by_user[user] = r_state
+        
+        review_verdict = "PENDING"
+        if any(s == "CHANGES_REQUESTED" for s in latest_review_by_user.values()):
+            review_verdict = "CHANGES_REQUESTED"
+        elif any(s == "APPROVED" for s in latest_review_by_user.values()):
+            review_verdict = "APPROVED"
+        elif latest_review_by_user:
+            review_verdict = "COMMENTED"
+
         return {
             "type": "github",
             "is_pr": True,
@@ -776,12 +804,18 @@ async def _fetch_github_pr_info(owner: str, repo: str, pr_number: int) -> Dict[s
             "pr_number": pr_number,
             "pr_title": title,
             "state": status_str,
+            "mergeable": pr_data.get("mergeable"),
+            "mergeable_state": pr_data.get("mergeable_state", "unknown"),
+            "is_draft": pr_data.get("draft", False),
             "author": user_login,
             "author_avatar": user_avatar,
             "viewer_login": viewer_login,
             "viewer_is_author": viewer_is_author,
             "head_branch": head_ref,
+            "head_sha": head_sha,
             "base_branch": base_ref,
+            "checks": checks_data,
+            "review_verdict": review_verdict,
             "additions": additions,
             "deletions": deletions,
             "changed_files_count": changed_files,

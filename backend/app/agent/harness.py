@@ -1447,7 +1447,19 @@ class AntigravityHarness:
                     },
                     {
                         "name": "get_pull_request_details",
-                        "description": "Fetch pull request metadata, description, base/head branches, and list of modified files.",
+                        "description": "Fetch pull request metadata, description, base/head branches, mergeability status, CI check-runs conclusion, review verdicts, and list of modified files.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "repository": {"type": "STRING", "description": "Repository in owner/repo format (e.g. 'gowaylo/waylo')"},
+                                "pr_number": {"type": "INTEGER", "description": "Pull request number"}
+                            },
+                            "required": ["repository", "pr_number"]
+                        }
+                    },
+                    {
+                        "name": "get_pull_request_checks",
+                        "description": "Fetch detailed CI check-runs, test workflow conclusions, and step details for a GitHub pull request.",
                         "parameters": {
                             "type": "OBJECT",
                             "properties": {
@@ -1864,7 +1876,7 @@ class AntigravityHarness:
             f"Core Operational Directives:\n"
             f"1. DIRECT TOOL INVOCATION & REASONING:\n"
             f"   - When listing pull requests: call `list_pull_requests`. ALWAYS present all discovered PRs in your response with an itemized Markdown table or list including direct clickable links ([#<number>: <title>](https://github.com/<owner>/<repo>/pull/<number>)), author (@<author>), status (OPEN/MERGED), branch flow (<head> ➔ <base>), and diff stats (+add / -del).\n"
-            f"   - When reviewing PRs or summarizing changes: call `get_pull_request_diff` and `get_pull_request_details` to analyze the exact code hunks.\n"
+            f"   - When reviewing PRs, assessing mergeability, or checking CI status: call `get_pull_request_details` (which provides composite mergeability, CI `checks_summary`, and `reviews_summary`) and `get_pull_request_diff` to analyze the exact code hunks. Call `get_pull_request_checks` for dedicated CI check runs and test workflow status.\n"
             f"   - When referencing, tracking, or resolving Linear tickets (e.g. 'PD-1198'): call Linear tools directly (`get_linear_issue`, `search_linear_issues`, `post_linear_comment`, `update_linear_issue_status`, `create_linear_issue`, `list_linear_teams`).\n"
             f"   - When interacting with external software services, third-party APIs, or SaaS tools (e.g. Jira, Notion, Slack, Sentry, AWS, Supabase, Cloudflare, Stripe): first call `ingrations_search_tools` to discover matching action IDs, then call `ingrations_execute` with required parameters.\n"
             f"   - When answering user questions about the workspace: use `read_file`, `search_code`, `find_symbols`, and `run_command`.\n"
@@ -3482,6 +3494,11 @@ class AntigravityHarness:
                                 out_str = json.dumps(tool_result, indent=2)
                                 if isinstance(tool_result, dict) and ("number" in tool_result or "pr_number" in tool_result):
                                     asyncio.create_task(self._upsert_task_prs(task_id, [tool_result]))
+                            elif fn_name == "get_pull_request_checks":
+                                repo_arg = args.get("repository", "")
+                                pr_num = int(args.get("pr_number", 1))
+                                tool_result = await WorkspaceTools.get_pull_request_checks(repo_arg, pr_num)
+                                out_str = json.dumps(tool_result, indent=2)
                             elif fn_name == "get_pull_request_diff":
                                 repo_arg = args.get("repository", "")
                                 pr_num = int(args.get("pr_number", 1))

@@ -2274,8 +2274,9 @@ class WorkspaceTools:
     @classmethod
     async def get_pull_request_details(cls, repository: str, pr_number: int) -> Dict[str, Any]:
         """
-        Retrieves complete pull request metadata, description, branches, and modified files list.
+        Retrieves complete pull request metadata, description, branches, CI checks, reviews, and modified files list.
         """
+        import asyncio
         from app.integrations.github_client import github_client
         from app.integrations.manager import integration_manager
         owner, repo = cls._parse_repo(repository)
@@ -2295,16 +2296,46 @@ class WorkspaceTools:
                 "html_url": f"https://github.com/{owner}/{repo}/pull/{pr_number}"
             }
         
+        head_sha = pr_data.get("head", {}).get("sha", "") if isinstance(pr_data.get("head"), dict) else ""
+        head_ref = pr_data.get("head", {}).get("ref", "") if isinstance(pr_data.get("head"), dict) else ""
+        base_ref = pr_data.get("base", {}).get("ref", "main") if isinstance(pr_data.get("base"), dict) else "main"
+
+        check_target = head_sha or head_ref
+        checks_coro = (
+            github_client.get_check_runs(owner, repo, check_target, custom_token=token)
+            if check_target
+            else asyncio.sleep(0, result={"total_count": 0, "conclusion": "unknown", "check_runs": []})
+        )
+        reviews_coro = github_client.get_pull_request_reviews(owner, repo, pr_number, custom_token=token)
+
+        checks_data, reviews_data = await asyncio.gather(checks_coro, reviews_coro)
+
         return {
             "repository": f"{owner}/{repo}",
             "number": pr_number,
             "title": pr_data.get("title", f"Pull Request #{pr_number}"),
             "state": pr_data.get("state", "open"),
+            "draft": pr_data.get("draft", False),
+            "mergeable": pr_data.get("mergeable"),
+            "mergeable_state": pr_data.get("mergeable_state", "unknown"),
             "author": pr_data.get("user", {}).get("login", "unknown") if isinstance(pr_data.get("user"), dict) else "unknown",
-            "head_branch": pr_data.get("head", {}).get("ref", "") if isinstance(pr_data.get("head"), dict) else "",
-            "base_branch": pr_data.get("base", {}).get("ref", "main") if isinstance(pr_data.get("base"), dict) else "main",
+            "head_branch": head_ref,
+            "head_sha": head_sha,
+            "base_branch": base_ref,
             "body": pr_data.get("body", ""),
             "html_url": pr_data.get("html_url", f"https://github.com/{owner}/{repo}/pull/{pr_number}"),
+            "checks_summary": {
+                "conclusion": checks_data.get("conclusion", "unknown"),
+                "total_checks": checks_data.get("total_count", 0),
+                "check_runs": checks_data.get("check_runs", [])
+            },
+            "reviews_summary": {
+                "verdict": reviews_data.get("verdict", "PENDING"),
+                "total_reviews": reviews_data.get("total_reviews", 0),
+                "approvals": reviews_data.get("approvals", []),
+                "change_requests": reviews_data.get("change_requests", []),
+                "reviews": reviews_data.get("reviews", [])
+            },
             "changed_files_count": len(files_data),
             "files": [
                 {
@@ -2316,6 +2347,32 @@ class WorkspaceTools:
                 }
                 for f in files_data
             ]
+        }
+
+    @classmethod
+    async def get_pull_request_checks(cls, repository: str, pr_number: int) -> Dict[str, Any]:
+        """
+        Fetches detailed check-runs and CI test conclusions for a pull request.
+        """
+        from app.integrations.github_client import github_client
+        from app.integrations.manager import integration_manager
+        owner, repo = cls._parse_repo(repository)
+        token = await integration_manager.get_github_token_for_repo(f"{owner}/{repo}")
+
+        pr_data = await github_client.get_pull_request(owner, repo, pr_number, custom_token=token)
+        head_sha = pr_data.get("head", {}).get("sha", "") if isinstance(pr_data, dict) and isinstance(pr_data.get("head"), dict) else ""
+        head_ref = pr_data.get("head", {}).get("ref", "") if isinstance(pr_data, dict) and isinstance(pr_data.get("head"), dict) else ""
+        check_target = head_sha or head_ref or f"pull/{pr_number}/head"
+
+        checks_data = await github_client.get_check_runs(owner, repo, check_target, custom_token=token)
+        return {
+            "repository": f"{owner}/{repo}",
+            "number": pr_number,
+            "head_sha": head_sha,
+            "head_branch": head_ref,
+            "conclusion": checks_data.get("conclusion", "unknown"),
+            "total_checks": checks_data.get("total_count", 0),
+            "check_runs": checks_data.get("check_runs", [])
         }
 
     @classmethod

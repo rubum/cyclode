@@ -127,6 +127,8 @@ class GitHubClient:
                     "created_at": "2026-09-12T10:15:30Z",
                     "updated_at": "2026-09-14T08:22:10Z",
                     "draft": False,
+                    "mergeable": True,
+                    "mergeable_state": "clean",
                     "additions": 42,
                     "deletions": 11,
                     "changed_files": 3,
@@ -144,6 +146,8 @@ class GitHubClient:
                     "created_at": "2026-09-13T14:40:00Z",
                     "updated_at": "2026-09-14T09:05:00Z",
                     "draft": False,
+                    "mergeable": True,
+                    "mergeable_state": "clean",
                     "additions": 118,
                     "deletions": 24,
                     "changed_files": 5,
@@ -175,6 +179,8 @@ class GitHubClient:
                             "updated_at": pr.get("updated_at"),
                             "merged_at": pr.get("merged_at"),
                             "draft": pr.get("draft", False),
+                            "mergeable": pr.get("mergeable"),
+                            "mergeable_state": pr.get("mergeable_state"),
                             "additions": pr.get("additions", 0),
                             "deletions": pr.get("deletions", 0),
                             "changed_files": pr.get("changed_files", 0),
@@ -310,6 +316,184 @@ class GitHubClient:
             except Exception:
                 pass
         return []
+
+    async def get_check_runs(
+        self,
+        owner: str,
+        repo: str,
+        ref: str,
+        custom_token: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Fetches GitHub Actions check-runs and overall conclusion rollup for a commit SHA or ref.
+        """
+        import os
+        if os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
+            return {
+                "total_count": 3,
+                "conclusion": "success",
+                "check_runs": [
+                    {
+                        "id": 1001,
+                        "name": "pytest / test-backend (3.11)",
+                        "status": "completed",
+                        "conclusion": "success",
+                        "html_url": f"https://github.com/{owner}/{repo}/runs/1001",
+                        "started_at": "2026-09-14T08:23:00Z",
+                        "completed_at": "2026-09-14T08:24:12Z"
+                    },
+                    {
+                        "id": 1002,
+                        "name": "eslint / lint-frontend",
+                        "status": "completed",
+                        "conclusion": "success",
+                        "html_url": f"https://github.com/{owner}/{repo}/runs/1002",
+                        "started_at": "2026-09-14T08:23:05Z",
+                        "completed_at": "2026-09-14T08:23:45Z"
+                    },
+                    {
+                        "id": 1003,
+                        "name": "build / vite-bundle",
+                        "status": "completed",
+                        "conclusion": "success",
+                        "html_url": f"https://github.com/{owner}/{repo}/runs/1003",
+                        "started_at": "2026-09-14T08:23:10Z",
+                        "completed_at": "2026-09-14T08:24:30Z"
+                    }
+                ],
+                "simulated": True
+            }
+
+        token = custom_token or self.token
+        headers = self._get_headers(token)
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            url = f"{self.api_base}/repos/{owner}/{repo}/commits/{ref}/check-runs?per_page=100"
+            try:
+                resp = await client.get(url, headers=headers)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    runs = data.get("check_runs", [])
+                    has_failures = any(r.get("conclusion") in ("failure", "timed_out", "cancelled", "action_required") for r in runs)
+                    all_completed = all(r.get("status") == "completed" for r in runs) if runs else False
+
+                    if not runs:
+                        conclusion = "neutral"
+                    elif has_failures:
+                        conclusion = "failure"
+                    elif all_completed:
+                        conclusion = "success"
+                    else:
+                        conclusion = "pending"
+
+                    formatted_runs = []
+                    for r in runs:
+                        formatted_runs.append({
+                            "id": r.get("id"),
+                            "name": r.get("name"),
+                            "status": r.get("status"),
+                            "conclusion": r.get("conclusion"),
+                            "html_url": r.get("html_url"),
+                            "started_at": r.get("started_at"),
+                            "completed_at": r.get("completed_at"),
+                        })
+                    return {
+                        "total_count": data.get("total_count", len(formatted_runs)),
+                        "conclusion": conclusion,
+                        "check_runs": formatted_runs,
+                        "simulated": False
+                    }
+            except Exception as e:
+                logger.debug(f"Failed to fetch check-runs for {owner}/{repo}@{ref}: {e}")
+        return {"total_count": 0, "conclusion": "unknown", "check_runs": [], "simulated": False}
+
+    async def get_pull_request_reviews(
+        self,
+        owner: str,
+        repo: str,
+        pr_number: int,
+        custom_token: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Fetches GitHub PR formal reviews and computes overall review verdict.
+        """
+        import os
+        if os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
+            return {
+                "verdict": "APPROVED",
+                "total_reviews": 1,
+                "approvals": ["senior-eng"],
+                "change_requests": [],
+                "reviews": [
+                    {
+                        "id": 303,
+                        "user": "senior-eng",
+                        "state": "APPROVED",
+                        "body": "LGTM overall, left one minor suggestion on the error handling.",
+                        "submitted_at": "2026-09-14T12:00:00Z",
+                        "html_url": f"https://github.com/{owner}/{repo}/pull/{pr_number}#pullrequestreview-303"
+                    }
+                ],
+                "simulated": True
+            }
+
+        token = custom_token or self.token
+        headers = self._get_headers(token)
+
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            url = f"{self.api_base}/repos/{owner}/{repo}/pulls/{pr_number}/reviews?per_page=100"
+            try:
+                resp = await client.get(url, headers=headers)
+                if resp.status_code == 200:
+                    raw_reviews = resp.json()
+                    latest_by_user = {}
+                    reviews_list = []
+                    for r in raw_reviews:
+                        u = r.get("user") or {}
+                        uname = u.get("login", "unknown") if isinstance(u, dict) else "unknown"
+                        state = (r.get("state") or "COMMENTED").upper()
+                        submitted = r.get("submitted_at") or r.get("created_at") or ""
+                        if state in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED", "COMMENTED"):
+                            latest_by_user[uname] = state
+                        reviews_list.append({
+                            "id": r.get("id"),
+                            "user": uname,
+                            "state": state,
+                            "body": (r.get("body") or "").strip(),
+                            "submitted_at": submitted,
+                            "html_url": r.get("html_url", "")
+                        })
+
+                    approvals = [user for user, state in latest_by_user.items() if state == "APPROVED"]
+                    change_requests = [user for user, state in latest_by_user.items() if state == "CHANGES_REQUESTED"]
+
+                    if change_requests:
+                        verdict = "CHANGES_REQUESTED"
+                    elif approvals:
+                        verdict = "APPROVED"
+                    elif latest_by_user:
+                        verdict = "COMMENTED"
+                    else:
+                        verdict = "PENDING"
+
+                    return {
+                        "verdict": verdict,
+                        "total_reviews": len(reviews_list),
+                        "approvals": approvals,
+                        "change_requests": change_requests,
+                        "reviews": reviews_list,
+                        "simulated": False
+                    }
+            except Exception as e:
+                logger.debug(f"Failed to fetch PR reviews for {owner}/{repo}#{pr_number}: {e}")
+        return {
+            "verdict": "PENDING",
+            "total_reviews": 0,
+            "approvals": [],
+            "change_requests": [],
+            "reviews": [],
+            "simulated": False
+        }
 
     async def post_pull_request_review(
         self,

@@ -113,6 +113,22 @@ export interface PRCommitItem {
   files?: PRFileItem[];
 }
 
+export interface PRCheckRunItem {
+  id?: number;
+  name: string;
+  status: string;
+  conclusion?: string;
+  html_url?: string;
+  started_at?: string;
+  completed_at?: string;
+}
+
+export interface PRChecksSummary {
+  conclusion: 'success' | 'failure' | 'pending' | 'neutral' | 'unknown' | string;
+  total_count: number;
+  check_runs: PRCheckRunItem[];
+}
+
 export interface PRReaderResponse {
   type: 'github' | 'web';
   is_pr?: boolean;
@@ -129,12 +145,17 @@ export interface PRReaderResponse {
   pr_number?: number;
   pr_title?: string;
   state?: string;
+  mergeable?: boolean | null;
+  mergeable_state?: string;
   author?: string;
   author_avatar?: string;
   viewer_login?: string;
   viewer_is_author?: boolean;
   head_branch?: string;
+  head_sha?: string;
   base_branch?: string;
+  checks?: PRChecksSummary;
+  review_verdict?: string;
   additions?: number;
   deletions?: number;
   changed_files_count?: number;
@@ -4709,6 +4730,96 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
                 <span>Linear: {ticket}</span>
               </button>
             ))}
+
+            {/* Mergeability Status Pill */}
+            {data?.mergeable !== undefined && data?.mergeable !== null && (
+              <span 
+                className={`flex items-center space-x-1 px-2 py-0.5 rounded-full font-mono text-[10.5px] font-bold uppercase whitespace-nowrap flex-shrink-0 ${
+                  data.mergeable === true
+                    ? 'bg-onedark-green/15 text-onedark-green border border-onedark-green/30'
+                    : data.mergeable === false || data.mergeable_state === 'dirty'
+                    ? 'bg-onedark-red/15 text-onedark-red border border-onedark-red/30'
+                    : 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                }`}
+                title={`Merge status: ${data.mergeable_state || (data.mergeable ? 'clean' : 'conflicts')}`}
+              >
+                {data.mergeable === true ? (
+                  <>
+                    <GitMerge className="w-3 h-3 text-onedark-green" />
+                    <span>Mergeable</span>
+                  </>
+                ) : data.mergeable === false || data.mergeable_state === 'dirty' ? (
+                  <>
+                    <AlertTriangle className="w-3 h-3 text-onedark-red" />
+                    <span>Conflicts</span>
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck className="w-3 h-3 text-amber-400" />
+                    <span>Blocked</span>
+                  </>
+                )}
+              </span>
+            )}
+
+            {/* CI Checks Rollup Pill */}
+            {data?.checks && data.checks.total_count > 0 && (
+              <span
+                className={`flex items-center space-x-1 px-2 py-0.5 rounded-full font-mono text-[10.5px] font-semibold whitespace-nowrap flex-shrink-0 ${
+                  data.checks.conclusion === 'success'
+                    ? 'bg-onedark-green/15 text-onedark-green border border-onedark-green/30'
+                    : data.checks.conclusion === 'failure'
+                    ? 'bg-onedark-red/15 text-onedark-red border border-onedark-red/30'
+                    : 'bg-onedark-accent/15 text-onedark-accent border border-onedark-accent/30'
+                }`}
+                title={data.checks.check_runs.map(r => `${r.name}: ${r.conclusion || r.status}`).join('\n')}
+              >
+                {data.checks.conclusion === 'success' ? (
+                  <>
+                    <CheckCircle2 className="w-3 h-3 text-onedark-green" />
+                    <span>Checks: {data.checks.total_count}/{data.checks.total_count} Passed</span>
+                  </>
+                ) : data.checks.conclusion === 'failure' ? (
+                  <>
+                    <AlertCircle className="w-3 h-3 text-onedark-red" />
+                    <span>Checks: Failed</span>
+                  </>
+                ) : (
+                  <>
+                    <Loader2 className="w-3 h-3 text-onedark-accent animate-spin" />
+                    <span>Checks: In Progress</span>
+                  </>
+                )}
+              </span>
+            )}
+
+            {/* Review Verdict Badge */}
+            {data?.review_verdict && data.review_verdict !== 'PENDING' && (
+              <span
+                className={`flex items-center space-x-1 px-2 py-0.5 rounded-full font-mono text-[10.5px] font-bold uppercase whitespace-nowrap flex-shrink-0 ${
+                  data.review_verdict === 'APPROVED'
+                    ? 'bg-onedark-green/15 text-onedark-green border border-onedark-green/30'
+                    : data.review_verdict === 'CHANGES_REQUESTED'
+                    ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                    : 'bg-onedark-surface text-onedark-muted border border-onedark-borderSubtle'
+                }`}
+                title={`PR Review verdict: ${data.review_verdict}`}
+              >
+                {data.review_verdict === 'APPROVED' ? (
+                  <>
+                    <CheckSquare className="w-3 h-3 text-onedark-green" />
+                    <span>Approved</span>
+                  </>
+                ) : data.review_verdict === 'CHANGES_REQUESTED' ? (
+                  <>
+                    <AlertCircle className="w-3 h-3 text-amber-400" />
+                    <span>Changes Requested</span>
+                  </>
+                ) : (
+                  <span>{data.review_verdict}</span>
+                )}
+              </span>
+            )}
           </div>
 
           {/* Action Toolbar */}
