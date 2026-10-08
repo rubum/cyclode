@@ -910,6 +910,168 @@ const SystemMessageCard: React.FC<SystemMessageCardProps> = ({
   );
 };
 
+export interface QuickActionItem {
+  id: string;
+  label: string;
+  prompt: string;
+  variant?: 'primary' | 'secondary' | 'success' | 'danger' | 'warning' | 'neutral' | 'accent';
+  icon?: 'check' | 'x' | 'message' | 'sparkles' | 'play' | 'git' | 'arrow' | string;
+  description?: string;
+}
+
+export function extractQuickActions(rawContent: string): { cleanedContent: string; actions: QuickActionItem[] } {
+  if (!rawContent) return { cleanedContent: '', actions: [] };
+
+  const actions: QuickActionItem[] = [];
+  let cleaned = rawContent;
+
+  // 1. Structured XML tags: <quick-actions> ... </quick-actions> or <quick_actions> ... </quick_actions>
+  const quickActionsBlockRegex = /<(?:quick-actions|quick_actions)>([\s\S]*?)<\/(?:quick-actions|quick_actions)>/gi;
+  let blockMatch;
+  while ((blockMatch = quickActionsBlockRegex.exec(rawContent)) !== null) {
+    const blockContent = blockMatch[1];
+    const actionTagRegex = /<action\s+([^>]*?)(?:\/>|>([\s\S]*?)<\/action>)/gi;
+    let actionMatch;
+    while ((actionMatch = actionTagRegex.exec(blockContent)) !== null) {
+      const attrsStr = actionMatch[1];
+      const innerText = (actionMatch[2] || '').trim();
+
+      const idMatch = attrsStr.match(/\bid=["']([^"']+)["']/i);
+      const labelMatch = attrsStr.match(/\blabel=["']([^"']+)["']/i);
+      const promptMatch = attrsStr.match(/\bprompt=["']([^"']+)["']/i);
+      const variantMatch = attrsStr.match(/\bvariant=["']([^"']+)["']/i);
+      const iconMatch = attrsStr.match(/\bicon=["']([^"']+)["']/i);
+      const descMatch = attrsStr.match(/\bdescription=["']([^"']+)["']/i);
+
+      const label = labelMatch ? labelMatch[1] : (innerText || 'Action');
+      const prompt = promptMatch ? promptMatch[1] : (innerText || label);
+      const id = idMatch ? idMatch[1] : `qa-${actions.length + 1}`;
+      const variant = (variantMatch ? variantMatch[1].toLowerCase() : 'neutral') as QuickActionItem['variant'];
+      const icon = (iconMatch ? iconMatch[1].toLowerCase() : undefined) as QuickActionItem['icon'];
+      const description = descMatch ? descMatch[1] : undefined;
+
+      actions.push({ id, label, prompt, variant, icon, description });
+    }
+  }
+
+  // Strip quick-actions XML blocks so they don't leak into markdown
+  cleaned = cleaned.replace(quickActionsBlockRegex, '').trimEnd();
+  cleaned = cleaned.replace(/<(?:quick-actions|quick_actions)>[\s\S]*$/gi, '').trimEnd();
+
+  // 2. Fallback Heuristics for PR Review & Test Remediation questions
+  if (actions.length === 0) {
+    // Check for PR review staging question (e.g. "Want me to stage this as a formal GitHub review on #1259 — approve, or comment...?")
+    const reviewPattern = /(?:stage|submit|post) (?:this as )?a (?:formal )?(?:github )?review on #?(\d+)/i;
+    const reviewMatch = rawContent.match(reviewPattern);
+    if (reviewMatch) {
+      const prNum = reviewMatch[1];
+      actions.push({
+        id: `approve-pr-${prNum}`,
+        label: `Approve #${prNum}`,
+        prompt: `Please approve PR #${prNum} with this review.`,
+        variant: 'success',
+        icon: 'check',
+        description: `Submit approved review for PR #${prNum}`
+      });
+      actions.push({
+        id: `comment-pr-${prNum}`,
+        label: `Comment on #${prNum}`,
+        prompt: `Please comment on PR #${prNum} with this review.`,
+        variant: 'neutral',
+        icon: 'message',
+        description: `Submit neutral review comment for PR #${prNum}`
+      });
+      actions.push({
+        id: `changes-pr-${prNum}`,
+        label: `Request Changes #${prNum}`,
+        prompt: `Please request changes on PR #${prNum} with this review.`,
+        variant: 'danger',
+        icon: 'x',
+        description: `Submit changes requested review for PR #${prNum}`
+      });
+    } else {
+      // Check for test remediation question (e.g. "Want me to investigate and fix the failing test suite for PR #1258?")
+      const testFixPattern = /(?:investigate|fix|remedy) (?:the )?failing test(?:s)?(?: suite)? for (?:pr )?#?(\d+)/i;
+      const testFixMatch = rawContent.match(testFixPattern);
+      if (testFixMatch) {
+        const prNum = testFixMatch[1];
+        actions.push({
+          id: `fix-tests-${prNum}`,
+          label: `Fix Failing Tests (#${prNum})`,
+          prompt: `Please investigate and fix the failing test suite for PR #${prNum}.`,
+          variant: 'accent',
+          icon: 'sparkles',
+          description: `Launch autonomous testing agent on PR #${prNum}`
+        });
+      }
+    }
+  }
+
+  return { cleanedContent: cleaned, actions };
+}
+
+interface QuickActionChipsProps {
+  actions: QuickActionItem[];
+  onSelectAction: (action: QuickActionItem) => void;
+  disabled?: boolean;
+}
+
+export const QuickActionChips: React.FC<QuickActionChipsProps> = ({
+  actions,
+  onSelectAction,
+  disabled
+}) => {
+  if (!actions || actions.length === 0) return null;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 pt-2.5 animate-in fade-in slide-in-from-bottom-1 duration-200">
+      {actions.map((act) => {
+        let variantClasses = 'bg-onedark-surface hover:bg-onedark-surface/80 text-onedark-fgBright border-onedark-borderSubtle hover:border-onedark-border';
+        let defaultIcon = <ArrowRight className="w-3.5 h-3.5" />;
+
+        if (act.variant === 'success') {
+          variantClasses = 'bg-onedark-green/15 hover:bg-onedark-green/25 text-onedark-green border-onedark-green/30 hover:border-onedark-green/50 shadow-xs shadow-onedark-green/5';
+          defaultIcon = <CheckCircle2 className="w-3.5 h-3.5" />;
+        } else if (act.variant === 'danger') {
+          variantClasses = 'bg-onedark-red/15 hover:bg-onedark-red/25 text-onedark-red border-onedark-red/30 hover:border-onedark-red/50 shadow-xs shadow-onedark-red/5';
+          defaultIcon = <X className="w-3.5 h-3.5" />;
+        } else if (act.variant === 'accent' || act.variant === 'primary') {
+          variantClasses = 'bg-onedark-accent/15 hover:bg-onedark-accent/25 text-onedark-accent border-onedark-accent/30 hover:border-onedark-accent/50 shadow-xs shadow-onedark-accent/5';
+          defaultIcon = <Sparkles className="w-3.5 h-3.5" />;
+        } else if (act.variant === 'warning') {
+          variantClasses = 'bg-onedark-yellow/15 hover:bg-onedark-yellow/25 text-onedark-yellow border-onedark-yellow/30 hover:border-onedark-yellow/50 shadow-xs shadow-onedark-yellow/5';
+          defaultIcon = <AlertCircle className="w-3.5 h-3.5" />;
+        }
+
+        let iconElement = defaultIcon;
+        if (act.icon === 'check') iconElement = <CheckCircle2 className="w-3.5 h-3.5" />;
+        else if (act.icon === 'x') iconElement = <X className="w-3.5 h-3.5" />;
+        else if (act.icon === 'message') iconElement = <FileText className="w-3.5 h-3.5" />;
+        else if (act.icon === 'sparkles') iconElement = <Sparkles className="w-3.5 h-3.5" />;
+        else if (act.icon === 'play') iconElement = <Play className="w-3.5 h-3.5 fill-current" />;
+        else if (act.icon === 'git') iconElement = <GitPullRequest className="w-3.5 h-3.5" />;
+        else if (act.icon === 'arrow') iconElement = <ArrowRight className="w-3.5 h-3.5" />;
+
+        return (
+          <button
+            key={act.id}
+            type="button"
+            disabled={disabled}
+            onClick={() => onSelectAction(act)}
+            title={act.description || act.prompt}
+            className={`group inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all shadow-xs active:scale-95 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed select-none ${variantClasses}`}
+          >
+            <span className="shrink-0 group-hover:scale-110 transition-transform duration-150">
+              {iconElement}
+            </span>
+            <span className="font-semibold tracking-tight">{act.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
 interface InquiryCardProps {
   taskId: string;
   approval: any;
@@ -2239,6 +2401,19 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
       setIsSubmitting(false);
     }
   };
+
+  const handleExecuteQuickAction = useCallback(async (action: QuickActionItem) => {
+    if (isRunning) return;
+    try {
+      if (task) {
+        await onSendMessage(action.prompt, selectedModel);
+      } else if (onNewChatWithPrompt) {
+        await onNewChatWithPrompt(action.prompt, selectedPersona, selectedModel);
+      }
+    } catch (err) {
+      console.error('Error executing quick action:', err);
+    }
+  }, [isRunning, task, onSendMessage, selectedModel, onNewChatWithPrompt, selectedPersona]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (mentionQuery !== null) {
@@ -4199,6 +4374,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 {/* 5. Agent Messages (with Token Output Metric) */}
                 {turn.agentMessages.map((m) => {
                   const outTokens = m.tokens || estimateTokens(m.content);
+                  const { cleanedContent, actions: quickActions } = extractQuickActions(m.content);
                   const isFullPlanDoc = Boolean(
                     m.content && 
                     (m.content.trim().startsWith('# Implementation Plan') || 
@@ -4329,7 +4505,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                                 {isRawPlanExpanded && (
                                   <div className="pt-2 pl-2 border-l-2 border-onedark-accent/30 text-xs">
                                     <MarkdownRenderer
-                                      content={maskSecretsInText(m.content)}
+                                      content={maskSecretsInText(cleanedContent)}
                                       isStreaming={m.isStreaming}
                                       onLinkClick={handleMessageLinkClick}
                                     />
@@ -4338,7 +4514,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                               </div>
                             ) : m.content ? (
                               <MarkdownRenderer
-                                content={maskSecretsInText(m.content)}
+                                content={maskSecretsInText(cleanedContent)}
                                 isStreaming={m.isStreaming}
                                 onLinkClick={handleMessageLinkClick}
                               />
@@ -4348,10 +4524,20 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                               </div>
                             ) : null}
                           </div>
+
+                          {/* Quick Action Chips */}
+                          {!m.isStreaming && quickActions.length > 0 && (
+                            <QuickActionChips
+                              actions={quickActions}
+                              disabled={isRunning}
+                              onSelectAction={handleExecuteQuickAction}
+                            />
+                          )}
+
                           {/* Hover Action Bar */}
                           <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center space-x-1 pl-0.5 pt-0.5">
                             <button
-                              onClick={() => handleCopyText(m.id, m.content)}
+                              onClick={() => handleCopyText(m.id, cleanedContent)}
                               className="p-1 rounded-md hover:bg-onedark-surface border border-transparent hover:border-onedark-border text-onedark-muted hover:text-onedark-fgBright transition-colors"
                               title="Copy response"
                             >

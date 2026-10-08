@@ -76,3 +76,21 @@ def test_dynamic_plan_qa_research_sanitization():
     assert len(sanitized) == 1
     assert sanitized[0]["file_touchpoints"] == []
     assert sanitized[0]["verification_criteria"] == "Factual verification in direct chat response."
+
+
+def test_persona_quick_actions_standard_in_all_personas():
+    for name, persona in PERSONAS.items():
+        instructions = persona["system_instructions"]
+        assert "Interactive Quick Action Chips Standard" in instructions
+        assert "<quick-actions>" in instructions
+        assert "<action" in instructions
+
+
+def test_code_reviewer_proactive_staging_invariant():
+    reviewer = get_persona("CodeReviewer")
+    instructions = reviewer["system_instructions"]
+    assert "Proactive PR Staging & Quick Actions Mandate" in instructions
+    assert "PROACTIVE STAGING INVARIANT" in instructions
+    assert "post_pull_request_review" in instructions
+    assert "PRReviewApprovalCard" in instructions
+
