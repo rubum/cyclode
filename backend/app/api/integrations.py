@@ -17,15 +17,46 @@ class TestRepoRequest(BaseModel):
     token: Optional[str] = None
 
 
+class ToggleCapabilityRequest(BaseModel):
+    tool_name: str
+    enabled: Optional[bool] = None
+
+
+class BatchCapabilityRequest(BaseModel):
+    tools: List[str]
+    enabled: Optional[bool] = None
+    mode: Optional[str] = None  # 'all_on' | 'all_off' | 'read_only'
+
+
 @router.get("")
 async def get_integrations_status():
     return {
         "integrations": integration_registry.get_status(),
         "active_skills": integration_registry.get_active_skills(),
         "skills_catalog": integration_registry.get_skills_catalog(),
-        "webhook_endpoints": integration_registry.get_webhook_endpoints()
+        "webhook_endpoints": integration_registry.get_webhook_endpoints(),
+        "disabled_capabilities": integration_manager.get_disabled_capabilities()
     }
 
+
+@router.post("/capabilities/toggle")
+async def toggle_capability(req: ToggleCapabilityRequest):
+    is_enabled = integration_manager.toggle_capability(req.tool_name, req.enabled)
+    return {
+        "ok": True,
+        "tool_name": req.tool_name,
+        "enabled": is_enabled,
+        "disabled_capabilities": integration_manager.get_disabled_capabilities()
+    }
+
+
+@router.post("/capabilities/batch")
+async def batch_toggle_capabilities(req: BatchCapabilityRequest):
+    integration_manager.set_capabilities_for_service(req.tools, enabled=req.enabled, mode=req.mode)
+    return {
+        "ok": True,
+        "disabled_capabilities": integration_manager.get_disabled_capabilities()
+    }
 
 
 @router.post("/credentials")

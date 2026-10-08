@@ -137,3 +137,102 @@ async def test_workspace_tools_linear_methods():
         status = await WorkspaceTools.update_linear_issue_status("PD-1198", "In Review")
         assert status.get("success") is True
 
+
+@pytest.mark.asyncio
+async def test_linear_header_formatting():
+    # 1. Personal API key starting with lin_api_
+    linear_client.token = "lin_api_test_personal_key"
+    headers = linear_client._get_headers()
+    assert headers["Authorization"] == "lin_api_test_personal_key"
+    assert "Bearer" not in headers["Authorization"]
+
+    # 2. Key starting with Bearer lin_api_ should have Bearer stripped
+    linear_client.token = "Bearer lin_api_test_personal_key"
+    headers = linear_client._get_headers()
+    assert headers["Authorization"] == "lin_api_test_personal_key"
+
+    # 3. Standard OAuth or JWT token
+    linear_client.token = "oauth_token_xyz"
+    headers = linear_client._get_headers()
+    assert headers["Authorization"] == "Bearer oauth_token_xyz"
+
+
+@pytest.mark.asyncio
+async def test_linear_credential_validation_scenarios():
+    with patch("httpx.AsyncClient.post") as mock_post:
+        # Case 1: HTTP 400 Bad Request (e.g. Bearer used with lin_api key)
+        resp_400 = MagicMock()
+        resp_400.status_code = 400
+        resp_400.json.return_value = {"errors": [{"message": "It looks like you're trying to use an API key as a Bearer token."}]}
+        mock_post.return_value = resp_400
+        res = await integration_manager.validate_credentials("linear", {"token": "lin_api_bad"})
+        assert res["valid"] is False
+        assert "400 Bad Request" in res["message"]
+
+        # Case 2: HTTP 401 Unauthorized
+        resp_401 = MagicMock()
+        resp_401.status_code = 401
+        mock_post.return_value = resp_401
+        res = await integration_manager.validate_credentials("linear", {"token": "lin_api_expired"})
+        assert res["valid"] is False
+        assert "401 Unauthorized" in res["message"]
+
+        # Case 3: HTTP 200 with GraphQL error
+        resp_err = MagicMock()
+        resp_err.status_code = 200
+        resp_err.json.return_value = {"errors": [{"message": "Internal GraphQL rejection"}]}
+        mock_post.return_value = resp_err
+        res = await integration_manager.validate_credentials("linear", {"token": "lin_api_xyz"})
+        assert res["valid"] is False
+        assert "Linear authentication error" in res["message"]
+
+        # Case 4: HTTP 200 valid viewer
+        resp_ok = MagicMock()
+        resp_ok.status_code = 200
+        resp_ok.json.return_value = {"data": {"viewer": {"id": "usr_1", "name": "Jane Developer", "email": "jane@example.com"}}}
+        mock_post.return_value = resp_ok
+        res = await integration_manager.validate_credentials("linear", {"token": "lin_api_good"})
+        assert res["valid"] is True
+        assert "Jane Developer" in res["message"]
+
+
+@pytest.mark.asyncio
+async def test_linear_create_issue_and_list_teams():
+    from app.agent.tools import WorkspaceTools
+
+    mock_team = {
+        "id": "team_uuid_123",
+        "name": "Product Dev",
+        "key": "PD",
+        "states": {"nodes": [{"id": "state_todo_1", "name": "Todo"}]}
+    }
+    mock_created = {
+        "success": True,
+        "issue": {
+            "id": "iss_new_1",
+            "identifier": "PD-789",
+            "title": "New issue test",
+            "url": "https://linear.app/issue/PD-789",
+            "team": {"id": "team_uuid_123", "key": "PD", "name": "Product Dev"}
+        }
+    }
+
+    with patch.object(integration_manager, "get_custom_credential", return_value="lin_api_test"), \
+         patch("app.integrations.linear_client.linear_client.list_teams", return_value=[mock_team]), \
+         patch("app.integrations.linear_client.linear_client.create_issue", return_value=mock_created):
+
+        teams_res = await WorkspaceTools.list_linear_teams()
+        assert teams_res["count"] == 1
+        assert teams_res["teams"][0]["key"] == "PD"
+
+        created_res = await WorkspaceTools.create_linear_issue(
+            title="New issue test",
+            team="PD",
+            description="Testing creation",
+            priority=2,
+            state="Todo"
+        )
+        assert created_res["success"] is True
+        assert created_res["issue"]["identifier"] == "PD-789"
+
+

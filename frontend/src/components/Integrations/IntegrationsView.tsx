@@ -26,7 +26,19 @@ import {
   Cpu,
   SlidersHorizontal,
   Layers,
-  Settings2
+  Settings2,
+  CheckSquare,
+  GitPullRequest,
+  FileText,
+  Radio,
+  Mail,
+  Cloud,
+  Database,
+  Shield,
+  CreditCard,
+  Target,
+  Globe,
+  Power
 } from 'lucide-react';
 import { Integration, SkillCatalogItem, WebhookEndpoint, ModelSettings } from '../../types';
 
@@ -37,6 +49,7 @@ interface IntegrationsViewProps {
   activeSkills: string[];
   skillsCatalog?: SkillCatalogItem[];
   webhookEndpoints?: WebhookEndpoint[];
+  disabledCapabilities?: string[];
   onRefreshIntegrations?: () => void;
   onBackToChat?: () => void;
   onNavigateToPolicies?: () => void;
@@ -47,6 +60,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
   activeSkills,
   skillsCatalog = [],
   webhookEndpoints = [],
+  disabledCapabilities = [],
   onRefreshIntegrations,
   onBackToChat,
   onNavigateToPolicies,
@@ -98,6 +112,140 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
   useEffect(() => {
     fetchModelSettings();
   }, []);
+
+  // Capabilities State & Real-time Handlers
+  const [disabledCaps, setDisabledCaps] = useState<Set<string>>(() => new Set(disabledCapabilities));
+  const [togglingCap, setTogglingCap] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (disabledCapabilities && disabledCapabilities.length > 0) {
+      setDisabledCaps(new Set(disabledCapabilities));
+    }
+  }, [disabledCapabilities]);
+
+  const fetchCapabilities = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/integrations`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.disabled_capabilities)) {
+          setDisabledCaps(new Set(data.disabled_capabilities));
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load disabled capabilities:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchCapabilities();
+  }, []);
+
+  const isToolDisabled = (toolName: string): boolean => {
+    if (disabledCaps.has(toolName)) return true;
+    const canonicalMap: Record<string, string> = {
+      'get_linear_issue': 'linear.get_issue',
+      'search_linear_issues': 'linear.get_issue',
+      'post_linear_comment': 'linear.post_comment',
+      'update_linear_issue_status': 'linear.update_status',
+      'linear.get_issue': 'get_linear_issue',
+      'linear.post_comment': 'post_linear_comment',
+      'linear.update_status': 'update_linear_issue_status',
+    };
+    const alias = canonicalMap[toolName];
+    if (alias && disabledCaps.has(alias)) return true;
+    return false;
+  };
+
+  const handleToggleCapability = async (toolName: string) => {
+    const currentlyDisabled = isToolDisabled(toolName);
+    const newEnabled = currentlyDisabled;
+    setTogglingCap(toolName);
+
+    setDisabledCaps((prev) => {
+      const next = new Set(prev);
+      if (newEnabled) {
+        next.delete(toolName);
+        const canonicalMap: Record<string, string> = {
+          'get_linear_issue': 'linear.get_issue',
+          'search_linear_issues': 'linear.get_issue',
+          'post_linear_comment': 'linear.post_comment',
+          'update_linear_issue_status': 'linear.update_status',
+          'linear.get_issue': 'get_linear_issue',
+          'linear.post_comment': 'post_linear_comment',
+          'linear.update_status': 'update_linear_issue_status',
+        };
+        if (canonicalMap[toolName]) next.delete(canonicalMap[toolName]);
+      } else {
+        next.add(toolName);
+      }
+      return next;
+    });
+
+    try {
+      const res = await fetch(`${API_BASE}/api/integrations/capabilities/toggle`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tool_name: toolName, enabled: newEnabled }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.disabled_capabilities)) {
+          setDisabledCaps(new Set(data.disabled_capabilities));
+        }
+      } else {
+        fetchCapabilities();
+      }
+    } catch (err) {
+      console.error('Failed to toggle capability:', err);
+      fetchCapabilities();
+    } finally {
+      setTogglingCap(null);
+    }
+  };
+
+  const handleBatchCapabilities = async (tools: string[], mode: 'all_on' | 'all_off' | 'read_only') => {
+    const readOnlyPrefixes = ['get', 'list', 'search', 'fetch', 'view', 'inspect', 'read', 'check', 'correlate', 'query'];
+
+    setDisabledCaps((prev) => {
+      const next = new Set(prev);
+      if (mode === 'all_on') {
+        tools.forEach((t) => next.delete(t));
+      } else if (mode === 'all_off') {
+        tools.forEach((t) => next.add(t));
+      } else if (mode === 'read_only') {
+        tools.forEach((t) => {
+          const action = t.includes('.') ? t.split('.').pop()! : t;
+          const isRead = readOnlyPrefixes.some((p) => action.toLowerCase().startsWith(p));
+          if (isRead) {
+            next.delete(t);
+          } else {
+            next.add(t);
+          }
+        });
+      }
+      return next;
+    });
+
+    try {
+      const res = await fetch(`${API_BASE}/api/integrations/capabilities/batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tools, mode }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.disabled_capabilities)) {
+          setDisabledCaps(new Set(data.disabled_capabilities));
+        }
+      } else {
+        fetchCapabilities();
+      }
+    } catch (err) {
+      console.error('Failed to batch toggle capabilities:', err);
+      fetchCapabilities();
+    }
+  };
 
   // Close modal on Escape
   useEffect(() => {
@@ -213,6 +361,12 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
       if (hasToken) payload.token = tokenInput.trim();
     } else if (selectedIntegration.id === 'sentry') {
       if (hasToken) payload.token = tokenInput.trim();
+    } else if (selectedIntegration.id === 'jira') {
+      if (hasToken) payload.token = tokenInput.trim();
+      if (baseUrlInput.trim()) {
+        payload.domain = baseUrlInput.trim();
+        payload.base_url = baseUrlInput.trim();
+      }
     } else {
       if (hasToken) payload.token = tokenInput.trim();
     }
@@ -253,7 +407,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
     }
   };
 
-  // Filtered skills
+  // Base skills catalog
   const allSkills = useMemo(() => {
     return skillsCatalog.length > 0
       ? skillsCatalog
@@ -268,19 +422,82 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
         }));
   }, [skillsCatalog, activeSkills]);
 
-  const filteredSkills = useMemo(() => {
-    if (activeTab === 'gateways' || activeTab === 'providers') return [];
-    return allSkills.filter((s) => {
+  // Unified Services: Merge provider connections with their matching mounted skill schemas
+  const unifiedServices = useMemo(() => {
+    return integrations.map((item) => {
+      const matchingSkill = skillsCatalog.find((s) => s.id === item.id);
+
+      let path = matchingSkill?.path;
+      if (!path) {
+        if (item.id === 'ingrations') {
+          path = 'builtin://ingrations-engine';
+        } else if (['gemini', 'anthropic', 'deepseek', 'openai'].includes(item.id)) {
+          path = 'vault://llm-gateway';
+        } else {
+          path = `ingrations://${item.id}`;
+        }
+      }
+
+      let category = matchingSkill?.category;
+      if (!category) {
+        if (['gemini', 'anthropic', 'deepseek', 'openai'].includes(item.id)) {
+          category = 'AI Model & Reasoning';
+        } else if (item.id === 'ingrations') {
+          category = 'Core Runtime Engine';
+        } else {
+          category = 'Ecosystem Provider';
+        }
+      }
+
+      const mergedSkills = Array.from(new Set([...item.skills, ...(matchingSkill?.tools || [])]));
+
+      return {
+        ...item,
+        path,
+        category,
+        skills: mergedSkills.length > 0 ? mergedSkills : item.skills,
+      };
+    });
+  }, [integrations, skillsCatalog]);
+
+  // Built-in Workspace Skills: Filter out services that already have a dedicated provider card
+  const workspaceSkills = useMemo(() => {
+    const integrationIds = new Set(integrations.map((i) => i.id));
+    return allSkills.filter((s) => !integrationIds.has(s.id));
+  }, [allSkills, integrations]);
+
+  // Filtered unified services
+  const filteredUnifiedServices = useMemo(() => {
+    if (activeTab === 'skills' || activeTab === 'gateways') return [];
+    return unifiedServices.filter((item) => {
+      if (!searchQuery.trim()) return true;
+      const q = searchQuery.toLowerCase();
+      return (
+        item.name.toLowerCase().includes(q) ||
+        item.description.toLowerCase().includes(q) ||
+        item.id.toLowerCase().includes(q) ||
+        item.path.toLowerCase().includes(q) ||
+        (item.category && item.category.toLowerCase().includes(q)) ||
+        item.skills.some((s) => s.toLowerCase().includes(q))
+      );
+    });
+  }, [unifiedServices, searchQuery, activeTab]);
+
+  // Filtered workspace skills
+  const filteredWorkspaceSkills = useMemo(() => {
+    if (activeTab === 'providers' || activeTab === 'gateways') return [];
+    return workspaceSkills.filter((s) => {
       if (!searchQuery.trim()) return true;
       const q = searchQuery.toLowerCase();
       return (
         s.name.toLowerCase().includes(q) ||
         s.description.toLowerCase().includes(q) ||
         s.path.toLowerCase().includes(q) ||
+        (s.category && s.category.toLowerCase().includes(q)) ||
         s.tools.some((t) => t.toLowerCase().includes(q))
       );
     });
-  }, [allSkills, searchQuery, activeTab]);
+  }, [workspaceSkills, searchQuery, activeTab]);
 
   // Filtered gateways
   const filteredGateways = useMemo(() => {
@@ -296,21 +513,6 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
       );
     });
   }, [webhookEndpoints, searchQuery, activeTab]);
-
-  // Filtered providers
-  const filteredIntegrations = useMemo(() => {
-    if (activeTab === 'skills' || activeTab === 'gateways') return [];
-    return integrations.filter((item) => {
-      if (!searchQuery.trim()) return true;
-      const q = searchQuery.toLowerCase();
-      return (
-        item.name.toLowerCase().includes(q) ||
-        item.description.toLowerCase().includes(q) ||
-        item.id.toLowerCase().includes(q) ||
-        item.skills.some((s) => s.toLowerCase().includes(q))
-      );
-    });
-  }, [integrations, searchQuery, activeTab]);
 
   const getProviderIcon = (id: string) => {
     switch (id) {
@@ -332,6 +534,32 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
         return <Activity className="w-5 h-5 text-amber-400" />;
       case 'sentry':
         return <AlertTriangle className="w-5 h-5 text-rose-400" />;
+      case 'jira':
+        return <CheckSquare className="w-5 h-5 text-blue-400" />;
+      case 'gitlab':
+        return <GitPullRequest className="w-5 h-5 text-orange-400" />;
+      case 'notion':
+        return <FileText className="w-5 h-5 text-zinc-300" />;
+      case 'discord':
+        return <Radio className="w-5 h-5 text-indigo-400" />;
+      case 'google_workspace':
+        return <Mail className="w-5 h-5 text-rose-400" />;
+      case 'aws':
+        return <Cloud className="w-5 h-5 text-amber-400" />;
+      case 'supabase':
+        return <Database className="w-5 h-5 text-emerald-400" />;
+      case 'cloudflare':
+        return <Shield className="w-5 h-5 text-orange-400" />;
+      case 'datadog':
+        return <Activity className="w-5 h-5 text-purple-400" />;
+      case 'stripe':
+        return <CreditCard className="w-5 h-5 text-violet-400" />;
+      case 'salesforce':
+        return <Cloud className="w-5 h-5 text-sky-400" />;
+      case 'hubspot':
+        return <Target className="w-5 h-5 text-orange-400" />;
+      case 'ingrations':
+        return <PlugZap className="w-5 h-5 text-cyan-400" />;
       default:
         return <PlugZap className="w-5 h-5 text-onedark-accent" />;
     }
@@ -357,8 +585,49 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
         return 'bg-amber-100 border-amber-300 text-amber-950 dark:bg-amber-500/10 dark:border-amber-500/30 dark:text-amber-400';
       case 'sentry':
         return 'bg-rose-100 border-rose-300 text-rose-950 dark:bg-rose-500/10 dark:border-rose-500/30 dark:text-rose-400';
+      case 'jira':
+        return 'bg-blue-100 border-blue-300 text-blue-950 dark:bg-blue-500/10 dark:border-blue-500/30 dark:text-blue-400';
+      case 'gitlab':
+        return 'bg-orange-100 border-orange-300 text-orange-950 dark:bg-orange-500/10 dark:border-orange-500/30 dark:text-orange-400';
+      case 'notion':
+        return 'bg-zinc-100 border-zinc-300 text-zinc-950 dark:bg-zinc-500/10 dark:border-zinc-500/30 dark:text-zinc-300';
+      case 'discord':
+        return 'bg-indigo-100 border-indigo-300 text-indigo-950 dark:bg-indigo-500/10 dark:border-indigo-500/30 dark:text-indigo-400';
+      case 'google_workspace':
+        return 'bg-rose-100 border-rose-300 text-rose-950 dark:bg-rose-500/10 dark:border-rose-500/30 dark:text-rose-400';
+      case 'aws':
+        return 'bg-amber-100 border-amber-300 text-amber-950 dark:bg-amber-500/10 dark:border-amber-500/30 dark:text-amber-400';
+      case 'supabase':
+        return 'bg-emerald-100 border-emerald-300 text-emerald-950 dark:bg-emerald-500/10 dark:border-emerald-500/30 dark:text-emerald-400';
+      case 'cloudflare':
+        return 'bg-orange-100 border-orange-300 text-orange-950 dark:bg-orange-500/10 dark:border-orange-500/30 dark:text-orange-400';
+      case 'datadog':
+        return 'bg-purple-100 border-purple-300 text-purple-950 dark:bg-purple-500/10 dark:border-purple-500/30 dark:text-purple-400';
+      case 'stripe':
+        return 'bg-violet-100 border-violet-300 text-violet-950 dark:bg-violet-500/10 dark:border-violet-500/30 dark:text-violet-400';
+      case 'salesforce':
+        return 'bg-sky-100 border-sky-300 text-sky-950 dark:bg-sky-500/10 dark:border-sky-500/30 dark:text-sky-400';
+      case 'hubspot':
+        return 'bg-orange-100 border-orange-300 text-orange-950 dark:bg-orange-500/10 dark:border-orange-500/30 dark:text-orange-400';
+      case 'ingrations':
+        return 'bg-cyan-100 border-cyan-300 text-cyan-950 dark:bg-cyan-500/10 dark:border-cyan-500/30 dark:text-cyan-400';
       default:
         return 'bg-amber-100 border-amber-300 text-amber-950 dark:bg-onedark-accent/10 dark:border-onedark-accent/30 dark:text-onedark-accent';
+    }
+  };
+
+  const getWorkspaceSkillIcon = (id: string) => {
+    switch (id) {
+      case 'git-worktree':
+        return <FolderGit2 className="w-5 h-5 text-purple-400" />;
+      case 'codebase-analyzer':
+        return <Cpu className="w-5 h-5 text-cyan-400" />;
+      case 'test-runner':
+        return <CheckSquare className="w-5 h-5 text-emerald-400" />;
+      case 'web-research':
+        return <Globe className="w-5 h-5 text-blue-400" />;
+      default:
+        return <Sparkles className="w-5 h-5 text-onedark-accent" />;
     }
   };
 
@@ -413,9 +682,12 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
 
               {onRefreshIntegrations && (
                 <button
-                  onClick={onRefreshIntegrations}
+                  onClick={() => {
+                    onRefreshIntegrations();
+                    fetchCapabilities();
+                  }}
                   className="px-3 py-1.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-fgBright text-xs font-mono font-medium flex items-center space-x-1.5 border border-onedark-border transition-colors cursor-pointer shadow-xs"
-                  title="Refresh Integrations Status"
+                  title="Refresh Integrations Status & Capabilities"
                 >
                   <RefreshCw className="w-3.5 h-3.5 text-onedark-muted" />
                   <span>Sync Status</span>
@@ -436,21 +708,28 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
             <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3.5 animate-fadeIn">
               <div className="p-4 rounded-xl bg-onedark-darker/90 border border-onedark-border flex items-center space-x-3.5 shadow-sm">
                 <div className="p-2.5 rounded-xl bg-onedark-surface text-cyan-400 border border-onedark-borderSubtle">
-                  <Sparkles className="w-5 h-5" />
+                  <PlugZap className="w-5 h-5" />
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-onedark-muted uppercase tracking-wider font-mono">External Providers</div>
-                  <div className="text-base font-bold text-onedark-fgBright mt-0.5">{integrations.length} Active Services</div>
+                  <div className="text-xs font-bold text-onedark-muted uppercase tracking-wider font-mono">Connected Services</div>
+                  <div className="text-base font-bold text-onedark-fgBright mt-0.5">{unifiedServices.length} Active Services</div>
                 </div>
               </div>
 
               <div className="p-4 rounded-xl bg-onedark-darker/90 border border-onedark-border flex items-center space-x-3.5 shadow-sm">
                 <div className="p-2.5 rounded-xl bg-onedark-surface text-onedark-accent border border-onedark-borderSubtle">
-                  <PlugZap className="w-5 h-5" />
+                  <Sparkles className="w-5 h-5" />
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-onedark-muted uppercase tracking-wider font-mono">Mounted Skills</div>
-                  <div className="text-base font-bold text-onedark-fgBright mt-0.5">{allSkills.length} Agent Capabilities</div>
+                  <div className="text-xs font-bold text-onedark-muted uppercase tracking-wider font-mono">Workspace Skills</div>
+                  <div className="text-base font-bold text-onedark-fgBright mt-0.5 flex items-center space-x-2">
+                    <span>{workspaceSkills.length} Core Capabilities</span>
+                    {disabledCaps.size > 0 && (
+                      <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium">
+                        {disabledCaps.size} paused
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -474,7 +753,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search providers (Gemini, GitHub), skills, or tokens..."
+                placeholder="Search services (Jira, GitHub), workspace skills, or tokens..."
                 className="w-full bg-onedark-darker border border-onedark-border rounded-lg pl-9 pr-8 py-2 text-xs text-onedark-fgBright placeholder:text-onedark-muted focus:outline-none focus:border-onedark-accent transition-colors font-sans shadow-xs"
               />
               {searchQuery && (
@@ -490,8 +769,8 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
             <div className="flex items-center space-x-2 overflow-x-auto pb-1 sm:pb-0">
               {[
                 { id: 'all', label: 'All Resources' },
-                { id: 'providers', label: `Providers & Keys (${integrations.length})` },
-                { id: 'skills', label: `Mounted Skills (${allSkills.length})` },
+                { id: 'providers', label: `Connected Services (${unifiedServices.length})` },
+                { id: 'skills', label: `Workspace Skills (${workspaceSkills.length})` },
                 { id: 'gateways', label: `Webhook Gateways (${webhookEndpoints.length})` },
               ].map((tab) => (
                 <button
@@ -704,13 +983,13 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
           </div>
         )}
 
-        {/* 1. External Provider Connections (API Keys & Vault) */}
-        {(activeTab === 'all' || activeTab === 'providers') && filteredIntegrations.length > 0 && (
+        {/* 1. Unified Ecosystem & Connected Provider Services */}
+        {(activeTab === 'all' || activeTab === 'providers') && filteredUnifiedServices.length > 0 && (
           <div className="space-y-3.5">
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-bold text-onedark-muted uppercase tracking-wider flex items-center space-x-2 font-mono">
                 <PlugZap className="w-4 h-4 text-onedark-accent" />
-                <span>External Provider Connections & API Keys ({filteredIntegrations.length})</span>
+                <span>Connected Services & Tool Capabilities ({filteredUnifiedServices.length})</span>
               </h2>
               <span className="text-xs text-onedark-muted font-mono flex items-center space-x-1">
                 <Lock className="w-3 h-3 text-onedark-accent" />
@@ -719,122 +998,352 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
             </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-              {filteredIntegrations.map((item) => (
-                <div
-                  key={item.id}
-                  className="p-5 rounded-xl bg-onedark-darker/90 hover:bg-onedark-surface/30 border border-onedark-border hover:border-onedark-borderSubtle space-y-4 shadow-sm transition-all flex flex-col justify-between"
-                >
-                  <div className="space-y-2.5">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-center space-x-3">
-                        <div className={`p-2.5 rounded-xl border ${getProviderBadgeTheme(item.id)}`}>
-                          {getProviderIcon(item.id)}
-                        </div>
-                        <div>
-                          <h3 className="text-sm font-bold text-onedark-fgBright">{item.name}</h3>
-                          <div className="text-xs text-onedark-muted font-mono mt-0.5">Auth: {item.auth_type}</div>
-                        </div>
-                      </div>
+              {filteredUnifiedServices.map((item) => {
+                const isIngrations = item.id === 'ingrations';
+                const isConfigured = item.configured;
 
-                      {item.configured ? (
-                        <span className="px-3 py-1 rounded-full text-xs font-mono bg-emerald-100 text-emerald-950 border border-emerald-300 dark:bg-onedark-green/15 dark:text-onedark-green dark:border-onedark-green/30 flex items-center space-x-1.5 font-bold shrink-0">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 dark:text-onedark-green" />
-                          <span>Configured</span>
-                        </span>
-                      ) : (
-                        <span className="px-3 py-1 rounded-full text-xs font-mono bg-amber-100 text-amber-950 border border-amber-300 dark:bg-onedark-yellow/15 dark:text-onedark-yellow dark:border-onedark-yellow/30 flex items-center space-x-1.5 font-bold shrink-0">
-                          <Key className="w-3.5 h-3.5 text-amber-700 dark:text-onedark-yellow" />
-                          <span>Key Not Set</span>
-                        </span>
-                      )}
-                    </div>
-
-                    <p className="text-xs text-onedark-fg/90 leading-relaxed font-normal">
-                      {item.description}
-                    </p>
-                  </div>
-
-                  <div className="pt-3 border-t border-onedark-borderSubtle flex items-center justify-between gap-3">
-                    <div className="flex flex-wrap gap-1.5">
-                      {item.skills.map((s) => (
-                        <span
-                          key={s}
-                          className="px-2 py-0.5 rounded bg-onedark-surface text-onedark-fgBright/80 border border-onedark-borderSubtle text-[11px] font-mono"
-                        >
-                          {s}
-                        </span>
-                      ))}
-                    </div>
-
-                    <button
-                      onClick={() => handleOpenConfig(item)}
-                      className="px-3.5 py-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright text-xs font-mono font-semibold flex items-center space-x-1.5 transition-colors border border-onedark-border cursor-pointer shrink-0 shadow-xs active:scale-95"
-                    >
-                      <Settings className="w-3.5 h-3.5 text-onedark-accent" />
-                      <span>{item.configured ? 'Update Key' : 'Configure Key'}</span>
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* 2. Mounted Antigravity Skills Catalog */}
-        {(activeTab === 'all' || activeTab === 'skills') && filteredSkills.length > 0 && (
-          <div className="space-y-3.5">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xs font-bold text-onedark-muted uppercase tracking-wider flex items-center space-x-2 font-mono">
-                <Sparkles className="w-4 h-4 text-onedark-accent" />
-                <span>Mounted Antigravity Skills ({filteredSkills.length})</span>
-              </h2>
-              <span className="text-xs text-onedark-muted font-mono">Progressive tool disclosure via Markdown schemas</span>
-            </div>
-
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-              {filteredSkills.map((skill) => {
-                const isActive = skill.status === 'ACTIVE';
                 return (
                   <div
-                    key={skill.id}
-                    className="p-5 rounded-xl bg-onedark-darker/90 hover:bg-onedark-surface/30 border border-onedark-border hover:border-onedark-borderSubtle transition-all flex flex-col justify-between space-y-3 shadow-sm"
+                    key={item.id}
+                    className="p-5 rounded-xl bg-onedark-darker/90 hover:bg-onedark-surface/30 border border-onedark-border hover:border-onedark-borderSubtle space-y-4 shadow-sm transition-all flex flex-col justify-between overflow-hidden"
                   >
-                    <div className="space-y-2">
+                    <div className="space-y-2.5">
                       <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <h3 className="text-sm font-bold text-onedark-fgBright">{skill.name}</h3>
-                          <div className="text-xs text-onedark-accent font-mono mt-0.5">{skill.path}</div>
+                        <div className="flex items-start space-x-3 min-w-0 flex-1">
+                          <div className={`p-2.5 rounded-xl border shrink-0 ${getProviderBadgeTheme(item.id)}`}>
+                            {getProviderIcon(item.id)}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                              <h3 className="text-sm font-bold text-onedark-fgBright truncate" title={item.name}>
+                                {item.name}
+                              </h3>
+                              {item.category && (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-onedark-surface text-onedark-muted border border-onedark-borderSubtle shrink-0">
+                                  {item.category}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center space-x-1.5 mt-1 text-[11px] font-mono text-onedark-muted min-w-0">
+                              <span className="text-onedark-accent truncate max-w-[170px]" title={item.path}>
+                                {item.path}
+                              </span>
+                              <span className="text-onedark-borderSubtle shrink-0">•</span>
+                              <span className="truncate flex-1 min-w-0" title={item.auth_type}>
+                                {item.auth_type}
+                              </span>
+                            </div>
+                          </div>
                         </div>
-                        <span
-                          className={`inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-mono font-bold border shrink-0 ${
-                            isActive
-                              ? 'bg-onedark-green/15 text-onedark-green border-onedark-green/30'
-                              : 'bg-onedark-yellow/15 text-onedark-yellow border-onedark-yellow/30'
-                          }`}
-                        >
-                          {isActive ? <CheckCircle2 className="w-3.5 h-3.5" /> : <Key className="w-3.5 h-3.5" />}
-                          <span>{isActive ? 'Mounted & Ready' : 'Auth Required'}</span>
-                        </span>
+
+                        {(() => {
+                          const enabledSkillsCount = item.skills.filter((s) => !isToolDisabled(s)).length;
+                          const totalSkillsCount = item.skills.length;
+                          const allSkillsDisabled = totalSkillsCount > 0 && enabledSkillsCount === 0;
+                          const partialSkillsEnabled = enabledSkillsCount > 0 && enabledSkillsCount < totalSkillsCount;
+
+                          return (
+                            <div className="shrink-0 pt-0.5">
+                              {isIngrations ? (
+                                allSkillsDisabled ? (
+                                  <span className="px-2.5 py-1 rounded-full text-xs font-mono bg-rose-100 text-rose-950 border border-rose-300 dark:bg-rose-500/15 dark:text-rose-400 dark:border-rose-500/30 flex items-center space-x-1.5 font-bold whitespace-nowrap" title="All engine capabilities paused">
+                                    <Power className="w-3.5 h-3.5 text-rose-700 dark:text-rose-400 shrink-0" />
+                                    <span>Engine Paused</span>
+                                  </span>
+                                ) : partialSkillsEnabled ? (
+                                  <span className="px-2.5 py-1 rounded-full text-xs font-mono bg-cyan-100 text-cyan-950 border border-cyan-300 dark:bg-cyan-500/15 dark:text-cyan-400 dark:border-cyan-500/30 flex items-center space-x-1.5 font-bold whitespace-nowrap">
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-cyan-700 dark:text-cyan-400 shrink-0" />
+                                    <span>Engine ({enabledSkillsCount}/{totalSkillsCount})</span>
+                                  </span>
+                                ) : (
+                                  <span className="px-2.5 py-1 rounded-full text-xs font-mono bg-cyan-100 text-cyan-950 border border-cyan-300 dark:bg-cyan-500/15 dark:text-cyan-400 dark:border-cyan-500/30 flex items-center space-x-1.5 font-bold whitespace-nowrap">
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-cyan-700 dark:text-cyan-400 shrink-0" />
+                                    <span>Built-in Engine</span>
+                                  </span>
+                                )
+                              ) : isConfigured ? (
+                                allSkillsDisabled ? (
+                                  <span 
+                                    className="px-2.5 py-1 rounded-full text-xs font-mono bg-rose-100 text-rose-950 border border-rose-300 dark:bg-rose-500/15 dark:text-rose-400 dark:border-rose-500/30 flex items-center space-x-1.5 font-bold whitespace-nowrap"
+                                    title="All capabilities paused for this service"
+                                  >
+                                    <Power className="w-3.5 h-3.5 text-rose-700 dark:text-rose-400 shrink-0" />
+                                    <span>Service Paused</span>
+                                  </span>
+                                ) : partialSkillsEnabled ? (
+                                  <span 
+                                    className="px-2.5 py-1 rounded-full text-xs font-mono bg-amber-100 text-amber-950 border border-amber-300 dark:bg-onedark-yellow/15 dark:text-onedark-yellow dark:border-onedark-yellow/30 flex items-center space-x-1.5 font-bold whitespace-nowrap"
+                                    title="Some capabilities paused"
+                                  >
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-amber-700 dark:text-onedark-yellow shrink-0" />
+                                    <span>Ready ({enabledSkillsCount}/{totalSkillsCount})</span>
+                                  </span>
+                                ) : (
+                                  <span 
+                                    className="px-2.5 py-1 rounded-full text-xs font-mono bg-emerald-100 text-emerald-950 border border-emerald-300 dark:bg-onedark-green/15 dark:text-onedark-green dark:border-onedark-green/30 flex items-center space-x-1.5 font-bold whitespace-nowrap"
+                                    title="Encrypted in AES-256 Vault and provisioned to agent runtime"
+                                  >
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 dark:text-onedark-green shrink-0" />
+                                    <span>Mounted & Ready</span>
+                                  </span>
+                                )
+                              ) : (
+                                <span className="px-2.5 py-1 rounded-full text-xs font-mono bg-amber-100 text-amber-950 border border-amber-300 dark:bg-onedark-yellow/15 dark:text-onedark-yellow dark:border-onedark-yellow/30 flex items-center space-x-1.5 font-bold whitespace-nowrap">
+                                  <Key className="w-3.5 h-3.5 text-amber-700 dark:text-onedark-yellow shrink-0" />
+                                  <span>Key Not Set</span>
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
 
-                      <p className="text-xs text-onedark-fg/90 leading-relaxed">
-                        {skill.description}
+                      <p className="text-xs text-onedark-fg/90 leading-relaxed font-normal">
+                        {item.description}
                       </p>
                     </div>
 
-                    <div className="pt-3 border-t border-onedark-borderSubtle flex flex-wrap gap-1.5">
-                      {skill.tools.map((t) => (
-                        <span
-                          key={t}
-                          className="px-2 py-0.5 rounded bg-onedark-surface text-onedark-fgBright/80 text-[11px] font-mono border border-onedark-borderSubtle"
-                        >
-                          {t}
-                        </span>
-                      ))}
+                    <div className="pt-3 border-t border-onedark-borderSubtle flex flex-col space-y-2.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                          <span className="text-[11px] font-mono text-onedark-muted uppercase tracking-wider font-semibold">
+                            Capabilities ({item.skills.filter((s) => !isToolDisabled(s)).length}/{item.skills.length})
+                          </span>
+                          {item.skills.length > 1 && (
+                            <div className="flex items-center space-x-1 text-[10px] font-mono text-onedark-muted/80 bg-onedark-surface/60 px-1.5 py-0.5 rounded border border-onedark-borderSubtle/60">
+                              <button
+                                type="button"
+                                onClick={() => handleBatchCapabilities(item.skills, 'all_on')}
+                                className="hover:text-onedark-accent transition-colors font-medium cursor-pointer"
+                                title="Enable all capabilities for this service"
+                              >
+                                All On
+                              </button>
+                              <span className="text-onedark-borderSubtle">•</span>
+                              <button
+                                type="button"
+                                onClick={() => handleBatchCapabilities(item.skills, 'read_only')}
+                                className="hover:text-onedark-accent transition-colors font-medium cursor-pointer"
+                                title="Enable read-only tools, pause write/action tools"
+                              >
+                                Read-Only
+                              </button>
+                              <span className="text-onedark-borderSubtle">•</span>
+                              <button
+                                type="button"
+                                onClick={() => handleBatchCapabilities(item.skills, 'all_off')}
+                                className="hover:text-onedark-accent transition-colors font-medium cursor-pointer"
+                                title="Pause all capabilities for this service"
+                              >
+                                All Off
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {isIngrations ? (
+                          <button
+                            onClick={() => handleOpenConfig(item)}
+                            className="px-3.5 py-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright text-xs font-mono font-semibold flex items-center space-x-1.5 transition-colors border border-onedark-border cursor-pointer shrink-0 shadow-xs active:scale-95"
+                          >
+                            <PlugZap className="w-3.5 h-3.5 text-cyan-400" />
+                            <span>Engine Info</span>
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleOpenConfig(item)}
+                            className={`px-3.5 py-1.5 rounded-lg text-xs font-mono font-semibold flex items-center space-x-1.5 transition-all cursor-pointer shrink-0 shadow-xs active:scale-95 ${
+                              isConfigured
+                                ? 'bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright border border-onedark-border'
+                                : 'bg-onedark-accent text-onedark-darker hover:bg-onedark-accent/90 border border-onedark-accent font-bold shadow-sm'
+                            }`}
+                          >
+                            <Settings className="w-3.5 h-3.5" />
+                            <span>{isConfigured ? 'Update Key' : 'Configure Key'}</span>
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap gap-1.5 min-w-0">
+                        {item.skills.map((s) => {
+                          const disabled = isToolDisabled(s);
+                          const isToggling = togglingCap === s;
+                          return (
+                            <button
+                              key={s}
+                              type="button"
+                              onClick={() => handleToggleCapability(s)}
+                              disabled={isToggling}
+                              title={disabled ? `Click to enable capability: ${s}` : `Click to disable capability: ${s}`}
+                              className={`group inline-flex items-center space-x-1.5 px-2 py-0.5 rounded text-[11px] font-mono border transition-all cursor-pointer select-none active:scale-95 ${
+                                disabled
+                                  ? 'bg-onedark-darker/60 text-onedark-muted/60 border-onedark-borderSubtle/40 hover:border-onedark-muted/50 hover:text-onedark-fg line-through decoration-rose-500/50'
+                                  : 'bg-onedark-surface text-onedark-fgBright/90 border-onedark-borderSubtle hover:border-onedark-accent/50 hover:text-onedark-fgBright'
+                              }`}
+                            >
+                              <span
+                                className={`w-1.5 h-1.5 rounded-full shrink-0 transition-colors ${
+                                  disabled
+                                    ? 'bg-rose-500/60'
+                                    : 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.6)]'
+                                }`}
+                              />
+                              <span className={disabled ? 'opacity-70' : ''}>{s}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {/* 2. Built-in Workspace Skills Catalog (No External Credentials Required) */}
+        {(activeTab === 'all' || activeTab === 'skills') && filteredWorkspaceSkills.length > 0 && (
+          <div className="space-y-3.5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xs font-bold text-onedark-muted uppercase tracking-wider flex items-center space-x-2 font-mono">
+                <Sparkles className="w-4 h-4 text-onedark-accent" />
+                <span>Built-in Workspace Skills ({filteredWorkspaceSkills.length})</span>
+              </h2>
+              <span className="text-xs text-onedark-muted font-mono">Autonomous local runtime capabilities</span>
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              {filteredWorkspaceSkills.map((skill) => (
+                <div
+                  key={skill.id}
+                  className="p-5 rounded-xl bg-onedark-darker/90 hover:bg-onedark-surface/30 border border-onedark-border hover:border-onedark-borderSubtle transition-all flex flex-col justify-between space-y-3 shadow-sm overflow-hidden"
+                >
+                  <div className="space-y-2.5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-start space-x-3 min-w-0 flex-1">
+                        <div className="p-2.5 rounded-xl border bg-cyan-100 border-cyan-300 text-cyan-950 dark:bg-cyan-500/10 dark:border-cyan-500/30 dark:text-cyan-400 shrink-0">
+                          {getWorkspaceSkillIcon(skill.id)}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center space-x-2 flex-wrap gap-y-1">
+                            <h3 className="text-sm font-bold text-onedark-fgBright truncate" title={skill.name}>
+                              {skill.name}
+                            </h3>
+                            {skill.category && (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-mono font-medium bg-onedark-surface text-onedark-muted border border-onedark-borderSubtle shrink-0">
+                                {skill.category}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-onedark-accent font-mono mt-0.5 truncate" title={skill.path}>
+                            {skill.path}
+                          </div>
+                        </div>
+                      </div>
+
+                      {(() => {
+                        const enabledToolsCount = skill.tools.filter((t) => !isToolDisabled(t)).length;
+                        const totalToolsCount = skill.tools.length;
+                        const allToolsDisabled = totalToolsCount > 0 && enabledToolsCount === 0;
+                        const partialToolsEnabled = enabledToolsCount > 0 && enabledToolsCount < totalToolsCount;
+
+                        return (
+                          <div className="shrink-0 pt-0.5">
+                            {allToolsDisabled ? (
+                              <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-mono font-bold border shrink-0 bg-rose-100 text-rose-950 border-rose-300 dark:bg-rose-500/15 dark:text-rose-400 dark:border-rose-500/30 whitespace-nowrap" title="All tools paused for this skill">
+                                <Power className="w-3.5 h-3.5 text-rose-700 dark:text-rose-400 shrink-0" />
+                                <span>Skill Paused</span>
+                              </span>
+                            ) : partialToolsEnabled ? (
+                              <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-mono font-bold border shrink-0 bg-amber-100 text-amber-950 border-amber-300 dark:bg-onedark-yellow/15 dark:text-onedark-yellow dark:border-onedark-yellow/30 whitespace-nowrap" title="Some tools paused">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-amber-700 dark:text-onedark-yellow shrink-0" />
+                                <span>Ready ({enabledToolsCount}/{totalToolsCount})</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-full text-xs font-mono font-bold border shrink-0 bg-emerald-100 text-emerald-950 border-emerald-300 dark:bg-onedark-green/15 dark:text-onedark-green dark:border-onedark-green/30 whitespace-nowrap">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 dark:text-onedark-green shrink-0" />
+                                <span>Mounted & Ready</span>
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    <p className="text-xs text-onedark-fg/90 leading-relaxed font-normal">
+                      {skill.description}
+                    </p>
+                  </div>
+
+                  <div className="pt-3 border-t border-onedark-borderSubtle flex flex-col space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-mono text-onedark-muted uppercase tracking-wider font-semibold">
+                        Tools ({skill.tools.filter((t) => !isToolDisabled(t)).length}/{skill.tools.length})
+                      </span>
+                      {skill.tools.length > 1 && (
+                        <div className="flex items-center space-x-1 text-[10px] font-mono text-onedark-muted/80 bg-onedark-surface/60 px-1.5 py-0.5 rounded border border-onedark-borderSubtle/60">
+                          <button
+                            type="button"
+                            onClick={() => handleBatchCapabilities(skill.tools, 'all_on')}
+                            className="hover:text-onedark-accent transition-colors font-medium cursor-pointer"
+                            title="Enable all tools in skill"
+                          >
+                            All On
+                          </button>
+                          <span className="text-onedark-borderSubtle">•</span>
+                          <button
+                            type="button"
+                            onClick={() => handleBatchCapabilities(skill.tools, 'read_only')}
+                            className="hover:text-onedark-accent transition-colors font-medium cursor-pointer"
+                            title="Enable read-only tools"
+                          >
+                            Read-Only
+                          </button>
+                          <span className="text-onedark-borderSubtle">•</span>
+                          <button
+                            type="button"
+                            onClick={() => handleBatchCapabilities(skill.tools, 'all_off')}
+                            className="hover:text-onedark-accent transition-colors font-medium cursor-pointer"
+                            title="Pause all tools in skill"
+                          >
+                            All Off
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5 min-w-0">
+                      {skill.tools.map((t) => {
+                        const disabled = isToolDisabled(t);
+                        const isToggling = togglingCap === t;
+                        return (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() => handleToggleCapability(t)}
+                            disabled={isToggling}
+                            title={disabled ? `Click to enable capability: ${t}` : `Click to disable capability: ${t}`}
+                            className={`group inline-flex items-center space-x-1.5 px-2 py-0.5 rounded text-[11px] font-mono border transition-all cursor-pointer select-none active:scale-95 ${
+                              disabled
+                                ? 'bg-onedark-darker/60 text-onedark-muted/60 border-onedark-borderSubtle/40 hover:border-onedark-muted/50 hover:text-onedark-fg line-through decoration-rose-500/50'
+                                : 'bg-onedark-surface text-onedark-fgBright/90 border-onedark-borderSubtle hover:border-onedark-accent/50 hover:text-onedark-fgBright'
+                            }`}
+                          >
+                            <span
+                              className={`w-1.5 h-1.5 rounded-full shrink-0 transition-colors ${
+                                disabled
+                                  ? 'bg-rose-500/60'
+                                  : 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.6)]'
+                              }`}
+                            />
+                            <span className={disabled ? 'opacity-70' : ''}>{t}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -856,11 +1365,13 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                 return (
                   <div
                     key={ep.id}
-                    className="p-5 rounded-xl bg-onedark-darker/90 hover:bg-onedark-surface/30 border border-onedark-border hover:border-onedark-borderSubtle space-y-3.5 flex flex-col justify-between shadow-sm transition-all"
+                    className="p-5 rounded-xl bg-onedark-darker/90 hover:bg-onedark-surface/30 border border-onedark-border hover:border-onedark-borderSubtle space-y-3.5 flex flex-col justify-between shadow-sm transition-all overflow-hidden"
                   >
                     <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-sm font-bold text-onedark-fgBright">{ep.name}</h4>
+                      <div className="flex items-center justify-between gap-3">
+                        <h4 className="text-sm font-bold text-onedark-fgBright truncate min-w-0 flex-1" title={ep.name}>
+                          {ep.name}
+                        </h4>
                         <span className="px-2 py-0.5 rounded text-xs font-mono bg-onedark-accent/15 text-onedark-accent font-bold border border-onedark-accent/30">
                           {ep.method}
                         </span>
@@ -905,12 +1416,12 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
         )}
 
         {/* Empty Search Feedback */}
-        {filteredSkills.length === 0 && filteredGateways.length === 0 && filteredIntegrations.length === 0 && (
+        {filteredUnifiedServices.length === 0 && filteredWorkspaceSkills.length === 0 && filteredGateways.length === 0 && (
           <div className="p-12 text-center border border-dashed border-onedark-border rounded-2xl bg-onedark-darker/90 space-y-3.5">
             <PlugZap className="w-10 h-10 text-onedark-muted mx-auto opacity-50" />
             <h3 className="text-sm font-bold text-onedark-fgBright">No matching resources found</h3>
             <p className="text-xs text-onedark-muted max-w-sm mx-auto">
-              No provider, skill, or gateway matched &ldquo;{searchQuery}&rdquo;. Try clearing your search.
+              No service, skill, or gateway matched &ldquo;{searchQuery}&rdquo;. Try clearing your search.
             </p>
             <button
               onClick={() => { setSearchQuery(''); setActiveTab('all'); }}
@@ -955,11 +1466,49 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
             </div>
 
             <div className="p-6 space-y-4">
-              <div className="text-xs text-onedark-fg/90 leading-relaxed">
-                Enter your {selectedIntegration.auth_type}. The secret is encrypted at rest using AES-256 and will automatically be provisioned to runtime agent harnesses.
-              </div>
+              {selectedIntegration.id === 'ingrations' ? (
+                <div className="space-y-4">
+                  <div className="p-4 rounded-xl bg-onedark-surface/60 border border-onedark-borderSubtle space-y-2.5">
+                    <div className="flex items-center space-x-2 text-sm font-bold text-onedark-fgBright">
+                      <Sparkles className="w-4 h-4 text-cyan-400" />
+                      <span>Built-in Open-Source Tool Engine</span>
+                    </div>
+                    <p className="text-xs text-onedark-fg/90 leading-relaxed">
+                      <strong>Ingrations</strong> is Cyclode&apos;s universal tool catalog and execution engine. It is installed as a local Python package (<code className="text-cyan-400 font-mono">ingrations&gt;=0.1.0</code>) and executes tools natively inside your environment.
+                    </p>
+                    <div className="p-2.5 rounded-lg bg-onedark-bg border border-onedark-borderSubtle text-xs text-onedark-fgBright flex items-center space-x-2">
+                      <CheckCircle2 className="w-4 h-4 text-onedark-green shrink-0" />
+                      <span><strong>No Master API Key Needed:</strong> Ingrations does not require an account, token, or subscription.</span>
+                    </div>
+                  </div>
 
-              <div className="space-y-2">
+                  <div className="p-4 rounded-xl bg-onedark-surface/40 border border-onedark-borderSubtle space-y-2.5">
+                    <h4 className="text-xs font-mono font-bold text-onedark-fgBright uppercase tracking-wider flex items-center space-x-1.5">
+                      <Key className="w-3.5 h-3.5 text-onedark-accent" />
+                      <span>How Authentication Works</span>
+                    </h4>
+                    <p className="text-xs text-onedark-fg/80 leading-relaxed">
+                      Instead of a single global key, you configure API tokens for each individual external provider (e.g. <strong>Jira</strong>, <strong>Stripe</strong>, <strong>Notion</strong>, <strong>AWS</strong>, <strong>GitHub</strong>) in their dedicated cards below. Ingrations dynamically routes your saved credentials when executing actions.
+                    </p>
+                    <div className="grid grid-cols-2 gap-2 pt-1 font-mono text-[11px] text-onedark-muted">
+                      <div className="p-2 rounded bg-onedark-bg border border-onedark-borderSubtle">
+                        <div className="text-onedark-fgBright font-bold">16 Supported Apps</div>
+                        <div>DevTools, Cloud, CRM, etc.</div>
+                      </div>
+                      <div className="p-2 rounded bg-onedark-bg border border-onedark-borderSubtle">
+                        <div className="text-onedark-fgBright font-bold">74 Pre-built Actions</div>
+                        <div>FTS5 BM25 Auto-Discovery</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="text-xs text-onedark-fg/90 leading-relaxed">
+                    Enter your {selectedIntegration.auth_type}. The secret is encrypted at rest using AES-256 and will automatically be provisioned to runtime agent harnesses.
+                  </div>
+
+                  <div className="space-y-2">
                 <label className="text-xs font-mono font-semibold text-onedark-fgBright flex items-center justify-between">
                   <span>
                     {selectedIntegration.id === 'github' ? 'GitHub Personal Access Token (PAT)' :
@@ -970,7 +1519,20 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                      selectedIntegration.id === 'anthropic' ? 'Anthropic API Key (sk-ant-...)' :
                      selectedIntegration.id === 'openai' ? 'OpenAI API Key (sk-...)' :
                      selectedIntegration.id === 'linear' ? 'Linear API Key / Personal API Key (lin_api_...)' :
-                     selectedIntegration.id === 'sentry' ? 'Sentry Auth Token' : 'API Token'}
+                     selectedIntegration.id === 'sentry' ? 'Sentry Auth Token' :
+                     selectedIntegration.id === 'jira' ? 'Atlassian Email : API Token (user@company.com:ATATT3...)' :
+                     selectedIntegration.id === 'gitlab' ? 'GitLab Personal Access Token (glpat-...)' :
+                     selectedIntegration.id === 'notion' ? 'Notion Integration Secret (secret_...)' :
+                     selectedIntegration.id === 'stripe' ? 'Stripe Secret / Restricted Key (sk_... / rk_...)' :
+                     selectedIntegration.id === 'aws' ? 'AWS Access Key ID : Secret Access Key' :
+                     selectedIntegration.id === 'supabase' ? 'Supabase Service Role / Anon API Key' :
+                     selectedIntegration.id === 'cloudflare' ? 'Cloudflare API Token' :
+                     selectedIntegration.id === 'datadog' ? 'Datadog API Key' :
+                     selectedIntegration.id === 'discord' ? 'Discord Bot Token / Webhook URL' :
+                     selectedIntegration.id === 'hubspot' ? 'HubSpot Private App Token (pat-na1-...)' :
+                     selectedIntegration.id === 'salesforce' ? 'Salesforce OAuth Access Token' :
+                     selectedIntegration.id === 'google_workspace' ? 'Google Workspace Token / Key' :
+                     `${selectedIntegration.name} API Key / Token`}
                   </span>
                   {selectedIntegration.configured ? (
                     <span className="text-[10.5px] font-mono text-emerald-400">Encrypted in Vault</span>
@@ -993,12 +1555,26 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                         selectedIntegration.id === 'anthropic' ? 'sk-ant-xxxxxxxxxxxxxxxxxxxx' :
                         selectedIntegration.id === 'openai' ? 'sk-xxxxxxxxxxxxxxxxxxxx' :
                         selectedIntegration.id === 'linear' ? 'lin_api_xxxxxxxxxxxxxxxxxxxx' :
-                        selectedIntegration.id === 'sentry' ? 'sntrys_xxxxxxxxxxxxxxxxxxxx' : 'Enter secret key...'
+                        selectedIntegration.id === 'sentry' ? 'sntrys_xxxxxxxxxxxxxxxxxxxx' :
+                        selectedIntegration.id === 'jira' ? 'user@company.com:ATATT3xFfGF0...' :
+                        selectedIntegration.id === 'gitlab' ? 'glpat-xxxxxxxxxxxxxxxxxxxx' :
+                        selectedIntegration.id === 'notion' ? 'secret_xxxxxxxxxxxxxxxxxxxx' :
+                        selectedIntegration.id === 'stripe' ? 'sk_live_xxxxxxxxxxxxxxxxxxxx' :
+                        selectedIntegration.id === 'hubspot' ? 'pat-na1-xxxxxxxxxxxxxxxxxxxx' :
+                        selectedIntegration.id === 'cloudflare' ? 'v1.0-xxxxxxxxxxxxxxxxxxxx' :
+                        selectedIntegration.id === 'aws' ? 'AKIAIOSFODNN7EXAMPLE:wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY' :
+                        selectedIntegration.id === 'supabase' ? 'eyJhbGciOiJIUzI1NiIsInR5cCI...' :
+                        'Enter secret key...'
                       )
                   }
                   className="w-full px-3.5 py-2.5 rounded-lg bg-onedark-bg border border-onedark-border text-xs text-onedark-fgBright font-mono focus:outline-none focus:border-onedark-accent shadow-xs"
                   autoFocus
                 />
+                {selectedIntegration.id === 'jira' && (
+                  <p className="text-[11px] text-onedark-muted leading-relaxed pt-1">
+                    Format: <code className="text-onedark-fgBright font-mono">user@company.com:api_token</code>. Generate your API token from Atlassian Account Settings &rarr; Security &rarr; Create API token. Ingrations automatically base64-encodes this as Basic Auth.
+                  </p>
+                )}
               </div>
 
               {/* Optional Default Model Configuration for AI Providers */}
@@ -1089,6 +1665,26 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                 </div>
               )}
 
+              {/* Atlassian / Jira Cloud Domain configuration */}
+              {selectedIntegration.id === 'jira' && (
+                <div className="space-y-2 pt-1">
+                  <label className="text-xs font-mono font-semibold text-onedark-fgBright flex items-center justify-between">
+                    <span>Atlassian Cloud Subdomain / Host</span>
+                    <span className="text-[10.5px] font-mono text-onedark-accent">Required</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={baseUrlInput}
+                    onChange={(e) => setBaseUrlInput(e.target.value)}
+                    placeholder="e.g. yourcompany.atlassian.net"
+                    className="w-full px-3.5 py-2 rounded-lg bg-onedark-bg border border-onedark-border text-xs text-onedark-fgBright font-mono focus:outline-none focus:border-onedark-accent shadow-xs"
+                  />
+                  <p className="text-[11px] text-onedark-muted">
+                    Your Atlassian Cloud instance domain (e.g. <code className="text-onedark-fgBright">acme.atlassian.net</code>). Agents query <code className="text-onedark-fgBright">https://[domain]/rest/api/3/...</code>.
+                  </p>
+                </div>
+              )}
+
               {feedback && (
                 <div className={`p-3.5 rounded-lg border text-xs font-mono flex items-start space-x-2.5 ${
                   feedback.success
@@ -1103,6 +1699,8 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                   <div className="leading-relaxed">{feedback.message}</div>
                 </div>
               )}
+                </>
+              )}
             </div>
 
             <div className="p-4 bg-onedark-surface/30 border-t border-onedark-border flex items-center justify-between">
@@ -1111,20 +1709,31 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                 <span>AES-256 Encrypted</span>
               </span>
               <div className="flex items-center space-x-2.5">
-                <button
-                  onClick={() => setSelectedIntegration(null)}
-                  className="px-3.5 py-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright text-xs font-mono transition-colors cursor-pointer border border-onedark-border"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSaveCredential}
-                  disabled={submitting || !tokenInput.trim()}
-                  className="px-4 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker text-xs font-mono font-bold flex items-center space-x-1.5 transition-all disabled:opacity-40 cursor-pointer shadow-xs active:scale-95"
-                >
-                  {submitting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
-                  <span>Save & Validate</span>
-                </button>
+                {selectedIntegration.id === 'ingrations' ? (
+                  <button
+                    onClick={() => setSelectedIntegration(null)}
+                    className="px-4 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker text-xs font-mono font-bold transition-all cursor-pointer shadow-xs active:scale-95"
+                  >
+                    Close & Browse Providers
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => setSelectedIntegration(null)}
+                      className="px-3.5 py-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright text-xs font-mono transition-colors cursor-pointer border border-onedark-border"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleSaveCredential}
+                      disabled={submitting || !tokenInput.trim()}
+                      className="px-4 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker text-xs font-mono font-bold flex items-center space-x-1.5 transition-all disabled:opacity-40 cursor-pointer shadow-xs active:scale-95"
+                    >
+                      {submitting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
+                      <span>Save & Validate</span>
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>

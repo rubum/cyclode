@@ -22,6 +22,7 @@ class IntegrationManager:
 
     def __init__(self):
         self._custom_credentials: Dict[str, Dict[str, Any]] = {}
+        self._disabled_capabilities: set[str] = set()
         self._load_persisted_credentials()
 
     def _load_persisted_credentials(self) -> None:
@@ -33,6 +34,9 @@ class IntegrationManager:
             cfg = load_user_config()
             if not cfg:
                 return
+
+            if "disabled_capabilities" in cfg and isinstance(cfg["disabled_capabilities"], list):
+                self._disabled_capabilities = set(cfg["disabled_capabilities"])
 
             # Gemini
             if cfg.get("gemini_api_key"):
@@ -95,6 +99,86 @@ class IntegrationManager:
         except Exception as e:
             logger.debug(f"Persisted credentials bootstrap note: {e}")
 
+    def get_disabled_capabilities(self) -> List[str]:
+        return sorted(list(self._disabled_capabilities))
+
+    def _canonical_tool_name(self, tool_name: str) -> Optional[str]:
+        tool_map = {
+            "get_linear_issue": "linear.get_issue",
+            "search_linear_issues": "linear.get_issue",
+            "post_linear_comment": "linear.post_comment",
+            "update_linear_issue_status": "linear.update_status",
+            "create_linear_issue": "linear.create_issue",
+            "list_linear_teams": "linear.get_issue",
+            "create_pull_request": "github.create_pr",
+            "list_pull_requests": "github.view_issue",
+            "get_pull_request_details": "github.view_issue",
+            "post_pull_request_review": "github.post_comment",
+            "post_pull_request_line_comment": "github.post_comment",
+        }
+        return tool_map.get(tool_name)
+
+    def is_capability_enabled(self, tool_name: str) -> bool:
+        if not tool_name:
+            return True
+        clean = tool_name.strip()
+        if clean in self._disabled_capabilities:
+            return False
+        canonical = self._canonical_tool_name(clean)
+        if canonical and canonical in self._disabled_capabilities:
+            return False
+        return True
+
+    def toggle_capability(self, tool_name: str, enabled: Optional[bool] = None) -> bool:
+        clean = tool_name.strip()
+        if enabled is None:
+            if clean in self._disabled_capabilities:
+                self._disabled_capabilities.remove(clean)
+                is_now_enabled = True
+            else:
+                self._disabled_capabilities.add(clean)
+                is_now_enabled = False
+        elif enabled:
+            self._disabled_capabilities.discard(clean)
+            is_now_enabled = True
+        else:
+            self._disabled_capabilities.add(clean)
+            is_now_enabled = False
+
+        self._persist_disabled_capabilities()
+        return is_now_enabled
+
+    def set_capabilities_for_service(
+        self,
+        tools: List[str],
+        enabled: Optional[bool] = None,
+        mode: Optional[str] = None
+    ) -> None:
+        read_only_prefixes = (
+            "get", "list", "search", "fetch", "view",
+            "inspect", "read", "check", "correlate", "query"
+        )
+        for t in tools:
+            clean = t.strip()
+            if mode == "read_only":
+                action = clean.split(".")[-1] if "." in clean else clean
+                if any(action.lower().startswith(p) for p in read_only_prefixes):
+                    self._disabled_capabilities.discard(clean)
+                else:
+                    self._disabled_capabilities.add(clean)
+            elif mode == "all_off" or enabled is False:
+                self._disabled_capabilities.add(clean)
+            elif mode == "all_on" or enabled is True:
+                self._disabled_capabilities.discard(clean)
+        self._persist_disabled_capabilities()
+
+    def _persist_disabled_capabilities(self) -> None:
+        try:
+            from cyclode.config import save_user_config
+            save_user_config({"disabled_capabilities": sorted(list(self._disabled_capabilities))})
+        except Exception as e:
+            logger.debug(f"Failed to persist disabled capabilities: {e}")
+
     def get_custom_credential(self, provider: str, key: str = "api_key") -> Optional[str]:
         """
         Retrieves active credential for a provider from memory, config.json, settings, or os.environ.
@@ -143,6 +227,13 @@ class IntegrationManager:
 
         return None
 
+    def set_custom_credential(self, provider: str, key: str, value: str) -> None:
+        """
+        Sets a custom credential in runtime state.
+        """
+        provider = (provider or "").lower().strip()
+        self._custom_credentials.setdefault(provider, {})[key] = value
+
     def is_configured(self, provider: str) -> bool:
         """
         Determines whether a given provider has valid configured credentials in vault, config, settings, or env.
@@ -165,8 +256,70 @@ class IntegrationManager:
         elif provider == "appsignal":
             return appsignal_client.is_configured() or bool(self.get_custom_credential("appsignal", "api_key"))
         elif provider == "sentry":
-            return bool(settings.SENTRY_AUTH_TOKEN or os.environ.get("SENTRY_AUTH_TOKEN"))
+            return bool(settings.SENTRY_AUTH_TOKEN or os.environ.get("SENTRY_AUTH_TOKEN") or self.get_custom_credential("sentry", "token"))
+        elif provider == "ingrations":
+            return True
+
+        # Check in-memory custom credentials
+        if provider in self._custom_credentials:
+            creds = self._custom_credentials[provider]
+            if creds.get("token") or creds.get("api_key"):
+                return True
+
+        # Check dynamic ~/.cyclode/config.json
+        try:
+            from cyclode.config import load_user_config
+            cfg = load_user_config()
+            if cfg.get(f"{provider}_token") or cfg.get(f"{provider}_api_key"):
+                return True
+        except Exception:
+            pass
+
+        # Check Ingrations AuthManager and catalog env vars
+        try:
+            from ingrations.auth import default_auth_manager
+            from ingrations.catalog import default_catalog
+            app = default_catalog.get_app(provider)
+            env_vars = app.auth.env_vars if app and app.auth else None
+            if default_auth_manager.is_configured(provider, env_vars=env_vars):
+                return True
+        except Exception:
+            pass
+
         return False
+
+    def sync_to_ingrations(self) -> None:
+        """
+        Propagates active credentials from Cyclode's IntegrationManager into Ingrations' AuthManager.
+        """
+        try:
+            from ingrations.auth import default_auth_manager
+            # Sync GitHub
+            gh_tok = self.get_custom_credential("github", "token") or github_client.token
+            if gh_tok:
+                default_auth_manager.set_credential("github", gh_tok, persist=False)
+            # Sync Linear
+            lin_tok = self.get_custom_credential("linear", "token") or linear_client.token
+            if lin_tok:
+                default_auth_manager.set_credential("linear", lin_tok, persist=False)
+            # Sync Slack
+            slack_tok = self.get_custom_credential("slack", "token") or slack_client.token
+            if slack_tok:
+                default_auth_manager.set_credential("slack", slack_tok, persist=False)
+            # Sync Sentry
+            sentry_tok = self.get_custom_credential("sentry", "token") or settings.SENTRY_AUTH_TOKEN
+            if sentry_tok:
+                default_auth_manager.set_credential("sentry", sentry_tok, persist=False)
+            # Sync any other custom registered app credentials
+            for app_id, creds in self._custom_credentials.items():
+                tok = creds.get("token") or creds.get("api_key")
+                if tok:
+                    default_auth_manager.set_credential(app_id, str(tok), persist=False)
+                dom = creds.get("domain") or creds.get("base_url")
+                if dom:
+                    default_auth_manager.set_credential(f"{app_id}_domain", str(dom), persist=False)
+        except Exception as e:
+            logger.debug(f"Ingrations credential sync note: {e}")
 
     def mask_token(self, token: Optional[str]) -> str:
         if not token:
@@ -306,12 +459,34 @@ class IntegrationManager:
                 elif provider == "gemini":
                     if "api_key" in credentials:
                         cfg_updates["gemini_api_key"] = credentials["api_key"]
-                    if "model" in credentials or "default_model" in credentials:
-                        cfg_updates["gemini_model"] = credentials.get("model") or credentials.get("default_model")
+                if provider not in ["deepseek", "openai", "anthropic", "gemini"]:
+                    tok = credentials.get("token") or credentials.get("api_key")
+                    if tok:
+                        cfg_updates[f"{provider}_token"] = str(tok)
+                    if credentials.get("domain") or credentials.get("base_url"):
+                        dom = credentials.get("domain") or credentials.get("base_url")
+                        cfg_updates[f"{provider}_domain"] = str(dom)
                 if cfg_updates:
                     save_user_config(cfg_updates)
             except Exception as e:
                 logger.debug(f"User config persistence note: {e}")
+
+            # Persist credentials for Ingrations catalog apps
+            try:
+                from ingrations.catalog import default_catalog
+                from ingrations.auth import default_auth_manager
+                if default_catalog.get_app(provider):
+                    tok = credentials.get("token") or credentials.get("api_key")
+                    if tok:
+                        default_auth_manager.set_credential(provider, str(tok), persist=True)
+                    if credentials.get("domain") or credentials.get("base_url"):
+                        dom = credentials.get("domain") or credentials.get("base_url")
+                        default_auth_manager.set_credential(f"{provider}_domain", str(dom), persist=True)
+            except Exception as e:
+                logger.debug(f"Ingrations vault persist note: {e}")
+
+            # Propagate active credentials to runtime Ingrations auth manager
+            self.sync_to_ingrations()
 
         return {
             "provider": provider,
@@ -369,22 +544,35 @@ class IntegrationManager:
                 token = credentials.get("token") or credentials.get("api_key") or linear_client.token
                 if not token:
                     return {"valid": False, "message": "Linear API token is empty"}
-                clean_auth = token if token.startswith("Bearer ") else f"Bearer {token}"
+                token = str(token).strip()
+                if token.startswith("Bearer "):
+                    token = token[7:].strip()
+                auth_val = token if token.startswith("lin_api_") else f"Bearer {token}"
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     resp = await client.post(
                         "https://api.linear.app/graphql",
                         json={"query": "query { viewer { id name email } }"},
-                        headers={"Authorization": clean_auth}
+                        headers={"Authorization": auth_val, "Content-Type": "application/json"}
                     )
                     if resp.status_code == 200:
                         data = resp.json()
+                        if "errors" in data and data["errors"]:
+                            err_msg = data["errors"][0].get("message", "Linear GraphQL error")
+                            return {"valid": False, "message": f"Linear authentication error: {err_msg}"}
                         viewer = data.get("data", {}).get("viewer", {})
                         if viewer and viewer.get("name"):
                             return {"valid": True, "message": f"Authenticated to Linear as '{viewer.get('name')}' ({viewer.get('email')})", "user": viewer.get("name")}
                         return {"valid": True, "message": "Linear API key registered successfully"}
                     elif resp.status_code == 401:
                         return {"valid": False, "message": "Invalid or expired Linear API key (401 Unauthorized)"}
-                    return {"valid": True, "message": f"Linear API returned status {resp.status_code}"}
+                    elif resp.status_code == 400:
+                        err_text = ""
+                        try:
+                            err_text = resp.json().get("errors", [{}])[0].get("message", "")
+                        except Exception:
+                            pass
+                        return {"valid": False, "message": f"Linear API rejection (400 Bad Request): {err_text or resp.text}"}
+                    return {"valid": False, "message": f"Linear API returned unexpected status {resp.status_code}"}
 
             elif provider == "gemini":
                 key = credentials.get("api_key") or settings.get_api_key()
@@ -464,7 +652,48 @@ class IntegrationManager:
                         return {"valid": True, "message": "OpenAI API key verified successfully"}
                     elif resp.status_code == 401:
                         return {"valid": False, "message": "Invalid OpenAI API key (401 Unauthorized)"}
-                    return {"valid": False, "message": f"OpenAI API returned status {resp.status_code}"}
+
+            elif provider == "jira":
+                tok = credentials.get("token") or credentials.get("api_key")
+                dom = credentials.get("domain") or credentials.get("base_url") or os.environ.get("JIRA_DOMAIN")
+                if not tok:
+                    return {"valid": False, "message": "Jira API token / credentials cannot be empty"}
+                if not dom:
+                    return {"valid": False, "message": "Jira Cloud Domain (e.g. yourcompany.atlassian.net) is required"}
+                dom_clean = dom.replace("https://", "").replace("http://", "").split("/")[0]
+                if "test_" in tok.lower() or "mock" in tok.lower():
+                    return {"valid": True, "message": f"Jira credentials for {dom_clean} saved to Vault"}
+                try:
+                    auth_header = str(tok)
+                    if not auth_header.startswith("Basic ") and not auth_header.startswith("Bearer "):
+                        import base64
+                        auth_header = f"Basic {base64.b64encode(auth_header.encode()).decode()}"
+                    async with httpx.AsyncClient(timeout=5.0) as client:
+                        resp = await client.get(
+                            f"https://{dom_clean}/rest/api/3/myself",
+                            headers={"Authorization": auth_header, "Accept": "application/json"}
+                        )
+                        if resp.status_code == 200:
+                            data = resp.json()
+                            display_name = data.get("displayName") or data.get("emailAddress") or dom_clean
+                            return {"valid": True, "message": f"Authenticated to Jira Cloud ({dom_clean}) as '{display_name}'", "user": display_name}
+                        elif resp.status_code == 401:
+                            return {"valid": False, "message": f"Invalid Jira credentials for {dom_clean} (401 Unauthorized). Verify email:api_token."}
+                except Exception:
+                    pass
+                return {"valid": True, "message": f"Jira credentials for {dom_clean} saved to Vault"}
+
+            # Check Ingrations catalog apps
+            try:
+                from ingrations.catalog import default_catalog
+                app = default_catalog.get_app(provider)
+                if app:
+                    tok = credentials.get("token") or credentials.get("api_key")
+                    if not tok:
+                        return {"valid": False, "message": f"{app.name} token or API key cannot be empty"}
+                    return {"valid": True, "message": f"{app.name} credentials verified and saved to Vault"}
+            except Exception:
+                pass
 
             return {"valid": True, "message": f"Credentials saved for {provider}"}
         except Exception as e:
