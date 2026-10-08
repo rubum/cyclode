@@ -4378,6 +4378,24 @@ async def get_task_subagents(task_id: str, db: AsyncSession = Depends(get_db)):
 
     serialized = []
     for s in subagents:
+        effective_summary = s.result_summary or ""
+        if s.messages:
+            agent_msgs = [m.content for m in s.messages if m.sender == "agent" and m.content]
+            if agent_msgs and (not effective_summary or len(agent_msgs[-1]) > len(effective_summary)):
+                effective_summary = agent_msgs[-1]
+
+        diffs_serialized = []
+        for d in (s.diffs or []):
+            diffs_serialized.append({
+                "id": str(d.id),
+                "task_id": d.task_id,
+                "file_path": d.file_path,
+                "diff_content": d.diff_content,
+                "additions": d.additions,
+                "deletions": d.deletions,
+                "created_at": d.created_at.isoformat() if d.created_at else None
+            })
+
         serialized.append({
             "id": s.id,
             "parent_task_id": s.parent_task_id,
@@ -4395,9 +4413,9 @@ async def get_task_subagents(task_id: str, db: AsyncSession = Depends(get_db)):
             "target_branch": s.target_branch,
             "workspace_path": s.workspace_path,
             "total_tokens": s.total_tokens,
-            "result_summary": s.result_summary,
+            "result_summary": effective_summary,
             "logs": s.logs,
-            "diffs": s.diffs,
+            "diffs": diffs_serialized,
             "approvals": s.approvals,
             "prs": s.prs,
             "created_at": s.created_at.isoformat() if s.created_at else None,
@@ -4537,3 +4555,33 @@ async def cancel_all_task_subagents(
         "cancelled_count": len(cancelled_ids),
         "cancelled_ids": cancelled_ids
     }
+
+
+@router.delete("/{task_id}/subagents")
+async def clear_all_task_subagents(
+    task_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Clears and purges all existing subagents (active, completed, or failed) linked to the parent task.
+    """
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    result = await db.execute(stmt)
+    parent_task = result.scalars().first()
+    if not parent_task:
+        raise HTTPException(status_code=404, detail="Parent task not found")
+
+    res = await agent_pool.clear_subagents(parent_task_id=task_id)
+    return res
+
+
+@router.post("/{task_id}/subagents/clear-all")
+async def clear_all_task_subagents_post(
+    task_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    POST alternative to clear and purge all subagents linked to the parent task.
+    """
+    return await clear_all_task_subagents(task_id, db)
+

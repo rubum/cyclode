@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { WebSocketProvider, useWebSocket } from './contexts/WebSocketContext';
 import { Sidebar } from './components/Sidebar/Sidebar';
 import { ResizablePanes } from './components/Layout/ResizablePanes';
-import { ChatCanvas } from './components/Chat/ChatCanvas';
+import { ChatCanvas, parseUserMessageAttachments } from './components/Chat/ChatCanvas';
 import { AuxiliaryPane, AuxTabType } from './components/AuxiliaryPane/AuxiliaryPane';
 import { FleetDashboard } from './components/Fleet/FleetDashboard';
 import { EventInbox } from './components/Events/EventInbox';
@@ -30,6 +30,7 @@ const MainApp: React.FC = () => {
   const [activeSkills, setActiveSkills] = useState<string[]>([]);
   const [skillsCatalog, setSkillsCatalog] = useState<SkillCatalogItem[]>([]);
   const [webhookEndpoints, setWebhookEndpoints] = useState<WebhookEndpoint[]>([]);
+  const [disabledCapabilities, setDisabledCapabilities] = useState<string[]>([]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [currentPreset, setCurrentPreset] = useState<LayoutPreset>(() => {
     try {
@@ -47,6 +48,28 @@ const MainApp: React.FC = () => {
   const [sessionFiles, setSessionFiles] = useState<Record<string, string | null>>({});
   const [sessionFileLines, setSessionFileLines] = useState<Record<string, number | null>>({});
   const [sessionAuxTabs, setSessionAuxTabs] = useState<Record<string, AuxTabType>>({});
+  const [sessionDrafts, setSessionDrafts] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem('cyclode_prompt_drafts');
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // ignore
+    }
+    return {};
+  });
+
+  const handleDraftChange = useCallback((sessionKey: string, draft: string) => {
+    setSessionDrafts((prev) => {
+      if (prev[sessionKey] === draft) return prev;
+      const next = { ...prev, [sessionKey]: draft };
+      try {
+        localStorage.setItem('cyclode_prompt_drafts', JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }, []);
 
   const currentTaskAuxTab = activeTaskId ? (sessionAuxTabs[activeTaskId] || activeAuxTab) : activeAuxTab;
   const activePreviewTarget = activeTaskId ? (sessionPreviews[activeTaskId] || null) : (sessionPreviews['draft'] || null);
@@ -212,6 +235,9 @@ const MainApp: React.FC = () => {
         setActiveSkills(data.active_skills || []);
         setSkillsCatalog(data.skills_catalog || []);
         setWebhookEndpoints(data.webhook_endpoints || []);
+        if (Array.isArray(data.disabled_capabilities)) {
+          setDisabledCapabilities(data.disabled_capabilities);
+        }
       }
     } catch (err) {
       console.error('Error fetching integrations:', err);
@@ -639,6 +665,10 @@ const MainApp: React.FC = () => {
 
     const unsubTurnReset = subscribe('TASK_TURN_RESET', (data: any) => {
       if (activeTaskId === data.task_id) {
+        if (data.restored_prompt) {
+          const sanitized = parseUserMessageAttachments(data.restored_prompt, data.task_id).cleanedText.trim() || data.restored_prompt.trim();
+          handleDraftChange(data.task_id, sanitized);
+        }
         fetchTaskDetails(data.task_id);
         fetchTasks();
       }
@@ -794,6 +824,8 @@ const MainApp: React.FC = () => {
     setActiveTaskId(tempId);
     setActiveTaskDetails(tempTask);
     setActiveView('chat');
+    handleDraftChange('draft', '');
+    handleDraftChange(tempId, '');
 
     try {
       const res = await fetch(`${API_BASE}/api/tasks`, {
@@ -810,6 +842,7 @@ const MainApp: React.FC = () => {
         const data = await res.json();
         const createdId = data.id || data.task_id;
         if (createdId) {
+          handleDraftChange(createdId, '');
           if (activeTaskIdRef.current === tempId) {
             setActiveTaskId(createdId);
             activeTaskIdRef.current = createdId;
@@ -889,6 +922,7 @@ const MainApp: React.FC = () => {
 
   const handleSendMessage = async (content: string, modelName?: string, files?: File[]) => {
     if (!activeTaskId) return;
+    handleDraftChange(activeTaskId, '');
 
     if (files && files.length > 0) {
       try {
@@ -1127,8 +1161,12 @@ const MainApp: React.FC = () => {
     }
   };
 
-  const handleResetTurn = async (turnIndex?: number) => {
+  const handleResetTurn = async (turnIndex?: number, promptToRestore?: string) => {
     if (!activeTaskId) return;
+    if (promptToRestore) {
+      const sanitized = parseUserMessageAttachments(promptToRestore, activeTaskId).cleanedText.trim() || promptToRestore.trim();
+      handleDraftChange(activeTaskId, sanitized);
+    }
     try {
       const res = await fetch(`${API_BASE}/api/tasks/${activeTaskId}/reset-turn`, {
         method: 'POST',
@@ -1136,6 +1174,11 @@ const MainApp: React.FC = () => {
         body: JSON.stringify({ turn_index: turnIndex }),
       });
       if (res.ok) {
+        const data = await res.json();
+        if (data.restored_prompt) {
+          const sanitized = parseUserMessageAttachments(data.restored_prompt, activeTaskId).cleanedText.trim() || data.restored_prompt.trim();
+          handleDraftChange(activeTaskId, sanitized);
+        }
         fetchTaskDetails(activeTaskId);
         fetchTasks();
       }
@@ -1260,6 +1303,16 @@ const MainApp: React.FC = () => {
       delete next[taskId];
       return next;
     });
+    setSessionDrafts((prev) => {
+      const next = { ...prev };
+      delete next[taskId];
+      try {
+        localStorage.setItem('cyclode_prompt_drafts', JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
 
     if (activeTaskId === taskId) {
       setActiveTaskId(null);
@@ -1348,6 +1401,8 @@ const MainApp: React.FC = () => {
           <ChatCanvas
             task={activeTaskDetails}
             repositories={repositories}
+            currentDraft={activeTaskId ? (sessionDrafts[activeTaskId] || '') : (sessionDrafts['draft'] || '')}
+            onDraftChange={(draft) => handleDraftChange(activeTaskId || 'draft', draft)}
             onSendMessage={handleSendMessage}
             onApprove={handleApprove}
             onReject={handleReject}
@@ -1429,6 +1484,7 @@ const MainApp: React.FC = () => {
             activeSkills={activeSkills}
             skillsCatalog={skillsCatalog}
             webhookEndpoints={webhookEndpoints}
+            disabledCapabilities={disabledCapabilities}
             onRefreshIntegrations={fetchIntegrations}
             onBackToChat={() => setActiveView('chat')}
             onNavigateToPolicies={() => setActiveView('policies')}

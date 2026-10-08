@@ -191,6 +191,25 @@ def _migrate_db(connection):
         except Exception:
             pass
 
+    # Auto-heal truncated result_summary from task_messages across all tasks
+    try:
+        connection.exec_driver_sql("""
+            UPDATE tasks
+            SET result_summary = (
+                SELECT content FROM task_messages
+                WHERE task_messages.task_id = tasks.id AND task_messages.sender = 'agent' AND length(task_messages.content) > 0
+                ORDER BY task_messages.created_at DESC
+                LIMIT 1
+            )
+            WHERE (result_summary IS NULL OR length(result_summary) <= 120)
+              AND EXISTS (
+                SELECT 1 FROM task_messages
+                WHERE task_messages.task_id = tasks.id AND task_messages.sender = 'agent' AND length(task_messages.content) > 120
+              )
+        """)
+    except Exception:
+        pass
+
 
 async def ensure_default_repositories():
     """

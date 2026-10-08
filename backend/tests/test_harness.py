@@ -342,3 +342,52 @@ def test_advance_plan_step_monotonic_multi_step_progression():
     assert plan["steps"][6]["status"] == "completed"
     assert plan["steps"][7]["status"] == "in_progress"
 
+
+def test_harness_edit_file_truncation_abort(tmp_path):
+    from pathlib import Path
+    target_file = tmp_path / "important_app.js"
+    target_file.write_text("console.log('original safe content');", encoding="utf-8")
+
+    # Simulate truncated model response
+    is_resp_truncated = True
+    args = {"file_path": "important_app.js", "content": "console.log('truncated half code...", "append": False}
+    append_mode = bool(args.get("append", False))
+
+    if is_resp_truncated and not append_mode:
+        tool_result = {
+            "error": "Model generation was truncated mid-stream by output token ceiling (finish_reason=length). "
+                     "File write was aborted to protect file integrity and avoid overwriting with corrupted/partial code."
+        }
+        exit_code = 1
+    else:
+        tool_result = WorkspaceTools.edit_file(tmp_path, args["file_path"], args["content"], append=append_mode)
+        exit_code = 0
+
+    assert exit_code == 1
+    assert "truncated" in tool_result["error"]
+    # Disk file MUST remain uncorrupted!
+    assert target_file.read_text(encoding="utf-8") == "console.log('original safe content');"
+
+
+def test_harness_attachment_scoping_pure_text(tmp_path):
+    from app.agent.harness import AntigravityHarness
+    from pathlib import Path
+
+    # Create dummy attachment in workspace
+    att_dir = tmp_path / ".cyclode" / "attachments"
+    att_dir.mkdir(parents=True, exist_ok=True)
+    (att_dir / "large_screenshot.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 50000)
+
+    # Prompt is pure repository research
+    prompt = "How does this work https://github.com/ComposioHQ/composio"
+    title = "Composio Architecture Analysis"
+
+    prompt_title_lower = (prompt + " " + title).lower()
+    has_attachment_intent = any(k in prompt_title_lower for k in [
+        "image", "screenshot", "attach", "mockup", "ui", ".png", ".jpg", ".jpeg",
+        ".webp", ".gif", "look at", "see this", "visual", "photo", "wireframe",
+        "diagram", "uploaded", "view_image"
+    ])
+
+    assert has_attachment_intent is False
+

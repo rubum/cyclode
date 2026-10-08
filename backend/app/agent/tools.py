@@ -189,10 +189,10 @@ class WorkspaceTools:
             return {"error": str(e)}
 
     @staticmethod
-    def edit_file(workspace_path: Path, file_path: str, content: str) -> Dict[str, Any]:
+    def edit_file(workspace_path: Path, file_path: str, content: str, append: bool = False) -> Dict[str, Any]:
         if not file_path or not str(file_path).strip():
             return {"error": "file_path cannot be empty"}
-        if content is None or not str(content).strip():
+        if content is None or (not append and not str(content).strip()):
             return {"error": "content cannot be empty. Provide the complete file implementation when calling edit_file."}
         clean_path = str(file_path).strip().lstrip("/")
         if clean_path.startswith("./"):
@@ -207,6 +207,17 @@ class WorkspaceTools:
             return {"error": f"Target path '{clean_path}' is a directory, not a file"}
 
         target.parent.mkdir(parents=True, exist_ok=True)
+        if append and target.exists() and target.is_file():
+            # CoW protection on append: if file is a shared hardlink, unlink first to write to a private inode
+            if target.stat().st_nlink > 1:
+                orig_content = target.read_text(encoding="utf-8", errors="ignore")
+                target.unlink()
+                target.write_text(orig_content + content, encoding="utf-8")
+            else:
+                with target.open("a", encoding="utf-8") as f:
+                    f.write(content)
+            return {"file_path": clean_path, "status": "appended", "bytes": len(content), "total_bytes": target.stat().st_size}
+
         # CoW protection: if file is a shared hardlink, unlink first to write to a new private inode
         if target.exists() and target.is_file() and target.stat().st_nlink > 1:
             target.unlink()
@@ -2704,6 +2715,9 @@ class WorkspaceTools:
         from app.integrations.linear_client import linear_client
         from app.integrations.manager import integration_manager
 
+        if not integration_manager.is_capability_enabled("linear.get_issue"):
+            return {"error": "Capability 'linear.get_issue' is disabled by integration capability policy."}
+
         lin_token = integration_manager.get_custom_credential("linear", "token") or integration_manager.get_custom_credential("linear", "api_key")
 
         issue = await linear_client.get_issue(issue_key, custom_token=lin_token)
@@ -2720,6 +2734,9 @@ class WorkspaceTools:
         """
         from app.integrations.linear_client import linear_client
         from app.integrations.manager import integration_manager
+
+        if not integration_manager.is_capability_enabled("linear.get_issue"):
+            return {"error": "Capability 'linear.get_issue' is disabled by integration capability policy."}
 
         lin_token = integration_manager.get_custom_credential("linear", "token") or integration_manager.get_custom_credential("linear", "api_key")
 
@@ -2738,6 +2755,9 @@ class WorkspaceTools:
         from app.integrations.linear_client import linear_client
         from app.integrations.manager import integration_manager
 
+        if not integration_manager.is_capability_enabled("linear.post_comment"):
+            return {"error": "Capability 'linear.post_comment' is disabled by integration capability policy."}
+
         lin_token = integration_manager.get_custom_credential("linear", "token") or integration_manager.get_custom_credential("linear", "api_key")
 
         issue = await linear_client.get_issue(issue_key, custom_token=lin_token)
@@ -2752,11 +2772,150 @@ class WorkspaceTools:
         from app.integrations.linear_client import linear_client
         from app.integrations.manager import integration_manager
 
+        if not integration_manager.is_capability_enabled("linear.update_status"):
+            return {"error": "Capability 'linear.update_status' is disabled by integration capability policy."}
+
         lin_token = integration_manager.get_custom_credential("linear", "token") or integration_manager.get_custom_credential("linear", "api_key")
 
         issue = await linear_client.get_issue(issue_key, custom_token=lin_token)
         issue_id = issue.get("id", issue_key) if issue else issue_key
-        return await linear_client.update_issue_status(issue_id, state_id, custom_token=lin_token)
+
+        target_state_id = state_id
+        if issue and "team" in issue and issue["team"]:
+            states = issue["team"].get("states", {}).get("nodes", [])
+            for st in states:
+                if st.get("id") == state_id or st.get("name", "").lower() == state_id.strip().lower():
+                    target_state_id = st.get("id")
+                    break
+
+        return await linear_client.update_issue_status(issue_id, target_state_id, custom_token=lin_token)
+
+    @classmethod
+    async def list_linear_teams(cls) -> Dict[str, Any]:
+        """
+        Lists Linear teams, their keys, workflow states, and labels.
+        """
+        from app.integrations.linear_client import linear_client
+        from app.integrations.manager import integration_manager
+
+        if not integration_manager.is_capability_enabled("linear.get_issue"):
+            return {"error": "Capability 'linear.get_issue' is disabled by integration capability policy."}
+
+        lin_token = integration_manager.get_custom_credential("linear", "token") or integration_manager.get_custom_credential("linear", "api_key")
+        teams = await linear_client.list_teams(custom_token=lin_token)
+        return {
+            "teams": teams or [],
+            "count": len(teams or [])
+        }
+
+    @classmethod
+    async def create_linear_issue(
+        cls,
+        title: str,
+        team: Optional[str] = "PD",
+        description: Optional[str] = "",
+        priority: Optional[int] = 0,
+        state: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Creates a new Linear issue in the specified team (default 'PD').
+        """
+        from app.integrations.linear_client import linear_client
+        from app.integrations.manager import integration_manager
+
+        if not integration_manager.is_capability_enabled("linear.create_issue"):
+            return {"error": "Capability 'linear.create_issue' is disabled by integration capability policy."}
+
+        lin_token = integration_manager.get_custom_credential("linear", "token") or integration_manager.get_custom_credential("linear", "api_key")
+        team_id = team or "PD"
+        return await linear_client.create_issue(
+            title=title,
+            team_id_or_key=team_id,
+            description=description,
+            priority=priority,
+            state_id=state,
+            custom_token=lin_token
+        )
+
+    # =========================================================================
+    # Ingrations Universal Tool Ecosystem
+    # =========================================================================
+
+    @classmethod
+    def ingrations_search_tools(
+        cls,
+        query: str,
+        category: Optional[str] = None,
+        limit: int = 5
+    ) -> Dict[str, Any]:
+        """
+        Sub-millisecond semantic BM25 search across 16+ apps in Ingrations catalog.
+        """
+        try:
+            from ingrations import Ingrations
+            from app.integrations.manager import integration_manager
+            client = Ingrations()
+            results = client.search_tools(query, limit=limit, category=category)
+            return {
+                "query": query,
+                "count": len(results),
+                "results": [
+                    {
+                        "action_id": r.action_id,
+                        "app_name": r.app_name,
+                        "action_name": r.action_name,
+                        "description": r.description,
+                        "category": r.category,
+                        "score": round(r.score, 2),
+                        "enabled": integration_manager.is_capability_enabled(r.action_id),
+                        "parameters": [
+                            {"name": p.name, "type": p.type, "required": p.required, "description": p.description}
+                            for p in (client.get_action(r.action_id).parameters if client.get_action(r.action_id) else [])
+                        ]
+                    }
+                    for r in results
+                ]
+            }
+        except Exception as e:
+            logger.error(f"Ingrations search failed: {e}")
+            return {"error": f"Failed to search tools: {str(e)}", "query": query, "results": []}
+
+    @classmethod
+    async def ingrations_execute(
+        cls,
+        action_id: str,
+        params: Optional[Dict[str, Any]] = None,
+        dry_run: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Executes an external action using Ingrations execution engine.
+        """
+        try:
+            from ingrations import Ingrations
+            from app.integrations.manager import integration_manager
+
+            if not integration_manager.is_capability_enabled(action_id):
+                return {
+                    "success": False,
+                    "action_id": action_id,
+                    "status_code": 403,
+                    "error": f"Capability '{action_id}' is disabled by integration capability policy."
+                }
+
+            # Sync any credentials from Cyclode into Ingrations AuthManager
+            integration_manager.sync_to_ingrations()
+
+            client = Ingrations()
+            result = await client.execute(action_id, params=params, dry_run=dry_run)
+            return result.model_dump()
+        except Exception as e:
+            logger.error(f"Ingrations execute failed for '{action_id}': {e}")
+            return {
+                "success": False,
+                "action_id": action_id,
+                "status_code": 500,
+                "error": f"Execution error: {str(e)}"
+            }
 
     # =========================================================================
     # Tabular Data & Archive Inspection Tools
@@ -3045,6 +3204,84 @@ class WorkspaceTools:
         }
 
     @staticmethod
+    async def perform_multimodal_vision_analysis(
+        b64_data: str,
+        mime_type: str,
+        prompt: str,
+        active_provider: Optional[Any] = None
+    ) -> Optional[str]:
+        """
+        Executes a multi-tier multimodal cascade to analyze image data (OCR, UI hierarchy, error logs):
+        1. Explicit active provider if supplied and vision-capable.
+        2. Priority provider aligned with current ANTIGRAVITY_MAJOR_MODEL (e.g. DeepSeek if configured).
+        3. Fallback cascade across all configured vision engines:
+           - Google Gemini (gemini-3.7-flash)
+           - DeepSeek-V4.1-Flash (deepseek-flash)
+           - Anthropic Claude (claude-3-5-haiku)
+           - OpenAI (gpt-4o-mini)
+        """
+        # 1. Active provider attempt
+        if active_provider and hasattr(active_provider, "analyze_visual"):
+            try:
+                res = await active_provider.analyze_visual(b64_data=b64_data, mime_type=mime_type, prompt=prompt)
+                if res and res.strip():
+                    return res.strip()
+            except Exception as e:
+                logger.debug(f"Active provider vision inspection notice: {e}")
+
+        from app.config import settings
+        from app.agent.providers.gemini import GeminiProvider
+        from app.agent.providers.deepseek import DeepSeekProvider
+        from app.agent.providers.claude import ClaudeProvider
+        from app.agent.providers.openai import OpenAIProvider
+
+        major_model = (getattr(settings, "ANTIGRAVITY_MAJOR_MODEL", None) or getattr(settings, "ANTIGRAVITY_MODEL", "")).lower()
+
+        if "deepseek" in major_model:
+            cascade_order = [
+                ("deepseek", DeepSeekProvider()),
+                ("gemini", GeminiProvider()),
+                ("claude", ClaudeProvider()),
+                ("openai", OpenAIProvider()),
+            ]
+        elif "claude" in major_model or "anthropic" in major_model or "fable" in major_model:
+            cascade_order = [
+                ("claude", ClaudeProvider()),
+                ("gemini", GeminiProvider()),
+                ("deepseek", DeepSeekProvider()),
+                ("openai", OpenAIProvider()),
+            ]
+        elif "openai" in major_model or "gpt" in major_model:
+            cascade_order = [
+                ("openai", OpenAIProvider()),
+                ("gemini", GeminiProvider()),
+                ("deepseek", DeepSeekProvider()),
+                ("claude", ClaudeProvider()),
+            ]
+        else:
+            cascade_order = [
+                ("gemini", GeminiProvider()),
+                ("deepseek", DeepSeekProvider()),
+                ("claude", ClaudeProvider()),
+                ("openai", OpenAIProvider()),
+            ]
+
+        for prov_name, prov_inst in cascade_order:
+            try:
+                if prov_inst.get_api_key():
+                    res = await prov_inst.analyze_visual(
+                        b64_data=b64_data,
+                        mime_type=mime_type,
+                        prompt=prompt
+                    )
+                    if res and res.strip():
+                        return res.strip()
+            except Exception as e:
+                logger.debug(f"Vision provider '{prov_name}' cascade error: {e}")
+
+        return None
+
+    @staticmethod
     async def view_image(
         workspace_path: Path,
         file_path: str,
@@ -3130,44 +3367,14 @@ class WorkspaceTools:
         )
 
         visual_analysis = None
-        # Attempt Gemini vision inspection if key is available
         try:
-            from app.config import settings
-            api_key = settings.get_api_key()
-            if api_key:
-                clean_model = "gemini-2.5-flash"
-                api_url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent?key={api_key}"
-                payload = {
-                    "contents": [
-                        {
-                            "role": "user",
-                            "parts": [
-                                {"text": analysis_prompt},
-                                {
-                                    "inlineData": {
-                                        "mimeType": mime_type,
-                                        "data": b64_data
-                                    }
-                                }
-                            ]
-                        }
-                    ],
-                    "system_instruction": {
-                        "parts": [{"text": "You are Cyclode's high-precision multimodal vision analysis engine. Provide accurate OCR, UI element descriptions, visual hierarchy, and diagnose any errors shown in screenshots or diagrams."}]
-                    },
-                    "generationConfig": {"temperature": 0.2}
-                }
-                async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
-                    resp = await client.post(api_url, json=payload)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        candidates = data.get("candidates", [])
-                        if candidates:
-                            parts = candidates[0].get("content", {}).get("parts", [])
-                            text_parts = [p.get("text", "") for p in parts if "text" in p]
-                            visual_analysis = "\n".join(text_parts).strip()
+            visual_analysis = await WorkspaceTools.perform_multimodal_vision_analysis(
+                b64_data=b64_data,
+                mime_type=mime_type,
+                prompt=analysis_prompt
+            )
         except Exception as e:
-            logger.debug(f"Vision API call notice: {e}")
+            logger.debug(f"Vision API cascade notice: {e}")
 
         task_id = workspace_path.name.replace("sandbox-", "")
         result: Dict[str, Any] = {
@@ -3183,7 +3390,10 @@ class WorkspaceTools:
         if visual_analysis:
             result["visual_analysis"] = visual_analysis
         else:
-            result["visual_analysis"] = f"Image metadata: {img_format} {width}x{height} ({mode}), {file_size} bytes. (Visual model inspection offline/unconfigured)."
+            result["visual_analysis"] = (
+                f"Image metadata: {img_format} {width}x{height} ({mode}), {file_size} bytes. "
+                "(Visual model inspection offline/unconfigured. Configure DEEPSEEK_API_KEY or GEMINI_API_KEY for automatic multimodal analysis)."
+            )
         return result
 
     @classmethod
@@ -3192,7 +3402,8 @@ class WorkspaceTools:
         workspace_path: Path,
         subtasks: List[Dict[str, Any]],
         wait_for_completion: bool = True,
-        timeout: int = 120
+        timeout: int = 120,
+        clear_existing: bool = True
     ) -> Dict[str, Any]:
         """
         Dispatches concurrent subagent tasks linked to the current parent task session.
@@ -3223,6 +3434,14 @@ class WorkspaceTools:
         parent_task_id = workspace_path.name.replace("sandbox-", "")
         if not parent_task_id or parent_task_id == "default":
             parent_task_id = "default"
+
+        # Clear prior subagents (both active and completed) before launching new swarm wave
+        if clear_existing:
+            retained_keys = [item.get("session_key") for item in subtasks if item.get("session_key")]
+            await agent_pool.clear_subagents(
+                parent_task_id=parent_task_id,
+                retain_session_keys=retained_keys
+            )
 
         # Check for existing subagents with matching session_keys under this parent task
         existing_subagents_by_key: Dict[str, Any] = {}
@@ -3315,7 +3534,11 @@ class WorkspaceTools:
                             if agent_msgs:
                                 last_agent_msg = agent_msgs[-1]
 
-                        summary = t.result_summary or last_agent_msg or "Completed without explicit summary."
+                        summary = t.result_summary or ""
+                        if last_agent_msg and (not summary or len(last_agent_msg) > len(summary)):
+                            summary = last_agent_msg
+                        if not summary:
+                            summary = "Completed without explicit summary."
                         final_results.append({
                             "id": t.id,
                             "title": t.title,
@@ -3443,7 +3666,11 @@ class WorkspaceTools:
                         agent_msgs = [m.content for m in t.messages if m.sender == "agent" and m.content]
                         if agent_msgs:
                             last_agent_msg = agent_msgs[-1]
-                    summary = t.result_summary or last_agent_msg or "Completed without explicit summary."
+                    summary = t.result_summary or ""
+                    if last_agent_msg and (not summary or len(last_agent_msg) > len(summary)):
+                        summary = last_agent_msg
+                    if not summary:
+                        summary = "Completed without explicit summary."
                     return {
                         "subagent_id": t.id,
                         "title": t.title,

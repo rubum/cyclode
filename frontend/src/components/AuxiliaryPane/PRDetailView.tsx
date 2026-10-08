@@ -59,8 +59,10 @@ import {
   Radio,
   AlignJustify,
   Columns,
-  LayoutGrid
+  LayoutGrid,
+  WrapText
 } from 'lucide-react';
+import { isProseFile } from '../../utils/syntaxHighlighter';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { PRReviewAgentPopover, LineContext } from './PRReviewAgentPopover';
 import { LinearIssueDetailView } from './LinearIssueDetailView';
@@ -255,6 +257,25 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
     try {
       localStorage.setItem('cyclode_diff_layout_preference', pref);
     } catch {}
+  }, []);
+
+  const [wrapLines, setWrapLines] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('cyclode_diff_wrap_lines');
+      return saved === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleWrapLines = useCallback(() => {
+    setWrapLines((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('cyclode_diff_wrap_lines', String(next));
+      } catch {}
+      return next;
+    });
   }, []);
 
   const [containerWidth, setContainerWidth] = useState<number>(1000);
@@ -702,6 +723,9 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
       } else if (e.key === '2') {
         e.preventDefault();
         setLayoutPreference('split');
+      } else if (e.key === 'w' || e.key === 'W') {
+        e.preventDefault();
+        toggleWrapLines();
       } else if (e.key === ']' || e.key === '[') {
         e.preventDefault();
         if (allGaps.length === 0) return;
@@ -739,7 +763,7 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [allGaps, focusedHunkId, handleExpandAll]);
+  }, [allGaps, focusedHunkId, handleExpandAll, toggleWrapLines]);
 
   if (files.length === 0 && !diffText) {
     return (
@@ -1020,6 +1044,20 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
             </button>
           </div>
 
+          {/* Soft Line Wrap Toggle */}
+          <button
+            onClick={toggleWrapLines}
+            className={`px-2 py-1 rounded-md border text-[10.5px] font-medium transition-all cursor-pointer flex items-center space-x-1 ${
+              wrapLines
+                ? 'bg-onedark-accent/15 border-onedark-accent/40 text-onedark-accent'
+                : 'bg-onedark-surface hover:bg-onedark-surface/80 border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fg'
+            }`}
+            title={`Toggle soft line wrap (hotkey: w) - currently ${wrapLines ? 'ON' : 'OFF'}`}
+          >
+            <WrapText className="w-3 h-3" />
+            <span className="hidden sm:inline">{wrapLines ? 'Wrap' : 'No Wrap'}</span>
+          </button>
+
           <button
             onClick={() => {
               const allCollapsed = filteredFiles.every((f) => collapsedFiles[f.filename]);
@@ -1050,6 +1088,8 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
             const dirPath = pathParts.join('/');
             const grepInfo = fileGrepMap.get(f.filename);
             const hasPatchMatches = (grepInfo?.patchMatchCount || 0) > 0;
+            const isFileProse = isProseFile(f.filename);
+            const shouldWrap = wrapLines || isFileProse;
 
             return (
               <div
@@ -1166,10 +1206,10 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
                               const isExpanded = Boolean(row.isExpanded);
 
                               return (
-                                <div key={itemIdx} className="grid grid-cols-2 divide-x divide-onedark-borderSubtle/30 font-mono text-[11px]">
+                                <div key={itemIdx} className="grid grid-cols-2 divide-x divide-onedark-borderSubtle/30 font-mono text-[11px] items-stretch">
                                   {/* Left (Old / Deletions) */}
                                   <div
-                                    className={`flex items-start px-1.5 py-0.5 overflow-hidden ${
+                                    className={`flex items-start px-1.5 py-0.5 overflow-hidden min-w-0 ${
                                       isExpanded
                                         ? 'bg-onedark-surface/20 text-onedark-fg/90'
                                         : isDel
@@ -1177,23 +1217,24 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
                                         : 'text-onedark-fg/80'
                                     }`}
                                   >
-                                    <span className="w-7 flex-shrink-0 text-[10px] text-onedark-muted/60 text-right pr-2 select-none">
+                                    <span className="w-7 flex-shrink-0 text-[10px] text-onedark-muted/60 text-right pr-2 select-none pt-0.5">
                                       {row.leftLineNum ?? ''}
                                     </span>
-                                    <span className="w-3 flex-shrink-0 select-none font-bold text-center">
+                                    <span className="w-3 flex-shrink-0 select-none font-bold text-center pt-0.5">
                                       {isDel ? '-' : ' '}
                                     </span>
                                     <DiffCodeLine
                                       text={row.leftText.replace(/^[+-]/, '')}
                                       fileName={f.filename}
                                       grepMatcher={fileFilter.trim() ? grepMatcher : null}
-                                      className="whitespace-pre flex-1 truncate"
+                                      wrap={shouldWrap}
+                                      className={shouldWrap ? "whitespace-pre-wrap break-words [overflow-wrap:anywhere] flex-1 min-w-0" : "whitespace-pre flex-1 truncate"}
                                     />
                                   </div>
 
                                   {/* Right (New / Additions) */}
                                   <div
-                                    className={`flex items-start px-1.5 py-0.5 overflow-hidden ${
+                                    className={`flex items-start px-1.5 py-0.5 overflow-hidden min-w-0 ${
                                       isExpanded
                                         ? 'bg-onedark-surface/20 text-onedark-fg/90'
                                         : isAdd
@@ -1201,17 +1242,18 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
                                         : 'text-onedark-fg/80'
                                     }`}
                                   >
-                                    <span className="w-7 flex-shrink-0 text-[10px] text-onedark-muted/60 text-right pr-2 select-none">
+                                    <span className="w-7 flex-shrink-0 text-[10px] text-onedark-muted/60 text-right pr-2 select-none pt-0.5">
                                       {row.rightLineNum ?? ''}
                                     </span>
-                                    <span className="w-3 flex-shrink-0 select-none font-bold text-center">
+                                    <span className="w-3 flex-shrink-0 select-none font-bold text-center pt-0.5">
                                       {isAdd ? '+' : ' '}
                                     </span>
                                     <DiffCodeLine
                                       text={row.rightText.replace(/^[+-]/, '')}
                                       fileName={f.filename}
                                       grepMatcher={fileFilter.trim() ? grepMatcher : null}
-                                      className="whitespace-pre flex-1 truncate"
+                                      wrap={shouldWrap}
+                                      className={shouldWrap ? "whitespace-pre-wrap break-words [overflow-wrap:anywhere] flex-1 min-w-0" : "whitespace-pre flex-1 truncate"}
                                     />
                                   </div>
                                 </div>
@@ -1283,7 +1325,7 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
                             <div
                               key={itemIdx}
                               id={`diff-line-${encodeURIComponent(f.filename)}-${activeLineNum}`}
-                              className={`group/line flex items-center px-1 py-0.5 rounded-xs transition-all relative scroll-mt-20 ${
+                              className={`group/line flex items-start px-1 py-0.5 rounded-xs transition-all relative scroll-mt-20 ${
                                 isPulsing
                                   ? 'bg-onedark-purple/30 ring-2 ring-onedark-purple text-onedark-fgBright font-semibold shadow-xs'
                                   : isLineGrepMatch
@@ -1300,7 +1342,7 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
                               }`}
                             >
                               {!isHeader ? (
-                                <div className="flex items-center flex-shrink-0 w-20 text-[11px] font-mono text-onedark-muted/40 select-none mr-2 border-r border-onedark-borderSubtle pr-1.5 justify-between">
+                                <div className="flex items-center flex-shrink-0 w-20 text-[11px] font-mono text-onedark-muted/40 select-none mr-2 border-r border-onedark-borderSubtle pr-1.5 justify-between pt-0.5">
                                   <span className="w-7 text-right">{lineObj.oldLine ?? ''}</span>
                                   <span className="w-7 text-right">{lineObj.newLine ?? ''}</span>
                                   {onLineComment && (
@@ -1317,7 +1359,7 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
                                   )}
                                 </div>
                               ) : (
-                                <div className="w-20 text-[11px] font-mono text-onedark-purple/60 select-none mr-2 border-r border-onedark-borderSubtle pr-1.5 text-center flex-shrink-0">
+                                <div className="w-20 text-[11px] font-mono text-onedark-purple/60 select-none mr-2 border-r border-onedark-borderSubtle pr-1.5 text-center flex-shrink-0 pt-0.5">
                                   @@
                                 </div>
                               )}
@@ -1326,7 +1368,8 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
                                 text={lineObj.text.replace(/^[+-]/, '')}
                                 fileName={f.filename}
                                 grepMatcher={fileFilter.trim() ? grepMatcher : null}
-                                className="font-mono text-[12.5px] leading-relaxed whitespace-pre flex-1 overflow-x-visible"
+                                wrap={shouldWrap}
+                                className={`font-mono text-[12.5px] leading-relaxed ${shouldWrap ? 'whitespace-pre-wrap break-words [overflow-wrap:anywhere]' : 'whitespace-pre'} flex-1 min-w-0`}
                               />
                             </div>
                           );
@@ -1796,7 +1839,8 @@ export const MiniDiffHunkViewer: React.FC<{
               <DiffCodeLine
                 text={line.text.slice(1) || ' '}
                 fileName={filePath}
-                className="font-mono whitespace-pre flex-1 text-[11px] overflow-x-auto pl-1 leading-snug"
+                wrap={isProseFile(filePath)}
+                className={`font-mono ${isProseFile(filePath) ? 'whitespace-pre-wrap break-words [overflow-wrap:anywhere]' : 'whitespace-pre'} flex-1 text-[11px] min-w-0 pl-1 leading-snug`}
               />
             </div>
           );

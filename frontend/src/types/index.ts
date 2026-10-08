@@ -265,6 +265,8 @@ export interface Integration {
   auth_type: string;
   skills: string[];
   icon: string;
+  category?: string;
+  path?: string;
 }
 
 export interface SkillCatalogItem {

@@ -1113,13 +1113,25 @@ export const FileAgentPopover: React.FC<FileAgentPopoverProps> = ({
                   </button>
 
                   {isTurnOpen && (
-                    <div className="p-3 border-t border-onedark-borderSubtle/60 space-y-2 text-xs text-onedark-fg font-mono leading-relaxed bg-onedark-bg/40 max-h-60 overflow-y-auto [scrollbar-width:thin] [overflow-anchor:none]">
+                    <div className="p-3 border-t border-onedark-borderSubtle/60 space-y-3 text-xs text-onedark-fg bg-onedark-bg/40 max-h-60 overflow-y-auto [scrollbar-width:thin] [overflow-anchor:none]">
                       {turn.thoughts.map((t, tIdx) => (
-                        <div key={t.id || tIdx} className="pl-2.5 border-l-2 border-onedark-accent/40 py-0.5 whitespace-pre-wrap">
-                          {t.thought}
-                          {t.isStreaming && (
-                            <span className="inline-block w-1.5 h-3.5 ml-1 bg-onedark-accent animate-pulse align-middle" />
+                        <div key={t.id || tIdx} className="pl-2.5 border-l-2 border-onedark-accent/40 py-0.5">
+                          {turn.thoughts.length > 1 && (
+                            <div className="text-[10px] font-mono text-onedark-muted/80 mb-1 font-semibold uppercase tracking-wider">
+                              Step {tIdx + 1}
+                            </div>
                           )}
+                          <MarkdownRenderer
+                            content={t.thought}
+                            isStreaming={Boolean(t.isStreaming)}
+                            onLinkClick={onNavigateToFileLine ? (url, text) => {
+                              if (url.startsWith("#") || url.includes("#L") || url.includes(":")) {
+                                const m = url.match(/(?:#L|:)(\d+)/);
+                                if (m) onNavigateToFileLine(text, parseInt(m[1], 10));
+                              }
+                            } : undefined}
+                            className="text-[12.5px] leading-relaxed font-sans text-onedark-fg space-y-1.5 [&_p]:leading-relaxed [&_strong]:text-onedark-fgBright [&_strong]:font-semibold [&_code]:font-mono [&_code]:text-[11px] [&_code]:bg-onedark-surface [&_code]:text-onedark-accent [&_code]:px-1 [&_code]:py-0.5 [&_code]:rounded select-text"
+                          />
                         </div>
                       ))}
                     </div>

@@ -588,4 +588,16 @@ export function highlightDiffLine(
   return resultHtml;
 }
 
+/**
+ * Detects if a file is documentation/prose where soft-wrapping long lines is strongly preferred.
+ */
+export function isProseFile(fileName?: string): boolean {
+  if (!fileName) return false;
+  const lowerName = fileName.toLowerCase();
+  const parts = lowerName.split('.');
+  const ext = parts.length > 1 ? parts.pop()! : '';
+  return ['md', 'markdown', 'mdown', 'mkd', 'txt', 'text', 'rst', 'adoc', 'asciidoc', 'org'].includes(ext);
+}
+
 export default Prism;
+

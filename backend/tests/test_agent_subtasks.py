@@ -1,10 +1,11 @@
 import pytest
 import asyncio
+import uuid
 from pathlib import Path
 from httpx import AsyncClient, ASGITransport
 from app.main import app
 from app.db.session import async_session_factory
-from app.db.models import TaskModel, TaskDiffModel
+from app.db.models import TaskModel, TaskDiffModel, TaskMessageModel
 from app.agent.tools import WorkspaceTools
 from app.agent.pool import agent_pool
 
@@ -354,3 +355,213 @@ async def test_subagent_api_dynamic_persona(tmp_path):
         assert found["persona"] == "SupplyChainAuditor"
         assert found["role_definition"] == "Principal Supply Chain Security Auditor"
         assert "Inspect SBOM hashes" in found["persona_instructions"]
+
+
+@pytest.mark.asyncio
+async def test_subagent_full_results_and_diffs_untruncated(tmp_path):
+    """
+    Verifies that subagents with long analytical reports (>120 chars) and file diffs
+    are returned in their entirety without truncation in get_task_subagents API.
+    """
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Create parent task
+        res_parent = await client.post("/api/tasks", json={
+            "title": "Parent Orchestrator Session",
+            "description": "Coordinate multi-agent comparison",
+            "persona": "General"
+        })
+        parent_id = res_parent.json()["task_id"]
+
+        # 2. Directly insert a subagent with a truncated 120-char result_summary but 5KB full message
+        long_report = (
+            "# Sagents v0.16.1 vs. LangChain v0.15.0: Agent Runtime Architecture\n\n"
+            "## Executive Summary\n\n"
+            "Sagents does not wrap LangChain's LLMChain as a thin adapter; it replaces the underlying execution loop with OTP GenServer processes.\n\n"
+            + ("Detailed comparative section analyzing supervision trees and state machines across repositories.\n" * 50)
+        )
+        assert len(long_report) > 3000
+
+        subagent_id = "sub-untruncated-test-123"
+        async with async_session_factory() as session:
+            sub = TaskModel(
+                id=subagent_id,
+                parent_task_id=parent_id,
+                title="Sagents vs LangChain Runtime Comparison",
+                description="Compare the agent runtime architecture",
+                persona="ElixirAgentArchitect",
+                role_definition="Senior Elixir/OTP Architect",
+                status="COMPLETED",
+                result_summary=long_report[:120],  # Simulate legacy 120-char truncation
+                workspace_path=str(tmp_path)
+            )
+            session.add(sub)
+
+            # Add full message
+            msg = TaskMessageModel(
+                task_id=subagent_id,
+                sender="agent",
+                content=long_report,
+                tokens=1200
+            )
+            session.add(msg)
+
+            # Add diff
+            diff = TaskDiffModel(
+                task_id=subagent_id,
+                file_path="lib/sagents/runtime.ex",
+                diff_content="@@ -1,4 +1,8 @@\n-defmodule Sagents.Runtime do\n+defmodule Sagents.Runtime.V2 do\n+  use GenServer\n",
+                additions=2,
+                deletions=1
+            )
+            session.add(diff)
+            await session.commit()
+
+        # 3. Fetch subagents via API
+        res_api = await client.get(f"/api/tasks/{parent_id}/subagents")
+        assert res_api.status_code == 200
+        subagents = res_api.json()["subagents"]
+        target = next((s for s in subagents if s["id"] == subagent_id), None)
+        assert target is not None
+
+        # Verify result_summary is restored to full length rather than cut at 120 characters
+        assert len(target["result_summary"]) == len(long_report)
+        assert target["result_summary"].startswith("# Sagents v0.16.1 vs. LangChain v0.15.0")
+        assert "Detailed comparative section" in target["result_summary"]
+
+        # Verify diffs are properly serialized with file_path and diff_content
+        assert len(target["diffs"]) == 1
+        assert target["diffs"][0]["file_path"] == "lib/sagents/runtime.ex"
+        assert target["diffs"][0]["additions"] == 2
+        assert target["diffs"][0]["deletions"] == 1
+        assert "defmodule Sagents.Runtime.V2" in target["diffs"][0]["diff_content"]
+
+
+@pytest.mark.asyncio
+async def test_clear_subagents_and_auto_purge_on_delegation(tmp_path):
+    """
+    Verifies that calling delegate_subtasks with clear_existing=True (default)
+    cleans up prior completed and running subagents, ensuring no stale pods accumulate.
+    """
+    parent_id = f"parent-wave-{uuid.uuid4().hex[:6]}"
+    parent_ws = tmp_path / f"sandbox-{parent_id}"
+    parent_ws.mkdir(parents=True, exist_ok=True)
+
+    # 1. Create parent task and 2 previous subagents directly
+    async with async_session_factory() as session:
+        parent_task = TaskModel(
+            id=parent_id,
+            title="Swarm Wave Parent",
+            description="Orchestrate multi-wave delegation",
+            persona="General",
+            status="RUNNING",
+            workspace_path=str(parent_ws)
+        )
+        sub1 = TaskModel(
+            id=f"sub-wave1-done-{uuid.uuid4().hex[:6]}",
+            parent_task_id=parent_id,
+            title="Wave 1: Agriculture Analysis",
+            description="Analyze top agricultural economies",
+            persona="AgronomySpecialist",
+            status="COMPLETED",
+            result_summary="Completed Africa agriculture report.",
+            workspace_path=str(tmp_path / "sub1")
+        )
+        sub2 = TaskModel(
+            id=f"sub-wave1-running-{uuid.uuid4().hex[:6]}",
+            parent_task_id=parent_id,
+            title="Wave 1: Mining Analysis",
+            description="Analyze mining reserves",
+            persona="MineralsSpecialist",
+            status="RUNNING",
+            workspace_path=str(tmp_path / "sub2")
+        )
+        session.add_all([parent_task, sub1, sub2])
+        await session.commit()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Verify initial count is 2
+        res_initial = await client.get(f"/api/tasks/{parent_id}/subagents")
+        assert res_initial.status_code == 200
+        assert res_initial.json()["count"] == 2
+
+        # 2. Trigger new delegation with clear_existing=True (default)
+        res_del = await WorkspaceTools.delegate_subtasks(
+            workspace_path=parent_ws,
+            subtasks=[
+                {
+                    "title": "Wave 2: South America Tech",
+                    "prompt": "Evaluate fintech ecosystems in Brazil and Chile",
+                    "persona": "FintechAnalyst"
+                }
+            ],
+            wait_for_completion=False,
+            clear_existing=True
+        )
+        assert res_del["subtasks_dispatched"] == 1
+        new_sub_id = res_del["subagent_task_ids"][0]
+
+        # 3. Verify that previous subagents were cleared and only the new one exists
+        res_after = await client.get(f"/api/tasks/{parent_id}/subagents")
+        assert res_after.status_code == 200
+        after_subs = res_after.json()["subagents"]
+        assert len(after_subs) == 1
+        assert after_subs[0]["id"] == new_sub_id
+        assert after_subs[0]["persona"] == "FintechAnalyst"
+        assert after_subs[0]["title"] == "Wave 2: South America Tech"
+
+
+@pytest.mark.asyncio
+async def test_clear_subagents_api_endpoint(tmp_path):
+    """
+    Verifies DELETE /api/tasks/{task_id}/subagents and POST /api/tasks/{task_id}/subagents/clear-all
+    explicitly purge all child subagent records and return success.
+    """
+    parent_id = f"parent-clear-{uuid.uuid4().hex[:6]}"
+    parent_ws = tmp_path / f"sandbox-{parent_id}"
+    parent_ws.mkdir(parents=True, exist_ok=True)
+
+    # Directly create parent task and 3 subagents
+    async with async_session_factory() as session:
+        parent_task = TaskModel(
+            id=parent_id,
+            title="Manual Clear Parent",
+            description="Test clear API",
+            persona="General",
+            status="RUNNING",
+            workspace_path=str(parent_ws)
+        )
+        session.add(parent_task)
+        for i in range(3):
+            s = TaskModel(
+                id=f"sub-clear-api-{i}-{uuid.uuid4().hex[:6]}",
+                parent_task_id=parent_id,
+                title=f"Worker Pod {i + 1}",
+                description=f"Task {i + 1}",
+                persona="TestWorker",
+                status="COMPLETED" if i % 2 == 0 else "RUNNING"
+            )
+            session.add(s)
+        await session.commit()
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Check subagents exist
+        res_subs = await client.get(f"/api/tasks/{parent_id}/subagents")
+        assert res_subs.json()["count"] == 3
+
+        # Call DELETE endpoint
+        res_del = await client.delete(f"/api/tasks/{parent_id}/subagents")
+        assert res_del.status_code == 200
+        del_data = res_del.json()
+        assert del_data["ok"] is True
+        assert del_data["cleared_count"] == 3
+
+        # Verify count is now 0
+        res_empty = await client.get(f"/api/tasks/{parent_id}/subagents")
+        assert res_empty.json()["count"] == 0
+        assert len(res_empty.json()["subagents"]) == 0
+
+
+

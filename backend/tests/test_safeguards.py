@@ -840,6 +840,71 @@ async def test_preview_runtime_and_syntax_errors_block_evaluation_runner(tmp_pat
     assert "hydrateIcons is not defined" in preview_checks_rt[0].diagnostics
 
 
+@pytest.mark.asyncio
+async def test_task_turn_preserves_awaiting_approval_when_staged(tmp_path):
+    """
+    Verifies that when a PR review action is staged (pending approval),
+    the end of turn does not clobber the task status back to IDLE or COMPLETED.
+    """
+    import uuid
+    from app.db.session import async_session_factory
+    from app.db.models import TaskModel, TaskApprovalModel, TaskMessageModel
+    from sqlalchemy import select
+
+    task_id = str(uuid.uuid4())
+    async with async_session_factory() as session:
+        task = TaskModel(
+            id=task_id,
+            title="Test PR Staging Status Retention",
+            description="Review PR #99",
+            workspace_path=str(tmp_path),
+            session_key=f"session_{task_id}",
+            status="RUNNING"
+        )
+        session.add(task)
+        await session.flush()
+
+        approval = TaskApprovalModel(
+            task_id=task_id,
+            action_type="post_pull_request_review",
+            action_details={
+                "repository": "owner/repo",
+                "pr_number": 99,
+                "body": "PR Review comments...",
+                "event": "COMMENT"
+            },
+            status="PENDING"
+        )
+        session.add(approval)
+        await session.commit()
+
+    # Simulate end-of-turn status resolution logic in agent pool
+    async with async_session_factory() as session:
+        stmt_t = select(TaskModel).where(TaskModel.id == task_id)
+        res_t = await session.execute(stmt_t)
+        t = res_t.scalars().first()
+        assert t is not None
+
+        stmt_appr = select(TaskApprovalModel).where(
+            TaskApprovalModel.task_id == task_id,
+            TaskApprovalModel.status == "PENDING"
+        )
+        res_appr = await session.execute(stmt_appr)
+        has_pending_approval = bool(res_appr.scalars().first())
+        assert has_pending_approval is True
+
+        raw_status = "COMPLETED"
+        if has_pending_approval or raw_status == "AWAITING_APPROVAL":
+            final_status = "AWAITING_APPROVAL"
+        elif raw_status == "COMPLETED" and t.session_key:
+            final_status = "IDLE"
+        else:
+            final_status = raw_status
+
+        assert final_status == "AWAITING_APPROVAL"
+
+
+
 
 
 

@@ -11,6 +11,7 @@ export interface TaskStoreState {
   sessionFiles: Record<string, string | null>;
   sessionFileLines: Record<string, number | null>;
   sessionAuxTabs: Record<string, AuxTabType>;
+  sessionDrafts: Record<string, string>;
   isClearingAll: boolean;
   deletingTaskId: string | null;
   fetchTasks: () => Promise<void>;
@@ -22,6 +23,8 @@ export interface TaskStoreState {
   setSessionFiles: React.Dispatch<React.SetStateAction<Record<string, string | null>>>;
   setSessionFileLines: React.Dispatch<React.SetStateAction<Record<string, number | null>>>;
   setSessionAuxTabs: React.Dispatch<React.SetStateAction<Record<string, AuxTabType>>>;
+  setSessionDrafts: React.Dispatch<React.SetStateAction<Record<string, string>>>;
+  setSessionDraft: (sessionKey: string, draft: string) => void;
   setIsClearingAll: (clearing: boolean) => void;
   setDeletingTaskId: (id: string | null) => void;
   activeTaskIdRef: React.MutableRefObject<string | null>;
@@ -35,8 +38,29 @@ export function useTaskStore(): TaskStoreState {
   const [sessionFiles, setSessionFiles] = useState<Record<string, string | null>>({});
   const [sessionFileLines, setSessionFileLines] = useState<Record<string, number | null>>({});
   const [sessionAuxTabs, setSessionAuxTabs] = useState<Record<string, AuxTabType>>({});
+  const [sessionDrafts, setSessionDrafts] = useState<Record<string, string>>(() => {
+    try {
+      const saved = localStorage.getItem("cyclode_prompt_drafts");
+      if (saved) return JSON.parse(saved);
+    } catch {
+      // ignore
+    }
+    return {};
+  });
   const [isClearingAll, setIsClearingAll] = useState<boolean>(false);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
+
+  const setSessionDraft = useCallback((sessionKey: string, draft: string) => {
+    setSessionDrafts((prev) => {
+      const next = { ...prev, [sessionKey]: draft };
+      try {
+        localStorage.setItem("cyclode_prompt_drafts", JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  }, []);
 
   const activeTaskIdRef = useRef<string | null>(activeTaskId);
   useEffect(() => {
@@ -113,6 +137,7 @@ export function useTaskStore(): TaskStoreState {
     sessionFiles,
     sessionFileLines,
     sessionAuxTabs,
+    sessionDrafts,
     isClearingAll,
     deletingTaskId,
     fetchTasks,
@@ -124,6 +149,8 @@ export function useTaskStore(): TaskStoreState {
     setSessionFiles,
     setSessionFileLines,
     setSessionAuxTabs,
+    setSessionDrafts,
+    setSessionDraft,
     setIsClearingAll,
     setDeletingTaskId,
     activeTaskIdRef,

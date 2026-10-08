@@ -95,8 +95,8 @@ class EvaluationRunner:
             duration_ms=1
         ))
 
-        # 4. Analytical Synthesis Quality Check (if QA / research / review)
-        if intent_category in ["qa_research", "code_review"]:
+        # 4. Analytical Synthesis Quality Check (if QA / research / review / swarm)
+        if intent_category in ["qa_research", "code_review", "parallel_swarm"]:
             has_synthesis = bool(final_agent_text and len(final_agent_text.strip()) > 40) or model_succeeded
             checks.append(EvaluationCheck(
                 name="Analytical Synthesis Quality",

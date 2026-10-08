@@ -216,3 +216,81 @@ async def test_get_sandbox_folder_children_endpoint(tmp_path: Path):
     assert inner_node["is_dir"] is True
     assert inner_node["child_count"] == 1
     assert inner_node["children"] == []
+
+
+def test_edit_file_append_mode(tmp_path: Path):
+    target = tmp_path / "append_test.txt"
+    # First write
+    res1 = WorkspaceTools.edit_file(tmp_path, "append_test.txt", "Initial content\n", append=False)
+    assert res1.get("status") == "written"
+    assert target.read_text(encoding="utf-8") == "Initial content\n"
+
+    # Append call
+    res2 = WorkspaceTools.edit_file(tmp_path, "append_test.txt", "Second chunk\n", append=True)
+    assert res2.get("status") == "appended"
+    assert target.read_text(encoding="utf-8") == "Initial content\nSecond chunk\n"
+
+
+def test_edit_file_append_mode_cow_protection(tmp_path: Path):
+    # Test CoW hardlink unlinking on append
+    source = tmp_path / "original.txt"
+    source.write_text("Template line 1\n", encoding="utf-8")
+    clone = tmp_path / "clone.txt"
+    clone.hardlink_to(source)
+    assert clone.stat().st_nlink == 2
+
+    # Append to clone must unlink and avoid mutating original
+    res = WorkspaceTools.edit_file(tmp_path, "clone.txt", "Appended line 2\n", append=True)
+    assert res.get("status") == "appended"
+    assert clone.stat().st_nlink == 1
+    assert clone.read_text(encoding="utf-8") == "Template line 1\nAppended line 2\n"
+    assert source.read_text(encoding="utf-8") == "Template line 1\n"
+
+
+def test_downscale_context_image_compression():
+    from app.agent.harness import downscale_context_image
+    from PIL import Image
+    import io
+
+    # Create a 2000x2000 large test image
+    img = Image.new("RGB", (2000, 2000), color="blue")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    large_bytes = buf.getvalue()
+
+    downscaled_bytes, mime = downscale_context_image(large_bytes, max_dim=1024)
+    assert len(downscaled_bytes) < len(large_bytes)
+    with Image.open(io.BytesIO(downscaled_bytes)) as res_img:
+        w, h = res_img.size
+        assert w <= 1024
+        assert h <= 1024
+
+
+def test_estimate_messages_tokens_calculation():
+    from app.agent.harness import estimate_messages_tokens
+
+    messages = [
+        {"role": "user", "parts": [{"text": "Hello, how does this work?"}]},
+        {"role": "model", "parts": [{"thought": "Thinking about repo architecture"}, {"text": "Here is the summary."}]},
+        {"role": "user", "parts": [{"functionResponse": {"name": "read_file", "response": {"file_path": "test.ts", "content": "export const x = 1;\n" * 50}}}]}
+    ]
+    tokens = estimate_messages_tokens(messages, system_instruction="You are an expert software engineer.")
+    assert tokens > 50
+    assert isinstance(tokens, int)
+
+
+def test_model_context_windows_and_inline_vision():
+    from app.agent.providers.factory import get_provider_for_model
+
+    ds_provider = get_provider_for_model("deepseek:deepseek-chat")
+    assert ds_provider.get_context_window("deepseek-chat") == 1_048_576
+    assert ds_provider.supports_inline_vision("deepseek-chat") is False
+    assert ds_provider.supports_inline_vision("deepseek-flash") is True
+
+    gemini_provider = get_provider_for_model("gemini-2.5-flash")
+    assert gemini_provider.get_context_window("gemini-2.5-flash") == 1_000_000
+    assert gemini_provider.supports_inline_vision("gemini-2.5-flash") is True
+
+    claude_provider = get_provider_for_model("claude-3-7-sonnet")
+    assert claude_provider.get_context_window("claude-3-7-sonnet") == 200_000
+    assert claude_provider.supports_inline_vision("claude-3-7-sonnet") is True

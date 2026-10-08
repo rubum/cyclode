@@ -470,6 +470,12 @@ class AgentTaskPool:
                         tokens=t_tokens
                     )
                     session.add(msg)
+                    if t_tokens > 0:
+                        await session.execute(
+                            update(TaskModel)
+                            .where(TaskModel.id == task_id)
+                            .values(total_tokens=TaskModel.total_tokens + t_tokens)
+                        )
                     await session.commit()
                     await session.refresh(msg)
                     msg_id = msg.id
@@ -495,6 +501,7 @@ class AgentTaskPool:
 
             async def on_tool_end(tool_name: str, tool_output: str, exit_code: int, duration_ms: int, tool_input: Optional[Dict[str, Any]] = None, call_id: Optional[str] = None):
                 safe_input = _serialize_json_safe(tool_input) if tool_input else {}
+                tool_tokens = estimate_tokens(str(tool_output)) + estimate_tokens(str(safe_input))
                 async with async_session_factory() as session:
                     log = TaskLogModel(
                         task_id=task_id,
@@ -505,6 +512,12 @@ class AgentTaskPool:
                         duration_ms=duration_ms
                     )
                     session.add(log)
+                    if tool_tokens > 0:
+                        await session.execute(
+                            update(TaskModel)
+                            .where(TaskModel.id == task_id)
+                            .values(total_tokens=TaskModel.total_tokens + tool_tokens)
+                        )
                     await session.commit()
                     await session.refresh(log)
                     log_id = log.id
@@ -794,10 +807,21 @@ class AgentTaskPool:
                 session_key = t.session_key if t else None
                 current_sb_status = t.sandbox_status if t else "NONE"
 
+                # Check for pending approvals for this task
+                stmt_appr = select(TaskApprovalModel).where(
+                    TaskApprovalModel.task_id == task_id,
+                    TaskApprovalModel.status == "PENDING"
+                )
+                res_appr = await session.execute(stmt_appr)
+                has_pending_approval = bool(res_appr.scalars().first())
+
                 # If task is awaiting input (e.g. auth required), keep AWAITING_INPUT during conversational turns
                 if current_sb_status in ["AUTH_REQUIRED", "CLONE_FAILED"] and not repo_url:
                     final_status = "AWAITING_INPUT"
                     final_sb_status = current_sb_status
+                elif has_pending_approval or raw_status == "AWAITING_APPROVAL":
+                    final_status = "AWAITING_APPROVAL"
+                    final_sb_status = "ACTIVE" if repo_url else current_sb_status
                 elif raw_status == "COMPLETED" and session_key:
                     final_status = "IDLE"
                     final_sb_status = "ACTIVE" if repo_url else current_sb_status
@@ -805,13 +829,25 @@ class AgentTaskPool:
                     final_status = raw_status
                     final_sb_status = "ACTIVE" if repo_url else current_sb_status
 
+                final_summary = result.get("summary", "")
+                if not final_summary or len(final_summary) <= 120:
+                    stmt_msg = (
+                        select(TaskMessageModel)
+                        .where(TaskMessageModel.task_id == task_id, TaskMessageModel.sender == "agent")
+                        .order_by(TaskMessageModel.created_at.desc())
+                    )
+                    res_msg = await session.execute(stmt_msg)
+                    last_msg = res_msg.scalars().first()
+                    if last_msg and last_msg.content and len(last_msg.content) > len(final_summary):
+                        final_summary = last_msg.content
+
                 await session.execute(
                     update(TaskModel)
                     .where(TaskModel.id == task_id)
                     .values(
                         status=final_status,
                         sandbox_status=final_sb_status,
-                        result_summary=result.get("summary", ""),
+                        result_summary=final_summary,
                         completed_at=get_utc_now() if final_status in ["COMPLETED", "IDLE"] else None
                     )
                 )
@@ -821,7 +857,7 @@ class AgentTaskPool:
                 "task_id": task_id,
                 "status": final_status,
                 "sandbox_status": final_sb_status,
-                "result_summary": result.get("summary", "")
+                "result_summary": final_summary
             })
 
         except CloneAuthRequiredException as e:
@@ -2046,7 +2082,9 @@ class AgentTaskPool:
                     logger.error(f"Error rolling back git workspace for task {task_id}: {e}")
 
             # 2. Prune DB messages, diffs, approvals, and logs
+            restored_prompt = ""
             if is_initial_turn:
+                restored_prompt = task.description or task.title or (all_msgs[0].content if all_msgs else "")
                 # Wipe all messages, logs, approvals, and diffs for this task
                 await session.execute(delete(TaskMessageModel).where(TaskMessageModel.task_id == task_id))
                 await session.execute(delete(TaskLogModel).where(TaskLogModel.task_id == task_id))
@@ -2058,10 +2096,13 @@ class AgentTaskPool:
                 user_msg_idx = target_turn_num - 2
                 if 0 <= user_msg_idx < len(user_msgs):
                     cutoff_time = user_msgs[user_msg_idx].created_at
+                    restored_prompt = user_msgs[user_msg_idx].content
                 elif user_msgs:
                     cutoff_time = user_msgs[-1].created_at
+                    restored_prompt = user_msgs[-1].content
                 else:
                     cutoff_time = all_msgs[0].created_at if all_msgs else get_utc_now()
+                    restored_prompt = all_msgs[0].content if all_msgs else ""
 
                 await session.execute(
                     delete(TaskMessageModel).where(
@@ -2116,10 +2157,80 @@ class AgentTaskPool:
         await ws_manager.broadcast("TASK_TURN_RESET", {
             "task_id": task_id,
             "status": "PAUSED",
-            "turn_index": turn_index
+            "turn_index": turn_index,
+            "restored_prompt": restored_prompt
         })
 
-        return {"ok": True, "task_id": task_id, "status": "PAUSED"}
+        return {"ok": True, "task_id": task_id, "status": "PAUSED", "restored_prompt": restored_prompt}
+
+    async def clear_subagents(
+        self,
+        parent_task_id: str,
+        retain_session_keys: Optional[List[str]] = None
+    ) -> Dict[str, Any]:
+        """
+        Clears existing subagents (both active and completed) under the given parent task.
+        Cancels active tasks in the pool, deletes their database records in cascade order,
+        destroys their sandbox directories, and broadcasts a telemetry update.
+        """
+        if not parent_task_id:
+            return {"ok": False, "cleared_count": 0, "cleared_ids": []}
+
+        retain_keys_set = set(k for k in (retain_session_keys or []) if k)
+        target_ids = []
+        targets_for_cleanup = []
+
+        async with async_session_factory() as session:
+            stmt = select(TaskModel).where(TaskModel.parent_task_id == parent_task_id)
+            res = await session.execute(stmt)
+            all_subs = res.scalars().all()
+
+            target_subs = [
+                s for s in all_subs 
+                if not (s.session_key and s.session_key in retain_keys_set)
+            ]
+            if not target_subs:
+                return {"ok": True, "cleared_count": 0, "cleared_ids": []}
+
+            target_ids = [s.id for s in target_subs]
+            targets_for_cleanup = [(s.id, s.workspace_path) for s in target_subs]
+
+            # 1. Abort any active tasks in memory
+            for tid in target_ids:
+                if tid in self.active_tasks:
+                    try:
+                        self.active_tasks[tid].cancel()
+                        self.active_tasks.pop(tid, None)
+                    except Exception as e:
+                        logger.warning(f"Error cancelling active subtask {tid}: {e}")
+                self.steering_queues.pop(tid, None)
+                self.pending_inquiries.pop(tid, None)
+
+            # 2. Delete DB records in dependency order
+            await session.execute(delete(TaskMessageModel).where(TaskMessageModel.task_id.in_(target_ids)))
+            await session.execute(delete(TaskLogModel).where(TaskLogModel.task_id.in_(target_ids)))
+            await session.execute(delete(TaskApprovalModel).where(TaskApprovalModel.task_id.in_(target_ids)))
+            await session.execute(delete(TaskDiffModel).where(TaskDiffModel.task_id.in_(target_ids)))
+            await session.execute(delete(TaskPRModel).where(TaskPRModel.task_id.in_(target_ids)))
+            await session.execute(delete(TaskModel).where(TaskModel.id.in_(target_ids)))
+            await session.commit()
+
+        # 3. Fire-and-forget sandbox / worktree teardown
+        if targets_for_cleanup:
+            asyncio.create_task(sandbox_manager.bulk_destroy(targets_for_cleanup))
+
+        # 4. Telemetry notification
+        try:
+            await ws_manager.broadcast("SUBAGENTS_CLEARED", {
+                "task_id": parent_task_id,
+                "cleared_count": len(target_ids),
+                "cleared_ids": target_ids
+            })
+        except Exception as e:
+            logger.debug(f"Broadcast SUBAGENTS_CLEARED note: {e}")
+
+        logger.info(f"Cleared {len(target_ids)} existing subagents for parent task '{parent_task_id}'")
+        return {"ok": True, "cleared_count": len(target_ids), "cleared_ids": target_ids}
 
 
 agent_pool = AgentTaskPool()

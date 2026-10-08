@@ -53,6 +53,67 @@ from app.agent.skills_discovery import (
 )
 
 
+def downscale_context_image(raw_bytes: bytes, max_dim: int = 1024) -> Tuple[bytes, str]:
+    """
+    Downscales images exceeding max_dim or 350KB to preserve token context budgets.
+    Converts to compressed JPEG/PNG and returns (compressed_bytes, mime_type).
+    """
+    try:
+        from PIL import Image
+        import io
+        with Image.open(io.BytesIO(raw_bytes)) as img:
+            w, h = img.size
+            if w > max_dim or h > max_dim or len(raw_bytes) > 350 * 1024:
+                img.thumbnail((max_dim, max_dim), Image.Resampling.LANCZOS)
+                buf = io.BytesIO()
+                fmt = "JPEG" if img.format != "PNG" else "PNG"
+                if fmt == "JPEG" and img.mode in ("RGBA", "P"):
+                    img = img.convert("RGB")
+                img.save(buf, format=fmt, quality=80, optimize=True)
+                compressed = buf.getvalue()
+                mime = "image/jpeg" if fmt == "JPEG" else "image/png"
+                return compressed, mime
+    except Exception:
+        pass
+    return raw_bytes, "image/png"
+
+
+def estimate_messages_tokens(messages: List[Dict[str, Any]], system_instruction: str = "") -> int:
+    """
+    Calculates estimated input tokens across message history, system instructions, and tool outputs.
+    """
+    total = 0
+    if system_instruction:
+        total += max(1, int(max(len(system_instruction.split()) * 1.3, len(system_instruction) / 4)))
+    for entry in messages:
+        total += 4  # message envelope overhead
+        parts = entry.get("parts", [])
+        for p in parts:
+            if isinstance(p, str):
+                total += max(1, int(max(len(p.split()) * 1.3, len(p) / 4)))
+            elif isinstance(p, dict):
+                if p.get("text"):
+                    t = str(p["text"])
+                    total += max(1, int(max(len(t.split()) * 1.3, len(t) / 4)))
+                if p.get("thought"):
+                    t = str(p["thought"])
+                    total += max(1, int(max(len(t.split()) * 1.3, len(t) / 4)))
+                if "functionCall" in p:
+                    fc = p["functionCall"]
+                    fn_name = fc.get("name", "")
+                    fn_args = json.dumps(fc.get("args", {}))
+                    total += len(fn_name) // 3 + max(1, len(fn_args) // 4)
+                if "functionResponse" in p:
+                    fr = p["functionResponse"]
+                    resp_val = fr.get("response", {})
+                    resp_str = json.dumps(resp_val) if isinstance(resp_val, (dict, list)) else str(resp_val)
+                    total += max(1, len(resp_str) // 4)
+                if "inlineData" in p or "inline_data" in p:
+                    b64 = (p.get("inlineData") or p.get("inline_data") or {}).get("data", "")
+                    total += int(len(b64) / 1.5)
+    return total
+
+
 def format_plan_chat_summary(
     plan_data: Dict[str, Any],
     full_markdown: str = "",
@@ -466,7 +527,16 @@ class AntigravityHarness:
         if is_discussion_or_advisory or (is_qa_prefix and not has_code_file):
             return "qa_research"
 
-        # 4. Review & Audit
+        # 4. Parallel Swarm & Multi-Agent Delegation
+        swarm_keywords = [
+            "subagent", "subagents", "sub-agent", "sub-agents", "parallelize",
+            "parallel swarm", "swarm", "parallel pods", "worker pods", "dispatch subagents",
+            "parallel build", "concurrent build"
+        ]
+        if any(k in combined for k in swarm_keywords):
+            return "parallel_swarm"
+
+        # 5. Review & Audit
         if any(k in combined for k in ["review pr", "review pull request", "audit code", "code review", "verify pr", "check pr", "review diff", "pr review"]):
             return "review_audit"
 
@@ -943,7 +1013,7 @@ class AntigravityHarness:
             f"Allowed intent_category values: ['planning', 'qa_research', 'app_building', 'code_modification', 'review_audit', 'debugging', 'devops', 'parallel_swarm']\n"
             f"Guidelines:\n"
             f"- If the prompt asks for a plan, roadmap, proposal, architecture proposal, or says 'what\\'s the plan', 'so what\\'s the plan', 'plan this', set intent_category='planning'.\n"
-            f"- If the prompt involves comparing, benchmarking, researching, or analyzing multiple distinct entities (e.g. PRs, repositories, services, stocks, countries, libraries), discrete time slices, or orthogonal domains/facets in parallel, set intent_category='parallel_swarm'. The milestones must decompose into parallel worker pods dispatched via `delegate_subtasks` with tailored dynamic domain personas (e.g. TradeAnalyst, SecurityAuditor, AgronomySpecialist, MicroserviceAuditor) and centralized synthesis. When more than 5 entities are requested (e.g. 10 items), chunk or bin-pack them across up to 5 pods (e.g. 5 pods analyzing 2 items each) to stay within concurrency bounds while ensuring 100% coverage.\n"
+            f"- If the prompt involves comparing, benchmarking, researching, or analyzing multiple distinct entities (e.g. PRs, repositories, services, stocks, countries, libraries), discrete time slices, or orthogonal domains/facets in parallel, OR asks to parallelize, build with subagents, run a swarm, or construct multiple decoupled modules/services in parallel (e.g. 'Parallelize the build with subagents', 'Build data pipeline concurrently', 'parallelize'), set intent_category='parallel_swarm'. The milestones must decompose into an atomic concurrent build phase: 'Phase 1: Concurrent Swarm Build (Dispatch N specialized worker pods in parallel via `delegate_subtasks`)', followed by centralized integration and verification. NEVER fragment parallel subagent pods into separate sequential steps (such as 'Step 1: Dispatch pod 1', 'Step 2: Dispatch pod 2')! When more than 5 entities are requested (e.g. 10 items), chunk or bin-pack them across up to 5 pods (e.g. 5 pods analyzing 2 items each) to stay within concurrency bounds while ensuring 100% coverage.\n"
             f"- If the prompt is asking a question, conceptual explanation, trade-off discussion, advisory feedback (e.g. 'Does it make sense...', 'Discuss that first', 'What do you think', 'Should we...', 'dont submit'), web research, or URL summarization, set intent_category='qa_research'. NEVER generate a multi-phase implementation plan for conversational or advisory questions!\n"
             f"  CRITICAL FOR QA & RESEARCH INTENT: The plan milestones must represent research/reading steps (e.g. Step 1: Retrieve external intelligence / URL, Step 2: Synthesize comprehensive analytical briefing with hyperlinked citations directly in chat). 'file_touchpoints' MUST be an empty array []! NEVER propose creating workspace files (such as source.md, summary.md, notes.txt), NEVER propose git log audits, and NEVER propose bash unit testing for text research!\n"
             f"- For engineering/coding phases, provide descriptive title, 1-sentence objective, specific file touchpoints with bulleted action items under each file, and concrete verification criteria (e.g. exact pytest or build commands).\n"
@@ -993,7 +1063,7 @@ class AntigravityHarness:
             intent_cat = parsed.get("intent_category")
             if is_planning_query:
                 intent_cat = "planning"
-            elif intent_cat not in ["planning", "qa_research", "app_building", "code_modification", "review_audit", "debugging", "devops"]:
+            elif intent_cat not in ["planning", "qa_research", "app_building", "code_modification", "review_audit", "debugging", "devops", "parallel_swarm"]:
                 intent_cat = inferred_intent
 
             obj = parsed.get("objective") or objective
@@ -1262,12 +1332,13 @@ class AntigravityHarness:
                     },
                     {
                         "name": "edit_file",
-                        "description": "Write or overwrite complete content of a file in the workspace.",
+                        "description": "Write or overwrite content of a file in the workspace. Set append=True to append content to the end of an existing file.",
                         "parameters": {
                             "type": "OBJECT",
                             "properties": {
                                 "file_path": {"type": "STRING", "description": "Relative path to file"},
-                                "content": {"type": "STRING", "description": "Complete new content for the file"}
+                                "content": {"type": "STRING", "description": "New content to write or append to the file"},
+                                "append": {"type": "BOOLEAN", "description": "Optional: If true, appends content to the end of the file instead of overwriting."}
                             },
                             "required": ["file_path", "content"]
                         }
@@ -1577,6 +1648,55 @@ class AntigravityHarness:
                         }
                     },
                     {
+                        "name": "list_linear_teams",
+                        "description": "List available Linear teams, their keys (e.g. 'PD'), workflow states, and labels.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {}
+                        }
+                    },
+                    {
+                        "name": "create_linear_issue",
+                        "description": "Create a new Linear issue in a team (e.g. 'PD') with optional title, description, priority, and state.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "title": {"type": "STRING", "description": "Issue title or summary"},
+                                "team": {"type": "STRING", "description": "Linear team key or ID (defaults to 'PD')"},
+                                "description": {"type": "STRING", "description": "Detailed issue description in Markdown"},
+                                "priority": {"type": "INTEGER", "description": "Priority level: 0 (No priority), 1 (Urgent), 2 (High), 3 (Normal), 4 (Low)"},
+                                "state": {"type": "STRING", "description": "Workflow state name or ID (e.g. 'Todo', 'In Progress', 'In Review')"}
+                            },
+                            "required": ["title"]
+                        }
+                    },
+                    {
+                        "name": "ingrations_search_tools",
+                        "description": "Searches for external software integrations, APIs, and tools across 16+ apps (e.g. Jira, Notion, Slack, Linear, GitHub, Sentry, AWS, Supabase, Cloudflare, Stripe). Returns matching action IDs, descriptions, and parameter schemas in sub-milliseconds.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "query": {"type": "STRING", "description": "Action keywords or tool capability (e.g. 'jira issue', 'slack message', 'notion search', 'sentry events', 'aws s3', 'stripe refund')"},
+                                "category": {"type": "STRING", "description": "Optional category filter: 'devtools', 'productivity', 'cloud', 'crm_finance'"},
+                                "limit": {"type": "INTEGER", "description": "Maximum number of tools to return (default: 5)"}
+                            },
+                            "required": ["query"]
+                        }
+                    },
+                    {
+                        "name": "ingrations_execute",
+                        "description": "Executes an external software integration action discovered via ingrations_search_tools. Dispatches authenticated API request and returns structured result data.",
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "action_id": {"type": "STRING", "description": "The exact action identifier (e.g. 'jira.create_issue', 'slack.post_message', 'stripe.create_refund')"},
+                                "params": {"type": "OBJECT", "description": "Dictionary of arguments matching the action's parameter specification"},
+                                "dry_run": {"type": "BOOLEAN", "description": "Whether to simulate the request without modifying remote state (default: false)"}
+                            },
+                            "required": ["action_id"]
+                        }
+                    },
+                    {
                         "name": "query_table",
                         "description": "Parse and query tabular data files (CSV, TSV, JSONL, Parquet) with column statistics, filtering, sorting, or custom SQL queries on the in-memory 'data_table'.",
                         "parameters": {
@@ -1639,6 +1759,10 @@ class AntigravityHarness:
                                         },
                                         "required": ["title", "prompt"]
                                     }
+                                },
+                                "clear_existing": {
+                                    "type": "BOOLEAN",
+                                    "description": "Whether to clear prior subagents (both active and completed) before launching this swarm wave. Defaults to true to avoid idle pod accumulation."
                                 },
                                 "wait_for_completion": {
                                     "type": "BOOLEAN",
@@ -1740,9 +1864,10 @@ class AntigravityHarness:
             f"1. DIRECT TOOL INVOCATION & REASONING:\n"
             f"   - When listing pull requests: call `list_pull_requests`. ALWAYS present all discovered PRs in your response with an itemized Markdown table or list including direct clickable links ([#<number>: <title>](https://github.com/<owner>/<repo>/pull/<number>)), author (@<author>), status (OPEN/MERGED), branch flow (<head> ➔ <base>), and diff stats (+add / -del).\n"
             f"   - When reviewing PRs or summarizing changes: call `get_pull_request_diff` and `get_pull_request_details` to analyze the exact code hunks.\n"
-            f"   - When referencing, tracking, or resolving Linear tickets (e.g. 'PD-1198'): call Linear tools directly (`get_linear_issue`, `search_linear_issues`, `post_linear_comment`, `update_linear_issue_status`).\n"
+            f"   - When referencing, tracking, or resolving Linear tickets (e.g. 'PD-1198'): call Linear tools directly (`get_linear_issue`, `search_linear_issues`, `post_linear_comment`, `update_linear_issue_status`, `create_linear_issue`, `list_linear_teams`).\n"
+            f"   - When interacting with external software services, third-party APIs, or SaaS tools (e.g. Jira, Notion, Slack, Sentry, AWS, Supabase, Cloudflare, Stripe): first call `ingrations_search_tools` to discover matching action IDs, then call `ingrations_execute` with required parameters.\n"
             f"   - When answering user questions about the workspace: use `read_file`, `search_code`, `find_symbols`, and `run_command`.\n"
-            f"   - AUTONOMOUS SWARM DECOMPOSITION & DYNAMIC PERSONAS: Whenever an inquiry requires evaluating, researching, benchmarking, or comparing multiple distinct entities (e.g. code modules, pull requests, services, stocks, countries, frameworks), orthogonal domain facets (e.g. agriculture, mining, tourism; or security, performance, ergonomics), or time slices, DO NOT process them sequentially in a single turn. Autonomously call `delegate_subtasks` to launch concurrent worker pods. You have full authority to fabricate domain-specific personas on the fly (specifying `persona`, `role_definition`, and `persona_instructions`) tailored to the exact subject matter. If more than 5 entities are requested (e.g. 10 items), bin-pack/partition them into up to 5 balanced pods (e.g. 5 pods handling 2 items each). Upon completion, aggregate the findings and formulate the comprehensive comparative matrix.\n"
+            f"   - AUTONOMOUS SWARM DECOMPOSITION & IMMEDIATE DISPATCH INVARIANT: Whenever an inquiry or plan calls for parallel execution, building with subagents (e.g. 'Parallelize the build with subagents'), comparing multiple distinct entities, or decomposing an architecture into orthogonal components/modules, DO NOT perform sequential line-by-line implementation or deep file inspection in the parent sandbox! Your role as Lead Orchestrator is to coordinate, NOT to write all the code yourself. Perform at most ONE rapid orientation read/inspection (e.g. `list_dir` or reading `pyproject.toml` to confirm directory structure) and IMMEDIATELY call `delegate_subtasks` in Turn 1 or Turn 2 with all planned worker pods dispatched in parallel in a single batch call. Never get trapped in a solo coding or git inspection loop when subagents are requested!\n"
             f"   - When asked to search the web: call `search_web` or `fetch_url`. Formulate clean, concise keyword queries without redundant boolean operators or nested quotes. Complete web research in 1–3 focused tool queries and promptly deliver your full analytical synthesis.\n"
             f"2. ANALYTICAL PROSE & RICH CITATIONS:\n"
             f"   - Lead with an Executive Summary in fluid analytical prose.\n"
@@ -1840,7 +1965,7 @@ class AntigravityHarness:
                         await self._emit_streamed_message(
                             "agent", cached_entry.response_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
                         )
-                        return {"status": "COMPLETED", "summary": cached_entry.response_text[:120], "cached": True}
+                        return {"status": "COMPLETED", "summary": cached_entry.response_text, "cached": True}
             except Exception as e:
                 logger.debug(f"Semantic cache lookup notice: {e}")
 
@@ -1851,6 +1976,22 @@ class AntigravityHarness:
         tool_error_count = 0
         last_tool_exit_code: Optional[int] = None
         last_tool_error: Optional[str] = None
+
+        staged_approvals: List[Tuple[str, Dict[str, Any]]] = []
+        has_staged_approvals = False
+
+        async def _flush_staged_approvals() -> None:
+            if not staged_approvals or not on_approval_required:
+                return
+            while staged_approvals:
+                act_type, act_details = staged_approvals.pop(0)
+                try:
+                    res = on_approval_required(act_type, act_details)
+                    if inspect.isawaitable(res):
+                        await res
+                except Exception as cb_err:
+                    logger.warning(f"Failed to notify on_approval_required for staged action {act_type}: {cb_err}")
+
 
         # 1. Initialize and stream First-Class Execution Plan Lifecycle
         current_plan = self._generate_initial_plan(title, prompt, persona_name)
@@ -1899,28 +2040,44 @@ class AntigravityHarness:
             try:
                 att_dir = workspace_path / ".cyclode" / "attachments"
                 if att_dir.exists() and att_dir.is_dir():
-                    for att_file in sorted(att_dir.iterdir()):
-                        if att_file.is_file():
-                            ext = att_file.suffix.lower()
-                            if ext in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
-                                mime_type, _ = mimetypes.guess_type(att_file.name)
-                                if not mime_type:
-                                    mime_type = "image/png" if ext == ".png" else "image/jpeg"
-                                b64_str = base64.b64encode(att_file.read_bytes()).decode("utf-8")
-                                user_parts.append({
-                                    "inlineData": {
-                                        "mimeType": mime_type,
-                                        "data": b64_str
-                                    }
-                                })
-                            elif ext == ".pdf" and getattr(provider, "provider_id", "") in {"google", "anthropic"}:
-                                b64_str = base64.b64encode(att_file.read_bytes()).decode("utf-8")
-                                user_parts.append({
-                                    "inlineData": {
-                                        "mimeType": "application/pdf",
-                                        "data": b64_str
-                                    }
-                                })
+                    prompt_title_lower = (prompt + " " + title).lower()
+                    has_attachment_intent = any(k in prompt_title_lower for k in [
+                        "image", "screenshot", "attach", "mockup", "ui", ".png", ".jpg", ".jpeg",
+                        ".webp", ".gif", "look at", "see this", "visual", "photo", "wireframe",
+                        "diagram", "uploaded", "view_image"
+                    ]) or bool(history and any("[Uploaded Attachment:" in msg.get("content", "") for msg in history))
+
+                    att_files = [f for f in sorted(att_dir.iterdir()) if f.is_file() and not f.name.startswith(".")]
+                    if att_files:
+                        supports_vision = provider.supports_inline_vision(effective_model)
+                        if has_attachment_intent and supports_vision:
+                            for att_file in att_files:
+                                ext = att_file.suffix.lower()
+                                raw_bytes = att_file.read_bytes()
+                                if ext in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+                                    compressed_bytes, mime_type = downscale_context_image(raw_bytes)
+                                    b64_str = base64.b64encode(compressed_bytes).decode("utf-8")
+                                    user_parts.append({
+                                        "inlineData": {
+                                            "mimeType": mime_type,
+                                            "data": b64_str
+                                        }
+                                    })
+                                elif ext == ".pdf" and getattr(provider, "provider_id", "") in {"google", "anthropic"}:
+                                    b64_str = base64.b64encode(raw_bytes).decode("utf-8")
+                                    user_parts.append({
+                                        "inlineData": {
+                                            "mimeType": "application/pdf",
+                                            "data": b64_str
+                                        }
+                                    })
+                        else:
+                            # For text-only models (e.g. deepseek-chat) or queries not explicitly requesting images:
+                            # Provide disk awareness without dumping multi-megabyte base64 text tokens into messages
+                            att_summary = ", ".join(f"{f.name} ({f.stat().st_size // 1024}KB)" for f in att_files[:5])
+                            user_parts.append({
+                                "text": f"[Workspace Attachments on Disk]: {att_summary}. If visual inspection or OCR is needed, invoke `view_image`."
+                            })
             except Exception as e:
                 logger.debug(f"Multimodal attachment ingestion notice: {e}")
 
@@ -1951,6 +2108,20 @@ class AntigravityHarness:
             )
             current_plan = dynamic_plan
             await self._emit_plan(current_plan, on_plan)
+
+            # If parallel swarm intent, inject immediate dispatch directive for the orchestrator
+            if current_plan and current_plan.get("intent_category") == "parallel_swarm":
+                swarm_directive = (
+                    "\n\n[LEAD ORCHESTRATOR MANDATE]:\n"
+                    "This task is designated as a parallel swarm execution. You are the Lead Orchestrator, NOT a solo implementer. "
+                    "Do NOT inspect git logs or code files sequentially across multiple turns. Perform at most ONE quick orientation check (`list_dir`) "
+                    "and IMMEDIATELY call `delegate_subtasks` with all worker pods in a single batch call. "
+                    "After worker pods finish, perform central integration and verification."
+                )
+                if contents and contents[-1].get("role") == "user":
+                    contents[-1]["parts"].append({"text": swarm_directive})
+                else:
+                    contents.append({"role": "user", "parts": [{"text": swarm_directive}]})
 
             quota_exhausted = False
             last_api_error_code = None
@@ -2103,13 +2274,22 @@ class AntigravityHarness:
                         # Tier 2: Intent-Driven Tool Schema Pruning & Plan Mode Directive
                         intent_cat = current_plan.get("intent_category", "qa_research")
                         effective_system_instruction = system_instruction
+
+                        def is_tool_allowed(d: Dict[str, Any], excluded_set: set) -> bool:
+                            name = d.get("name", "")
+                            if name in excluded_set:
+                                return False
+                            if not integration_manager.is_capability_enabled(name):
+                                return False
+                            return True
+
                         if intent_cat == "qa_research":
                             mutation_tool_names = {"edit_file", "replace_file_content", "batch_replace_content", "apply_unified_patch", "revert_file", "speculative_branch_test"}
                             active_tools_def = [
                                 {
                                     "function_declarations": [
                                         d for d in t.get("function_declarations", [])
-                                        if d.get("name") not in mutation_tool_names
+                                        if is_tool_allowed(d, mutation_tool_names)
                                     ]
                                 }
                                 for t in (tools_def or [])
@@ -2120,7 +2300,7 @@ class AntigravityHarness:
                                 {
                                     "function_declarations": [
                                         d for d in t.get("function_declarations", [])
-                                        if d.get("name") not in mutation_tool_names
+                                        if is_tool_allowed(d, mutation_tool_names)
                                     ]
                                 }
                                 for t in (tools_def or [])
@@ -2147,7 +2327,15 @@ class AntigravityHarness:
                                 + "   - Conclude by stating that the complete interactive specification is published in 'Web & Docs', and invite the user to review it and reply 'Proceed' when ready to execute."
                             )
                         else:
-                            active_tools_def = tools_def
+                            active_tools_def = [
+                                {
+                                    "function_declarations": [
+                                        d for d in t.get("function_declarations", [])
+                                        if is_tool_allowed(d, set())
+                                    ]
+                                }
+                                for t in (tools_def or [])
+                            ] if tools_def else None
                             if current_plan.get("phases") or (current_plan.get("steps") and len(current_plan["steps"]) > 1):
                                 active_step_title = ""
                                 for s in current_plan.get("steps", []):
@@ -2162,6 +2350,84 @@ class AntigravityHarness:
                                     + "   - DO NOT formulate another implementation plan or output `# Implementation Plan`.\n"
                                     + "   - DO NOT halt to ask for permission or confirm before writing code.\n"
                                     + "   - Inspect necessary files and immediately proceed with implementing the required file modifications in the workspace."
+                                )
+
+                        # Pre-Flight Token Budgeting & Sliding-Window Context Compaction
+                        context_ceiling = active_provider.get_context_window(active_model)
+                        budget_threshold = int(context_ceiling * 0.80)
+                        current_est_tokens = estimate_messages_tokens(optimized_contents, effective_system_instruction)
+
+                        if current_est_tokens > budget_threshold:
+                            logger.info(
+                                f"Task {task_id} turn {turn} approaching context budget ceiling for {active_model}: "
+                                f"{current_est_tokens} tokens > {budget_threshold} threshold (ceiling {context_ceiling}). "
+                                f"Triggering pre-flight compaction."
+                            )
+
+                            # Pass 1: Aggressive compaction of historical tool responses
+                            compacted_contents = []
+                            for idx, entry in enumerate(optimized_contents):
+                                if idx >= len(optimized_contents) - 2:
+                                    compacted_contents.append(entry)
+                                    continue
+                                new_entry_parts = []
+                                for p in entry.get("parts", []):
+                                    if "functionResponse" in p:
+                                        fr = dict(p["functionResponse"])
+                                        fn_name = fr.get("name", "")
+                                        resp_obj = fr.get("response", {})
+                                        if fn_name == "read_file" and isinstance(resp_obj, dict):
+                                            fp = resp_obj.get("file_path", "file")
+                                            tot_l = resp_obj.get("total_lines", 0)
+                                            fr["response"] = {
+                                                "file_path": fp,
+                                                "total_lines": tot_l,
+                                                "content": f"[Historical file inspection '{fp}' ({tot_l} lines) compacted for context budget]"
+                                            }
+                                        elif isinstance(resp_obj, dict):
+                                            small_resp = {}
+                                            for rk, rv in resp_obj.items():
+                                                if isinstance(rv, str) and len(rv) > 250:
+                                                    small_resp[rk] = rv[:200] + f"... [compacted {len(rv)} chars]"
+                                                elif isinstance(rv, list) and len(rv) > 3:
+                                                    small_resp[rk] = rv[:2] + [{"_compacted": True}]
+                                                else:
+                                                    small_resp[rk] = rv
+                                            fr["response"] = small_resp
+                                        new_entry_parts.append({"functionResponse": fr})
+                                    else:
+                                        new_entry_parts.append(p)
+                                compacted_contents.append({"role": entry.get("role", "user"), "parts": new_entry_parts})
+
+                            optimized_contents = compacted_contents
+                            current_est_tokens = estimate_messages_tokens(optimized_contents, effective_system_instruction)
+
+                        # Pass 2: If still over budget, apply sliding window to intermediate turns
+                        if current_est_tokens > budget_threshold and len(optimized_contents) > 6:
+                            head_count = 2 if len(optimized_contents) > 2 and optimized_contents[1].get("role") == "model" else 1
+                            tail_count = 4
+                            if len(optimized_contents) > (head_count + tail_count + 1):
+                                intermediate_entries = optimized_contents[head_count:-tail_count]
+                                pruned_turn_count = len(intermediate_entries) // 2
+                                marker_turn_user = {
+                                    "role": "user",
+                                    "parts": [{
+                                        "text": f"[Historical Working Memory Compaction]: {pruned_turn_count} intermediate exploration turns were pruned to keep message context within {active_model} budget. Workspace state, real files on disk, and current plan state remain intact."
+                                    }]
+                                }
+                                marker_turn_model = {
+                                    "role": "model",
+                                    "parts": [{"text": "Understood. Proceeding with active plan and current workspace files."}]
+                                }
+                                optimized_contents = (
+                                    optimized_contents[:head_count]
+                                    + [marker_turn_user, marker_turn_model]
+                                    + optimized_contents[-tail_count:]
+                                )
+                                current_est_tokens = estimate_messages_tokens(optimized_contents, effective_system_instruction)
+                                logger.info(
+                                    f"Sliding window applied to task {task_id}: pruned {pruned_turn_count} turns. "
+                                    f"New estimated tokens: {current_est_tokens} / {context_ceiling}"
                                 )
 
                         # Execute turn with active provider
@@ -2296,9 +2562,43 @@ class AntigravityHarness:
                             return {"status": "FAILED", "summary": f"Access Denied ({provider_resp.status_code}): {err_text[:100]}"}
                         if not provider_resp.is_success:
                             err_msg = provider_resp.error_message or f"HTTP {provider_resp.status_code}"
-                            last_api_error_code = provider_resp.status_code
-                            last_api_error_text = err_msg
-                            logger.warning(f"API notice on turn {turn} model {active_model} ({provider_resp.status_code}): {err_msg}")
+                            is_context_overflow = provider_resp.status_code == 400 and any(
+                                k in err_msg.lower() for k in ["context length", "maximum context", "reduce the length", "too many tokens", "token limit"]
+                            )
+                            if is_context_overflow and len(optimized_contents) > 4:
+                                logger.warning(f"Context window overflow detected on turn {turn} ({err_msg}). Applying emergency context recovery...")
+                                await self._emit_streamed_thought(
+                                    f"**Context Budget Self-Healing**: Approached model context ceiling. Compacting historical exploration turns to maintain session execution...",
+                                    on_thought, on_stream_start, on_stream_chunk, on_stream_end
+                                )
+                                head_c = 2 if len(optimized_contents) > 2 and optimized_contents[1].get("role") == "model" else 1
+                                optimized_contents = (
+                                    optimized_contents[:head_c]
+                                    + [{
+                                        "role": "user",
+                                        "parts": [{"text": "[Emergency Context Pruning]: Intermediate exploration turns pruned to recover context window. Active files and plan state remain intact."}]
+                                    }, {
+                                        "role": "model",
+                                        "parts": [{"text": "Understood. Proceeding with active execution."}]
+                                    }]
+                                    + optimized_contents[-2:]
+                                )
+                                provider_resp = await active_provider.generate_response(
+                                    messages=optimized_contents,
+                                    tools=active_tools_def,
+                                    system_instruction=effective_system_instruction,
+                                    model_name=active_model,
+                                    client=client
+                                )
+                                if provider_resp.is_success:
+                                    logger.info("Emergency context pruning successfully recovered execution.")
+                                else:
+                                    err_msg = provider_resp.error_message or f"HTTP {provider_resp.status_code}"
+
+                            if not provider_resp.is_success:
+                                last_api_error_code = provider_resp.status_code
+                                last_api_error_text = err_msg
+                                logger.warning(f"API notice on turn {turn} model {active_model} ({provider_resp.status_code}): {err_msg}")
                             
                             fail_thought = (
                                 f"**{provider_label} API Notice ({provider_resp.status_code})**: {err_msg}\n\n"
@@ -2745,8 +3045,9 @@ class AntigravityHarness:
                                 await self._emit_streamed_message(
                                     "agent", chat_agent_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
                                 )
+                                await _flush_staged_approvals()
 
-                                return {"status": "COMPLETED", "summary": chat_agent_text[:120]}
+                                return {"status": "AWAITING_APPROVAL" if has_staged_approvals else "COMPLETED", "summary": chat_agent_text}
                             else:
                                 if mutating_tool_count == 0:
                                     # Informational inquiry, research, review, or QA response with zero file mutations
@@ -2826,6 +3127,7 @@ class AntigravityHarness:
                                 await self._emit_streamed_message(
                                     "agent", final_agent_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
                                 )
+                                await _flush_staged_approvals()
 
                             if intent_category == "qa_research" and final_agent_text and len(final_agent_text.strip()) > 30 and not (history and len(history) > 1):
                                 try:
@@ -2843,7 +3145,7 @@ class AntigravityHarness:
                                         )
                                 except Exception as cache_store_err:
                                     logger.debug(f"Semantic cache store notice: {cache_store_err}")
-                            return {"status": "COMPLETED", "summary": final_agent_text[:120]}
+                            return {"status": "AWAITING_APPROVAL" if has_staged_approvals else "COMPLETED", "summary": final_agent_text}
 
                         model_parts = []
                         if provider_resp.thought:
@@ -3007,17 +3309,31 @@ class AntigravityHarness:
                             elif fn_name == "edit_file":
                                 file_path = args.get("file_path") or args.get("path") or args.get("filePath") or args.get("target_file") or args.get("filename") or args.get("file") or ""
                                 content = args.get("content") if args.get("content") is not None else (args.get("code") if args.get("code") is not None else (args.get("text") if args.get("text") is not None else (args.get("body") if args.get("body") is not None else (args.get("source") or ""))))
-                                tool_result = WorkspaceTools.edit_file(workspace_path, file_path, content)
-                                if "error" in tool_result:
+                                append_mode = bool(args.get("append", False))
+
+                                is_resp_truncated = provider_resp.finish_reason in ["length", "MAX_TOKENS", "max_tokens"]
+                                if is_resp_truncated and not append_mode:
                                     exit_code = 1
-                                    out_str = f"Error updating file: {tool_result['error']}"
+                                    tool_result = {
+                                        "error": "Model generation was truncated mid-stream by output token ceiling (finish_reason=length). "
+                                                 "File write was aborted to protect file integrity and avoid overwriting with corrupted/partial code. "
+                                                 "Please decompose your code into modular files (e.g. separate styles.css, app.js, and index.html) "
+                                                 "or write in sections using append mode or replace_file_content."
+                                    }
+                                    out_str = tool_result["error"]
                                 else:
-                                    mutating_tool_count += 1
-                                    guardrail_corrections = max(0, guardrail_corrections - 1)
-                                    diffs = worktree_manager.get_git_diff(workspace_path)
-                                    if diffs:
-                                        await on_diff_updated(diffs)
-                                    out_str = f"Successfully updated '{tool_result.get('file_path', file_path)}' ({len(content)} bytes)."
+                                    tool_result = WorkspaceTools.edit_file(workspace_path, file_path, content, append=append_mode)
+                                    if "error" in tool_result:
+                                        exit_code = 1
+                                        out_str = f"Error updating file: {tool_result['error']}"
+                                    else:
+                                        mutating_tool_count += 1
+                                        guardrail_corrections = max(0, guardrail_corrections - 1)
+                                        diffs = worktree_manager.get_git_diff(workspace_path)
+                                        if diffs:
+                                            await on_diff_updated(diffs)
+                                        status_action = "appended to" if append_mode else "updated"
+                                        out_str = f"Successfully {status_action} '{tool_result.get('file_path', file_path)}' ({len(content)} bytes)."
                             elif fn_name == "speculative_branch_test":
                                 hypotheses = args.get("hypotheses", [])
                                 test_cmd = args.get("test_command", "")
@@ -3062,20 +3378,15 @@ class AntigravityHarness:
                                 err_msg = tool_result.get("error", "")
 
                                 if err_msg and "SECURITY CIRCUIT-BREAKER" in err_msg:
-                                    if on_approval_required:
-                                        try:
-                                            res = on_approval_required(
-                                                "DESTRUCTIVE_COMMAND_BLOCKED",
-                                                {
-                                                    "command": cmd,
-                                                    "error": err_msg,
-                                                    "description": f"Destructive command blocked by security circuit-breaker: {cmd}"
-                                                }
-                                            )
-                                            if inspect.isawaitable(res):
-                                                await res
-                                        except Exception as cb_err:
-                                            logger.warning(f"Failed to notify on_approval_required for blocked command: {cb_err}")
+                                    has_staged_approvals = True
+                                    staged_approvals.append((
+                                        "DESTRUCTIVE_COMMAND_BLOCKED",
+                                        {
+                                            "command": cmd,
+                                            "error": err_msg,
+                                            "description": f"Destructive command blocked by security circuit-breaker: {cmd}"
+                                        }
+                                    ))
 
                                 out_parts = []
                                 if stdout:
@@ -3206,23 +3517,18 @@ class AntigravityHarness:
                                 can_exec, status_reason = policy_engine.check_action("post_pull_request_review", args)
                                 if not can_exec:
                                     if status_reason == "AWAITING_HUMAN_APPROVAL":
-                                        if on_approval_required:
-                                            try:
-                                                res = on_approval_required(
-                                                    "post_pull_request_review",
-                                                    {
-                                                        "action_type": "post_pull_request_review",
-                                                        "repository": repo_arg,
-                                                        "pr_number": pr_num,
-                                                        "body": body_arg,
-                                                        "event": event_arg,
-                                                        "description": f"Submit {event_arg} PR review to {repo_arg}#{pr_num}"
-                                                    }
-                                                )
-                                                if inspect.isawaitable(res):
-                                                    await res
-                                            except Exception as cb_err:
-                                                logger.warning(f"Failed to notify on_approval_required for PR review: {cb_err}")
+                                        has_staged_approvals = True
+                                        staged_approvals.append((
+                                            "post_pull_request_review",
+                                            {
+                                                "action_type": "post_pull_request_review",
+                                                "repository": repo_arg,
+                                                "pr_number": pr_num,
+                                                "body": body_arg,
+                                                "event": event_arg,
+                                                "description": f"Submit {event_arg} PR review to {repo_arg}#{pr_num}"
+                                            }
+                                        ))
                                         tool_result = {
                                             "status": "AWAITING_APPROVAL",
                                             "message": f"Formal PR review draft ({event_arg}) for {repo_arg}#{pr_num} has been staged in the UI for developer confirmation. Summarize your review findings in chat and state that the review is staged below ready for submission to GitHub."
@@ -3255,26 +3561,21 @@ class AntigravityHarness:
                                 can_exec, status_reason = policy_engine.check_action("post_pull_request_line_comment", args)
                                 if not can_exec:
                                     if status_reason == "AWAITING_HUMAN_APPROVAL":
-                                        if on_approval_required:
-                                            try:
-                                                res = on_approval_required(
-                                                    "post_pull_request_line_comment",
-                                                    {
-                                                        "action_type": "post_pull_request_line_comment",
-                                                        "repository": repo_arg,
-                                                        "pr_number": pr_num,
-                                                        "body": body_arg,
-                                                        "commit_sha": commit_sha_arg,
-                                                        "path": path_arg,
-                                                        "line": line_arg,
-                                                        "side": side_arg,
-                                                        "description": f"Post inline comment on {path_arg}:{line_arg} in {repo_arg}#{pr_num}"
-                                                    }
-                                                )
-                                                if inspect.isawaitable(res):
-                                                    await res
-                                            except Exception as cb_err:
-                                                logger.warning(f"Failed to notify on_approval_required for PR line comment: {cb_err}")
+                                        has_staged_approvals = True
+                                        staged_approvals.append((
+                                            "post_pull_request_line_comment",
+                                            {
+                                                "action_type": "post_pull_request_line_comment",
+                                                "repository": repo_arg,
+                                                "pr_number": pr_num,
+                                                "body": body_arg,
+                                                "commit_sha": commit_sha_arg,
+                                                "path": path_arg,
+                                                "line": line_arg,
+                                                "side": side_arg,
+                                                "description": f"Post inline comment on {path_arg}:{line_arg} in {repo_arg}#{pr_num}"
+                                            }
+                                        ))
                                         tool_result = {
                                             "status": "AWAITING_APPROVAL",
                                             "message": f"Inline PR comment draft on {path_arg}:{line_arg} in {repo_arg}#{pr_num} has been staged in the UI for developer confirmation. Summarize your findings in chat and state that the inline comment is staged below ready for submission to GitHub."
@@ -3443,6 +3744,51 @@ class AntigravityHarness:
                                     payload={"issue_key": issue_k, "state_id": state_arg},
                                     status_code=200 if tool_result.get("success", True) else 400
                                 ))
+                            elif fn_name == "list_linear_teams":
+                                tool_result = await WorkspaceTools.list_linear_teams()
+                                out_str = json.dumps(tool_result, indent=2)
+                            elif fn_name == "create_linear_issue":
+                                title_arg = args.get("title", "")
+                                team_arg = args.get("team", "PD")
+                                desc_arg = args.get("description", "")
+                                prio_arg = args.get("priority", 0)
+                                state_arg = args.get("state")
+                                tool_result = await WorkspaceTools.create_linear_issue(
+                                    title=title_arg,
+                                    team=team_arg,
+                                    description=desc_arg,
+                                    priority=prio_arg,
+                                    state=state_arg
+                                )
+                                out_str = json.dumps(tool_result, indent=2)
+                                created_issue = tool_result.get("issue", {})
+                                issue_id = created_issue.get("identifier") or created_issue.get("id", "new")
+                                asyncio.create_task(event_dispatcher.record_and_broadcast(
+                                    task_id=task_id,
+                                    action_type="linear_create_issue",
+                                    target=f"linear:{issue_id}",
+                                    payload={"title": title_arg, "team": team_arg, "identifier": issue_id},
+                                    status_code=200 if tool_result.get("success", True) else 400
+                                ))
+                            elif fn_name == "ingrations_search_tools":
+                                q_arg = args.get("query", "")
+                                cat_arg = args.get("category")
+                                lim_arg = int(args.get("limit", 5))
+                                tool_result = WorkspaceTools.ingrations_search_tools(q_arg, category=cat_arg, limit=lim_arg)
+                                out_str = json.dumps(tool_result, indent=2)
+                            elif fn_name == "ingrations_execute":
+                                act_arg = args.get("action_id", "")
+                                params_arg = args.get("params", {})
+                                dry_arg = bool(args.get("dry_run", False))
+                                tool_result = await WorkspaceTools.ingrations_execute(act_arg, params=params_arg, dry_run=dry_arg)
+                                out_str = json.dumps(tool_result, indent=2)
+                                asyncio.create_task(event_dispatcher.record_and_broadcast(
+                                    task_id=task_id,
+                                    action_type="ingrations_execute",
+                                    target=f"ingrations:{act_arg}",
+                                    payload={"action_id": act_arg, "params": params_arg, "dry_run": dry_arg},
+                                    status_code=tool_result.get("status_code", 200) if tool_result.get("success", True) else 400
+                                ))
                             elif fn_name == "query_table":
                                 fp = args.get("file_path", "")
                                 sql_q = args.get("sql_query")
@@ -3474,10 +3820,12 @@ class AntigravityHarness:
                             elif fn_name == "delegate_subtasks":
                                 subtasks_arg = args.get("subtasks", [])
                                 wait_arg = args.get("wait_for_completion", True)
+                                clear_arg = args.get("clear_existing", True)
                                 tool_result = await WorkspaceTools.delegate_subtasks(
                                     workspace_path=workspace_path,
                                     subtasks=subtasks_arg,
-                                    wait_for_completion=wait_arg
+                                    wait_for_completion=wait_arg,
+                                    clear_existing=clear_arg
                                 )
                                 out_str = json.dumps(tool_result, indent=2)
                             elif fn_name == "send_subagent_message":
@@ -4153,7 +4501,8 @@ class AntigravityHarness:
                     await self._emit_streamed_message(
                         "agent", final_agent_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
                     )
-                    return {"status": "COMPLETED", "summary": final_agent_text[:120]}
+                    await _flush_staged_approvals()
+                    return {"status": "AWAITING_APPROVAL" if has_staged_approvals else "COMPLETED", "summary": final_agent_text}
 
                 except Exception as e:
                     logger.error(f"Gemini execution notice: {str(e)}")
@@ -4232,7 +4581,8 @@ class AntigravityHarness:
         await self._emit_streamed_message(
             "agent", fallback_msg, on_message, on_stream_start, on_stream_chunk, on_stream_end
         )
-        return {"status": return_status, "summary": fallback_msg[:120]}
+        await _flush_staged_approvals()
+        return {"status": "AWAITING_APPROVAL" if has_staged_approvals else return_status, "summary": fallback_msg}
 
 
 def get_task_trajectory(task_id: str) -> Optional[AgentTrajectory]:

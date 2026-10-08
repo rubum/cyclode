@@ -805,7 +805,29 @@ async def test_docx_numbering_and_hierarchical_lists(tmp_path):
     assert "6. Limits and visibility." in parsed["text"]
 
 
+@pytest.mark.asyncio
+async def test_view_image_deepseek_vision_cascade(tmp_path, monkeypatch):
+    from PIL import Image
+    from unittest.mock import AsyncMock, patch
+    from app.config import settings
+    from app.agent.providers.deepseek import DeepSeekProvider
 
+    # 1. Create a synthetic test PNG image
+    img_path = tmp_path / "ui_mockup.png"
+    img = Image.new("RGB", (200, 100), color=(50, 150, 250))
+    img.save(img_path, format="PNG")
 
+    # 2. Simulate Gemini key absent, DeepSeek key present
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", None)
+    monkeypatch.setattr(settings, "GOOGLE_API_KEY", None)
+    monkeypatch.setattr(settings, "DEEPSEEK_API_KEY", "sk-mock-deepseek-key")
 
+    mock_analysis = "DeepSeek-V4.1-Flash Visual Analysis: Responsive navbar with logo and [Deploy] action button."
+    with patch.object(DeepSeekProvider, "analyze_visual", new_callable=AsyncMock) as mock_ds_vis:
+        mock_ds_vis.return_value = mock_analysis
 
+        res = await WorkspaceTools.view_image(tmp_path, "ui_mockup.png", prompt="Extract UI elements")
+        assert "error" not in res
+        assert res["name"] == "ui_mockup.png"
+        assert res["visual_analysis"] == mock_analysis
+        mock_ds_vis.assert_awaited_once()

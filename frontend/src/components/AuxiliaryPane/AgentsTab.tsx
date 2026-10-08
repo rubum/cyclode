@@ -23,6 +23,7 @@ import {
   GitCompare,
   Flame,
   Search,
+  Trash2,
   ChevronsUpDown,
   Clock,
   ListChecks,
@@ -37,7 +38,8 @@ import {
   ArrowRight,
   Workflow,
   TrendingUp,
-  Database
+  Database,
+  Info
 } from 'lucide-react';
 import { Task, SubagentPod, TaskPlan, TaskLog, TaskDiff } from '../../types';
 import { useWebSocket } from '../../contexts/WebSocketContext';
@@ -255,6 +257,162 @@ const ToolLogItem: React.FC<{ log: TaskLog; index: number }> = memo(({ log }) =>
 
 ToolLogItem.displayName = 'ToolLogItem';
 
+// Expandable file diff viewer with additions/deletions and patch inspection
+const SubagentDiffItem: React.FC<{ diff: TaskDiff }> = memo(({ diff }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (diff.diff_content) {
+      navigator.clipboard.writeText(diff.diff_content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const lines = useMemo(() => {
+    if (!diff.diff_content) return [];
+    return diff.diff_content.split('\n');
+  }, [diff.diff_content]);
+
+  return (
+    <div className="rounded-lg border border-onedark-borderSubtle bg-onedark-surface/40 overflow-hidden text-xs">
+      <div
+        onClick={() => setIsOpen((prev) => !prev)}
+        className="flex items-center justify-between p-2 cursor-pointer hover:bg-onedark-surface/70 transition-colors font-mono"
+      >
+        <div className="flex items-center space-x-2 truncate pr-2">
+          {isOpen ? (
+            <ChevronDown className="w-3.5 h-3.5 text-onedark-muted shrink-0" />
+          ) : (
+            <ChevronRight className="w-3.5 h-3.5 text-onedark-muted shrink-0" />
+          )}
+          <FileCode2 className="w-3.5 h-3.5 text-onedark-accent shrink-0" />
+          <span className="text-onedark-fg font-medium truncate">{diff.file_path}</span>
+        </div>
+
+        <div className="flex items-center space-x-2 shrink-0">
+          <span className="text-[10px] text-onedark-green font-semibold">+{diff.additions || 0}</span>
+          <span className="text-[10px] text-onedark-red font-semibold">-{diff.deletions || 0}</span>
+          <button
+            onClick={handleCopy}
+            title="Copy diff patch"
+            className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-colors"
+          >
+            {copied ? <Check className="w-3 h-3 text-onedark-green" /> : <Copy className="w-3 h-3" />}
+          </button>
+        </div>
+      </div>
+
+      {isOpen && diff.diff_content && (
+        <div className="border-t border-onedark-borderSubtle/60 bg-onedark-darker p-2 overflow-x-auto max-h-72 overflow-y-auto font-mono text-[11px] leading-tight">
+          {lines.map((line, idx) => {
+            const isAdd = line.startsWith('+') && !line.startsWith('+++');
+            const isDel = line.startsWith('-') && !line.startsWith('---');
+            const isHunkHeader = line.startsWith('@@');
+
+            let lineClass = 'text-onedark-fg/80';
+            let bgClass = '';
+            if (isAdd) {
+              lineClass = 'text-onedark-green';
+              bgClass = 'bg-onedark-green/10';
+            } else if (isDel) {
+              lineClass = 'text-onedark-red';
+              bgClass = 'bg-onedark-red/10';
+            } else if (isHunkHeader) {
+              lineClass = 'text-onedark-cyan font-bold';
+              bgClass = 'bg-onedark-cyan/10';
+            }
+
+            return (
+              <div key={idx} className={`px-2 py-0.5 rounded-xs flex whitespace-pre ${bgClass} ${lineClass}`}>
+                <span className="w-8 shrink-0 text-onedark-muted/60 select-none text-right pr-2">{idx + 1}</span>
+                <span className="flex-1 font-mono">{line}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+});
+
+SubagentDiffItem.displayName = 'SubagentDiffItem';
+
+// Dedicated Subagent Assigned Goal Banner with copy utility and clean typography
+const SubagentGoalBanner: React.FC<{ description: string }> = memo(({ description }) => {
+  const [copied, setCopied] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
+
+  const handleCopy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(description);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  if (!description || !description.trim()) return null;
+
+  const isLong = description.length > 250;
+
+  return (
+    <div className="rounded-lg bg-onedark-surface/50 border border-onedark-borderSubtle p-3 space-y-2 font-sans">
+      <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider text-onedark-muted">
+        <span className="flex items-center space-x-1.5 font-bold text-onedark-accent">
+          <Target className="w-3.5 h-3.5 shrink-0" />
+          <span>Assigned Goal & Directives</span>
+        </span>
+        <div className="flex items-center space-x-2">
+          <span className="text-[10px] text-onedark-muted font-mono tabular-nums">
+            {description.length} chars
+          </span>
+          <button
+            type="button"
+            onClick={handleCopy}
+            title="Copy full goal prompt"
+            className="flex items-center space-x-1 px-2 py-0.5 rounded bg-onedark-surface hover:bg-onedark-darker text-onedark-muted hover:text-onedark-fg border border-onedark-borderSubtle/60 transition-colors"
+          >
+            {copied ? (
+              <>
+                <Check className="w-3 h-3 text-onedark-green" />
+                <span className="text-onedark-green">Copied</span>
+              </>
+            ) : (
+              <>
+                <Copy className="w-3 h-3" />
+                <span>Copy</span>
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+      <div className="relative">
+        <p className={`text-xs text-onedark-fgBright leading-relaxed whitespace-pre-wrap select-text font-sans ${
+          isLong && !isExpanded ? 'line-clamp-4' : ''
+        }`}>
+          {description}
+        </p>
+        {isLong && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsExpanded(!isExpanded);
+            }}
+            className="mt-1 text-[10.5px] font-mono text-onedark-accent hover:underline flex items-center space-x-1"
+          >
+            <span>{isExpanded ? 'Show less' : 'Show full goal'}</span>
+            <ChevronDown className={`w-3 h-3 transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+});
+
+SubagentGoalBanner.displayName = 'SubagentGoalBanner';
+
 // Reusable Sleek Drawer Tab Header (Crisp segmented pill bar, no raw emojis)
 const DrawerTabBar: React.FC<{
   activeTab: DrawerTab;
@@ -321,12 +479,49 @@ const DrawerTabBar: React.FC<{
   );
 };
 
+// Helper to extract file references from subagent prompts
+const extractTargetFiles = (text: string): string[] => {
+  if (!text) return [];
+  const regex = /(?:[\w\.\-\/]+)\.(?:ex|exs|py|ts|tsx|js|jsx|json|md|rs|go|yml|yaml|toml|lock|css|html)\b/gi;
+  const matches = text.match(regex) || [];
+  return Array.from(new Set(matches));
+};
+
+// Helper to generate a clean, distinct 1-word label for satellite constellation nodes
+function getSatelliteLabel(sub: SubagentPod): string {
+  const p = (sub.persona || '').toLowerCase();
+  const r = (sub.role_definition || '').toLowerCase();
+  const combined = `${p} ${r}`;
+
+  if (combined.includes('architect')) return 'Architect';
+  if (combined.includes('tooling')) return 'Tooling';
+  if (combined.includes('observability') || combined.includes('telemetry') || combined.includes('tracing')) return 'Telemetry';
+  if (combined.includes('skew') || combined.includes('dep') || combined.includes('config')) return 'Deps';
+  if (combined.includes('doc') || combined.includes('synthesizer') || combined.includes('contract')) return 'Docs';
+  if (combined.includes('qa') || combined.includes('test')) return 'QA';
+  if (combined.includes('review') || combined.includes('pr')) return 'Review';
+  if (combined.includes('supervis') || combined.includes('genserver') || combined.includes('otp')) return 'OTP';
+  if (combined.includes('perf') || combined.includes('flame') || combined.includes('speed')) return 'Perf';
+  if (combined.includes('trade') || combined.includes('market') || combined.includes('quant')) return 'Trading';
+  if (combined.includes('data') || combined.includes('sql') || combined.includes('db')) return 'Data';
+  if (combined.includes('security') || combined.includes('audit')) return 'Security';
+
+  // Fallback: take clean title word or persona
+  const cleanTitle = (sub.title || '').replace(/^Sagents vs /i, '').replace(/^Elixir /i, '').trim();
+  const firstWord = cleanTitle.split(' ')[0];
+  return firstWord || sub.persona || 'Pod';
+}
+
 export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) => {
   const { subscribe } = useWebSocket();
 
   const [subagents, setSubagents] = useState<SubagentPod[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [expandedAgentIds, setExpandedAgentIds] = useState<Set<string>>(new Set(['orchestrator']));
+  const [expandedAgentIds, setExpandedAgentIds] = useState<Set<string>>(() => {
+    // If task is completed, collapse orchestrator by default so worker pods are front-and-center
+    if (task?.status === 'COMPLETED') return new Set<string>();
+    return new Set(['orchestrator']);
+  });
   const [activeDrawers, setActiveDrawers] = useState<Record<string, DrawerTab>>({ orchestrator: 'plan' });
   const [statusFilter, setStatusFilter] = useState<'all' | 'running' | 'completed' | 'failed'>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -335,6 +530,8 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
   const [applySuccessId, setApplySuccessId] = useState<string | null>(null);
   const [followUpInputs, setFollowUpInputs] = useState<Record<string, string>>({});
   const [isSendingPodMsg, setIsSendingPodMsg] = useState<Record<string, boolean>>({});
+  const [expandedGoals, setExpandedGoals] = useState<Record<string, boolean>>({});
+  const [copiedGoalId, setCopiedGoalId] = useState<string | null>(null);
 
   // Spawn Modal Form State
   const [spawnTitle, setSpawnTitle] = useState('');
@@ -343,6 +540,37 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
   const [spawnModel, setSpawnModel] = useState('');
 
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  const isSwarmPlanned = useMemo(() => {
+    if (!task?.plan) return false;
+    const cat = task.plan.intent_category;
+    if (cat === 'parallel_swarm') return true;
+    const ov = (task.plan.overview || '').toLowerCase();
+    const obj = (task.plan.objective || '').toLowerCase();
+    if (ov.includes('subagent') || ov.includes('parallel') || ov.includes('swarm') || obj.includes('subagent')) return true;
+    if (task.plan.phases?.some((p) => (p.title || '').toLowerCase().includes('subagent') || (p.objective || '').toLowerCase().includes('subagent'))) return true;
+    if (task.plan.steps?.some((s) => (s.title || '').toLowerCase().includes('subagent') || (s.title || '').toLowerCase().includes('pod'))) return true;
+    return false;
+  }, [task?.plan]);
+
+  const plannedPodNames = useMemo(() => {
+    if (!task?.plan) return [];
+    const names: string[] = [];
+    if (task.plan.steps) {
+      for (const s of task.plan.steps) {
+        const title = s.title || '';
+        const match = title.match(/pod\s*\d*\s*[:\-]\s*(?:implement\s+)?([a-z0-9_\-\s]+?)(?:\s+module|\s*\(|$)/i);
+        if (match && match[1]) {
+          const clean = match[1].trim().split(' ')[0];
+          if (clean && clean.length > 2 && !names.includes(clean)) names.push(clean);
+        }
+      }
+    }
+    if (names.length === 0 && isSwarmPlanned) {
+      return ['Sources', 'Transforms', 'Sinks', 'Pipeline'];
+    }
+    return names.slice(0, 5);
+  }, [task?.plan, isSwarmPlanned]);
 
   const fetchSubagents = useCallback(async () => {
     if (!task?.id || task.id.startsWith('temp-')) {
@@ -415,12 +643,19 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
       );
     });
 
+    const unSubCleared = subscribe('SUBAGENTS_CLEARED', (evt: any) => {
+      if (evt.task_id === task.id) {
+        setSubagents([]);
+      }
+    });
+
     return () => {
       unSubCreated();
       unSubStatus();
       unSubToolStart();
       unSubToolEnd();
       unSubPlan();
+      unSubCleared();
     };
   }, [task?.id, subscribe, fetchSubagents, subagents]);
 
@@ -483,6 +718,17 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
       fetchSubagents();
     } catch (err) {
       console.error('Error cancelling all subagents:', err);
+    }
+  };
+
+  const handleClearAll = async () => {
+    if (!task?.id) return;
+    try {
+      setSubagents([]);
+      await fetch(`${API_BASE}/api/tasks/${task.id}/subagents`, { method: 'DELETE' });
+      fetchSubagents();
+    } catch (err) {
+      console.error('Error clearing all subagents:', err);
     }
   };
 
@@ -588,100 +834,126 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
     const pLower = (persona || '').toLowerCase();
     const effectiveLabel = roleDefinition || persona || 'SoftwareEngineer';
 
-    switch (pLower) {
-      case 'securityauditor':
-      case 'security':
-        return {
-          icon: ShieldCheck,
-          label: effectiveLabel,
-          badgeClass: 'bg-onedark-red/10 text-onedark-red border-onedark-red/20',
-          iconColor: 'text-onedark-red',
-          borderGlow: 'hover:border-onedark-red/40'
-        };
-      case 'performanceengineer':
-      case 'performance':
-        return {
-          icon: Flame,
-          label: effectiveLabel,
-          badgeClass: 'bg-onedark-yellow/10 text-onedark-yellow border-onedark-yellow/20',
-          iconColor: 'text-onedark-yellow',
-          borderGlow: 'hover:border-onedark-yellow/40'
-        };
-      case 'codereviewer':
-      case 'reviewer':
-        return {
-          icon: GitPullRequest,
-          label: effectiveLabel,
-          badgeClass: 'bg-onedark-purple/10 text-onedark-purple border-onedark-purple/20',
-          iconColor: 'text-onedark-purple',
-          borderGlow: 'hover:border-onedark-purple/40'
-        };
-      case 'testengineer':
-      case 'qa':
-        return {
-          icon: CheckCheck,
-          label: effectiveLabel,
-          badgeClass: 'bg-onedark-green/10 text-onedark-green border-onedark-green/20',
-          iconColor: 'text-onedark-green',
-          borderGlow: 'hover:border-onedark-green/40'
-        };
-      case 'documentationwriter':
-      case 'docs':
-        return {
-          icon: FileCode2,
-          label: effectiveLabel,
-          badgeClass: 'bg-onedark-accent/10 text-onedark-accent border-onedark-accent/20',
-          iconColor: 'text-onedark-accent',
-          borderGlow: 'hover:border-onedark-accent/40'
-        };
-      case 'tradeanalyst':
-      case 'marketanalyst':
-      case 'commoditiesanalyst':
-      case 'analyst':
-        return {
-          icon: TrendingUp,
-          label: effectiveLabel,
-          badgeClass: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
-          iconColor: 'text-emerald-400',
-          borderGlow: 'hover:border-emerald-500/40'
-        };
-      default: {
-        if (pLower.includes('analyst') || pLower.includes('trade') || pLower.includes('finance') || pLower.includes('market') || pLower.includes('quant')) {
-          return {
-            icon: TrendingUp,
-            label: effectiveLabel,
-            badgeClass: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
-            iconColor: 'text-emerald-400',
-            borderGlow: 'hover:border-emerald-500/40'
-          };
-        }
-        if (pLower.includes('data') || pLower.includes('sql') || pLower.includes('etl') || pLower.includes('db')) {
-          return {
-            icon: Database,
-            label: effectiveLabel,
-            badgeClass: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
-            iconColor: 'text-cyan-400',
-            borderGlow: 'hover:border-cyan-500/40'
-          };
-        }
-        if (pLower.includes('security') || pLower.includes('audit')) {
-          return {
-            icon: ShieldCheck,
-            label: effectiveLabel,
-            badgeClass: 'bg-onedark-red/10 text-onedark-red border-onedark-red/20',
-            iconColor: 'text-onedark-red',
-            borderGlow: 'hover:border-onedark-red/40'
-          };
-        }
-        return {
-          icon: Code2,
-          label: effectiveLabel,
-          badgeClass: 'bg-onedark-accent/10 text-onedark-accent border-onedark-accent/20',
-          iconColor: 'text-onedark-accent',
-          borderGlow: 'hover:border-onedark-accent/40'
-        };
-      }
+    if (pLower.includes('architect') || pLower.includes('runtime')) {
+      return {
+        icon: Workflow,
+        label: effectiveLabel,
+        badgeClass: 'bg-indigo-500/10 text-indigo-400 border-indigo-500/25',
+        iconColor: 'text-indigo-400',
+        iconBg: 'bg-indigo-500/10',
+        badgeBorder: 'border-indigo-500/25',
+        borderGlow: 'hover:border-indigo-500/40'
+      };
     }
+    if (pLower.includes('observability') || pLower.includes('telemetry') || pLower.includes('tracing') || pLower.includes('stream')) {
+      return {
+        icon: Activity,
+        label: effectiveLabel,
+        badgeClass: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25',
+        iconColor: 'text-emerald-400',
+        iconBg: 'bg-emerald-500/10',
+        badgeBorder: 'border-emerald-500/25',
+        borderGlow: 'hover:border-emerald-500/40'
+      };
+    }
+    if (pLower.includes('tooling') || pLower.includes('security') || pLower.includes('audit')) {
+      return {
+        icon: ShieldCheck,
+        label: effectiveLabel,
+        badgeClass: 'bg-rose-500/10 text-rose-400 border-rose-500/25',
+        iconColor: 'text-rose-400',
+        iconBg: 'bg-rose-500/10',
+        badgeBorder: 'border-rose-500/25',
+        borderGlow: 'hover:border-rose-500/40'
+      };
+    }
+    if (pLower.includes('config') || pLower.includes('dep') || pLower.includes('skew') || pLower.includes('package')) {
+      return {
+        icon: PackageCheck,
+        label: effectiveLabel,
+        badgeClass: 'bg-amber-500/10 text-amber-400 border-amber-500/25',
+        iconColor: 'text-amber-400',
+        iconBg: 'bg-amber-500/10',
+        badgeBorder: 'border-amber-500/25',
+        borderGlow: 'hover:border-amber-500/40'
+      };
+    }
+    if (pLower.includes('doc') || pLower.includes('synthesizer') || pLower.includes('contract')) {
+      return {
+        icon: FileText,
+        label: effectiveLabel,
+        badgeClass: 'bg-sky-500/10 text-sky-400 border-sky-500/25',
+        iconColor: 'text-sky-400',
+        iconBg: 'bg-sky-500/10',
+        badgeBorder: 'border-sky-500/25',
+        borderGlow: 'hover:border-sky-500/40'
+      };
+    }
+    if (pLower.includes('qa') || pLower.includes('test')) {
+      return {
+        icon: CheckCheck,
+        label: effectiveLabel,
+        badgeClass: 'bg-green-500/10 text-green-400 border-green-500/25',
+        iconColor: 'text-green-400',
+        iconBg: 'bg-green-500/10',
+        badgeBorder: 'border-green-500/25',
+        borderGlow: 'hover:border-green-500/40'
+      };
+    }
+    if (pLower.includes('review') || pLower.includes('pr')) {
+      return {
+        icon: GitPullRequest,
+        label: effectiveLabel,
+        badgeClass: 'bg-purple-500/10 text-purple-400 border-purple-500/25',
+        iconColor: 'text-purple-400',
+        iconBg: 'bg-purple-500/10',
+        badgeBorder: 'border-purple-500/25',
+        borderGlow: 'hover:border-purple-500/40'
+      };
+    }
+    if (pLower.includes('perf') || pLower.includes('flame') || pLower.includes('speed')) {
+      return {
+        icon: Flame,
+        label: effectiveLabel,
+        badgeClass: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/25',
+        iconColor: 'text-yellow-400',
+        iconBg: 'bg-yellow-500/10',
+        badgeBorder: 'border-yellow-500/25',
+        borderGlow: 'hover:border-yellow-500/40'
+      };
+    }
+    if (pLower.includes('trade') || pLower.includes('market') || pLower.includes('finance') || pLower.includes('quant')) {
+      return {
+        icon: TrendingUp,
+        label: effectiveLabel,
+        badgeClass: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25',
+        iconColor: 'text-emerald-400',
+        iconBg: 'bg-emerald-500/10',
+        badgeBorder: 'border-emerald-500/25',
+        borderGlow: 'hover:border-emerald-500/40'
+      };
+    }
+    if (pLower.includes('data') || pLower.includes('sql') || pLower.includes('db') || pLower.includes('etl')) {
+      return {
+        icon: Database,
+        label: effectiveLabel,
+        badgeClass: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/25',
+        iconColor: 'text-cyan-400',
+        iconBg: 'bg-cyan-500/10',
+        badgeBorder: 'border-cyan-500/25',
+        borderGlow: 'hover:border-cyan-500/40'
+      };
+    }
+
+    return {
+      icon: Code2,
+      label: effectiveLabel,
+      badgeClass: 'bg-onedark-accent/10 text-onedark-accent border-onedark-accent/25',
+      iconColor: 'text-onedark-accent',
+      iconBg: 'bg-onedark-accent/10',
+      badgeBorder: 'border-onedark-accent/25',
+      borderGlow: 'hover:border-onedark-accent/40'
+    };
   };
 
   const getStatusBadge = (status: string) => {
@@ -689,7 +961,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
       case 'RUNNING':
       case 'INITIALIZING':
         return (
-          <span className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-onedark-yellow/10 text-onedark-yellow font-mono text-[10px] font-semibold border border-onedark-yellow/25">
+          <span className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-onedark-yellow/10 text-onedark-yellow font-mono text-[10px] font-semibold border border-onedark-yellow/25 shadow-xs">
             <span className="relative flex h-1.5 w-1.5 shrink-0">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-onedark-yellow opacity-75" />
               <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-onedark-yellow" />
@@ -699,28 +971,29 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
         );
       case 'COMPLETED':
         return (
-          <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-onedark-green/10 text-onedark-green font-mono text-[10px] font-semibold border border-onedark-green/25">
+          <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-onedark-green/10 text-onedark-green font-mono text-[10px] font-semibold border border-onedark-green/25 shadow-xs">
             <CheckCircle2 className="w-3 h-3 shrink-0" />
             <span>Completed</span>
           </span>
         );
       case 'FAILED':
         return (
-          <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-onedark-red/10 text-onedark-red font-mono text-[10px] font-semibold border border-onedark-red/25">
+          <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-onedark-red/10 text-onedark-red font-mono text-[10px] font-semibold border border-onedark-red/25 shadow-xs">
             <AlertCircle className="w-3 h-3 shrink-0" />
             <span>Failed</span>
           </span>
         );
       case 'CANCELLED':
         return (
-          <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-onedark-surface text-onedark-muted font-mono text-[10px] font-medium border border-onedark-borderSubtle">
+          <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-onedark-surface text-onedark-muted font-mono text-[10px] font-medium border border-onedark-borderSubtle">
             <StopCircle className="w-3 h-3 shrink-0" />
             <span>Cancelled</span>
           </span>
         );
       default:
         return (
-          <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full bg-onedark-surface text-onedark-muted font-mono text-[10px] font-medium border border-onedark-borderSubtle">
+          <span className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-onedark-darker/60 text-onedark-muted/80 font-mono text-[10px] font-medium border border-onedark-borderSubtle/60">
+            <span className="w-1.5 h-1.5 rounded-full bg-onedark-muted/40 shrink-0" />
             <span>Standby</span>
           </span>
         );
@@ -740,6 +1013,133 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
 
   return (
     <div className="h-full overflow-y-auto p-4 space-y-4 font-sans text-onedark-fg bg-onedark-bg">
+      {/* Pinned Sticky Swarm Execution Topology HUD (Attachment 2) */}
+      {(subagents.length > 0 || (isSwarmPlanned && isOrchestratorRunning)) && (
+        <div className="sticky top-0 z-30 -mx-4 -mt-4 px-4 pt-3 pb-2.5 bg-onedark-bg/95 backdrop-blur-md border-b border-onedark-borderSubtle/80 shadow-xs space-y-2">
+          {/* Header Row */}
+          <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider text-onedark-muted px-1">
+            <span className="flex items-center space-x-1.5 font-bold text-onedark-fgBright">
+              <Workflow className={`w-3.5 h-3.5 ${subagents.length === 0 ? 'text-onedark-yellow animate-spin' : 'text-onedark-accent'} shrink-0`} />
+              <span>Swarm Execution Topology</span>
+              <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-mono ${
+                subagents.length === 0 
+                  ? 'bg-onedark-yellow/10 text-onedark-yellow border border-onedark-yellow/30 animate-pulse'
+                  : 'bg-onedark-surface text-onedark-accent border border-onedark-borderSubtle/60'
+              }`}>
+                {subagents.length > 0 ? `${subagents.length} Pods` : `${plannedPodNames.length} Pods Planned`}
+              </span>
+            </span>
+            <div className="flex items-center space-x-2 font-semibold">
+              {subagents.length > 0 ? (
+                <>
+                  <span className="text-onedark-yellow tabular-nums">{activeRunningCount} Active</span>
+                  <span className="text-onedark-muted">·</span>
+                  <span className="text-onedark-green tabular-nums">{completedCount} Done</span>
+                </>
+              ) : (
+                <span className="text-onedark-yellow text-[10px] font-mono flex items-center space-x-1">
+                  <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                  <span>Awaiting Dispatch</span>
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* Node Constellation Map */}
+          <div className="relative py-2 px-3 rounded-xl bg-onedark-darker/70 border border-onedark-borderSubtle/60 flex items-center justify-between overflow-x-auto no-scrollbar gap-3">
+            {/* Root: Lead Orchestrator */}
+            <div 
+              onClick={() => scrollToCard('orchestrator')}
+              className="relative z-10 flex flex-col items-center space-y-1 cursor-pointer group shrink-0"
+              title="Jump to Session Lead Orchestrator"
+            >
+              <div className={`w-8 h-8 rounded-lg bg-onedark-surface border-2 flex items-center justify-center transition-all ${
+                isOrchestratorRunning 
+                  ? 'border-onedark-yellow text-onedark-yellow shadow-[0_0_10px_rgba(229,192,123,0.3)] animate-pulse' 
+                  : 'border-onedark-accent text-onedark-accent group-hover:border-onedark-accent/80'
+              }`}>
+                <Bot className="w-4 h-4" />
+              </div>
+              <span className="block text-[9px] font-mono text-onedark-fgBright font-bold group-hover:text-onedark-accent transition-colors">
+                Orchestrator
+              </span>
+            </div>
+
+            {/* Central Dispatch RPC Conduit */}
+            <div className="flex-1 flex items-center justify-center px-2 relative min-w-[50px]">
+              <div className="w-full h-0.5 bg-onedark-borderSubtle relative overflow-hidden rounded-full">
+                {(activeRunningCount > 0 || subagents.length === 0) && (
+                  <div className="absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-onedark-yellow to-transparent animate-pulse" />
+                )}
+              </div>
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-5 h-5 rounded-md bg-onedark-surface border border-onedark-borderSubtle flex items-center justify-center text-onedark-muted shadow-2xs">
+                <Zap className={`w-2.5 h-2.5 transition-colors ${activeRunningCount > 0 || subagents.length === 0 ? 'text-onedark-yellow animate-pulse' : 'text-onedark-muted/60'}`} />
+              </div>
+            </div>
+
+            {/* Satellites: Spawned Worker Pods or Planned Ghost Pods */}
+            <div className="flex items-center space-x-2.5 shrink-0 overflow-x-auto no-scrollbar py-0.5">
+              {subagents.length > 0 ? (
+                subagents.map((sub, idx) => {
+                  const conf = getPersonaConfig(sub.persona, sub.role_definition);
+                  const IconComp = conf.icon;
+                  const isRunning = sub.status === 'RUNNING' || sub.status === 'INITIALIZING';
+                  const isDone = sub.status === 'COMPLETED';
+                  const label = getSatelliteLabel(sub);
+
+                  return (
+                    <div
+                      key={sub.id}
+                      onClick={() => scrollToCard(sub.id)}
+                      className="flex flex-col items-center space-y-1 cursor-pointer group shrink-0"
+                      title={`${sub.title} (${sub.persona}) - Status: ${sub.status}`}
+                    >
+                      <div className={`w-8 h-8 rounded-lg bg-onedark-surface border flex items-center justify-center transition-all ${
+                        isRunning
+                          ? 'border-onedark-yellow text-onedark-yellow shadow-[0_0_10px_rgba(229,192,123,0.35)] ring-1 ring-onedark-yellow/30 animate-pulse'
+                          : isDone
+                          ? 'border-onedark-green text-onedark-green bg-onedark-green/5'
+                          : 'border-onedark-borderSubtle text-onedark-muted/60 group-hover:border-onedark-fg/40'
+                      }`}>
+                        <IconComp className="w-3.5 h-3.5" />
+                      </div>
+                      <span className="text-[9px] font-mono text-onedark-muted group-hover:text-onedark-fgBright transition-colors max-w-[65px] truncate text-center">
+                        {label}
+                      </span>
+                    </div>
+                  );
+                })
+              ) : (
+                plannedPodNames.map((name, idx) => (
+                  <div
+                    key={idx}
+                    className="flex flex-col items-center space-y-1 shrink-0 opacity-80"
+                    title={`Planned worker pod: ${name} (Awaiting orchestrator dispatch)`}
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-onedark-surface/40 border border-dashed border-onedark-yellow/40 flex items-center justify-center text-onedark-yellow/70 animate-pulse">
+                      <Cpu className="w-3.5 h-3.5" />
+                    </div>
+                    <span className="text-[9px] font-mono text-onedark-yellow/80 max-w-[65px] truncate text-center">
+                      {name}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Integrated Hairline Swarm Progress Bar */}
+          <div className="w-full h-1 rounded-full bg-onedark-surface overflow-hidden border border-onedark-borderSubtle/40">
+            <div 
+              className={`h-full bg-gradient-to-r from-onedark-accent via-onedark-yellow to-onedark-green transition-all duration-300 rounded-full ${
+                subagents.length === 0 ? 'w-1/4 animate-pulse' : ''
+              }`}
+              style={{ width: subagents.length > 0 ? `${completionPercentage}%` : '20%' }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* 1. Unified Mission Control & Orchestrator Strategy Deck */}
       <div className="rounded-2xl bg-onedark-darker/90 border border-onedark-borderSubtle p-4 shadow-sm relative overflow-hidden backdrop-blur-xs space-y-3.5">
         {/* Mission Control Top Bar */}
@@ -806,137 +1206,6 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
             </p>
           </div>
         </div>
-
-        {/* Dynamic Topology & Spawned Pods Constellation */}
-        <div className="rounded-xl bg-onedark-surface/40 border border-onedark-borderSubtle/60 p-3 space-y-2.5">
-          <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider text-onedark-muted px-1">
-            <span className="flex items-center space-x-1.5">
-              <Workflow className="w-3 h-3 text-onedark-accent" />
-              <span>Swarm Execution Topology</span>
-            </span>
-            <span>{activeRunningCount} Active · {completedCount} Done</span>
-          </div>
-
-          {/* Node Constellation Map */}
-          <div className="relative min-h-[95px] py-2.5 rounded-lg bg-onedark-darker/60 border border-onedark-borderSubtle/60 flex items-center justify-between px-5 overflow-x-auto no-scrollbar">
-            {/* Root: Lead Orchestrator */}
-            <div 
-              onClick={() => scrollToCard('orchestrator')}
-              className="relative z-10 flex flex-col items-center space-y-1 cursor-pointer group shrink-0"
-            >
-              <div className={`w-10 h-10 rounded-xl bg-onedark-surface border-2 flex items-center justify-center transition-all ${
-                isOrchestratorRunning 
-                  ? 'border-onedark-yellow text-onedark-yellow shadow-[0_0_12px_rgba(229,192,123,0.3)]' 
-                  : 'border-onedark-accent text-onedark-accent group-hover:border-onedark-accent/80'
-              }`}>
-                <Bot className="w-4 h-4" />
-              </div>
-              <div className="text-center">
-                <span className="block text-[10.5px] font-mono text-onedark-fgBright font-bold group-hover:text-onedark-accent transition-colors">
-                  Orchestrator
-                </span>
-                <span className="block text-[9px] font-mono text-onedark-muted">Root Engine</span>
-              </div>
-            </div>
-
-            {/* Central Dispatch RPC Conduit */}
-            <div className="flex-1 flex items-center justify-center px-4 relative min-w-[70px]">
-              <div className="w-full h-0.5 bg-onedark-borderSubtle relative overflow-hidden rounded-full">
-                {activeRunningCount > 0 && (
-                  <div className="absolute inset-y-0 w-1/3 bg-gradient-to-r from-transparent via-onedark-yellow to-transparent animate-pulse" />
-                )}
-              </div>
-              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 rounded-lg bg-onedark-surface border border-onedark-borderSubtle flex items-center justify-center text-onedark-muted shadow-xs">
-                <Zap className={`w-3 h-3 transition-colors ${activeRunningCount > 0 ? 'text-onedark-yellow animate-pulse' : 'text-onedark-muted/60'}`} />
-              </div>
-            </div>
-
-            {/* Satellites: Spawned Worker Pods */}
-            <div className="flex items-center space-x-3 shrink-0">
-              {subagents.length > 0 ? (
-                subagents.map((sub, idx) => {
-                  const conf = getPersonaConfig(sub.persona, sub.role_definition);
-                  const IconComp = conf.icon;
-                  const isRunning = sub.status === 'RUNNING' || sub.status === 'INITIALIZING';
-                  const isDone = sub.status === 'COMPLETED';
-
-                  return (
-                    <div
-                      key={sub.id}
-                      onClick={() => scrollToCard(sub.id)}
-                      className="flex flex-col items-center space-y-1 cursor-pointer group"
-                      title={`${sub.title} (${sub.role_definition || sub.persona})`}
-                    >
-                      <div className={`w-9 h-9 rounded-xl bg-onedark-surface border flex items-center justify-center transition-all ${
-                        isRunning
-                          ? 'border-onedark-yellow text-onedark-yellow shadow-[0_0_10px_rgba(229,192,123,0.3)]'
-                          : isDone
-                          ? 'border-onedark-green text-onedark-green'
-                          : 'border-onedark-borderSubtle text-onedark-muted group-hover:border-onedark-fg/40'
-                      }`}>
-                        <IconComp className="w-3.5 h-3.5" />
-                      </div>
-                      <span className="text-[9.5px] font-mono text-onedark-muted group-hover:text-onedark-fgBright transition-colors max-w-[72px] truncate">
-                        {sub.title || `Pod ${idx + 1}`}
-                      </span>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="flex flex-col items-center space-y-1 text-onedark-muted/50">
-                  <div className="w-9 h-9 rounded-xl bg-onedark-surface border border-dashed border-onedark-borderSubtle flex items-center justify-center">
-                    <Cpu className="w-3.5 h-3.5" />
-                  </div>
-                  <span className="text-[9px] font-mono">0 Pods Spawned</span>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Spawned Pods Breakdown Chips (When Pods Exist) */}
-          {subagents.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 pt-1">
-              {subagents.map((sub, idx) => {
-                const conf = getPersonaConfig(sub.persona, sub.role_definition);
-                const IconComp = conf.icon;
-                const isRunning = sub.status === 'RUNNING' || sub.status === 'INITIALIZING';
-
-                return (
-                  <div
-                    key={sub.id}
-                    onClick={() => scrollToCard(sub.id)}
-                    className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-onedark-darker/80 border border-onedark-borderSubtle hover:border-onedark-accent text-xs font-mono cursor-pointer transition-colors"
-                  >
-                    <IconComp className={`w-3 h-3 ${conf.iconColor}`} />
-                    <span className="font-bold text-onedark-fgBright truncate max-w-[150px]">{sub.title}</span>
-                    <span className={`px-1 py-0.2 rounded text-[8.5px] border ${conf.badgeClass}`}>
-                      {sub.role_definition || sub.persona}
-                    </span>
-                    {isRunning && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-onedark-yellow animate-ping" />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Real-Time Swarm Progress Bar */}
-        {subagents.length > 0 && (
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-[10px] font-mono text-onedark-muted">
-              <span>Swarm Completion: {completedCount} of {subagents.length} Pods Finished</span>
-              <span className="font-bold text-onedark-fgBright tabular-nums">{completionPercentage}%</span>
-            </div>
-            <div className="w-full h-1.5 rounded-full bg-onedark-surface overflow-hidden border border-onedark-borderSubtle/60">
-              <div 
-                className="h-full bg-gradient-to-r from-onedark-accent to-onedark-green transition-all duration-300 rounded-full"
-                style={{ width: `${completionPercentage}%` }}
-              />
-            </div>
-          </div>
-        )}
 
         {/* Global Swarm Metrics Bar (Fixed Tabular Nums) */}
         <div className="grid grid-cols-4 gap-2 pt-1 text-center font-mono">
@@ -1102,7 +1371,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
               {activeDrawers.orchestrator === 'results' && (
                 <div className="space-y-2">
                   {task.result_summary ? (
-                    <div className="p-3.5 rounded-lg bg-onedark-surface/50 border border-onedark-borderSubtle font-sans text-xs text-onedark-fg leading-relaxed">
+                    <div className="p-3.5 rounded-lg bg-onedark-surface/50 border border-onedark-borderSubtle font-sans text-xs text-onedark-fg leading-relaxed max-h-[600px] overflow-y-auto">
                       <MarkdownRenderer content={task.result_summary} />
                     </div>
                   ) : (
@@ -1164,6 +1433,18 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
               </button>
             )}
 
+            {/* Clear Swarm Button */}
+            {subagents.length > 0 && (
+              <button
+                onClick={handleClearAll}
+                className="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg border border-onedark-borderSubtle bg-onedark-surface text-onedark-muted hover:text-onedark-red hover:border-onedark-red/30 hover:bg-onedark-red/10 font-mono text-[10px] font-bold transition-colors shadow-xs"
+                title="Clear all subagents (cancels running and removes completed pods)"
+              >
+                <Trash2 className="w-3 h-3" />
+                <span>Clear Swarm</span>
+              </button>
+            )}
+
             {/* Quick Actions */}
             <button
               onClick={() => setIsSpawnModalOpen(true)}
@@ -1190,92 +1471,214 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
         )}
 
         {/* Worker Cards List */}
-        <div className="space-y-2.5">
+        <div className="space-y-3">
           {filteredSubagents.map((sub) => {
             const isExpanded = expandedAgentIds.has(sub.id);
             const currentDrawer = activeDrawers[sub.id] || 'results';
             const isRunning = sub.status === 'RUNNING' || sub.status === 'INITIALIZING';
+            const isStandby = sub.status !== 'RUNNING' && sub.status !== 'INITIALIZING' && sub.status !== 'COMPLETED' && sub.status !== 'FAILED';
             const conf = getPersonaConfig(sub.persona, sub.role_definition);
             const IconComp = conf.icon;
+            const targetFiles = extractTargetFiles(sub.description);
+
+            const completedSteps = sub.plan?.steps ? sub.plan.steps.filter((s) => s.status === 'completed').length : 0;
+            const totalSteps = sub.plan?.steps ? sub.plan.steps.length : 0;
+            const hasDeliverable = Boolean(sub.result_summary && sub.result_summary.trim().length > 0);
+            const hasDiffs = Boolean(sub.diffs && sub.diffs.length > 0);
 
             return (
               <div 
                 key={sub.id} 
                 ref={(el) => (cardRefs.current[sub.id] = el)}
-                className={`rounded-xl border transition-all duration-150 overflow-hidden shadow-sm ${conf.borderGlow} ${
+                className={`rounded-xl border transition-all duration-200 overflow-hidden shadow-xs group ${
                   isRunning
-                    ? 'bg-onedark-darker/90 border-onedark-yellow/30'
-                    : 'bg-onedark-surface/70 hover:bg-onedark-surface/90 border-onedark-borderSubtle'
+                    ? 'bg-onedark-darker/90 border-onedark-yellow/40 shadow-[0_0_15px_rgba(229,192,123,0.12)] ring-1 ring-onedark-yellow/20'
+                    : isStandby
+                    ? 'bg-onedark-surface/40 hover:bg-onedark-surface/70 border-onedark-borderSubtle/60 opacity-90'
+                    : 'bg-onedark-surface/60 hover:bg-onedark-surface/90 border-onedark-borderSubtle'
                 }`}
               >
                 {/* Header card */}
                 <div 
                   onClick={() => toggleExpandAgent(sub.id)}
-                  className="p-3.5 cursor-pointer select-none space-y-2"
+                  className="p-3.5 cursor-pointer select-none space-y-2.5"
                 >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3 font-medium text-onedark-fgBright">
-                      <div className={`p-2 rounded-xl border ${
+                  {/* Top Row: Avatar, Title, Role Pill, Status & Chevron */}
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center space-x-3 min-w-0 flex-1">
+                      <div className={`p-2 rounded-xl border shrink-0 transition-transform group-hover:scale-105 ${
                         isRunning 
-                          ? 'bg-onedark-yellow/10 border-onedark-yellow/30 text-onedark-yellow' 
-                          : 'bg-onedark-darker border-onedark-borderSubtle ' + conf.iconColor
+                          ? 'bg-onedark-yellow/10 border-onedark-yellow/30 text-onedark-yellow animate-pulse' 
+                          : `${conf.iconBg} ${conf.badgeBorder} ${conf.iconColor}`
                       }`}>
                         <IconComp className="w-4 h-4" />
                       </div>
-                      <div>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-xs font-bold text-onedark-fgBright">{sub.title}</span>
-                          <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono border ${conf.badgeClass}`}>
-                            {sub.role_definition ? `${sub.persona} · ${sub.role_definition}` : sub.persona}
+
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center flex-wrap gap-2">
+                          <h4 className="text-xs font-bold text-onedark-fgBright truncate leading-tight">
+                            {sub.title}
+                          </h4>
+                          <span 
+                            title={sub.role_definition || sub.persona}
+                            className={`px-2 py-0.5 rounded-full text-[9px] font-mono font-medium border shrink-0 ${conf.badgeClass}`}
+                          >
+                            {sub.persona}
                           </span>
                         </div>
-                        <div className="flex items-center space-x-2 text-[10px] font-mono text-onedark-muted mt-0.5">
-                          <span className="text-onedark-accent font-medium">{sub.model_name}</span>
+
+                        <div className="flex items-center space-x-2 text-[10px] font-mono text-onedark-muted mt-1">
+                          <span className="text-onedark-accent font-medium">{sub.model_name || 'deepseek-v4-pro'}</span>
                           <span>·</span>
                           <span className="tabular-nums">{(sub.logs || []).length} ops</span>
                           <span>·</span>
-                          <span className="tabular-nums">{sub.total_tokens || 0} tokens</span>
+                          <span className="tabular-nums">{(sub.total_tokens || 0).toLocaleString()} tokens</span>
                           {sub.session_key && (
                             <>
                               <span>·</span>
-                              <span className="text-onedark-fg/70">{sub.session_key}</span>
+                              <span className="text-onedark-fg/60 truncate max-w-[140px]">{sub.session_key}</span>
                             </>
                           )}
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex items-center space-x-2">
+                    <div className="flex items-center space-x-2 shrink-0">
                       {getStatusBadge(sub.status)}
-                      {isExpanded ? (
-                        <ChevronDown className="w-4 h-4 text-onedark-muted" />
-                      ) : (
-                        <ChevronRight className="w-4 h-4 text-onedark-muted" />
-                      )}
+                      <div className="p-1 rounded-md text-onedark-muted hover:text-onedark-fg transition-colors">
+                        {isExpanded ? (
+                          <ChevronDown className="w-4 h-4" />
+                        ) : (
+                          <ChevronRight className="w-4 h-4" />
+                        )}
+                      </div>
                     </div>
                   </div>
 
-                  {/* Stabilized Fixed-Height Micro-Telemetry Slot (Zero Layout Shift) */}
-                  <div className="min-h-[30px] flex items-center">
-                    {sub.active_tool ? (
-                      <div className="w-full flex items-center space-x-2 px-2.5 py-1 rounded-lg bg-onedark-yellow/10 border border-onedark-yellow/25 text-[11px] font-mono text-onedark-yellow">
-                        <Activity className="w-3.5 h-3.5 animate-spin text-onedark-yellow shrink-0" />
-                        <span className="truncate">
-                          ⚡ {typeof sub.active_tool === 'string' ? sub.active_tool : sub.active_tool.tool_name}
-                          {typeof sub.active_tool === 'object' && sub.active_tool.tool_input?.query && `: "${sub.active_tool.tool_input.query}"`}
+                  {/* Active Tool Live Telemetry Banner (When Running) */}
+                  {sub.active_tool && (
+                    <div className="w-full flex items-center space-x-2 px-2.5 py-1.5 rounded-lg bg-onedark-yellow/10 border border-onedark-yellow/25 text-[11px] font-mono text-onedark-yellow animate-pulse">
+                      <Activity className="w-3.5 h-3.5 animate-spin text-onedark-yellow shrink-0" />
+                      <span className="truncate">
+                        ⚡ {typeof sub.active_tool === 'string' ? sub.active_tool : sub.active_tool.tool_name}
+                        {typeof sub.active_tool === 'object' && sub.active_tool.tool_input?.query && `: "${sub.active_tool.tool_input.query}"`}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Deliverable & Outcome Metric Strip (When Completed / In Progress with deliverables) */}
+                  {(hasDeliverable || hasDiffs || totalSteps > 0) && (
+                    <div className="flex flex-wrap items-center gap-1.5 pt-0.5 text-[10.5px] font-mono">
+                      {hasDeliverable && (
+                        <div className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-onedark-green/10 text-onedark-green border border-onedark-green/20 font-semibold shadow-2xs">
+                          <FileText className="w-3 h-3 shrink-0" />
+                          <span>Report ({sub.result_summary && sub.result_summary.length > 1024 ? `${(sub.result_summary.length / 1024).toFixed(1)} KB` : `${sub.result_summary?.length || 0} B`})</span>
+                        </div>
+                      )}
+                      {hasDiffs && (
+                        <div className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-onedark-accent/10 text-onedark-accent border border-onedark-accent/20 font-semibold shadow-2xs">
+                          <GitCompare className="w-3 h-3 shrink-0" />
+                          <span>{sub.diffs!.length} file{sub.diffs!.length > 1 ? 's' : ''} modified (+{sub.diffs!.reduce((a, d) => a + (d.additions || 0), 0)}, -{sub.diffs!.reduce((a, d) => a + (d.deletions || 0), 0)})</span>
+                        </div>
+                      )}
+                      {totalSteps > 0 && (
+                        <div className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-md bg-onedark-darker/60 text-onedark-muted border border-onedark-borderSubtle">
+                          <CheckCircle2 className="w-3 h-3 text-onedark-green shrink-0" />
+                          <span className="tabular-nums">
+                            {completedSteps}/{totalSteps} steps completed
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Inset Mission Scope Box */}
+                  {sub.description && (
+                    <div className="rounded-lg bg-onedark-darker/60 border border-onedark-borderSubtle/60 p-2.5 space-y-1.5 transition-colors">
+                      <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider text-onedark-muted">
+                        <span className="flex items-center space-x-1.5 font-semibold text-onedark-fg/70">
+                          <Target className="w-3.5 h-3.5 text-onedark-accent shrink-0" />
+                          <span>Assigned Scope</span>
                         </span>
+                        <div className="flex items-center space-x-2">
+                          <span className="text-[9.5px] font-mono text-onedark-muted tabular-nums">
+                            {sub.description.length} chars
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigator.clipboard.writeText(sub.description);
+                              setCopiedGoalId(sub.id);
+                              setTimeout(() => setCopiedGoalId(null), 2000);
+                            }}
+                            title="Copy full assigned scope"
+                            className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-colors"
+                          >
+                            {copiedGoalId === sub.id ? <Check className="w-3 h-3 text-onedark-green" /> : <Copy className="w-3 h-3" />}
+                          </button>
+                        </div>
                       </div>
-                    ) : (
-                      <p className="text-[11.5px] text-onedark-fg/80 leading-snug font-sans line-clamp-1 truncate">
-                        {sub.description}
-                      </p>
-                    )}
-                  </div>
+
+                      <div className="relative">
+                        <p 
+                          title={sub.description}
+                          className={`text-[11.5px] text-onedark-fg/80 leading-relaxed font-sans transition-all ${
+                            expandedGoals[sub.id] ? 'whitespace-pre-wrap' : 'line-clamp-2'
+                          }`}
+                        >
+                          {sub.description}
+                        </p>
+
+                        {sub.description.length > 110 && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setExpandedGoals((prev) => ({ ...prev, [sub.id]: !prev[sub.id] }));
+                            }}
+                            className="mt-1 text-[10px] font-mono text-onedark-accent hover:underline flex items-center space-x-1"
+                          >
+                            <span>{expandedGoals[sub.id] ? 'Show less' : 'Expand full directive'}</span>
+                            <ChevronDown className={`w-3 h-3 transition-transform ${expandedGoals[sub.id] ? 'rotate-180' : ''}`} />
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Extracted file target chips */}
+                      {targetFiles.length > 0 && (
+                        <div className="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-onedark-borderSubtle/30">
+                          <span className="text-[9px] font-mono text-onedark-muted uppercase tracking-wider">Targets:</span>
+                          {targetFiles.slice(0, 4).map((f, i) => {
+                            const fileName = f.split('/').pop() || f;
+                            return (
+                              <span
+                                key={i}
+                                title={f}
+                                className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded bg-onedark-surface/80 text-onedark-fgBright border border-onedark-borderSubtle text-[10px] font-mono"
+                              >
+                                <FileCode2 className="w-2.5 h-2.5 text-onedark-accent shrink-0" />
+                                <span className="truncate max-w-[120px]">{fileName}</span>
+                              </span>
+                            );
+                          })}
+                          {targetFiles.length > 4 && (
+                            <span className="text-[9px] font-mono text-onedark-muted px-1">
+                              +{targetFiles.length - 4} more
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Expandable 3-Tab Telemetry Drawer */}
                 {isExpanded && (
                   <div className="border-t border-onedark-borderSubtle bg-onedark-darker/70 p-3.5 space-y-3 text-xs font-mono">
+                    {/* Dedicated Subagent Goal Banner */}
+                    <SubagentGoalBanner description={sub.description} />
+
                     <DrawerTabBar
                       activeTab={currentDrawer}
                       onSelectTab={(t) => setActiveDrawers((prev) => ({ ...prev, [sub.id]: t }))}
@@ -1288,6 +1691,14 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
                     {/* Tab 1: Plan & Steps */}
                     {currentDrawer === 'plan' && (
                       <div className="space-y-2">
+                        {sub.plan?.objective && (
+                          <div className="p-2.5 rounded-lg bg-onedark-surface/40 border border-onedark-borderSubtle/60 text-xs font-sans text-onedark-fg leading-relaxed">
+                            <span className="text-onedark-accent font-mono text-[10px] font-bold uppercase tracking-wider block mb-1">
+                              Plan Objective:
+                            </span>
+                            {sub.plan.objective}
+                          </div>
+                        )}
                         {sub.plan?.steps && sub.plan.steps.length > 0 ? (
                           <div className="space-y-1.5">
                             {sub.plan.steps.map((step, idx) => (
@@ -1301,11 +1712,11 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
                               </div>
                             ))}
                           </div>
-                        ) : (
+                        ) : !sub.plan?.objective ? (
                           <div className="p-3 rounded-lg bg-onedark-surface/40 border border-onedark-borderSubtle text-onedark-muted text-[11.5px] font-sans leading-relaxed">
                             {sub.description}
                           </div>
-                        )}
+                        ) : null}
                       </div>
                     )}
 
@@ -1326,46 +1737,72 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
                     {/* Tab 3: Results & Diff */}
                     {currentDrawer === 'results' && (
                       <div className="space-y-3 font-sans">
-                        {sub.result_summary && (
-                          <div className="p-3.5 rounded-lg bg-onedark-surface/50 border border-onedark-borderSubtle text-xs text-onedark-fg leading-relaxed">
+                        {sub.result_summary ? (
+                          <div className="p-3.5 rounded-lg bg-onedark-surface/50 border border-onedark-borderSubtle text-xs text-onedark-fg leading-relaxed max-h-[600px] overflow-y-auto">
                             <MarkdownRenderer content={sub.result_summary} />
+                          </div>
+                        ) : (
+                          <div className="p-4 text-center text-onedark-muted text-xs">
+                            No final deliverables or report recorded yet.
                           </div>
                         )}
 
-                        {/* Diff stats & apply action */}
-                        {sub.diffs && sub.diffs.length > 0 && (
-                          <div className="p-3.5 rounded-lg bg-onedark-surface/60 border border-onedark-borderSubtle flex items-center justify-between">
-                            <div className="flex items-center space-x-2 text-xs font-mono">
-                              <GitCompare className="w-4 h-4 text-onedark-accent" />
-                              <span className="font-bold text-onedark-fgBright">{sub.diffs.length} files modified</span>
+                        {/* Diff stats & interactive file diff viewer */}
+                        {sub.diffs && sub.diffs.length > 0 ? (
+                          <div className="space-y-2">
+                            <div className="p-3 rounded-lg bg-onedark-surface/60 border border-onedark-borderSubtle flex items-center justify-between">
+                              <div className="flex items-center space-x-2 text-xs font-mono">
+                                <GitCompare className="w-4 h-4 text-onedark-accent" />
+                                <span className="font-bold text-onedark-fgBright">
+                                  {sub.diffs.length} file{sub.diffs.length > 1 ? 's' : ''} modified
+                                </span>
+                                <span className="text-[10px] text-onedark-green font-semibold">
+                                  +{sub.diffs.reduce((acc, d) => acc + (d.additions || 0), 0)}
+                                </span>
+                                <span className="text-[10px] text-onedark-red font-semibold">
+                                  -{sub.diffs.reduce((acc, d) => acc + (d.deletions || 0), 0)}
+                                </span>
+                              </div>
+
+                              <button
+                                onClick={() => handleApplyDiff(sub.id)}
+                                disabled={isApplyingDiff === sub.id}
+                                className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg font-mono text-[11px] font-semibold transition-all shadow-xs ${
+                                  applySuccessId === sub.id
+                                    ? 'bg-onedark-green text-onedark-darker'
+                                    : 'bg-onedark-accent text-onedark-darker hover:bg-onedark-accent/90'
+                                }`}
+                              >
+                                {applySuccessId === sub.id ? (
+                                  <>
+                                    <Check className="w-3.5 h-3.5" />
+                                    <span>Applied to Workspace!</span>
+                                  </>
+                                ) : isApplyingDiff === sub.id ? (
+                                  <>
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                    <span>Applying Patch...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <CheckCheck className="w-3.5 h-3.5" />
+                                    <span>Apply Diff to Workspace</span>
+                                  </>
+                                )}
+                              </button>
                             </div>
 
-                            <button
-                              onClick={() => handleApplyDiff(sub.id)}
-                              disabled={isApplyingDiff === sub.id}
-                              className={`flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg font-mono text-[11px] font-semibold transition-all shadow-xs ${
-                                applySuccessId === sub.id
-                                  ? 'bg-onedark-green text-onedark-darker'
-                                  : 'bg-onedark-accent text-onedark-darker hover:bg-onedark-accent/90'
-                              }`}
-                            >
-                              {applySuccessId === sub.id ? (
-                                <>
-                                  <Check className="w-3.5 h-3.5" />
-                                  <span>Applied to Workspace!</span>
-                                </>
-                              ) : isApplyingDiff === sub.id ? (
-                                <>
-                                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                                  <span>Applying Patch...</span>
-                                </>
-                              ) : (
-                                <>
-                                  <CheckCheck className="w-3.5 h-3.5" />
-                                  <span>Apply Diff to Workspace</span>
-                                </>
-                              )}
-                            </button>
+                            {/* Itemized file diff cards with expandable diff hunk */}
+                            <div className="space-y-1.5 max-h-96 overflow-y-auto pr-1">
+                              {sub.diffs.map((diffItem, dIdx) => (
+                                <SubagentDiffItem key={diffItem.id || dIdx} diff={diffItem} />
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="px-3 py-2 rounded-lg bg-onedark-surface/30 border border-onedark-borderSubtle/50 text-[11px] font-mono text-onedark-muted flex items-center space-x-2">
+                            <Info className="w-3.5 h-3.5 text-onedark-blue shrink-0" />
+                            <span>Analytical / Research Pod (No filesystem mutations)</span>
                           </div>
                         )}
 
@@ -1437,22 +1874,47 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
           })}
 
           {filteredSubagents.length === 0 && (
-            <div className="p-8 text-center rounded-2xl bg-onedark-surface/30 border border-dashed border-onedark-borderSubtle space-y-3">
-              <Cpu className="w-9 h-9 mx-auto text-onedark-muted/40" />
-              <div className="space-y-1">
-                <div className="text-xs font-bold text-onedark-fgBright">No matching worker pods</div>
-                <p className="text-[11px] text-onedark-muted max-w-sm mx-auto font-sans">
-                  The orchestrator can autonomously dispatch parallel subagents (PR reviews, security audits, test suites) or you can launch one manually.
-                </p>
+            isSwarmPlanned && isOrchestratorRunning ? (
+              <div className="p-8 text-center rounded-2xl bg-onedark-yellow/5 border border-dashed border-onedark-yellow/30 space-y-3">
+                <div className="w-10 h-10 mx-auto rounded-xl bg-onedark-yellow/10 border border-onedark-yellow/30 flex items-center justify-center text-onedark-yellow">
+                  <Workflow className="w-5 h-5 animate-pulse" />
+                </div>
+                <div className="space-y-1">
+                  <div className="text-xs font-bold text-onedark-fgBright flex items-center justify-center space-x-2">
+                    <span>Orchestrator Preparing Swarm Dispatch</span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-onedark-yellow animate-ping" />
+                  </div>
+                  <p className="text-[11px] text-onedark-muted max-w-md mx-auto font-sans">
+                    The active execution plan specifies a parallel multi-agent swarm ({plannedPodNames.join(', ')}). The Lead Orchestrator is grounding workspace context and will dispatch worker pods concurrently.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                  {plannedPodNames.map((name, i) => (
+                    <span key={i} className="px-2.5 py-1 rounded-lg bg-onedark-surface/80 border border-onedark-borderSubtle text-[10.5px] font-mono text-onedark-fg flex items-center space-x-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-onedark-yellow/70 animate-pulse" />
+                      <span>Planned: {name}</span>
+                    </span>
+                  ))}
+                </div>
               </div>
-              <button
-                onClick={() => setIsSpawnModalOpen(true)}
-                className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-lg bg-onedark-surface border border-onedark-borderSubtle text-xs font-mono font-medium hover:border-onedark-accent text-onedark-fgBright transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5 text-onedark-accent" />
-                <span>Spawn Custom Worker Pod</span>
-              </button>
-            </div>
+            ) : (
+              <div className="p-8 text-center rounded-2xl bg-onedark-surface/30 border border-dashed border-onedark-borderSubtle space-y-3">
+                <Cpu className="w-9 h-9 mx-auto text-onedark-muted/40" />
+                <div className="space-y-1">
+                  <div className="text-xs font-bold text-onedark-fgBright">No matching worker pods</div>
+                  <p className="text-[11px] text-onedark-muted max-w-sm mx-auto font-sans">
+                    The orchestrator can autonomously dispatch parallel subagents (PR reviews, security audits, test suites) or you can launch one manually.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setIsSpawnModalOpen(true)}
+                  className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-lg bg-onedark-surface border border-onedark-borderSubtle text-xs font-mono font-medium hover:border-onedark-accent text-onedark-fgBright transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5 text-onedark-accent" />
+                  <span>Spawn Custom Worker Pod</span>
+                </button>
+              </div>
+            )
           )}
         </div>
       </div>

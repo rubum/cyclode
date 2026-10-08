@@ -9,12 +9,14 @@ services:
       - "${PORT:-8000}:8000"
     volumes:
       - ./backend:/app
+      - ../Ingrations:/ingrations:ro
       - ./workspaces:/workspaces
       - cyclode_data:/data
       - /var/run/docker.sock:/var/run/docker.sock
     env_file:
       - .env
     environment:
+      - PYTHONPATH=/app:/ingrations
       - PORT=8000
       - HOST=0.0.0.0
       - ENVIRONMENT=development

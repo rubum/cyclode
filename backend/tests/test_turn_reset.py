@@ -146,6 +146,7 @@ async def test_agent_pool_reset_task_turn(tmp_path):
     res = await agent_pool.reset_task_turn(task_id, turn_index=1)
     assert res["ok"] is True
     assert res["status"] == "PAUSED"
+    assert res["restored_prompt"] == "Testing reset turn mechanism"
 
     # Verify workspace file rolled back to initial root state (app.js wiped)
     assert not (workspace / "app.js").exists()
@@ -189,11 +190,13 @@ async def test_reset_turn_endpoint():
         assert body["ok"] is True
         assert body["task_id"] == task_id
         assert body["status"] == "PAUSED"
+        assert body["restored_prompt"] == "API Test for reset-turn"
 
         # Call reset-turn endpoint with default (empty body / None turn_index)
         reset_res2 = await client.post(f"/api/tasks/{task_id}/reset-turn", json={})
         assert reset_res2.status_code == 200
         assert reset_res2.json()["ok"] is True
+        assert reset_res2.json()["restored_prompt"] == "API Test for reset-turn"
 
 
 @pytest.mark.asyncio
@@ -254,4 +257,72 @@ async def test_agent_pool_reset_default_none_turn(tmp_path):
         res_m = await session.execute(stmt_m)
         remaining = res_m.scalars().all()
         assert len(remaining) == 0
+
+
+@pytest.mark.asyncio
+async def test_agent_pool_reset_followup_turn(tmp_path):
+    workspace = tmp_path / "pool_workspace_followup"
+    workspace.mkdir()
+    ensure_workspace_git_repo(workspace)
+
+    (workspace / "app.py").write_text("# initial")
+    create_turn_snapshot(workspace, "conv_turn_1")
+
+    (workspace / "app.py").write_text("# turn 2 follow up")
+    create_turn_snapshot(workspace, "conv_turn_2")
+
+    now = datetime.now(timezone.utc)
+    task_id = f"test-reset-followup-{uuid.uuid4().hex[:8]}"
+
+    async with async_session_factory() as session:
+        task = TaskModel(
+            id=task_id,
+            title="Follow-up Task",
+            description="Initial description",
+            persona="AppBuilder",
+            status="RUNNING",
+            workspace_path=str(workspace)
+        )
+        session.add(task)
+        # Turn 1 agent response
+        msg1 = TaskMessageModel(
+            id=f"msg-1-{uuid.uuid4().hex[:6]}",
+            task_id=task_id,
+            sender="agent",
+            content="Turn 1 done",
+            created_at=now - timedelta(minutes=5)
+        )
+        # Turn 2 user prompt
+        msg2 = TaskMessageModel(
+            id=f"msg-2-{uuid.uuid4().hex[:6]}",
+            task_id=task_id,
+            sender="user",
+            content="Now add authentication endpoints",
+            created_at=now - timedelta(minutes=2)
+        )
+        # Turn 2 agent response
+        msg3 = TaskMessageModel(
+            id=f"msg-3-{uuid.uuid4().hex[:6]}",
+            task_id=task_id,
+            sender="agent",
+            content="Working on auth endpoints",
+            created_at=now
+        )
+        session.add_all([msg1, msg2, msg3])
+        await session.commit()
+
+    # Reset turn 2 (follow-up turn)
+    res = await agent_pool.reset_task_turn(task_id, turn_index=2)
+    assert res["ok"] is True
+    assert res["status"] == "PAUSED"
+    assert res["restored_prompt"] == "Now add authentication endpoints"
+
+    # Verify messages after turn 2 user message were pruned
+    async with async_session_factory() as session:
+        stmt_m = select(TaskMessageModel).where(TaskMessageModel.task_id == task_id)
+        res_m = await session.execute(stmt_m)
+        remaining = res_m.scalars().all()
+        assert len(remaining) == 1
+        assert remaining[0].content == "Turn 1 done"
+
 

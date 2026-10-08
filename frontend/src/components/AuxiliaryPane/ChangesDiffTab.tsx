@@ -17,11 +17,13 @@ import {
   Bot,
   LayoutGrid,
   ChevronsUpDown,
-  CornerDownRight
+  CornerDownRight,
+  WrapText
 } from 'lucide-react';
 import { Task, TaskDiff, TaskCommit } from '../../types';
 import { CommitHistoryDropdown } from './CommitHistoryDropdown';
 import { createGrepMatcher } from '../../utils/grepMatcher';
+import { isProseFile } from '../../utils/syntaxHighlighter';
 import { 
   parseUnifiedPatchWithGaps, 
   parseSideBySidePatchWithGaps, 
@@ -379,6 +381,25 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({
     loadTrajectory();
   }, [task?.id]);
 
+  const [wrapLines, setWrapLines] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('cyclode_diff_wrap_lines');
+      return saved === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleWrapLines = useCallback(() => {
+    setWrapLines((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('cyclode_diff_wrap_lines', String(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
   // Keyboard navigation & Hunk review hotkeys
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -396,6 +417,9 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({
       } else if (e.key === '2') {
         e.preventDefault();
         setLayoutPreference('split');
+      } else if (e.key === 'w' || e.key === 'W') {
+        e.preventDefault();
+        toggleWrapLines();
       } else if (e.key === 'a' || e.key === 'A') {
         e.preventDefault();
         setShowAgentRationale(prev => !prev);
@@ -430,7 +454,7 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [focusedHunkId]);
+  }, [focusedHunkId, toggleWrapLines]);
 
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -692,6 +716,20 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({
               </button>
             </div>
 
+            {/* Soft Line Wrap Toggle */}
+            <button
+              onClick={toggleWrapLines}
+              className={`p-1.5 rounded-lg border text-xs font-medium transition-all cursor-pointer flex items-center space-x-1 ${
+                wrapLines
+                  ? 'bg-onedark-accent/15 border-onedark-accent/40 text-onedark-accent'
+                  : 'bg-onedark-surface/60 hover:bg-onedark-surface border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fg'
+              }`}
+              title={`Toggle soft line wrap (hotkey: w) - currently ${wrapLines ? 'ON' : 'OFF'}`}
+            >
+              <WrapText className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline text-[11px]">{wrapLines ? 'Wrap' : 'No Wrap'}</span>
+            </button>
+
             {/* Agent Intent Rationale Toggle */}
             <button
               onClick={() => setShowAgentRationale((prev) => !prev)}
@@ -881,6 +919,8 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({
             const dirPath = pathParts.join('/');
             const grepInfo = diffGrepMap.get(d.file_path);
             const hasPatchMatches = (grepInfo?.patchMatchCount || 0) > 0;
+            const isFileProse = isProseFile(d.file_path);
+            const shouldWrap = wrapLines || isFileProse;
 
             return (
               <div
@@ -1018,10 +1058,10 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({
                               const isExpanded = Boolean(row.isExpanded);
 
                               return (
-                                <div key={itemIdx} className="grid grid-cols-2 divide-x divide-onedark-borderSubtle/30 font-mono text-[11px]">
+                                <div key={itemIdx} className="grid grid-cols-2 divide-x divide-onedark-borderSubtle/30 font-mono text-[11px] items-stretch">
                                   {/* Left (Old / Deletions) */}
                                   <div
-                                    className={`flex items-start px-1.5 py-0.5 overflow-hidden ${
+                                    className={`flex items-start px-1.5 py-0.5 overflow-hidden min-w-0 ${
                                       isExpanded
                                         ? 'bg-onedark-surface/20 text-onedark-fg/90'
                                         : isDel
@@ -1029,23 +1069,24 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({
                                         : 'text-onedark-fg/80'
                                     }`}
                                   >
-                                    <span className="w-7 flex-shrink-0 text-[10px] text-onedark-muted/60 text-right pr-2 select-none">
+                                    <span className="w-7 flex-shrink-0 text-[10px] text-onedark-muted/60 text-right pr-2 select-none pt-0.5">
                                       {row.leftLineNum ?? ''}
                                     </span>
-                                    <span className="w-3 flex-shrink-0 select-none font-bold text-center">
+                                    <span className="w-3 flex-shrink-0 select-none font-bold text-center pt-0.5">
                                       {isDel ? '-' : ' '}
                                     </span>
                                     <DiffCodeLine
                                       text={row.leftText.replace(/^[+-]/, '')}
                                       fileName={d.file_path}
                                       grepMatcher={fileFilter.trim() ? grepMatcher : null}
-                                      className="whitespace-pre flex-1 truncate"
+                                      wrap={shouldWrap}
+                                      className={shouldWrap ? "whitespace-pre-wrap break-words [overflow-wrap:anywhere] flex-1 min-w-0" : "whitespace-pre flex-1 truncate"}
                                     />
                                   </div>
 
                                   {/* Right (New / Additions) */}
                                   <div
-                                    className={`flex items-start px-1.5 py-0.5 overflow-hidden ${
+                                    className={`flex items-start px-1.5 py-0.5 overflow-hidden min-w-0 ${
                                       isExpanded
                                         ? 'bg-onedark-surface/20 text-onedark-fg/90'
                                         : isAdd
@@ -1053,17 +1094,18 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({
                                         : 'text-onedark-fg/80'
                                     }`}
                                   >
-                                    <span className="w-7 flex-shrink-0 text-[10px] text-onedark-muted/60 text-right pr-2 select-none">
+                                    <span className="w-7 flex-shrink-0 text-[10px] text-onedark-muted/60 text-right pr-2 select-none pt-0.5">
                                       {row.rightLineNum ?? ''}
                                     </span>
-                                    <span className="w-3 flex-shrink-0 select-none font-bold text-center">
+                                    <span className="w-3 flex-shrink-0 select-none font-bold text-center pt-0.5">
                                       {isAdd ? '+' : ' '}
                                     </span>
                                     <DiffCodeLine
                                       text={row.rightText.replace(/^[+-]/, '')}
                                       fileName={d.file_path}
                                       grepMatcher={fileFilter.trim() ? grepMatcher : null}
-                                      className="whitespace-pre flex-1 truncate"
+                                      wrap={shouldWrap}
+                                      className={shouldWrap ? "whitespace-pre-wrap break-words [overflow-wrap:anywhere] flex-1 min-w-0" : "whitespace-pre flex-1 truncate"}
                                     />
                                   </div>
                                 </div>
@@ -1127,7 +1169,7 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({
                           return (
                             <div
                               key={itemIdx}
-                              className={`group/line flex items-center px-1.5 py-0.5 rounded-xs transition-colors ${
+                              className={`group/line flex items-start px-1.5 py-0.5 rounded-xs transition-colors ${
                                 isLineGrepMatch
                                   ? 'bg-onedark-purple/20 ring-1 ring-onedark-purple/60 text-onedark-fgBright font-semibold'
                                   : isAddition
@@ -1143,18 +1185,18 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({
                             >
                               {/* Line Numbers */}
                               {!isHeader ? (
-                                <div className="flex items-center space-x-2 text-[10px] font-mono text-onedark-muted/60 select-none w-14 flex-shrink-0 text-right pr-2">
+                                <div className="flex items-center space-x-2 text-[10px] font-mono text-onedark-muted/60 select-none w-14 flex-shrink-0 text-right pr-2 pt-0.5">
                                   <span className="w-6">{lineObj.oldLine ?? ''}</span>
                                   <span className="w-6 text-onedark-fg/70">{lineObj.newLine ?? ''}</span>
                                 </div>
                               ) : (
-                                <div className="w-14 flex-shrink-0 text-[10px] font-mono text-onedark-purple select-none pr-2">
+                                <div className="w-14 flex-shrink-0 text-[10px] font-mono text-onedark-purple select-none pr-2 pt-0.5">
                                   ...
                                 </div>
                               )}
 
                               {/* Gutter prefix indicator */}
-                              <span className="w-4 select-none font-bold text-center flex-shrink-0">
+                              <span className="w-4 select-none font-bold text-center flex-shrink-0 pt-0.5">
                                 {isAddition ? '+' : isDeletion ? '-' : ' '}
                               </span>
 
@@ -1163,7 +1205,8 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({
                                 text={lineObj.text.replace(/^[+-]/, '')}
                                 fileName={d.file_path}
                                 grepMatcher={fileFilter.trim() ? grepMatcher : null}
-                                className="whitespace-pre flex-1 min-w-0"
+                                wrap={shouldWrap}
+                                className={shouldWrap ? "whitespace-pre-wrap break-words [overflow-wrap:anywhere] flex-1 min-w-0" : "whitespace-pre flex-1 min-w-0"}
                               />
                             </div>
                           );
