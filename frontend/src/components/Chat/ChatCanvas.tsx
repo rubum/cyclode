@@ -69,6 +69,9 @@ import { SandboxInspectorModal } from '../Sandbox/SandboxInspectorModal';
 import { PRReviewApprovalCard } from './PRReviewApprovalCard';
 import { readDroppedFileSystemEntries, extractFilesFromInput, groupAttachmentsByFolder, openNativeFolderPicker, UploadableItem } from '../../utils/fileUpload';
 import { formatRelativeTime, formatFullDateTime } from '../../utils/date';
+import { isLongPastedText, createSniffedPastedDoc, SniffedPastedDoc, localPastedDocs } from '../../utils/pastedDocSniffer';
+import { PastedDocModal } from './PastedDocModal';
+import { PastedDocPill } from './PastedDocPill';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -122,7 +125,7 @@ export interface ParsedUserAttachmentsResult {
   attachments: ParsedAttachment[];
 }
 
-export const localAttachmentBlobUrls = new Map<string, string>();
+const localAttachmentBlobUrls = new Map<string, string>();
 
 export const parseUserMessageAttachments = (
   content: string,
@@ -392,9 +395,10 @@ export interface ChatAttachment {
   path?: string;
   category?: string;
   error?: string;
+  pastedDoc?: SniffedPastedDoc;
 }
 
-export function extractPlanHighlightsFromMarkdown(text: string): { title: string; overview: string; phases: string[] } {
+function extractPlanHighlightsFromMarkdown(text: string): { title: string; overview: string; phases: string[] } {
   const lines = text.split('\n').map(l => l.trim());
   let title = 'Implementation Plan';
   let overview = '';
@@ -423,7 +427,7 @@ export function extractPlanHighlightsFromMarkdown(text: string): { title: string
   return { title, overview, phases: phases.slice(0, 6) };
 }
 
-export const getToolActionInfo = (
+const getToolActionInfo = (
   toolName: string,
   toolInput: Record<string, any> = {},
   isRunning: boolean = false
@@ -571,13 +575,15 @@ export const getToolActionInfo = (
 interface ChatCanvasProps {
   task: Task | null;
   repositories?: RepositoryConfig[];
+  currentDraft?: string;
+  onDraftChange?: (draft: string) => void;
   onSendMessage: (content: string, modelName?: string, files?: File[]) => Promise<void> | void;
   onApprove: (feedback?: string, customDetails?: any) => void;
   onReject: (feedback?: string) => void;
   onNewChatWithPrompt?: (prompt: string, persona: string, modelName?: string, files?: File[]) => void;
   onEditMessage?: (messageId: string, newContent: string) => void;
   onRetryTask?: (fromMessageId?: string) => void;
-  onResetTurn?: (turnIndex?: number) => void;
+  onResetTurn?: (turnIndex?: number, promptToRestore?: string) => void;
   onStopTask?: () => void;
   onUpdateTaskTitle?: (taskId: string, newTitle: string) => void;
   onDeleteTask?: (taskId: string) => void;
@@ -641,14 +647,25 @@ const maskSecretsInText = (text?: string): string => {
 interface ReasoningProcessContainerProps {
   thoughts: Array<{ id: string; thought: string; created_at?: string; tokens?: number; isStreaming?: boolean }>;
   isStreamingActive: boolean;
+  onLinkClick?: (url: string, text: string) => void;
 }
 
 const ReasoningProcessContainer: React.FC<ReasoningProcessContainerProps> = ({
   thoughts,
   isStreamingActive,
+  onLinkClick,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const isUserScrolledUpRef = useRef(false);
+  const [copiedAll, setCopiedAll] = useState(false);
+
+  const handleCopyAll = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const fullText = thoughts.map((t) => t.thought).join('\n\n');
+    navigator.clipboard.writeText(fullText);
+    setCopiedAll(true);
+    setTimeout(() => setCopiedAll(false), 2000);
+  };
 
   const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
     if (e.deltaY < 0) {
@@ -690,22 +707,77 @@ const ReasoningProcessContainer: React.FC<ReasoningProcessContainerProps> = ({
   }, [isStreamingActive]);
 
   return (
-    <div
-      ref={scrollRef}
-      onScroll={handleScroll}
-      onWheel={handleWheel}
-      className="p-3.5 border-t border-white/[0.04] space-y-2.5 text-xs text-onedark-fg/90 font-mono leading-relaxed bg-onedark-darker/60 max-h-80 overflow-y-auto [scrollbar-width:thin] [overflow-anchor:none]"
-    >
-      {thoughts.map((m, idx) => (
-        <div key={m.id || idx} className="py-0.5">
-          <div className="whitespace-pre-wrap">
-            {m.thought}
-            {m.isStreaming && (
-              <span className="inline-block w-1.5 h-3.5 ml-1 bg-onedark-accent animate-pulse align-middle" />
-            )}
-          </div>
+    <div className="border-t border-white/[0.06] bg-onedark-darker/60 flex flex-col">
+      {/* Sub-header toolbar with step counter and Copy button */}
+      <div className="px-3.5 py-1.5 border-b border-white/[0.04] bg-white/[0.015] flex items-center justify-between text-[11px] font-mono text-onedark-muted select-none">
+        <div className="flex items-center space-x-2">
+          <span>{thoughts.length} reasoning step{thoughts.length > 1 ? 's' : ''}</span>
+          {isStreamingActive && (
+            <span className="flex items-center space-x-1 text-onedark-yellow text-[10.5px]">
+              <span className="w-1.5 h-1.5 rounded-full bg-onedark-yellow animate-pulse" />
+              <span>Thinking...</span>
+            </span>
+          )}
         </div>
-      ))}
+        <button
+          type="button"
+          onClick={handleCopyAll}
+          className="inline-flex items-center space-x-1 px-2 py-0.5 rounded hover:bg-onedark-surface/60 hover:text-onedark-fg text-onedark-muted transition-colors cursor-pointer"
+          title="Copy full reasoning text to clipboard"
+        >
+          {copiedAll ? (
+            <>
+              <Check className="w-3 h-3 text-onedark-green" />
+              <span className="text-[10.5px] text-onedark-green font-medium">Copied</span>
+            </>
+          ) : (
+            <>
+              <Copy className="w-3 h-3" />
+              <span className="text-[10.5px]">Copy Reasoning</span>
+            </>
+          )}
+        </button>
+      </div>
+
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        onWheel={handleWheel}
+        className="p-3.5 sm:p-4 space-y-3.5 text-xs text-onedark-fg/90 max-h-96 overflow-y-auto [scrollbar-width:thin] [overflow-anchor:none]"
+      >
+        {thoughts.map((m, idx) => (
+          <div
+            key={m.id || idx}
+            className="relative pl-3.5 border-l-2 border-onedark-accent/30 hover:border-onedark-accent/70 transition-colors py-0.5 group/step"
+          >
+            {thoughts.length > 1 && (
+              <div className="flex items-center space-x-2 text-[10.5px] font-mono text-onedark-muted mb-1.5 select-none">
+                <span className="font-semibold text-onedark-accent/80 uppercase tracking-wider text-[10px]">
+                  Step {idx + 1}
+                </span>
+                {m.tokens && (
+                  <>
+                    <span className="text-onedark-borderSubtle">•</span>
+                    <span>{m.tokens} tokens</span>
+                  </>
+                )}
+                {m.isStreaming && (
+                  <span className="inline-flex items-center space-x-1 text-onedark-yellow text-[10px]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-onedark-yellow animate-pulse" />
+                    <span>Thinking</span>
+                  </span>
+                )}
+              </div>
+            )}
+            <MarkdownRenderer
+              content={m.thought}
+              isStreaming={Boolean(m.isStreaming)}
+              onLinkClick={onLinkClick}
+              className="text-[13px] leading-relaxed font-sans text-onedark-fg space-y-2 [&_p]:leading-relaxed [&_p]:text-onedark-fg/90 [&_strong]:text-onedark-fgBright [&_strong]:font-semibold [&_code]:font-mono [&_code]:text-[11.5px] [&_code]:bg-onedark-surface [&_code]:text-onedark-accent [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:border [&_code]:border-onedark-borderSubtle/60 [&_pre]:my-2 [&_ul]:my-1.5 [&_ol]:my-1.5 select-text"
+            />
+          </div>
+        ))}
+      </div>
     </div>
   );
 };
@@ -1195,6 +1267,8 @@ const RepoAutoCarousel: React.FC<RepoAutoCarouselProps> = ({
 export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   task,
   repositories: propRepositories,
+  currentDraft,
+  onDraftChange,
   onSendMessage,
   onApprove,
   onReject,
@@ -1217,7 +1291,26 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   onOpenPlan,
   onNavigateToRepos,
 }) => {
-  const [inputValue, setInputValue] = useState('');
+  const onDraftChangeRef = useRef(onDraftChange);
+  useEffect(() => {
+    onDraftChangeRef.current = onDraftChange;
+  }, [onDraftChange]);
+
+  const [inputValue, setRawInputValue] = useState(currentDraft || '');
+
+  const setInputValue = useCallback((valOrUpdater: string | ((prev: string) => string)) => {
+    setRawInputValue((prev) => {
+      const next = typeof valOrUpdater === 'function' ? valOrUpdater(prev) : valOrUpdater;
+      onDraftChangeRef.current?.(next);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (currentDraft !== undefined) {
+      setRawInputValue(currentDraft);
+    }
+  }, [currentDraft, task?.id]);
   const [selectedPersona, setSelectedPersona] = useState('General');
   const [selectedModel, setSelectedModel] = useState('auto');
   const [openThoughts, setOpenThoughts] = useState<Record<string, boolean>>({});
@@ -1309,6 +1402,9 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const [isDraggingInput, setIsDraggingInput] = useState<boolean>(false);
   const [showAttachMenuEmpty, setShowAttachMenuEmpty] = useState<boolean>(false);
   const [showAttachMenuChat, setShowAttachMenuChat] = useState<boolean>(false);
+  const [activeModalDoc, setActiveModalDoc] = useState<SniffedPastedDoc | null>(null);
+  const [isDocModalOpen, setIsDocModalOpen] = useState<boolean>(false);
+  const [isDocModalReadOnly, setIsDocModalReadOnly] = useState<boolean>(false);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -1428,6 +1524,159 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
   const handleRemoveFolder = (rootFolder: string) => {
     setAttachments((prev) => prev.filter((a) => a.rootFolder !== rootFolder));
+  };
+
+  const handleOpenDocModal = (doc: SniffedPastedDoc, readOnly: boolean = false) => {
+    setActiveModalDoc(doc);
+    setIsDocModalReadOnly(readOnly);
+    setIsDocModalOpen(true);
+  };
+
+  const handleUnwrapPastedDoc = (doc: SniffedPastedDoc) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== doc.id));
+    const activeTextarea = (!task ? emptyStateTextareaRef.current : textareaRef.current) || textareaRef.current;
+    if (activeTextarea) {
+      const start = activeTextarea.selectionStart ?? inputValue.length;
+      const end = activeTextarea.selectionEnd ?? inputValue.length;
+      const before = inputValue.substring(0, start);
+      const after = inputValue.substring(end);
+      const prefix = before && !before.endsWith('\n') ? '\n' : '';
+      const suffix = after && !after.startsWith('\n') ? '\n' : '';
+      const updated = before + prefix + doc.content + suffix + after;
+      setInputValue(updated);
+      setTimeout(() => {
+        activeTextarea.focus();
+        const newCursor = start + prefix.length + doc.content.length;
+        activeTextarea.setSelectionRange(newCursor, newCursor);
+      }, 0);
+    } else {
+      setInputValue((prev) => (prev ? `${prev}\n${doc.content}` : doc.content));
+    }
+  };
+
+  const handleUpdatePastedDoc = (updated: SniffedPastedDoc) => {
+    localPastedDocs.set(updated.title, updated);
+    localPastedDocs.set(updated.id, updated);
+    setActiveModalDoc(updated);
+
+    const newFile = new File([updated.content], updated.title, { type: 'text/plain;charset=utf-8' });
+    try {
+      const blobUrl = URL.createObjectURL(newFile);
+      localAttachmentBlobUrls.set(updated.title, blobUrl);
+    } catch {
+      // ignore
+    }
+
+    setAttachments((prev) =>
+      prev.map((a) => {
+        if (a.id === updated.id) {
+          return {
+            ...a,
+            name: updated.title,
+            size: updated.sizeBytes,
+            file: newFile,
+            pastedDoc: updated,
+          };
+        }
+        return a;
+      })
+    );
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    // 1. Check for clipboard image blobs (e.g. screenshot pastes)
+    const items = e.clipboardData?.items;
+    if (items) {
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) {
+            e.preventDefault();
+            const ext = item.type.split('/')[1] || 'png';
+            const name = `screenshot_${Date.now()}.${ext}`;
+            const renamedFile = new File([file], name, { type: file.type });
+            handleAttachItems([
+              {
+                id: `img-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                file: renamedFile,
+                name,
+                size: renamedFile.size,
+                relativePath: name,
+                status: 'ready',
+              },
+            ]);
+            return;
+          }
+        }
+      }
+    }
+
+    // 2. Check for text across clipboard MIME types (standard text/plain, text, text/markdown)
+    const text =
+      e.clipboardData?.getData('text/plain') ||
+      e.clipboardData?.getData('text') ||
+      e.clipboardData?.getData('text/markdown') ||
+      '';
+
+    if (text && isLongPastedText(text)) {
+      e.preventDefault();
+
+      let docText = text;
+      let promptPrefix = '';
+
+      // Check if pasted text starts with an opening directive line (e.g. "Create a landing page based on this:")
+      const firstLineBreak = text.indexOf('\n');
+      if (firstLineBreak > 0 && firstLineBreak <= 140) {
+        const firstLine = text.substring(0, firstLineBreak).trim();
+        const remainder = text.substring(firstLineBreak).trim();
+        if (
+          firstLine &&
+          !firstLine.startsWith('#') &&
+          !firstLine.startsWith('```') &&
+          !firstLine.startsWith('//') &&
+          !firstLine.startsWith('/*') &&
+          !firstLine.startsWith('import ') &&
+          !firstLine.startsWith('def ') &&
+          !firstLine.startsWith('{') &&
+          !firstLine.startsWith('[') &&
+          isLongPastedText(remainder)
+        ) {
+          promptPrefix = firstLine;
+          docText = remainder;
+        }
+      }
+
+      if (promptPrefix) {
+        setInputValue((prev) => (prev ? `${prev.trim()} ${promptPrefix}` : promptPrefix));
+      }
+
+      const existingDocCount = attachments.filter((a) => a.pastedDoc).length + 1;
+      const doc = createSniffedPastedDoc(docText, existingDocCount);
+
+      localPastedDocs.set(doc.title, doc);
+      localPastedDocs.set(doc.id, doc);
+
+      const file = new File([doc.content], doc.title, { type: 'text/plain;charset=utf-8' });
+      try {
+        const blobUrl = URL.createObjectURL(file);
+        localAttachmentBlobUrls.set(doc.title, blobUrl);
+      } catch {
+        // ignore
+      }
+
+      const newAttachment: ChatAttachment = {
+        id: doc.id,
+        file,
+        name: doc.title,
+        size: doc.sizeBytes,
+        status: 'ready',
+        category: 'doc',
+        pastedDoc: doc,
+      };
+
+      setAttachments((prev) => [...prev, newAttachment]);
+    }
   };
 
   const isRunning = task?.status === 'RUNNING' || task?.status === 'INITIALIZING';
@@ -1715,7 +1964,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     if (!container) return;
     const { scrollTop, scrollHeight, clientHeight } = container;
     const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-    const isAtBottom = distanceFromBottom <= 20;
+    const isAtBottom = distanceFromBottom <= 40;
 
     if (isAtBottom) {
       isAutoScrollEnabledRef.current = true;
@@ -1723,6 +1972,21 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     } else {
       setShowScrollBottomBtn(true);
     }
+  }, []);
+
+  // Keep scroll aligned when input bar expands or window resizes while auto-scroll is active
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const ro = new ResizeObserver(() => {
+      if (isAutoScrollEnabledRef.current) {
+        container.scrollTop = container.scrollHeight - container.clientHeight;
+        setShowScrollBottomBtn(false);
+      }
+    });
+    ro.observe(container);
+    return () => ro.disconnect();
   }, []);
 
   // Auto-scroll smoothly ONLY when user has not manually scrolled away
@@ -1787,6 +2051,27 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   useEffect(() => {
     adjustTextareaHeight();
   }, [inputValue, adjustTextareaHeight]);
+
+  const handleTurnResetClick = useCallback((turnIndex: number, turnData: ConversationTurn) => {
+    if (!onResetTurn) return;
+    const rawPrompt = turnData.userMessage?.content || (turnIndex === 1 ? task?.description : '') || '';
+    const sanitizedPrompt = rawPrompt
+      ? (parseUserMessageAttachments(rawPrompt, task?.id).cleanedText.trim() || rawPrompt.trim())
+      : '';
+
+    if (sanitizedPrompt) {
+      setInputValue(sanitizedPrompt);
+      setTimeout(() => {
+        const activeTextarea = (!task ? emptyStateTextareaRef.current : textareaRef.current) || textareaRef.current;
+        if (activeTextarea) {
+          activeTextarea.focus();
+          activeTextarea.selectionStart = activeTextarea.selectionEnd = sanitizedPrompt.length;
+        }
+      }, 50);
+    }
+
+    onResetTurn(turnIndex, sanitizedPrompt);
+  }, [onResetTurn, task?.description, task?.id, setInputValue]);
 
   const fetchRepos = useCallback(async () => {
     const apiBase = import.meta.env.VITE_API_URL || '';
@@ -2398,6 +2683,17 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                     </div>
                   ))}
                   {standaloneFiles.map((att) => {
+                    if (att.pastedDoc) {
+                      return (
+                        <PastedDocPill
+                          key={att.id}
+                          doc={att.pastedDoc}
+                          onOpenModal={(d) => handleOpenDocModal(d, false)}
+                          onUnwrapDoc={handleUnwrapPastedDoc}
+                          onRemoveDoc={handleRemoveAttachment}
+                        />
+                      );
+                    }
                     const meta = getAttachmentIcon(att.name);
                     const IconComp = meta.icon;
                     return (
@@ -2441,6 +2737,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 ref={emptyStateTextareaRef}
                 value={inputValue}
                 onChange={handleInputChange}
+                onPaste={handlePaste}
                 onKeyUp={handleCursorMove}
                 onClick={handleCursorMove}
                 onSelect={handleCursorMove}
@@ -2674,6 +2971,17 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   }
 
   const latestApproval = task.approvals?.find((a) => a.status === 'PENDING');
+  const isAnyStreamActive = Boolean(
+    task.messages?.some((m) => m.isStreaming) ||
+    turns.some((t) => t.isLatest && (
+      t.agentMessages.some((m) => m.isStreaming) ||
+      t.thoughts.some((th) => th.isStreaming)
+    ))
+  );
+  const shouldShowApproval = Boolean(
+    latestApproval &&
+    (latestApproval.action_type === 'user_inquiry' || (!isAnyStreamActive && !isRunning))
+  );
   const latestThoughtText = turns.length > 0 && turns[turns.length - 1].thoughts.length > 0
     ? turns[turns.length - 1].thoughts[turns[turns.length - 1].thoughts.length - 1].thought
     : null;
@@ -3144,6 +3452,54 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                                         );
                                       }
 
+                                      const cachedDoc = localPastedDocs.get(att.name);
+                                      if (cachedDoc) {
+                                        const previewLines = cachedDoc.content.split(/\r?\n/).slice(0, 3).join('\n');
+                                        return (
+                                          <div
+                                            key={attIdx}
+                                            className="flex flex-col rounded-xl bg-onedark-darker/90 border border-onedark-accent/30 hover:border-onedark-accent/70 text-xs font-sans text-onedark-fg shadow-md transition-all min-w-[280px] flex-1 max-w-md overflow-hidden group cursor-pointer"
+                                            onClick={() => handleOpenDocModal(cachedDoc, true)}
+                                          >
+                                            <div className="flex items-center space-x-2.5 px-3 py-2 bg-onedark-surface/60 border-b border-onedark-borderSubtle">
+                                              <div className="p-1 rounded bg-onedark-accent/15 border border-onedark-accent/25 flex items-center justify-center flex-shrink-0 text-onedark-accent">
+                                                {cachedDoc.language === 'text' ? <FileText className="w-3.5 h-3.5" /> : <FileCode2 className="w-3.5 h-3.5" />}
+                                              </div>
+                                              <div className="flex flex-col min-w-0 flex-1">
+                                                <span className="font-semibold text-onedark-fgBright truncate font-mono text-[12px] group-hover:text-onedark-accent transition-colors">
+                                                  {cachedDoc.title}
+                                                </span>
+                                                <div className="flex items-center space-x-1.5 text-[10.5px] text-onedark-muted font-mono">
+                                                  <span>{cachedDoc.lineCount} lines</span>
+                                                  <span>·</span>
+                                                  <span>{formatBytes(cachedDoc.sizeBytes)}</span>
+                                                  <span>·</span>
+                                                  <span className="uppercase text-[9px] px-1 rounded bg-onedark-darker text-onedark-fg">{cachedDoc.language}</span>
+                                                </div>
+                                              </div>
+                                              <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  handleOpenDocModal(cachedDoc, true);
+                                                }}
+                                                className="px-2 py-1 rounded-md bg-onedark-surface hover:bg-onedark-surfaceHighlight text-[11px] font-mono text-onedark-accent hover:text-onedark-fgBright transition-colors flex items-center space-x-1 flex-shrink-0 cursor-pointer"
+                                                title="Inspect full document"
+                                              >
+                                                <Eye className="w-3 h-3" />
+                                                <span>View</span>
+                                              </button>
+                                            </div>
+                                            <div className="px-3 py-2 font-mono text-[11px] text-onedark-muted bg-onedark-darker/95 relative overflow-hidden select-none">
+                                              <pre className="whitespace-pre overflow-hidden leading-relaxed max-h-[60px]">
+                                                {previewLines}
+                                              </pre>
+                                              <div className="absolute inset-x-0 bottom-0 h-5 bg-gradient-to-t from-onedark-darker to-transparent pointer-events-none" />
+                                            </div>
+                                          </div>
+                                        );
+                                      }
+
                                       const meta = getAttachmentIcon(att.name);
                                       const IconComp = meta.icon;
 
@@ -3208,7 +3564,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                           )}
                           {onResetTurn && !isRunning && (
                             <button
-                              onClick={() => onResetTurn(tIdx + 1)}
+                              onClick={() => handleTurnResetClick(tIdx + 1, turn)}
                               className="p-1 rounded-md hover:bg-onedark-surface border border-transparent hover:border-onedark-border text-onedark-muted hover:text-onedark-yellow transition-colors"
                               title="Reset Turn (Rollback files & context to this turn)"
                             >
@@ -3472,7 +3828,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                     {isTurnOpen && (
                       <ReasoningProcessContainer 
                         thoughts={turn.thoughts} 
-                        isStreamingActive={Boolean(isTurnRunning && turn.isLatest && turn.thoughts.some((t) => t.isStreaming))} 
+                        isStreamingActive={Boolean(isTurnRunning && turn.isLatest && turn.thoughts.some((t) => t.isStreaming))}
+                        onLinkClick={handleGlobalLinkClick}
                       />
                     )}
                   </div>
@@ -4015,7 +4372,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                             )}
                             {onResetTurn && !isRunning && (
                               <button
-                                onClick={() => onResetTurn(tIdx + 1)}
+                                onClick={() => handleTurnResetClick(tIdx + 1, turn)}
                                 className="p-1 rounded-md hover:bg-onedark-surface border border-transparent hover:border-onedark-border text-onedark-muted hover:text-onedark-yellow transition-colors"
                                 title="Reset Turn (Rollback files & context to this turn)"
                               >
@@ -4033,7 +4390,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
           })}
 
           {/* Pending Action Approval Card or Interactive Inquiry Card or PR Review Staging Card */}
-          {latestApproval && (
+          {shouldShowApproval && latestApproval && (
             latestApproval.action_type === 'user_inquiry' ? (
               <InquiryCard
                 taskId={task.id}
@@ -4095,28 +4452,30 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
         </div>
       </div>
 
-      {/* Floating Jump to Bottom Button */}
-      {showScrollBottomBtn && (
-        <div className="absolute bottom-[90px] sm:bottom-[96px] right-6 sm:right-10 z-30 animate-in fade-in slide-in-from-bottom-2 duration-150">
-          <button
-            type="button"
-            onClick={() => scrollToBottom(true)}
-            className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker shadow-xl shadow-black/40 text-xs font-bold cursor-pointer transition-all active:scale-95 border border-black/15 backdrop-blur-md group select-none"
-            title="Resume auto-scroll & jump to latest responses"
-          >
-            {isRunning ? (
-              <span className="w-2 h-2 rounded-full bg-onedark-darker animate-pulse shrink-0" />
-            ) : (
-              <ChevronDown className="w-3.5 h-3.5 group-hover:translate-y-0.5 transition-transform shrink-0" />
-            )}
-            <span className="tracking-wide">{isRunning ? 'New activity below' : 'Jump to latest'}</span>
-            <ChevronDown className="w-3.5 h-3.5 group-hover:translate-y-0.5 transition-transform shrink-0" />
-          </button>
-        </div>
-      )}
-
       {/* Centralized Bottom Chat Input Bar */}
-      <div className="p-3 sm:p-4 bg-onedark-darker/90 border-t border-onedark-borderSubtle/60 backdrop-blur-md">
+      <div className="relative p-3 sm:p-4 bg-onedark-darker/90 border-t border-onedark-borderSubtle/60 backdrop-blur-md flex-shrink-0">
+        {/* Floating Jump to Bottom Button - Anchored strictly ABOVE the input bar so it NEVER blocks or overlaps input */}
+        {showScrollBottomBtn && (
+          <div className={`w-full ${contentMaxWidth} mx-auto relative pointer-events-none`}>
+            <div className="absolute -top-14 sm:-top-15 right-2 sm:right-4 z-30 animate-in fade-in slide-in-from-bottom-2 duration-150 pointer-events-auto">
+              <button
+                type="button"
+                onClick={() => scrollToBottom(true)}
+                className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker shadow-xl shadow-black/40 text-xs font-bold cursor-pointer transition-all active:scale-95 border border-black/15 backdrop-blur-md group select-none"
+                title="Resume auto-scroll & jump to latest responses"
+              >
+                {isRunning ? (
+                  <span className="w-2 h-2 rounded-full bg-onedark-darker animate-pulse shrink-0" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5 group-hover:translate-y-0.5 transition-transform shrink-0" />
+                )}
+                <span className="tracking-wide">{isRunning ? 'New activity below' : 'Jump to latest'}</span>
+                <ChevronDown className="w-3.5 h-3.5 group-hover:translate-y-0.5 transition-transform shrink-0" />
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className={`w-full ${contentMaxWidth} mx-auto`}>
           <form onSubmit={handleSubmit} className="flex flex-col space-y-2.5 relative z-20">
             {/* Repository Mention Autocomplete Menu */}
@@ -4203,6 +4562,17 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                     </div>
                   ))}
                   {standaloneFiles.map((att) => {
+                    if (att.pastedDoc) {
+                      return (
+                        <PastedDocPill
+                          key={att.id}
+                          doc={att.pastedDoc}
+                          onOpenModal={(d) => handleOpenDocModal(d, false)}
+                          onUnwrapDoc={handleUnwrapPastedDoc}
+                          onRemoveDoc={handleRemoveAttachment}
+                        />
+                      );
+                    }
                     const meta = getAttachmentIcon(att.name);
                     const IconComp = meta.icon;
                     return (
@@ -4349,6 +4719,17 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   rows={1}
                   value={inputValue}
                   onChange={handleInputChange}
+                  onFocus={() => {
+                    const container = scrollContainerRef.current;
+                    if (container) {
+                      const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
+                      if (distanceFromBottom <= 80) {
+                        isAutoScrollEnabledRef.current = true;
+                        setShowScrollBottomBtn(false);
+                      }
+                    }
+                  }}
+                  onPaste={handlePaste}
                   onKeyUp={handleCursorMove}
                   onClick={handleCursorMove}
                   onSelect={handleCursorMove}
@@ -4607,6 +4988,18 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
           onCancel={() => {
             if (!isDeletingSession) setIsDeleteModalOpen(false);
           }}
+        />
+      )}
+
+      {/* Pasted Document Inspector Modal */}
+      {isDocModalOpen && activeModalDoc && (
+        <PastedDocModal
+          isOpen={isDocModalOpen}
+          doc={activeModalDoc}
+          onClose={() => setIsDocModalOpen(false)}
+          onUpdateDoc={handleUpdatePastedDoc}
+          onUnwrapDoc={handleUnwrapPastedDoc}
+          readOnly={isDocModalReadOnly}
         />
       )}
     </div>

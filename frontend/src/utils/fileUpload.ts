@@ -13,6 +13,7 @@ export interface UploadableItem {
   rootFolder?: string;
   status: 'ready' | 'uploading' | 'error';
   error?: string;
+  pastedDoc?: any;
 }
 
 export interface FolderSummary {
