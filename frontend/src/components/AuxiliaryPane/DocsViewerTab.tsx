@@ -34,7 +34,8 @@ import {
   Play,
   GraduationCap,
   Columns,
-  Layers
+  Layers,
+  GitBranch
 } from 'lucide-react';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { PRReviewAgentPopover, LineContext } from './PRReviewAgentPopover';
@@ -538,7 +539,14 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
   const [viewMode, setViewMode] = useState<'reader' | 'webview'>('reader');
   const [pdfViewMode, setPdfViewMode] = useState<'summary' | 'pdf' | 'split'>('split');
   const [isCopied, setIsCopied] = useState<boolean>(false);
+  const [isBranchCopied, setIsBranchCopied] = useState<boolean>(false);
   const [prTab, setPrTab] = useState<'overview' | 'diff' | 'commits'>('overview');
+
+  const handleCopyBranch = (branchName: string) => {
+    navigator.clipboard.writeText(branchName);
+    setIsBranchCopied(true);
+    setTimeout(() => setIsBranchCopied(false), 2000);
+  };
 
   const [isReviewPopoverOpen, setIsReviewPopoverOpen] = useState<boolean>(false);
   const [activeLineComment, setActiveLineComment] = useState<LineContext | null>(null);
@@ -1301,11 +1309,37 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
                 </span>
               )}
 
-              {/* Branch Flow */}
+              {/* Branch Flow with Copy Button */}
               {data.head_branch && data.base_branch && (
-                <div className="flex items-center space-x-1 font-mono text-[11px] bg-onedark-bg/80 px-2 py-0.5 rounded border border-onedark-borderSubtle">
-                  <span className="text-onedark-accent font-semibold">{data.head_branch}</span>
-                  <span className="text-onedark-muted">➔</span>
+                <div className="flex items-center space-x-1.5 font-mono text-[11px] bg-onedark-bg/80 hover:bg-onedark-surface border border-onedark-borderSubtle px-2 py-0.5 rounded transition-all group select-text">
+                  <GitBranch className="w-3 h-3 text-onedark-accent flex-shrink-0" />
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCopyBranch(data.head_branch!);
+                    }}
+                    className="font-semibold text-onedark-accent hover:underline cursor-pointer"
+                    title={`Click to copy branch name "${data.head_branch}"`}
+                  >
+                    {data.head_branch}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCopyBranch(data.head_branch!);
+                    }}
+                    className="p-0.5 rounded hover:bg-onedark-bg text-onedark-muted hover:text-onedark-fg transition-colors cursor-pointer"
+                    title={isBranchCopied ? "Copied branch name!" : "Copy branch name"}
+                  >
+                    {isBranchCopied ? (
+                      <Check className="w-3 h-3 text-onedark-green" />
+                    ) : (
+                      <Copy className="w-3 h-3 opacity-60 group-hover:opacity-100" />
+                    )}
+                  </button>
+                  <span className="text-onedark-muted select-none">➔</span>
                   <span className="text-onedark-muted">{data.base_branch}</span>
                 </div>
               )}
