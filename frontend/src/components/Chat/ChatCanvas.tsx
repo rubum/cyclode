@@ -793,7 +793,7 @@ const renderHighlightedInputText = (text: string) => {
           return (
             <span
               key={i}
-              className="font-bold text-onedark-yellow font-mono"
+              className="text-onedark-yellow font-sans font-normal underline decoration-onedark-yellow/40 underline-offset-2"
             >
               {part}
             </span>
@@ -2193,6 +2193,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const emptyStateTextareaRef = useRef<HTMLTextAreaElement>(null);
   const emptyStateBackdropRef = useRef<HTMLDivElement>(null);
   const chatBackdropRef = useRef<HTMLDivElement>(null);
+  const mentionMenuRef = useRef<HTMLDivElement>(null);
+  const mentionItemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const adjustTextareaHeight = useCallback(() => {
     const adjust = (el: HTMLTextAreaElement | null, minH = 36, maxH = 220) => {
@@ -2281,27 +2283,51 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     );
   }, [effectiveRepos, mentionQuery]);
 
+  useEffect(() => {
+    setSelectedMentionIdx(0);
+  }, [mentionQuery]);
+
+  useEffect(() => {
+    if (filteredRepos.length > 0 && selectedMentionIdx >= filteredRepos.length) {
+      setSelectedMentionIdx(filteredRepos.length - 1);
+    }
+  }, [filteredRepos.length, selectedMentionIdx]);
+
+  useEffect(() => {
+    if (mentionQuery !== null && mentionItemRefs.current[selectedMentionIdx]) {
+      mentionItemRefs.current[selectedMentionIdx]?.scrollIntoView({
+        block: 'nearest',
+        inline: 'nearest',
+      });
+    }
+  }, [selectedMentionIdx, mentionQuery]);
+
   const insertMention = (repoName: string) => {
     if (mentionIndex === -1) return;
     const activeTextarea = (!task ? emptyStateTextareaRef.current : textareaRef.current) || textareaRef.current;
-    const pos = (activeTextarea?.selectionStart !== null && activeTextarea?.selectionStart !== undefined)
-      ? activeTextarea.selectionStart
-      : inputValue.length;
 
+    const textAfterAt = inputValue.slice(mentionIndex);
+    const tokenMatch = textAfterAt.match(/^@[^\s]*/);
+    const tokenLen = tokenMatch ? tokenMatch[0].length : 1;
     const before = inputValue.slice(0, mentionIndex);
-    const after = inputValue.slice(pos);
+    const after = inputValue.slice(mentionIndex + tokenLen);
     const inserted = `${before}@${repoName} ${after}`;
+    const nextPos = mentionIndex + repoName.length + 2;
+
+    if (activeTextarea) {
+      activeTextarea.value = inserted;
+      activeTextarea.focus();
+      activeTextarea.setSelectionRange(nextPos, nextPos);
+    }
     setInputValue(inserted);
     setMentionQuery(null);
     setMentionIndex(-1);
 
-    setTimeout(() => {
-      if (activeTextarea) {
-        const nextPos = mentionIndex + repoName.length + 2;
-        activeTextarea.focus();
+    requestAnimationFrame(() => {
+      if (activeTextarea && document.activeElement === activeTextarea) {
         activeTextarea.setSelectionRange(nextPos, nextPos);
       }
-    }, 10);
+    });
   };
 
   const updateMentionState = (val: string, pos: number) => {
@@ -2315,7 +2341,6 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
         if (!/\s/.test(query)) {
           setMentionQuery(query.toLowerCase());
           setMentionIndex(lastAtIndex);
-          setSelectedMentionIdx(0);
           if (effectiveRepos.length === 0) {
             fetchRepos();
           }
@@ -2330,7 +2355,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const val = e.target.value;
-    const pos = (typeof e.target.selectionStart === 'number' && e.target.selectionStart > 0)
+    const pos = typeof e.target.selectionStart === 'number'
       ? e.target.selectionStart
       : val.length;
     setInputValue(val);
@@ -2340,10 +2365,17 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const handleCursorMove = (e: React.SyntheticEvent<HTMLTextAreaElement>) => {
     const target = e.currentTarget;
     const val = target.value;
-    const pos = (typeof target.selectionStart === 'number' && target.selectionStart > 0)
+    const pos = typeof target.selectionStart === 'number'
       ? target.selectionStart
       : val.length;
     updateMentionState(val, pos);
+  };
+
+  const handleKeyUp = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (mentionQuery !== null && ['ArrowDown', 'ArrowUp', 'PageDown', 'PageUp', 'Home', 'End', 'Enter', 'Tab', 'Escape'].includes(e.key)) {
+      return;
+    }
+    handleCursorMove(e);
   };
 
   const handleSubmit = async (e?: React.FormEvent) => {
@@ -2428,6 +2460,26 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
           setSelectedMentionIdx((prev) => (prev - 1 + filteredRepos.length) % filteredRepos.length);
           return;
         }
+        if (e.key === 'PageDown') {
+          e.preventDefault();
+          setSelectedMentionIdx((prev) => Math.min(prev + 5, filteredRepos.length - 1));
+          return;
+        }
+        if (e.key === 'PageUp') {
+          e.preventDefault();
+          setSelectedMentionIdx((prev) => Math.max(prev - 5, 0));
+          return;
+        }
+        if (e.key === 'Home') {
+          e.preventDefault();
+          setSelectedMentionIdx(0);
+          return;
+        }
+        if (e.key === 'End') {
+          e.preventDefault();
+          setSelectedMentionIdx(filteredRepos.length - 1);
+          return;
+        }
         if (e.key === 'Enter' || e.key === 'Tab') {
           e.preventDefault();
           const selected = filteredRepos[selectedMentionIdx] || filteredRepos[0];
@@ -2455,9 +2507,23 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     if (mentionQuery === null) return null;
 
     return (
-      <div className={`absolute ${positionClasses} w-full max-w-sm max-h-64 overflow-y-auto bg-onedark-surface border border-onedark-border rounded-xl shadow-2xl z-50 p-1.5 font-sans text-xs`}>
-        <div className="px-2.5 py-1.5 text-[10px] font-semibold text-onedark-muted uppercase tracking-wider flex items-center justify-between border-b border-onedark-borderSubtle mb-1">
-          <span>Registered Repositories</span>
+      <div
+        ref={mentionMenuRef}
+        onMouseDown={(e) => {
+          // Keep active textarea focused when interacting with menu padding, header, or scrollbar
+          e.preventDefault();
+        }}
+        className={`absolute ${positionClasses} w-full max-w-md sm:max-w-lg max-h-64 overflow-y-auto bg-onedark-darker border border-onedark-border/90 rounded-xl shadow-2xl shadow-black/80 z-50 p-1.5 font-sans text-xs`}
+      >
+        <div className="px-2.5 py-1.5 text-[10px] font-semibold text-onedark-muted uppercase tracking-wider flex items-center justify-between border-b border-onedark-borderSubtle mb-1 select-none">
+          <span className="flex items-center space-x-1.5">
+            <span>Registered Repositories</span>
+            {filteredRepos.length > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full bg-onedark-surface border border-onedark-borderSubtle text-[9px] font-mono text-onedark-fg font-normal">
+                {filteredRepos.length}
+              </span>
+            )}
+          </span>
           {filteredRepos.length > 0 && (
             <span className="text-onedark-accent font-mono text-[9px]">↑↓ to navigate · ↵ select</span>
           )}
@@ -2486,14 +2552,21 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
           filteredRepos.map((repo, idx) => (
             <button
               key={repo.id || repo.full_name}
+              ref={(el) => {
+                mentionItemRefs.current[idx] = el;
+              }}
               type="button"
               onMouseDown={(e) => e.preventDefault()}
               onClick={() => insertMention(repo.full_name || repo.name)}
-              onMouseEnter={() => setSelectedMentionIdx(idx)}
+              onMouseMove={() => {
+                if (selectedMentionIdx !== idx) {
+                  setSelectedMentionIdx(idx);
+                }
+              }}
               className={`w-full text-left px-2.5 py-2 rounded-lg flex items-center space-x-2.5 transition-colors cursor-pointer ${
                 selectedMentionIdx === idx
-                  ? 'bg-onedark-accent/20 text-onedark-accent font-medium'
-                  : 'text-onedark-fg hover:bg-onedark-darker/60'
+                  ? 'bg-onedark-accent/20 text-onedark-accent font-medium border border-onedark-accent/30'
+                  : 'text-onedark-fg hover:bg-onedark-surface/60 border border-transparent'
               }`}
             >
               <FolderGit2 className="w-3.5 h-3.5 text-onedark-folder flex-shrink-0" />
@@ -2501,7 +2574,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 <div className="font-semibold truncate flex items-center space-x-1.5">
                   <span>@{repo.full_name || repo.name}</span>
                   {repo.tech_stack && repo.tech_stack.length > 0 && (
-                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-onedark-darker text-onedark-muted border border-onedark-borderSubtle">
+                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-onedark-surface text-onedark-muted border border-onedark-borderSubtle">
                       {repo.tech_stack[0]}
                     </span>
                   )}
@@ -2828,7 +2901,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               setIsDraggingInput(false);
               handleAttachDropped(e.dataTransfer);
             }}
-            className={`p-4 sm:p-5 rounded-2xl bg-onedark-surface/60 border border-onedark-border/80 shadow-xl shadow-black/20 backdrop-blur-xl focus-within:border-onedark-accent/60 focus-within:ring-2 focus-within:ring-onedark-accent/15 focus-within:bg-onedark-surface/80 transition-all duration-200 space-y-3 relative ${
+            className={`p-4 sm:p-5 rounded-2xl bg-onedark-surface/60 border border-onedark-border/80 shadow-xl shadow-black/20 backdrop-blur-xl focus-within:border-onedark-accent/60 focus-within:ring-2 focus-within:ring-onedark-accent/15 focus-within:bg-onedark-surface/80 transition-all duration-200 space-y-3 relative z-30 ${
               isDraggingInput ? 'ring-2 ring-onedark-accent border-onedark-accent bg-onedark-surface' : ''
             }`}
           >
@@ -2913,7 +2986,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 value={inputValue}
                 onChange={handleInputChange}
                 onPaste={handlePaste}
-                onKeyUp={handleCursorMove}
+                onKeyUp={handleKeyUp}
                 onClick={handleCursorMove}
                 onSelect={handleCursorMove}
                 onKeyDown={handleKeyDown}
@@ -2930,7 +3003,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 }`}
               />
               {/* Repository Mention Autocomplete Menu for Launcher */}
-              {renderMentionMenu("top-full left-0 mt-1.5")}
+              {renderMentionMenu("bottom-full left-0 mb-2.5")}
             </div>
 
             <div className="flex items-center justify-between pt-3 border-t border-onedark-borderSubtle/60 gap-2.5 flex-wrap sm:flex-nowrap">
@@ -4916,7 +4989,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                     }
                   }}
                   onPaste={handlePaste}
-                  onKeyUp={handleCursorMove}
+                  onKeyUp={handleKeyUp}
                   onClick={handleCursorMove}
                   onSelect={handleCursorMove}
                   onKeyDown={handleKeyDown}
