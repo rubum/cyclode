@@ -24,5 +24,20 @@ export default defineConfig({
         ws: true,
       }
     }
+  },
+  build: {
+    chunkSizeWarningLimit: 900,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'vendor-mermaid': ['mermaid'],
+          'vendor-katex': ['katex'],
+          'vendor-xterm': ['@xterm/xterm', '@xterm/addon-fit', '@xterm/addon-web-links'],
+          'vendor-charts': ['recharts', 'd3-shape'],
+          'vendor-prism': ['prismjs'],
+        }
+      }
+    }
   }
 })
+

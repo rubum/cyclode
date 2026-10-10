@@ -91,26 +91,44 @@ export function useTaskStore(): TaskStoreState {
             const localMessages = prev.messages || [];
             const serverMessages: TaskMessage[] = data.messages || [];
 
+            const isMatch = (localMsg: TaskMessage, serverMsg: TaskMessage) => {
+              if (serverMsg.id === localMsg.id) return true;
+              if (
+                serverMsg.sender === localMsg.sender &&
+                serverMsg.content.trim() === localMsg.content.trim() &&
+                serverMsg.content.trim().length > 0
+              ) {
+                return true;
+              }
+              // Deduplicate stop/cancellation messages even if formatted slightly differently
+              if (
+                localMsg.content.includes("Task stopped") &&
+                serverMsg.content.includes("Task stopped")
+              ) {
+                return true;
+              }
+              return false;
+            };
+
             const inFlightMessages = localMessages.filter(
-              (m) => m.isStreaming || (m.isOptimistic && !serverMessages.some((sm) => sm.content === m.content))
+              (m) => m.isStreaming || (m.isOptimistic && !serverMessages.some((sm) => isMatch(m, sm)))
             );
+
+            const serverLogs = data.logs || [];
+            const runningLogs = (prev.logs || []).filter((l: any) => l.isRunning && !serverLogs.some((sl: any) => sl.id === l.id));
+            const mergedLogs = runningLogs.length > 0 ? [...serverLogs, ...runningLogs] : serverLogs;
 
             if (inFlightMessages.length === 0) {
               return {
                 ...data,
+                logs: mergedLogs,
                 active_tool: prev.active_tool && data.status === "RUNNING" ? prev.active_tool : data.active_tool,
               };
             }
 
             const mergedMessages = [...serverMessages];
             for (const inflight of inFlightMessages) {
-              const alreadyPresent = serverMessages.some(
-                (sm) =>
-                  sm.id === inflight.id ||
-                  (sm.sender === inflight.sender &&
-                    sm.content.trim() === inflight.content.trim() &&
-                    sm.content.trim().length > 0)
-              );
+              const alreadyPresent = serverMessages.some((sm) => isMatch(inflight, sm));
               if (!alreadyPresent) {
                 mergedMessages.push(inflight);
               }
@@ -119,9 +137,11 @@ export function useTaskStore(): TaskStoreState {
             return {
               ...data,
               messages: mergedMessages,
+              logs: mergedLogs,
               active_tool: prev.active_tool && data.status === "RUNNING" ? prev.active_tool : data.active_tool,
             };
           });
+
         }
       }
     } catch (err) {

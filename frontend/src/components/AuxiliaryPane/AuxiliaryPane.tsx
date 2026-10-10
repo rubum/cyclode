@@ -2,16 +2,17 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { GitPullRequest, Activity, Cpu, Inbox, Folder, Compass, Play, GitCompare, Terminal as TerminalIcon } from 'lucide-react';
 import { Task, WorkspacePreviewInfo } from '../../types';
 import { PullRequestsTab } from './PullRequestsTab';
-import { TerminalTab } from './TerminalTab';
 import { ToolActivityTab } from './ToolActivityTab';
 import { AgentsTab } from './AgentsTab';
 import { SubagentsTab } from './SubagentsTab';
 import { EventInspectorTab } from './EventInspectorTab';
 import { FilesExplorerTab } from './FilesExplorerTab';
-import { DocsViewerTab } from './DocsViewerTab';
 import { AppPreviewTab } from './AppPreviewTab';
 import { ChangesDiffTab } from './ChangesDiffTab';
 import { ErrorBoundary } from '../Common/ErrorBoundary';
+
+const TerminalTab = React.lazy(() => import('./TerminalTab').then(m => ({ default: m.TerminalTab })));
+const DocsViewerTab = React.lazy(() => import('./DocsViewerTab').then(m => ({ default: m.DocsViewerTab })));
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -214,16 +215,18 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
             aria-hidden={activeTab !== 'docs'}
           >
             <ErrorBoundary fallbackTitle="Error Loading DOCS Tab">
-              <DocsViewerTab
-                url={previewTarget?.url || null}
-                initialTitle={previewTarget?.title}
-                onClear={onClearPreview}
-                onAskAboutRepo={onAskAboutRepo}
-                onCloneToSession={onCloneToSession}
-                onAskAgent={onAskAboutComment}
-                task={task}
-                repositories={repositories}
-              />
+              <React.Suspense fallback={<div className="h-full flex items-center justify-center text-xs text-onedark-muted font-mono">Loading documentation...</div>}>
+                <DocsViewerTab
+                  url={previewTarget?.url || null}
+                  initialTitle={previewTarget?.title}
+                  onClear={onClearPreview}
+                  onAskAboutRepo={onAskAboutRepo}
+                  onCloneToSession={onCloneToSession}
+                  onAskAgent={onAskAboutComment}
+                  task={task}
+                  repositories={repositories}
+                />
+              </React.Suspense>
             </ErrorBoundary>
           </div>
         )}
@@ -275,16 +278,18 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
             aria-hidden={activeTab !== 'terminal'}
           >
             <ErrorBoundary fallbackTitle="Error Loading TERMINAL Tab">
-              <TerminalTab
-                task={task}
-                isActive={activeTab === 'terminal'}
-                onOpenFile={(filePath) => {
-                  if (filePath) {
-                    onSelectFile?.(filePath);
-                    handleTabClick('files');
-                  }
-                }}
-              />
+              <React.Suspense fallback={<div className="h-full flex items-center justify-center text-xs text-onedark-muted font-mono">Loading terminal...</div>}>
+                <TerminalTab
+                  task={task}
+                  isActive={activeTab === 'terminal'}
+                  onOpenFile={(filePath) => {
+                    if (filePath) {
+                      onSelectFile?.(filePath);
+                      handleTabClick('files');
+                    }
+                  }}
+                />
+              </React.Suspense>
             </ErrorBoundary>
           </div>
         )}

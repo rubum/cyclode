@@ -34,14 +34,16 @@ import {
 import { highlightCode, resolveLanguage, escapeHtml, splitHtmlLines } from '../../utils/syntaxHighlighter';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { ImageViewer } from './Viewers/ImageViewer';
-import { DataTableView } from './Viewers/DataTableView';
 import { StructuredDataViewer } from './Viewers/StructuredDataViewer';
 import { MediaViewer } from './Viewers/MediaViewer';
 import { DocumentViewer } from './Viewers/DocumentViewer';
-import { DocxViewer } from './Viewers/DocxViewer';
-import { NotebookViewer } from './Viewers/NotebookViewer';
-import { ArchiveViewer } from './Viewers/ArchiveViewer';
 import { GitBlameHoverCard, LineBlame } from './GitBlameHoverCard';
+
+const NotebookViewer = React.lazy(() => import('./Viewers/NotebookViewer').then(m => ({ default: m.NotebookViewer })));
+const DocxViewer = React.lazy(() => import('./Viewers/DocxViewer').then(m => ({ default: m.DocxViewer })));
+const ArchiveViewer = React.lazy(() => import('./Viewers/ArchiveViewer').then(m => ({ default: m.ArchiveViewer })));
+const DataTableView = React.lazy(() => import('./Viewers/DataTableView').then(m => ({ default: m.DataTableView })));
+
 
 export interface LineContext {
   filename: string;
@@ -1150,29 +1152,35 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
           svgContent={data.content}
         />
       ) : (viewMode === 'notebook' || (isNotebook && viewMode !== 'code')) ? (
-        <NotebookViewer
-          taskId={taskId}
-          content={data.content}
-          filePath={filePath || ''}
-          rawUrl={rawFileUrl}
-          isTruncated={data.is_truncated}
-          onSwitchToCode={() => setViewMode('code')}
-          onAskAboutLine={onAskAboutLine}
-        />
+        <React.Suspense fallback={<div className="flex-1 flex items-center justify-center p-8 text-xs font-mono text-zinc-500">Loading notebook...</div>}>
+          <NotebookViewer
+            taskId={taskId}
+            content={data.content}
+            filePath={filePath || ''}
+            rawUrl={rawFileUrl}
+            isTruncated={data.is_truncated}
+            onSwitchToCode={() => setViewMode('code')}
+            onAskAboutLine={onAskAboutLine}
+          />
+        </React.Suspense>
       ) : (viewMode === 'archive' || (isArchive && viewMode !== 'code') || (data.is_binary && isArchive)) ? (
-        <ArchiveViewer
-          taskId={taskId}
-          filePath={filePath || ''}
-          fileSize={data.size}
-          rawUrl={rawFileUrl}
-        />
+        <React.Suspense fallback={<div className="flex-1 flex items-center justify-center p-8 text-xs font-mono text-zinc-500">Loading archive...</div>}>
+          <ArchiveViewer
+            taskId={taskId}
+            filePath={filePath || ''}
+            fileSize={data.size}
+            rawUrl={rawFileUrl}
+          />
+        </React.Suspense>
       ) : viewMode === 'table' || isTable || (data.is_binary && isTable) ? (
-        <DataTableView
-          taskId={taskId}
-          content={data.content}
-          filePath={filePath || ''}
-          rawUrl={rawFileUrl}
-        />
+        <React.Suspense fallback={<div className="flex-1 flex items-center justify-center p-8 text-xs font-mono text-zinc-500">Loading table...</div>}>
+          <DataTableView
+            taskId={taskId}
+            content={data.content}
+            filePath={filePath || ''}
+            rawUrl={rawFileUrl}
+          />
+        </React.Suspense>
       ) : viewMode === 'tree' ? (
         <StructuredDataViewer
           content={data.content}
@@ -1186,12 +1194,14 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
           rawUrl={rawFileUrl}
         />
       ) : viewMode === 'docx' || (data.is_binary && isDocx) || isDocx ? (
-        <DocxViewer
-          taskId={taskId || ''}
-          filePath={filePath || ''}
-          fileSize={data.size}
-          rawUrl={rawFileUrl}
-        />
+        <React.Suspense fallback={<div className="flex-1 flex items-center justify-center p-8 text-xs font-mono text-zinc-500">Loading document...</div>}>
+          <DocxViewer
+            taskId={taskId || ''}
+            filePath={filePath || ''}
+            fileSize={data.size}
+            rawUrl={rawFileUrl}
+          />
+        </React.Suspense>
       ) : viewMode === 'pdf' || (data.is_binary && isPdf) ? (
         <DocumentViewer
           filePath={filePath || ''}
@@ -1215,6 +1225,7 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
             Download Binary Asset
           </a>
         </div>
+
       ) : viewMode === 'preview' && isMarkdown ? (
         <div className="flex-1 overflow-auto p-6 md:p-8 bg-onedark-bg select-text">
           <div className="max-w-4xl mx-auto">

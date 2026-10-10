@@ -20,6 +20,7 @@ export interface EventStoreState {
   activeSkills: string[];
   skillsCatalog: SkillCatalogItem[];
   webhookEndpoints: WebhookEndpoint[];
+  disabledCapabilities: string[];
   fetchEvents: () => Promise<void>;
   fetchAutomations: () => Promise<void>;
   fetchPolicies: () => Promise<void>;
@@ -33,6 +34,9 @@ export interface EventStoreState {
   setIntegrations: React.Dispatch<React.SetStateAction<Integration[]>>;
   setRepositories: React.Dispatch<React.SetStateAction<RepositoryConfig[]>>;
   setActiveSkills: React.Dispatch<React.SetStateAction<string[]>>;
+  setSkillsCatalog: React.Dispatch<React.SetStateAction<SkillCatalogItem[]>>;
+  setWebhookEndpoints: React.Dispatch<React.SetStateAction<WebhookEndpoint[]>>;
+  setDisabledCapabilities: React.Dispatch<React.SetStateAction<string[]>>;
 }
 
 export function useEventStore(): EventStoreState {
@@ -44,6 +48,8 @@ export function useEventStore(): EventStoreState {
   const [activeSkills, setActiveSkills] = useState<string[]>([]);
   const [skillsCatalog, setSkillsCatalog] = useState<SkillCatalogItem[]>([]);
   const [webhookEndpoints, setWebhookEndpoints] = useState<WebhookEndpoint[]>([]);
+  const [disabledCapabilities, setDisabledCapabilities] = useState<string[]>([]);
+
 
   const fetchEvents = useCallback(async () => {
     try {
@@ -86,7 +92,13 @@ export function useEventStore(): EventStoreState {
       const res = await fetch(`${API_BASE}/api/integrations`);
       if (res.ok) {
         const data = await res.json();
-        setIntegrations(data);
+        setIntegrations(data.integrations || []);
+        setActiveSkills(data.active_skills || []);
+        setSkillsCatalog(data.skills_catalog || []);
+        setWebhookEndpoints(data.webhook_endpoints || []);
+        if (Array.isArray(data.disabled_capabilities)) {
+          setDisabledCapabilities(data.disabled_capabilities);
+        }
       }
     } catch (err) {
       console.error("Error fetching integrations:", err);
@@ -94,14 +106,25 @@ export function useEventStore(): EventStoreState {
   }, []);
 
   const fetchRepositories = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/repositories`);
-      if (res.ok) {
-        const data = await res.json();
-        setRepositories(data);
+    const endpoints = [
+      `${API_BASE}/api/repositories`,
+      '/api/repositories',
+      'http://localhost:8000/api/repositories',
+      'http://127.0.0.1:8000/api/repositories',
+    ];
+    for (const url of endpoints) {
+      try {
+        const res = await fetch(url);
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) {
+            setRepositories(data);
+            return;
+          }
+        }
+      } catch {
+        // try next endpoint
       }
-    } catch (err) {
-      console.error("Error fetching repositories:", err);
     }
   }, []);
 
@@ -138,6 +161,7 @@ export function useEventStore(): EventStoreState {
     activeSkills,
     skillsCatalog,
     webhookEndpoints,
+    disabledCapabilities,
     fetchEvents,
     fetchAutomations,
     fetchPolicies,
@@ -151,5 +175,8 @@ export function useEventStore(): EventStoreState {
     setIntegrations,
     setRepositories,
     setActiveSkills,
+    setSkillsCatalog,
+    setWebhookEndpoints,
+    setDisabledCapabilities,
   };
 }

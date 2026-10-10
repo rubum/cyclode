@@ -13,63 +13,82 @@ import { IntegrationsView } from './components/Integrations/IntegrationsView';
 import { RepositoriesView } from './components/Repositories/RepositoriesView';
 import { SandboxInspectorModal } from './components/Sandbox/SandboxInspectorModal';
 import { Task, TaskMessage, TaskLog, EventItem, PolicyMap, Integration, AutomationRule, SkillCatalogItem, WebhookEndpoint, RepositoryConfig, LayoutPreset } from './types';
+import { useLayoutStore, useTaskStore, useEventStore } from './stores';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
 const MainApp: React.FC = () => {
   const { subscribe } = useWebSocket();
-  const [activeView, setActiveView] = useState<string>('chat');
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [repositories, setRepositories] = useState<RepositoryConfig[]>([]);
-  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
-  const [activeTaskDetails, setActiveTaskDetails] = useState<Task | null>(null);
-  const [events, setEvents] = useState<EventItem[]>([]);
-  const [automations, setAutomations] = useState<AutomationRule[]>([]);
-  const [policies, setPolicies] = useState<PolicyMap>({});
-  const [integrations, setIntegrations] = useState<Integration[]>([]);
-  const [activeSkills, setActiveSkills] = useState<string[]>([]);
-  const [skillsCatalog, setSkillsCatalog] = useState<SkillCatalogItem[]>([]);
-  const [webhookEndpoints, setWebhookEndpoints] = useState<WebhookEndpoint[]>([]);
-  const [disabledCapabilities, setDisabledCapabilities] = useState<string[]>([]);
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
-  const [currentPreset, setCurrentPreset] = useState<LayoutPreset>(() => {
-    try {
-      const saved = localStorage.getItem('cyclode_layout_preset');
-      if (saved && ['split', 'preview', 'wide', 'fullscreen', 'standard'].includes(saved)) {
-        return (saved === 'standard' ? 'split' : saved) as LayoutPreset;
-      }
-    } catch {
-      // ignore
-    }
-    return 'split';
-  });
-  const [activeAuxTab, setActiveAuxTab] = useState<AuxTabType>('terminal');
-  const [sessionPreviews, setSessionPreviews] = useState<Record<string, { url: string; title?: string } | null>>({});
-  const [sessionFiles, setSessionFiles] = useState<Record<string, string | null>>({});
-  const [sessionFileLines, setSessionFileLines] = useState<Record<string, number | null>>({});
-  const [sessionAuxTabs, setSessionAuxTabs] = useState<Record<string, AuxTabType>>({});
-  const [sessionDrafts, setSessionDrafts] = useState<Record<string, string>>(() => {
-    try {
-      const saved = localStorage.getItem('cyclode_prompt_drafts');
-      if (saved) return JSON.parse(saved);
-    } catch {
-      // ignore
-    }
-    return {};
-  });
+
+  const {
+    activeView,
+    setActiveView,
+    isSidebarCollapsed,
+    setIsSidebarCollapsed,
+    currentPreset,
+    setCurrentPreset,
+    activeAuxTab,
+    setActiveAuxTab,
+    isSandboxModalOpen,
+    setIsSandboxModalOpen,
+  } = useLayoutStore();
+
+  const {
+    tasks,
+    setTasks,
+    activeTaskId,
+    setActiveTaskId,
+    activeTaskDetails,
+    setActiveTaskDetails,
+    sessionPreviews,
+    setSessionPreviews,
+    sessionFiles,
+    setSessionFiles,
+    sessionFileLines,
+    setSessionFileLines,
+    sessionAuxTabs,
+    setSessionAuxTabs,
+    sessionDrafts,
+    setSessionDrafts,
+    setSessionDraft,
+    isClearingAll,
+    setIsClearingAll,
+    deletingTaskId,
+    setDeletingTaskId,
+    fetchTasks,
+    fetchTaskDetails,
+    activeTaskIdRef,
+  } = useTaskStore();
+
+  const {
+    events,
+    setEvents,
+    automations,
+    setAutomations,
+    policies,
+    setPolicies,
+    integrations,
+    setIntegrations,
+    repositories,
+    setRepositories,
+    activeSkills,
+    setActiveSkills,
+    skillsCatalog,
+    setSkillsCatalog,
+    webhookEndpoints,
+    setWebhookEndpoints,
+    disabledCapabilities,
+    setDisabledCapabilities,
+    fetchEvents,
+    fetchAutomations,
+    fetchPolicies,
+    fetchIntegrations,
+    fetchRepositories,
+  } = useEventStore();
 
   const handleDraftChange = useCallback((sessionKey: string, draft: string) => {
-    setSessionDrafts((prev) => {
-      if (prev[sessionKey] === draft) return prev;
-      const next = { ...prev, [sessionKey]: draft };
-      try {
-        localStorage.setItem('cyclode_prompt_drafts', JSON.stringify(next));
-      } catch {
-        // ignore
-      }
-      return next;
-    });
-  }, []);
+    setSessionDraft(sessionKey, draft);
+  }, [setSessionDraft]);
 
   const currentTaskAuxTab = activeTaskId ? (sessionAuxTabs[activeTaskId] || activeAuxTab) : activeAuxTab;
   const activePreviewTarget = activeTaskId ? (sessionPreviews[activeTaskId] || null) : (sessionPreviews['draft'] || null);
@@ -80,7 +99,7 @@ const MainApp: React.FC = () => {
     setActiveAuxTab(tab);
     const sessionKey = activeTaskIdRef.current || 'draft';
     setSessionAuxTabs((prev) => ({ ...prev, [sessionKey]: tab }));
-  }, []);
+  }, [setActiveAuxTab, setSessionAuxTabs, activeTaskIdRef]);
 
   const handleAuxSelectFile = useCallback((filePath: string, line?: number) => {
     const sessionKey = activeTaskIdRef.current || 'draft';
@@ -88,185 +107,10 @@ const MainApp: React.FC = () => {
     if (line !== undefined) {
       setSessionFileLines((prev) => ({ ...prev, [sessionKey]: line }));
     }
-  }, []);
-  const [isClearingAll, setIsClearingAll] = useState<boolean>(false);
-  const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
+  }, [setSessionFiles, setSessionFileLines, activeTaskIdRef]);
 
-  const [isSandboxModalOpen, setIsSandboxModalOpen] = useState<boolean>(false);
   const streamBufferRef = useRef<Map<string, any>>(new Map());
   const streamRafRef = useRef<number | null>(null);
-  const activeTaskIdRef = useRef<string | null>(activeTaskId);
-
-  useEffect(() => {
-    activeTaskIdRef.current = activeTaskId;
-  }, [activeTaskId]);
-
-  // Fetch tasks
-  const fetchTasks = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/tasks`);
-      if (res.ok) {
-        const data = await res.json();
-        setTasks(data);
-      }
-    } catch (err) {
-      console.error('Error fetching tasks:', err);
-    }
-  }, []);
-
-  // Fetch active task details
-  const fetchTaskDetails = useCallback(async (taskId: string) => {
-    if (!taskId || taskId.startsWith('temp-')) return;
-    try {
-      const res = await fetch(`${API_BASE}/api/tasks/${taskId}`);
-      if (res.ok) {
-        const data = await res.json();
-        // Guard against race conditions: only update if user is still viewing this task
-        if (activeTaskIdRef.current === taskId) {
-          setActiveTaskDetails((prev) => {
-            if (!prev || prev.id !== taskId) return data;
-
-            const localMessages = prev.messages || [];
-            const serverMessages: TaskMessage[] = data.messages || [];
-
-            const isMatch = (localMsg: TaskMessage, serverMsg: TaskMessage) => {
-              if (serverMsg.id === localMsg.id) return true;
-              if (
-                serverMsg.sender === localMsg.sender &&
-                serverMsg.content.trim() === localMsg.content.trim() &&
-                serverMsg.content.trim().length > 0
-              ) {
-                return true;
-              }
-              // Deduplicate stop/cancellation messages even if formatted slightly differently
-              if (
-                localMsg.content.includes('Task stopped') &&
-                serverMsg.content.includes('Task stopped')
-              ) {
-                return true;
-              }
-              return false;
-            };
-
-            const inFlightMessages = localMessages.filter(
-              (m) => m.isStreaming || (m.isOptimistic && !serverMessages.some((sm) => isMatch(m, sm)))
-            );
-
-            const serverLogs: TaskLog[] = data.logs || [];
-            const runningLogs = (prev.logs || []).filter((l) => l.isRunning && !serverLogs.some((sl) => sl.id === l.id));
-            const mergedLogs = runningLogs.length > 0 ? [...serverLogs, ...runningLogs] : serverLogs;
-
-            if (inFlightMessages.length === 0) {
-              return {
-                ...data,
-                logs: mergedLogs,
-                active_tool: prev.active_tool && data.status === 'RUNNING' ? prev.active_tool : data.active_tool,
-              };
-            }
-
-            const mergedMessages = [...serverMessages];
-            for (const inflight of inFlightMessages) {
-              const alreadyPresent = serverMessages.some((sm) => isMatch(inflight, sm));
-              if (!alreadyPresent) {
-                mergedMessages.push(inflight);
-              }
-            }
-
-            return {
-              ...data,
-              messages: mergedMessages,
-              logs: mergedLogs,
-              active_tool: prev.active_tool && data.status === 'RUNNING' ? prev.active_tool : data.active_tool,
-            };
-          });
-        }
-      }
-    } catch (err) {
-      console.error('Error fetching task details:', err);
-    }
-  }, []);
-
-  // Fetch automations
-  const fetchAutomations = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/automations`);
-      if (res.ok) {
-        const data = await res.json();
-        setAutomations(data);
-      }
-    } catch (err) {
-      console.error('Error fetching automations:', err);
-    }
-  }, []);
-
-  // Fetch events
-  const fetchEvents = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/events`);
-      if (res.ok) {
-        const data = await res.json();
-        setEvents(data);
-      }
-    } catch (err) {
-      console.error('Error fetching events:', err);
-    }
-  }, []);
-
-  // Fetch policies
-  const fetchPolicies = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/policies`);
-      if (res.ok) {
-        const data = await res.json();
-        setPolicies(data);
-      }
-    } catch (err) {
-      console.error('Error fetching policies:', err);
-    }
-  }, []);
-
-  // Fetch integrations
-  const fetchIntegrations = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/integrations`);
-      if (res.ok) {
-        const data = await res.json();
-        setIntegrations(data.integrations || []);
-        setActiveSkills(data.active_skills || []);
-        setSkillsCatalog(data.skills_catalog || []);
-        setWebhookEndpoints(data.webhook_endpoints || []);
-        if (Array.isArray(data.disabled_capabilities)) {
-          setDisabledCapabilities(data.disabled_capabilities);
-        }
-      }
-    } catch (err) {
-      console.error('Error fetching integrations:', err);
-    }
-  }, []);
-
-  // Fetch repositories
-  const fetchRepositories = useCallback(async () => {
-    const endpoints = [
-      `${API_BASE}/api/repositories`,
-      '/api/repositories',
-      'http://localhost:8000/api/repositories',
-      'http://127.0.0.1:8000/api/repositories'
-    ];
-    for (const url of endpoints) {
-      try {
-        const res = await fetch(url);
-        if (res.ok) {
-          const data = await res.json();
-          if (Array.isArray(data)) {
-            setRepositories(data);
-            return;
-          }
-        }
-      } catch {
-        // try next endpoint
-      }
-    }
-  }, []);
 
   useEffect(() => {
     fetchTasks();

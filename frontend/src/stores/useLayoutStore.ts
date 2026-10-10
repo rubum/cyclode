@@ -1,5 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
-import { LayoutPreset } from "../types";
+import { LayoutPreset, AuxTabType } from "../types";
+
+export type { AuxTabType };
 
 export type ViewType =
   | "chat"
@@ -10,17 +12,6 @@ export type ViewType =
   | "integrations"
   | "repositories"
   | "simulator";
-
-export type AuxTabType =
-  | "terminal"
-  | "files"
-  | "prs"
-  | "activity"
-  | "subagents"
-  | "event"
-  | "docs"
-  | "preview"
-  | "changes";
 
 export interface LayoutState {
   activeView: ViewType;

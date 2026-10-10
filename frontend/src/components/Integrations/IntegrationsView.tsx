@@ -916,7 +916,9 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                       <option value="gemini-3.7-flash">Gemini 3.7 Flash (Agentic Workhorse)</option>
                     </optgroup>
                     <optgroup label="Anthropic Claude">
-                      <option value="claude-fable-5-1">Claude Fable 5.1 (Mythos Frontier)</option>
+                      <option value="claude-opus-5-5">Claude Opus 5.5 (Flagship Autonomous & Coding)</option>
+                      <option value="claude-fable-5-1">Claude Fable 5.1 (Mythos Frontier Long-Horizon)</option>
+                      <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (Balanced Intelligence)</option>
                       <option value="claude-3-7-sonnet">Claude 3.7 Sonnet (Hybrid Thinking)</option>
                     </optgroup>
                     <optgroup label="OpenAI / Codex">
@@ -965,7 +967,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                       <option value="gemini-3.8-flash">Gemini 3.8 Flash (Sub-second Agentic)</option>
                     </optgroup>
                     <optgroup label="Anthropic Claude">
-                      <option value="claude-3-5-haiku">Claude 3.5 Haiku (Fast Sub-agent)</option>
+                      <option value="claude-haiku-5-5">Claude Haiku 5.5 (Fast Sub-agent)</option>
                     </optgroup>
                     <optgroup label="OpenAI / Codex">
                       <option value="gpt-5.4-mini">GPT-5.4 Mini (Subagents & Fast Coding)</option>
@@ -1612,10 +1614,11 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                       onChange={(e) => setModelInput(e.target.value)}
                       className="w-full px-3.5 py-2 rounded-lg bg-onedark-bg border border-onedark-border text-xs text-onedark-fgBright font-mono focus:outline-none focus:border-onedark-accent cursor-pointer"
                     >
-                      <option value="claude-fable-5-1">Claude Fable 5.1 (Default / Mythos Frontier)</option>
-                      <option value="claude-3-7-sonnet">Claude 3.7 Sonnet (Thinking)</option>
-                      <option value="claude-3-5-sonnet">Claude 3.5 Sonnet</option>
-                      <option value="claude-3-5-haiku">Claude 3.5 Haiku (Fast)</option>
+                      <option value="claude-opus-5-5">Claude Opus 5.5 (Default / Flagship Autonomous & Coding)</option>
+                      <option value="claude-fable-5-1">Claude Fable 5.1 (Mythos Frontier Long-Horizon)</option>
+                      <option value="claude-sonnet-5-5">Claude Sonnet 5.5 (Balanced Intelligence)</option>
+                      <option value="claude-3-7-sonnet">Claude 3.7 Sonnet (Hybrid Thinking)</option>
+                      <option value="claude-haiku-5-5">Claude Haiku 5.5 (Fast Sub-agent)</option>
                     </select>
                   )}
                   {selectedIntegration.id === 'openai' && (
