@@ -729,6 +729,8 @@ class IntegrationManager:
                 }
             else:
                 stderr_text = proc.stderr.strip()
+                from app.agent.vault_interceptor import VaultInterceptor
+                clean_stderr = VaultInterceptor.redact_credentials(stderr_text)
                 err_lower = stderr_text.lower()
                 is_auth_error = any(kw in err_lower for kw in [
                     "could not read username",
@@ -743,10 +745,12 @@ class IntegrationManager:
                     "accessible": False,
                     "auth_required": is_auth_error,
                     "repo_url": repo_url,
-                    "message": f"Failed to access repository: {stderr_text or 'Invalid credentials or repository not found'}"
+                    "message": f"Failed to access repository: {clean_stderr or 'Invalid credentials or repository not found'}"
                 }
         except Exception as e:
-            return {"accessible": False, "auth_required": True, "repo_url": repo_url, "message": f"Connection error: {str(e)}"}
+            from app.agent.vault_interceptor import VaultInterceptor
+            clean_err = VaultInterceptor.redact_credentials(str(e))
+            return {"accessible": False, "auth_required": True, "repo_url": repo_url, "message": f"Connection error: {clean_err}"}
 
 
     async def get_github_token_for_repo(self, repo_name_or_url: Optional[str] = None) -> Optional[str]:

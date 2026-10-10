@@ -8,6 +8,8 @@ import signal
 import shutil
 import logging
 import subprocess
+import secrets
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Set
@@ -18,6 +20,10 @@ from app.core.sandboxes.container.lifecycle import container_lifecycle
 from app.api.websocket import ws_manager
 
 logger = logging.getLogger("cyclode.terminal")
+
+# Dedicated isolated thread pool executor for non-blocking POSIX PTY reads.
+# Prevents master PTY reads from starving Python's default ThreadPoolExecutor.
+_pty_executor = ThreadPoolExecutor(max_workers=64, thread_name_prefix="cyclode-pty")
 
 
 class TerminalSession:
@@ -139,8 +145,7 @@ class TerminalManager:
         Spawns a new POSIX master/slave PTY attached to the task sandbox workspace or companion container.
         """
         if not session_id:
-            import uuid
-            session_id = f"term-{uuid.uuid4().hex[:8]}"
+            session_id = f"term-{secrets.token_urlsafe(24)}"
 
         # Close existing session with same ID if any
         if session_id in self.sessions:
@@ -309,8 +314,9 @@ export PS1='\\[\\033[1;34m\\]\\w\\[\\033[0m\\] $(__cyclode_prompt)\\[\\033[1;32m
             master_fd = session.master_fd
             try:
                 while session.is_alive:
-                    # Blocking read executed in background thread pool to avoid uvloop epoll PTY assertion crashes
-                    data = await loop.run_in_executor(None, os.read, master_fd, 4096)
+                    # Blocking read executed in dedicated PTY thread pool to avoid uvloop epoll crashes
+                    # and prevent exhausting Python's default ThreadPoolExecutor
+                    data = await loop.run_in_executor(_pty_executor, os.read, master_fd, 4096)
                     if not data:
                         break
                     text = data.decode("utf-8", errors="replace")

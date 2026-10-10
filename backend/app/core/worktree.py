@@ -40,9 +40,9 @@ class WorktreeManager:
         path.mkdir(parents=True, exist_ok=True)
         git_env = self._get_git_env()
         if not (path / ".git").exists():
-            subprocess.run(["git", "init"], cwd=path, capture_output=True, env=git_env)
-            subprocess.run(["git", "config", "user.name", "Cyclode Agent"], cwd=path, capture_output=True, env=git_env)
-            subprocess.run(["git", "config", "user.email", "agent@cyclode.ai"], cwd=path, capture_output=True, env=git_env)
+            subprocess.run(["git", "init"], cwd=path, capture_output=True, env=git_env, timeout=10)
+            subprocess.run(["git", "config", "user.name", "Cyclode Agent"], cwd=path, capture_output=True, env=git_env, timeout=10)
+            subprocess.run(["git", "config", "user.email", "agent@cyclode.ai"], cwd=path, capture_output=True, env=git_env, timeout=10)
             
             # Create sample codebase
             src_dir = path / "app"
@@ -73,9 +73,9 @@ class WorktreeManager:
                     '        self.assertEqual(self.auth.get_user_display_name(user), "Alice")\n'
                 )
 
-            subprocess.run(["git", "add", "."], cwd=path, capture_output=True, env=git_env)
-            subprocess.run(["git", "commit", "-m", "initial commit"], cwd=path, capture_output=True, env=git_env)
-            subprocess.run(["git", "branch", "-M", "main"], cwd=path, capture_output=True, env=git_env)
+            subprocess.run(["git", "add", "."], cwd=path, capture_output=True, env=git_env, timeout=10)
+            subprocess.run(["git", "commit", "-m", "initial commit"], cwd=path, capture_output=True, env=git_env, timeout=10)
+            subprocess.run(["git", "branch", "-M", "main"], cwd=path, capture_output=True, env=git_env, timeout=10)
 
     def get_git_branch(self, workspace_path: Path, expected_branch: Optional[str] = None) -> Optional[str]:
         """
@@ -157,7 +157,7 @@ class WorktreeManager:
     def get_git_commits(self, workspace_path: Path, limit: int = 50) -> List[Dict[str, Any]]:
         """
         Retrieves recent git commit log for the current workspace with creation timestamps,
-        inferred turn labels, and diff addition/deletion statistics.
+        inferred turn labels, and diff addition/deletion statistics via a single aggregated git log command.
         """
         if not (workspace_path / ".git").exists():
             return []
@@ -165,64 +165,61 @@ class WorktreeManager:
         git_env = self._get_git_env()
         try:
             log_proc = subprocess.run(
-                ["git", "log", f"-n{limit}", "--pretty=format:%H|%h|%an|%ae|%aI|%s"],
+                ["git", "log", f"-n{limit}", "--numstat", "--pretty=format:CYCLODE_COMMIT|%H|%h|%an|%ae|%aI|%s"],
                 cwd=workspace_path,
                 capture_output=True,
                 text=True,
                 env=git_env,
-                timeout=5
+                timeout=10
             )
             if log_proc.returncode != 0 or not log_proc.stdout.strip():
                 return []
 
             commits: List[Dict[str, Any]] = []
-            for line in log_proc.stdout.strip().splitlines():
+            current_commit: Optional[Dict[str, Any]] = None
+
+            for raw_line in log_proc.stdout.splitlines():
+                line = raw_line.strip()
                 if not line:
                     continue
-                parts = line.split("|", 5)
-                if len(parts) < 6:
-                    continue
-                sha, short_sha, author, email, committed_at, message = parts
+                if line.startswith("CYCLODE_COMMIT|"):
+                    if current_commit:
+                        commits.append(current_commit)
+                    parts = line.split("|", 6)
+                    if len(parts) < 7:
+                        current_commit = None
+                        continue
+                    _, sha, short_sha, author, email, committed_at, message = parts
 
-                # Inferred turn label
-                turn_label = None
-                m = re.search(r"(?:cyclode:turn_|conv_turn_|turn[_\s-])(\d+)", message, re.IGNORECASE)
-                if m:
-                    turn_label = f"Turn {m.group(1)}"
+                    turn_label = None
+                    m = re.search(r"(?:cyclode:turn_|conv_turn_|turn[_\s-])(\d+)", message, re.IGNORECASE)
+                    if m:
+                        turn_label = f"Turn {m.group(1)}"
 
-                rel_time = self._format_relative_time(committed_at)
+                    rel_time = self._format_relative_time(committed_at)
+                    current_commit = {
+                        "sha": sha,
+                        "short_sha": short_sha,
+                        "turn_label": turn_label,
+                        "message": message,
+                        "author": author,
+                        "email": email,
+                        "committed_at": committed_at,
+                        "relative_time": rel_time,
+                        "additions": 0,
+                        "deletions": 0
+                    }
+                elif current_commit is not None:
+                    s_parts = line.split()
+                    if len(s_parts) >= 2:
+                        if s_parts[0].isdigit():
+                            current_commit["additions"] += int(s_parts[0])
+                        if s_parts[1].isdigit():
+                            current_commit["deletions"] += int(s_parts[1])
 
-                # Fetch additions / deletions for this commit
-                numstat = subprocess.run(
-                    ["git", "show", "--numstat", "--format=", sha],
-                    cwd=workspace_path,
-                    capture_output=True,
-                    text=True,
-                    env=git_env,
-                    timeout=5
-                )
-                adds, dels = 0, 0
-                if numstat.returncode == 0 and numstat.stdout.strip():
-                    for s_line in numstat.stdout.strip().splitlines():
-                        s_parts = s_line.split()
-                        if len(s_parts) >= 2:
-                            if s_parts[0].isdigit():
-                                adds += int(s_parts[0])
-                            if s_parts[1].isdigit():
-                                dels += int(s_parts[1])
+            if current_commit:
+                commits.append(current_commit)
 
-                commits.append({
-                    "sha": sha,
-                    "short_sha": short_sha,
-                    "turn_label": turn_label,
-                    "message": message,
-                    "author": author,
-                    "email": email,
-                    "committed_at": committed_at,
-                    "relative_time": rel_time,
-                    "additions": adds,
-                    "deletions": dels
-                })
             return commits
         except Exception:
             return []

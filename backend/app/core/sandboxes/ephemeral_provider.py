@@ -105,7 +105,9 @@ class EphemeralSandboxProvider(SandboxProvider):
                     if commit_sha:
                         subprocess.run(["git", "checkout", commit_sha], cwd=workspace_path, capture_output=True)
                 else:
-                    err_msg = proc.stderr or ""
+                    raw_err = proc.stderr or ""
+                    from app.agent.vault_interceptor import VaultInterceptor
+                    err_msg = VaultInterceptor.redact_credentials(raw_err)
                     err_lower = err_msg.lower()
                     logger.warning(f"Git clone failed for {repo_url} with code {proc.returncode}: {err_msg}")
                     
@@ -188,9 +190,9 @@ class EphemeralSandboxProvider(SandboxProvider):
 
     def _init_sample_repo(self, path: Path, branch_name: str = "main"):
         """Initializes a standalone git repository with sample code for autonomous test execution."""
-        subprocess.run(["git", "init", "-b", branch_name], cwd=path, capture_output=True)
-        subprocess.run(["git", "config", "user.name", "Cyclode Agent"], cwd=path, capture_output=True)
-        subprocess.run(["git", "config", "user.email", "agent@cyclode.ai"], cwd=path, capture_output=True)
+        subprocess.run(["git", "init", "-b", branch_name], cwd=path, capture_output=True, timeout=10)
+        subprocess.run(["git", "config", "user.name", "Cyclode Agent"], cwd=path, capture_output=True, timeout=10)
+        subprocess.run(["git", "config", "user.email", "agent@cyclode.ai"], cwd=path, capture_output=True, timeout=10)
 
         app_dir = path / "app"
         tests_dir = path / "tests"
@@ -218,8 +220,8 @@ class EphemeralSandboxProvider(SandboxProvider):
             encoding="utf-8"
         )
 
-        subprocess.run(["git", "add", "."], cwd=path, capture_output=True)
-        subprocess.run(["git", "commit", "-m", "initial commit"], cwd=path, capture_output=True)
+        subprocess.run(["git", "add", "."], cwd=path, capture_output=True, timeout=10)
+        subprocess.run(["git", "commit", "-m", "initial commit"], cwd=path, capture_output=True, timeout=10)
 
     async def run_command(self, context: SandboxContext, command: str, timeout: int = 60) -> CommandResult:
         if context.is_destroyed:
@@ -373,5 +375,31 @@ class EphemeralSandboxProvider(SandboxProvider):
             logger.error(f"Error destroying sandbox by task_id {task_id}: {e}")
             return False
 
+    async def prune_orphaned_sandboxes(self, active_task_ids: set[str]) -> int:
+        """
+        Scans base_dir for orphaned sandbox-* directories whose task ID is no longer active.
+        """
+        pruned_count = 0
+        if not self.base_dir.exists():
+            return 0
+
+        try:
+            for item in self.base_dir.iterdir():
+                if item.is_dir() and item.name.startswith("sandbox-"):
+                    task_id = item.name.replace("sandbox-", "", 1)
+                    if task_id not in active_task_ids:
+                        try:
+                            shutil.rmtree(item, ignore_errors=True)
+                            self._active_sandboxes.pop(task_id, None)
+                            pruned_count += 1
+                            logger.info(f"Pruned orphaned ephemeral sandbox: {item.name}")
+                        except Exception as e:
+                            logger.warning(f"Failed to prune orphaned sandbox {item}: {e}")
+        except Exception as e:
+            logger.error(f"Error scanning for orphaned sandboxes: {e}")
+
+        return pruned_count
+
 
 ephemeral_sandbox_provider = EphemeralSandboxProvider()
+

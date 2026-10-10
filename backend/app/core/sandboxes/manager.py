@@ -80,10 +80,19 @@ class SandboxManager:
         return all(r is True for r in results if not isinstance(r, Exception))
 
     async def prune_orphans(self, active_task_ids: set[str]) -> int:
-        """Prunes orphaned companion containers and stray scratch layers."""
-        if hasattr(self.provider, "prune_orphaned_sandboxes"):
-            return await self.provider.prune_orphaned_sandboxes(active_task_ids)
-        return 0
+        """Prunes orphaned companion containers and stray scratch layers across all sandbox backends."""
+        total_pruned = 0
+        providers = {self.provider, container_sandbox_provider, overlay_sandbox_provider, ephemeral_sandbox_provider}
+        for prov in providers:
+            if hasattr(prov, "prune_orphaned_sandboxes"):
+                try:
+                    res = prov.prune_orphaned_sandboxes(active_task_ids)
+                    if asyncio.iscoroutine(res):
+                        res = await res
+                    total_pruned += (res or 0)
+                except Exception:
+                    pass
+        return total_pruned
 
     async def get_hygiene_summary(self, active_task_ids: set[str]) -> Dict[str, Any]:
         """Retrieves container hygiene and orphan counts."""

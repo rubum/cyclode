@@ -49,7 +49,7 @@ class WebSocketManager:
 
         async def _safe_send(ws: WebSocket) -> Optional[WebSocket]:
             try:
-                await ws.send_text(message_str)
+                await asyncio.wait_for(ws.send_text(message_str), timeout=3.0)
                 return None
             except Exception:
                 return ws

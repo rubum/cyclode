@@ -150,7 +150,53 @@ def cmd_config(args):
         print(f"Updated {key} = {val}")
 
 
+def cmd_clean(args):
+    _print_banner()
+    import shutil
+    dirs = ensure_cyclode_home()
+    workspace_root = resolve_workspace_root()
+    dry_run = getattr(args, "dry_run", False)
+
+    print("\033[1mCyclode Workspace & Sandbox Cleanup\033[0m")
+
+    # Search in configured workspace, home workspaces directory, and current directory workspaces
+    search_dirs = [Path(workspace_root), dirs["workspaces"], Path.cwd() / "workspaces"]
+    candidates = []
+
+    seen = set()
+
+    for base in search_dirs:
+        if base.exists():
+            for item in base.iterdir():
+                if item.is_dir() and item.name.startswith("sandbox-") and item.resolve() not in seen:
+                    seen.add(item.resolve())
+                    candidates.append(item)
+
+    if not candidates:
+        print("  \033[32m✔ No orphaned sandbox workspaces found.\033[0m")
+        return
+
+    print(f"  Found {len(candidates)} sandbox workspace(s):")
+    for c in candidates:
+        print(f"    • {c}")
+
+    if dry_run:
+        print(f"\n  [Dry Run] Would prune {len(candidates)} sandbox(es). No files deleted.")
+        return
+
+    deleted = 0
+    for c in candidates:
+        try:
+            shutil.rmtree(c, ignore_errors=True)
+            deleted += 1
+        except Exception as e:
+            print(f"    \033[31m✖ Failed to delete {c.name}: {e}\033[0m")
+
+    print(f"\n  \033[32m✔ Successfully cleaned up {deleted} sandbox workspace(s).\033[0m")
+
+
 def main():
+
     parser = argparse.ArgumentParser(
         prog="cyclode",
         description="Cyclode: Autonomous Agent Platform & Live App Builder",
@@ -183,6 +229,12 @@ def main():
     p_config.add_argument("key", nargs="?", default=None)
     p_config.add_argument("value", nargs="?", default=None)
     p_config.set_defaults(func=cmd_config)
+
+    # cyclode clean
+    p_clean = subparsers.add_parser("clean", help="Prune orphaned sandboxes and temporary workspace artifacts")
+    p_clean.add_argument("--dry-run", action="store_true", help="Display removable directories without deleting")
+    p_clean.set_defaults(func=cmd_clean)
+
 
     args = parser.parse_args()
     if not args.command:

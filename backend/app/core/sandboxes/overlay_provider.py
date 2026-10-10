@@ -162,7 +162,9 @@ class OverlayFSSandboxProvider(SandboxProvider):
                 subprocess.run(["git", "checkout", commit_sha], cwd=cached_repo_dir, capture_output=True, env=git_env)
             return cached_repo_dir
 
-        err_msg = proc.stderr or ""
+        raw_err = proc.stderr or ""
+        from app.agent.vault_interceptor import VaultInterceptor
+        err_msg = VaultInterceptor.redact_credentials(raw_err)
         is_auth_error = any(kw in err_msg.lower() for kw in [
             "could not read username", "authentication failed", "permission denied", "invalid credentials"
         ])
@@ -714,5 +716,27 @@ class OverlayFSSandboxProvider(SandboxProvider):
         results = await asyncio.gather(*tasks, return_exceptions=True)
         return all(r is True for r in results if not isinstance(r, Exception))
 
+    async def prune_orphaned_sandboxes(self, active_task_ids: set[str]) -> int:
+        """
+        Scans base_dir and overlays_dir for orphaned task workspaces not present in active_task_ids.
+        """
+        pruned_count = 0
+        if not self.base_dir.exists():
+            return 0
+
+        try:
+            for item in self.base_dir.iterdir():
+                if item.is_dir() and item.name.startswith("sandbox-"):
+                    task_id = item.name.replace("sandbox-", "", 1)
+                    if task_id not in active_task_ids:
+                        await self.destroy_by_task_id(task_id, str(item))
+                        pruned_count += 1
+                        logger.info(f"Pruned orphaned OverlayFS sandbox: {item.name}")
+        except Exception as e:
+            logger.error(f"Error scanning for orphaned overlay sandboxes: {e}")
+
+        return pruned_count
+
 
 overlay_sandbox_provider = OverlayFSSandboxProvider()
+
