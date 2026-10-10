@@ -16,6 +16,31 @@ class VaultInterceptor:
     OPENAI_KEY_REGEX = re.compile(r"\b(sk-proj-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{48,})\b")
     DEEPSEEK_KEY_REGEX = re.compile(r"\b(sk-(?!ant-|proj-)[a-f0-9]{32,}|sk-(?!ant-|proj-)[A-Za-z0-9_-]{30,})\b")
     LINEAR_KEY_REGEX = re.compile(r"\b(lin_api_[A-Za-z0-9_-]{20,})\b")
+    URL_CREDENTIAL_REGEX = re.compile(r"://([^:@\s]+):([^@\s]+)@")
+
+    @classmethod
+    def redact_credentials(cls, text: str) -> str:
+        """
+        Redacts sensitive tokens, API keys, and URL-embedded credentials from error messages,
+        subprocess output, and logs to prevent credential exfiltration.
+        """
+        if not text:
+            return ""
+        # 1. Mask URL-embedded credentials (e.g. https://x-access-token:ghp_... -> https://x-access-token:***@)
+        sanitized = cls.URL_CREDENTIAL_REGEX.sub(r"://\1:***@", str(text))
+
+        # 2. Mask known provider token patterns
+        for regex in (
+            cls.GITHUB_TOKEN_REGEX,
+            cls.SLACK_TOKEN_REGEX,
+            cls.GEMINI_KEY_REGEX,
+            cls.ANTHROPIC_KEY_REGEX,
+            cls.OPENAI_KEY_REGEX,
+            cls.DEEPSEEK_KEY_REGEX,
+            cls.LINEAR_KEY_REGEX,
+        ):
+            sanitized = regex.sub(lambda m: m.group(1)[:4] + "..." + m.group(1)[-4:] if len(m.group(1)) > 8 else "***", sanitized)
+        return sanitized
 
     @classmethod
     async def process_prompt(cls, prompt: str) -> Tuple[str, Dict[str, Any]]:

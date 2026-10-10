@@ -128,6 +128,10 @@ class BaseLLMProvider(ABC):
         clean = (model_name or "").lower()
         if "deepseek" in clean:
             return 1_048_576
+        if "fable" in clean or "opus" in clean:
+            return 1_000_000
+        if "sonnet-5" in clean:
+            return 500_000
         if "claude" in clean or "anthropic" in clean:
             return 200_000
         if "o1" in clean or "o3" in clean:

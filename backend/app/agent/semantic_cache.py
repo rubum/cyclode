@@ -2,6 +2,7 @@ import math
 import json
 import re
 import hashlib
+from datetime import timedelta
 from typing import List, Optional, Tuple, Dict, Any
 import httpx
 from sqlalchemy import select
@@ -11,6 +12,20 @@ import logging
 logger = logging.getLogger("cyclode.semantic_cache")
 
 from app.db.models import SemanticCacheModel, get_utc_now
+
+TEMPORAL_ANCHORS = {
+    "today", "yesterday", "tonight", "this morning", "this week", "last week",
+    "past week", "this month", "last month", "recent", "latest", "current",
+    "news", "2026", "announcements", "updates", "releases"
+}
+
+
+def contains_temporal_anchor(text: str) -> bool:
+    """
+    Checks if a query string contains temporal references that require live external intelligence.
+    """
+    text_lower = text.lower()
+    return any(re.search(r"\b" + re.escape(anchor) + r"\b", text_lower) for anchor in TEMPORAL_ANCHORS)
 
 
 def normalize_query(text: str) -> str:
@@ -143,16 +158,26 @@ async def lookup_semantic_cache(
     if db is None or intent != "qa_research" or not query.strip():
         return None
 
+    # Never serve cached responses for queries containing temporal anchors
+    if contains_temporal_anchor(query):
+        logger.debug("Bypassing semantic cache due to temporal anchor token in query")
+        return None
+
     # Never serve cached responses for attachment-bearing queries (each image/file payload is unique)
     if "[Uploaded Attachment:" in query or "[Attached Image:" in query or ".cyclode/attachments/" in query or "[Uploaded Workspace" in query:
         return None
 
     norm = normalize_query(query)
+    cutoff = get_utc_now() - timedelta(days=7)
     
-    # 1. Fast exact normalized query check
+    # 1. Fast exact normalized query check (enforcing 7-day TTL)
     res = await db.execute(
         select(SemanticCacheModel)
-        .where(SemanticCacheModel.query_norm == norm, SemanticCacheModel.intent_category == intent)
+        .where(
+            SemanticCacheModel.query_norm == norm,
+            SemanticCacheModel.intent_category == intent,
+            SemanticCacheModel.created_at >= cutoff
+        )
     )
     exact_match = res.scalar_one_or_none()
     if exact_match:
@@ -168,7 +193,10 @@ async def lookup_semantic_cache(
 
     res = await db.execute(
         select(SemanticCacheModel)
-        .where(SemanticCacheModel.intent_category == intent)
+        .where(
+            SemanticCacheModel.intent_category == intent,
+            SemanticCacheModel.created_at >= cutoff
+        )
     )
     candidates = res.scalars().all()
 
@@ -210,6 +238,10 @@ async def store_semantic_cache(
     Stores or updates a validated analytical synthesis in the semantic_cache table.
     """
     if db is None or intent != "qa_research" or not response_text or len(response_text.strip()) < 30:
+        return None
+
+    # Never cache responses for queries containing temporal anchors
+    if contains_temporal_anchor(query):
         return None
 
     norm = normalize_query(query)

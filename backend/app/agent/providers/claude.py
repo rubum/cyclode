@@ -229,11 +229,17 @@ class ClaudeProvider(BaseLLMProvider):
             )
 
         # Normalize model identifier
-        clean_model = model_name.replace("anthropic:", "").strip() if model_name else "claude-fable-5-1"
-        if clean_model in ["claude-fable-5-1", "claude-fable-5", "fable", "claude-fable"]:
+        clean_model = model_name.replace("anthropic:", "").strip() if model_name else "claude-opus-5-5"
+        if clean_model in ["claude-opus-5-5", "claude-opus", "opus-5-5", "opus"]:
+            clean_model = "claude-opus-5-5"
+        elif clean_model in ["claude-fable-5-1", "claude-fable-5", "fable", "claude-fable"]:
             clean_model = "claude-fable-5-1"
+        elif clean_model in ["claude-sonnet-5-5", "sonnet-5-5", "claude-sonnet"]:
+            clean_model = "claude-sonnet-5-5"
         elif clean_model in ["claude-3-7-sonnet", "claude-3.7-sonnet"]:
             clean_model = "claude-3-7-sonnet-20250219"
+        elif clean_model in ["claude-haiku-5-5", "haiku-5-5", "claude-haiku"]:
+            clean_model = "claude-haiku-5-5"
         elif clean_model in ["claude-3-5-sonnet", "claude-3.5-sonnet"]:
             clean_model = "claude-3-5-sonnet-20241022"
         elif clean_model in ["claude-3-5-haiku", "claude-3.5-haiku"]:
@@ -251,8 +257,8 @@ class ClaudeProvider(BaseLLMProvider):
         if claude_tools:
             payload["tools"] = claude_tools
 
-        # Support extended thinking for Claude Fable and Claude 3.7
-        if ("claude-3-7" in clean_model or "fable" in clean_model) and (thinking_budget or settings.ANTIGRAVITY_ENABLE_THINKING):
+        # Support extended thinking for modern reasoning models (Opus 5.5, Fable 5.1, Claude 3.7, Sonnet 5.5)
+        if ("opus" in clean_model or "fable" in clean_model or "claude-3-7" in clean_model or "sonnet-5-5" in clean_model) and (thinking_budget or settings.ANTIGRAVITY_ENABLE_THINKING):
             budget = thinking_budget or 2048
             payload["thinking"] = {"type": "enabled", "budget_tokens": budget}
             # Anthropic requires temperature=1.0 when thinking is enabled
@@ -368,10 +374,11 @@ class ClaudeProvider(BaseLLMProvider):
 
         candidate_models = list(dict.fromkeys([
             model_name,
+            "claude-opus-5-5",
             "claude-fable-5-1",
+            "claude-sonnet-5-5",
             "claude-3-7-sonnet-20250219",
-            "claude-3-5-haiku-20241022",
-            "claude-3-5-sonnet-20241022"
+            "claude-haiku-5-5"
         ]))
 
         should_close = False
@@ -388,11 +395,17 @@ class ClaudeProvider(BaseLLMProvider):
         last_error = "Model response unavailable"
         try:
             for active_model in candidate_models:
-                clean_model = active_model.replace("anthropic:", "").strip() if active_model else "claude-fable-5-1"
-                if clean_model in ["claude-fable-5-1", "claude-fable-5", "fable", "claude-fable"]:
+                clean_model = active_model.replace("anthropic:", "").strip() if active_model else "claude-opus-5-5"
+                if clean_model in ["claude-opus-5-5", "claude-opus", "opus-5-5", "opus"]:
+                    clean_model = "claude-opus-5-5"
+                elif clean_model in ["claude-fable-5-1", "claude-fable-5", "fable", "claude-fable"]:
                     clean_model = "claude-fable-5-1"
+                elif clean_model in ["claude-sonnet-5-5", "sonnet-5-5", "claude-sonnet"]:
+                    clean_model = "claude-sonnet-5-5"
                 elif clean_model in ["claude-3-7-sonnet", "claude-3.7-sonnet"]:
                     clean_model = "claude-3-7-sonnet-20250219"
+                elif clean_model in ["claude-haiku-5-5", "haiku-5-5", "claude-haiku"]:
+                    clean_model = "claude-haiku-5-5"
                 elif clean_model in ["claude-3-5-sonnet", "claude-3.5-sonnet"]:
                     clean_model = "claude-3-5-sonnet-20241022"
                 elif clean_model in ["claude-3-5-haiku", "claude-3.5-haiku"]:

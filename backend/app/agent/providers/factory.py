@@ -88,10 +88,11 @@ def get_model_catalog() -> List[Dict[str, Any]]:
             "provider_name": "Anthropic Claude",
             "configured": has_claude,
             "models": [
-                {"id": "claude-fable-5-1", "name": "Claude Fable 5.1", "badge": "Mythos Long-Horizon", "recommended": True},
+                {"id": "claude-opus-5-5", "name": "Claude Opus 5.5", "badge": "Flagship Autonomous & Coding", "recommended": True},
+                {"id": "claude-fable-5-1", "name": "Claude Fable 5.1", "badge": "Mythos Long-Horizon", "recommended": False},
+                {"id": "claude-sonnet-5-5", "name": "Claude Sonnet 5.5", "badge": "Balanced Intelligence", "recommended": False},
                 {"id": "claude-3-7-sonnet", "name": "Claude 3.7 Sonnet", "badge": "Hybrid Thinking", "recommended": False},
-                {"id": "claude-3-5-sonnet", "name": "Claude 3.5 Sonnet", "badge": "Coding Benchmark", "recommended": False},
-                {"id": "claude-3-5-haiku", "name": "Claude 3.5 Haiku", "badge": "Fast & Lightweight", "recommended": False}
+                {"id": "claude-haiku-5-5", "name": "Claude Haiku 5.5", "badge": "Fast Sub-agents", "recommended": False}
             ]
         },
         {

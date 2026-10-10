@@ -270,3 +270,77 @@ async def test_semantic_cache_bypassed_in_multiturn_conversation(tmp_path, monke
 
     # Cached flag is False because multi-turn history bypasses the semantic cache
     assert result.get("cached", False) is False
+
+
+@pytest.mark.asyncio
+async def test_semantic_cache_temporal_anchor_bypass(tmp_path):
+    from datetime import timedelta
+    test_db_path = tmp_path / "test_temporal.db"
+    db_url = f"sqlite+aiosqlite:///{test_db_path}"
+    test_engine = create_async_engine(db_url)
+    async_session = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with async_session() as session:
+        # store query with temporal anchor should be rejected
+        stored = await store_semantic_cache(
+            db=session,
+            query="What are today's top tech news and AI releases?",
+            plan={"steps": []},
+            response_text="Here are the top news from today: Gemini 2.5 Flash released.",
+            intent="qa_research"
+        )
+        assert stored is None
+
+        # lookup query with temporal anchor should always return None
+        hit = await lookup_semantic_cache(
+            db=session,
+            query="What are today's top tech news?",
+            intent="qa_research"
+        )
+        assert hit is None
+
+        hit_recent = await lookup_semantic_cache(
+            db=session,
+            query="What is the latest React 19 update?",
+            intent="qa_research"
+        )
+        assert hit_recent is None
+
+
+@pytest.mark.asyncio
+async def test_semantic_cache_ttl_expiration(tmp_path):
+    from datetime import timedelta
+    from app.db.models import get_utc_now
+    test_db_path = tmp_path / "test_ttl.db"
+    db_url = f"sqlite+aiosqlite:///{test_db_path}"
+    test_engine = create_async_engine(db_url)
+    async_session = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+
+    async with test_engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+
+    async with async_session() as session:
+        # Store an entry
+        entry = await store_semantic_cache(
+            db=session,
+            query="Explain database indexing algorithms",
+            plan={"steps": []},
+            response_text="Database indexing uses B-trees and Hash indices to accelerate search.",
+            intent="qa_research"
+        )
+        assert entry is not None
+
+        # Expire it beyond the 7-day TTL (e.g. 8 days old)
+        entry.created_at = get_utc_now() - timedelta(days=8)
+        await session.commit()
+
+        # Lookup should return None because it is expired
+        hit = await lookup_semantic_cache(
+            db=session,
+            query="Explain database indexing algorithms",
+            intent="qa_research"
+        )
+        assert hit is None

@@ -162,7 +162,7 @@ async def generate_ai_title(
         if provider.provider_id == "deepseek":
             cand_models = ["deepseek-flash", "deepseek-chat"]
         elif provider.provider_id == "anthropic":
-            cand_models = ["claude-3-5-haiku-20241022", "claude-3-5-sonnet-20241022"]
+            cand_models = ["claude-haiku-5-5", "claude-sonnet-5-5", "claude-3-7-sonnet-20250219"]
         elif provider.provider_id == "openai":
             cand_models = ["gpt-4o-mini", "gpt-4o"]
         else:

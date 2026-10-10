@@ -1013,28 +1013,37 @@ class AgentTaskPool:
             # We preserve the sandbox workspace on disk throughout the session lifetime.
             # Sandbox is only destroyed when the user explicitly deletes the task session (DELETE /api/tasks/{task_id})
             # or clears all sessions. This ensures continuous file/diff browsing and multi-turn context.
-            if sandbox_ctx and sandbox_ctx.workspace_path.exists():
-                try:
-                    async with async_session_factory() as session:
-                        await session.execute(
-                            update(TaskModel)
-                            .where(TaskModel.id == task_id)
-                            .values(sandbox_status="ACTIVE")
-                        )
-                        await session.commit()
-                except Exception as e:
-                    logger.debug(f"Finally sandbox update notice for {task_id}: {e}")
+            async def _persist_cleanup_state():
+                if sandbox_ctx and sandbox_ctx.workspace_path.exists():
+                    try:
+                        async with async_session_factory() as session:
+                            await session.execute(
+                                update(TaskModel)
+                                .where(TaskModel.id == task_id)
+                                .values(sandbox_status="ACTIVE")
+                            )
+                            await session.commit()
+                    except Exception as e:
+                        logger.debug(f"Finally sandbox update notice for {task_id}: {e}")
 
-                try:
-                    await ws_manager.broadcast("TASK_STATUS_CHANGE", {
-                        "task_id": task_id,
-                        "sandbox_status": "ACTIVE"
-                    })
-                except Exception:
-                    pass
+                    try:
+                        await ws_manager.broadcast("TASK_STATUS_CHANGE", {
+                            "task_id": task_id,
+                            "sandbox_status": "ACTIVE"
+                        })
+                    except Exception:
+                        pass
 
-            self.active_tasks.pop(task_id, None)
-            self.steering_queues.pop(task_id, None)
+            try:
+                await asyncio.shield(_persist_cleanup_state())
+            except asyncio.CancelledError:
+                # Shield guarantees _persist_cleanup_state runs to completion; ignore cancellation in the enclosing frame
+                pass
+            except Exception:
+                pass
+            finally:
+                self.active_tasks.pop(task_id, None)
+                self.steering_queues.pop(task_id, None)
 
     async def respond_to_inquiry(
         self,

@@ -1947,10 +1947,62 @@ class WorkspaceTools:
         }
 
     @staticmethod
+    def _validate_external_url(url: str) -> Tuple[bool, Optional[str]]:
+        """
+        Validates external URLs to defend against Server-Side Request Forgery (SSRF).
+        Rejects loopback (127.0.0.1, localhost), private networks (RFC1918),
+        link-local / cloud metadata (169.254.169.254), and unsupported schemes.
+        """
+        import ipaddress
+        import socket
+        from urllib.parse import urlparse
+
+        try:
+            parsed = urlparse(url)
+            if parsed.scheme.lower() not in ("http", "https"):
+                return False, f"Unsupported scheme '{parsed.scheme}'. Only http and https are allowed."
+            hostname = parsed.hostname
+            if not hostname:
+                return False, "Invalid URL: missing hostname."
+
+            low_host = hostname.lower()
+            if low_host in ("localhost", "127.0.0.1", "::1", "0.0.0.0", "instance-data", "metadata.google.internal"):
+                return False, f"Access to local or cloud metadata host '{hostname}' is blocked by security safeguards."
+
+            try:
+                addr_info = socket.getaddrinfo(hostname, None)
+            except Exception as dns_err:
+                return False, f"DNS resolution failed for '{hostname}': {dns_err}"
+
+            for info in addr_info:
+                ip_str = info[4][0]
+                ip = ipaddress.ip_address(ip_str)
+                if (
+                    ip.is_private
+                    or ip.is_loopback
+                    or ip.is_link_local
+                    or ip.is_reserved
+                    or ip.is_multicast
+                ):
+                    return False, (
+                        f"Access to private/local network address ({ip_str}) for host '{hostname}' "
+                        "is blocked by Cyclode SSRF safeguards."
+                    )
+
+            return True, None
+        except Exception as e:
+            return False, f"URL security validation failed: {e}"
+
+    @staticmethod
     async def fetch_url(url: str, timeout: float = 10.0) -> Dict[str, Any]:
         """
         Fetches live web content, cleans up HTML, and extracts readable text.
+        Defends against SSRF and private network scanning.
         """
+        is_safe, safety_err = WorkspaceTools._validate_external_url(url)
+        if not is_safe:
+            return {"url": url, "error": f"SSRF Blocked: {safety_err}", "status_code": 403}
+
         try:
             headers = {
                 "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"

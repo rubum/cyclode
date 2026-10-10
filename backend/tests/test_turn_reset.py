@@ -326,3 +326,35 @@ async def test_agent_pool_reset_followup_turn(tmp_path):
         assert remaining[0].content == "Turn 1 done"
 
 
+def test_worktree_get_git_commits_aggregation(tmp_path):
+    from app.core.worktree import WorktreeManager
+    workspace = tmp_path / "repo_commits_test"
+    workspace.mkdir()
+    ensure_workspace_git_repo(workspace)
+
+    # Commit 1
+    (workspace / "file1.txt").write_text("line 1\nline 2\nline 3\n")
+    create_turn_snapshot(workspace, "cyclode:turn_1 initial turn")
+
+    # Commit 2
+    (workspace / "file1.txt").write_text("line 1\nline 2 modified\n")
+    (workspace / "file2.txt").write_text("alpha\nbeta\n")
+    create_turn_snapshot(workspace, "cyclode:turn_2 second turn")
+
+    mgr = WorktreeManager(root_dir=tmp_path)
+    commits = mgr.get_git_commits(workspace, limit=10)
+
+    assert len(commits) >= 2
+    # Verify latest commit (turn 2)
+    latest = commits[0]
+    assert latest["turn_label"] == "Turn 2"
+    assert latest["additions"] > 0
+    assert latest["sha"] is not None
+    assert latest["short_sha"] is not None
+
+    # Verify first commit (turn 1)
+    first = commits[1]
+    assert first["turn_label"] == "Turn 1"
+    assert first["additions"] == 3
+
+

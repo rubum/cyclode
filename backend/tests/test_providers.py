@@ -16,13 +16,14 @@ def test_provider_factory_routing():
     assert isinstance(get_provider_for_model("deepseek-reasoner"), DeepSeekProvider)
     assert isinstance(get_provider_for_model("deepseek:deepseek-flash"), DeepSeekProvider)
 
-    # Claude & Fable frontier models
+    # Claude frontier models
+    assert isinstance(get_provider_for_model("claude-opus-5-5"), ClaudeProvider)
     assert isinstance(get_provider_for_model("claude-fable-5-1"), ClaudeProvider)
     assert isinstance(get_provider_for_model("fable"), ClaudeProvider)
     assert isinstance(get_provider_for_model("anthropic:fable-5-1"), ClaudeProvider)
+    assert isinstance(get_provider_for_model("claude-sonnet-5-5"), ClaudeProvider)
     assert isinstance(get_provider_for_model("claude-3-7-sonnet"), ClaudeProvider)
-    assert isinstance(get_provider_for_model("claude-3-5-sonnet"), ClaudeProvider)
-    assert isinstance(get_provider_for_model("claude-3-5-haiku"), ClaudeProvider)
+    assert isinstance(get_provider_for_model("claude-haiku-5-5"), ClaudeProvider)
     
     # OpenAI & GPT-6 / Codex models
     assert isinstance(get_provider_for_model("gpt-6-astra"), OpenAIProvider)
@@ -65,9 +66,13 @@ def test_model_catalog_structure():
 
     anthropic_group = next(c for c in catalog if c["provider"] == "anthropic")
     model_ids = [m["id"] for m in anthropic_group["models"]]
+    assert "claude-opus-5-5" in model_ids
     assert "claude-fable-5-1" in model_ids
+    assert "claude-sonnet-5-5" in model_ids
     assert "claude-3-7-sonnet" in model_ids
-    assert "claude-3-5-sonnet" in model_ids
+    assert "claude-haiku-5-5" in model_ids
+    assert "claude-3-5-sonnet" not in model_ids
+    assert "claude-3-5-haiku" not in model_ids
 
     google_group = next(c for c in catalog if c["provider"] == "google")
     google_ids = [m["id"] for m in google_group["models"]]
