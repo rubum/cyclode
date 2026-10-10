@@ -18,6 +18,134 @@ import { useThemeObserver } from '../Charts/ChartTheme';
 interface MermaidDiagramProps {
   code: string;
   className?: string;
+  isStreaming?: boolean;
+}
+
+/**
+ * Sanitizes and normalizes raw Mermaid diagram text:
+ * - Strips leading/trailing markdown code fences (```mermaid ... ```)
+ * - Strips standalone 'mermaid' header keywords
+ * - Injects missing diagram declarations (e.g. flowchart TD)
+ * - Auto-quotes unquoted node labels containing special chars, pipes (|), HTML breaks (<br/>), etc.
+ * - Heals mismatched or dangling double quotes
+ */
+export function sanitizeMermaidCode(raw: string): string {
+  if (!raw || typeof raw !== 'string') return '';
+  let code = raw.trim();
+
+  // 1. Strip leading and trailing markdown code fences
+  code = code.replace(/^`{3,}(?:mermaid)?\s*\n?/i, '');
+  code = code.replace(/\n?`{3,}\s*$/i, '');
+  code = code.trim();
+
+  // 2. Strip standalone 'mermaid' header line if present
+  const firstLine = code.split('\n')[0].trim();
+  if (/^mermaid\s*$/i.test(firstLine)) {
+    code = code.replace(/^mermaid\s*\n?/i, '').trim();
+  }
+
+  // 3. Check for recognized diagram keywords
+  const diagramKeywords = [
+    'flowchart', 'graph', 'sequenceDiagram', 'classDiagram', 'stateDiagram',
+    'stateDiagram-v2', 'erDiagram', 'gantt', 'pie', 'gitGraph', 'journey',
+    'mindmap', 'quadrantChart', 'timeline', 'xychart-beta', 'c4context',
+    'c4container', 'c4component', 'c4dynamic', 'c4deployment', 'sankey-beta',
+    'packet-beta', 'kanban', 'architecture-beta', 'block-beta', 'requirementDiagram'
+  ];
+
+  const firstNonEmptyLine = code.split('\n').map(l => l.trim()).find(l => l.length > 0 && !l.startsWith('%%')) || '';
+  const firstWord = firstNonEmptyLine.split(/[\s\t\n({[]/)[0];
+
+  const hasDiagramType = diagramKeywords.some(kw => 
+    firstWord.toLowerCase() === kw.toLowerCase() ||
+    firstNonEmptyLine.toLowerCase().startsWith(kw.toLowerCase())
+  );
+
+  if (!hasDiagramType) {
+    // If it looks like a flowchart or graph (has arrows or node brackets), prepend flowchart TD
+    if (/-->|---|==>|-\.->|\[.*\]|\(.*\)/.test(code)) {
+      code = 'flowchart TD\n' + code;
+    }
+  }
+
+  // 4. Sanitize node labels in flowchart/graph diagrams
+  const lines = code.split('\n');
+  const sanitizedLines = lines.map(line => {
+    // Preserve comments and style directives
+    if (line.trim().startsWith('%%') || line.trim().startsWith('style ') || line.trim().startsWith('classDef ')) {
+      return line;
+    }
+
+    let l = line;
+
+    // Fix stadium ([ ... ])
+    l = l.replace(/([a-zA-Z0-9_.-]+)\(\[\s*([^\n\r]*?)\s*\]\)/g, (_, id, content) => {
+      let clean = content.trim().replace(/^"+|"+$/g, '').replace(/"/g, "'");
+      return `${id}(["${clean}"])`;
+    });
+
+    // Fix cylinder [( ... )]
+    l = l.replace(/([a-zA-Z0-9_.-]+)\[\(\s*([^\n\r]*?)\s*\)\]/g, (_, id, content) => {
+      let clean = content.trim().replace(/^"+|"+$/g, '').replace(/"/g, "'");
+      return `${id}[("${clean}")]`;
+    });
+
+    // Fix circle (( ... ))
+    l = l.replace(/([a-zA-Z0-9_.-]+)\(\(\s*([^\n\r]*?)\s*\)\)/g, (_, id, content) => {
+      let clean = content.trim().replace(/^"+|"+$/g, '').replace(/"/g, "'");
+      return `${id}(("${clean}"))`;
+    });
+
+    // Fix round ( ... )
+    l = l.replace(/([a-zA-Z0-9_.-]+)\((?![\(\[])\s*([^\n\r)]*?)\s*(?<![\)\]])\)/g, (match, id, content) => {
+      let clean = content.trim();
+      if (clean.startsWith('"') && clean.endsWith('"') && (clean.match(/"/g) || []).length === 2) return match;
+      clean = clean.replace(/^"+|"+$/g, '').replace(/"/g, "'");
+      return `${id}("${clean}")`;
+    });
+
+    // Fix rhombus { ... }
+    l = l.replace(/([a-zA-Z0-9_.-]+)\{\s*([^\n\r{}]+?)\s*\}/g, (match, id, content) => {
+      let clean = content.trim();
+      if (clean.startsWith('"') && clean.endsWith('"') && (clean.match(/"/g) || []).length === 2) return match;
+      clean = clean.replace(/^"+|"+$/g, '').replace(/"/g, "'");
+      return `${id}{"${clean}"}`;
+    });
+
+    // Fix square brackets [ ... ] - must NOT match cylinder [( ... )]
+    l = l.replace(/([a-zA-Z0-9_.-]+)\[(?!\()\s*([^\n\r\]]*?)\s*(?<!\))\]/g, (match, id, content) => {
+      let clean = content.trim();
+      if (clean.startsWith('"') && clean.endsWith('"') && (clean.match(/"/g) || []).length === 2) {
+        return match;
+      }
+      clean = clean.replace(/^"+|"+$/g, '').replace(/"/g, "'");
+      return `${id}["${clean}"]`;
+    });
+
+    return l;
+  });
+
+  return sanitizedLines.join('\n');
+}
+
+/**
+ * Secondary aggressive fallback repair when the primary sanitized render throws an error.
+ * Strips dangling edge connectors and cleans malformed lines.
+ */
+export function repairMermaidAggressive(code: string): string {
+  const lines = code.split('\n');
+  const cleaned: string[] = [];
+
+  for (const rawLine of lines) {
+    let line = rawLine.trim();
+    if (!line) continue;
+    // Remove dangling arrows at end of line (e.g. "A -->")
+    line = line.replace(/(?:-->|---|==>|-\.->)\s*$/, '').trim();
+    if (!line) continue;
+    cleaned.push(line);
+  }
+
+  return cleaned.join('\n');
 }
 
 /**
@@ -43,6 +171,7 @@ function extractSvgDimensions(svgString: string): { width: number; height: numbe
 function configureMermaid(isLight: boolean, accentColor: string) {
   mermaid.initialize({
     startOnLoad: false,
+    suppressErrorRendering: true,
     theme: 'base',
     themeVariables: isLight
       ? {
@@ -124,7 +253,7 @@ function configureMermaid(isLight: boolean, accentColor: string) {
   });
 }
 
-export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ code, className = '' }) => {
+export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ code, className = '', isStreaming = false }) => {
   const [svgHtml, setSvgHtml] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
@@ -142,7 +271,7 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ code, className 
   const svgDims = useMemo(() => extractSvgDimensions(svgHtml), [svgHtml]);
 
   const { isLight, accentColor } = useThemeObserver();
-  const cleanCode = code.trim();
+  const cleanCode = useMemo(() => sanitizeMermaidCode(code), [code]);
 
   // Calculate zoom scale needed to fit the diagram inside modal viewport
   const calculateFitZoom = useCallback(() => {
@@ -290,20 +419,49 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ code, className 
     let isMounted = true;
     configureMermaid(isLight, accentColor);
 
+    if (!cleanCode || cleanCode.trim().length < 5) {
+      setSvgHtml('');
+      setError(null);
+      return;
+    }
+
+    // If streaming and diagram ends abruptly with an arrow or open bracket, wait for more chunks
+    if (isStreaming && (cleanCode.endsWith('-->') || cleanCode.endsWith('---') || cleanCode.endsWith('==>') || cleanCode.endsWith('['))) {
+      return;
+    }
+
     const renderId = `mermaid-svg-${Math.random().toString(36).substring(2, 9)}`;
 
     async function renderChart() {
       try {
         setError(null);
-        // Render returns { svg, bindFunctions }
+        // Primary render attempt
         const { svg } = await mermaid.render(renderId, cleanCode);
         if (isMounted) {
           setSvgHtml(svg);
         }
-      } catch (err: any) {
+      } catch (primaryErr: any) {
+        // Attempt secondary aggressive recovery
+        const repaired = repairMermaidAggressive(cleanCode);
+        if (repaired && repaired !== cleanCode) {
+          try {
+            const retryId = `${renderId}-r`;
+            const { svg } = await mermaid.render(retryId, repaired);
+            if (isMounted) {
+              setSvgHtml(svg);
+              setError(null);
+              return;
+            }
+          } catch {
+            // Secondary recovery failed, proceed to clean error display
+          }
+        }
+
         if (isMounted) {
-          console.warn('Failed to parse Mermaid diagram:', err);
-          setError(err?.message || 'Invalid Mermaid syntax');
+          // If streaming, don't show error yet - the diagram may still be in transit
+          if (!isStreaming) {
+            setError(primaryErr?.message || 'Invalid Mermaid syntax');
+          }
           setSvgHtml('');
         }
       }
@@ -313,11 +471,17 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ code, className 
 
     return () => {
       isMounted = false;
-      // Clean up temporary DOM element if created by mermaid
+      // Clean up temporary DOM elements created by mermaid
       const el = document.getElementById(renderId);
       if (el) el.remove();
+      const dEl = document.getElementById(`d${renderId}`);
+      if (dEl) dEl.remove();
+      const rEl = document.getElementById(`${renderId}-r`);
+      if (rEl) rEl.remove();
+      const dREl = document.getElementById(`d${renderId}-r`);
+      if (dREl) dREl.remove();
     };
-  }, [cleanCode, isLight, accentColor]);
+  }, [cleanCode, isLight, accentColor, isStreaming]);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(cleanCode);
@@ -341,22 +505,25 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ code, className 
   if (error) {
     return (
       <div className={`my-3 rounded-xl bg-onedark-darker border border-onedark-borderSubtle overflow-hidden text-xs ${className}`}>
-        <div className="flex items-center justify-between px-3.5 py-2 bg-rose-500/10 border-b border-rose-500/20 text-rose-400">
+        <div className="flex items-center justify-between px-3.5 py-2 bg-amber-500/10 border-b border-amber-500/20 text-amber-400">
           <div className="flex items-center space-x-2">
             <AlertCircle className="w-3.5 h-3.5" />
-            <span className="font-semibold">Mermaid Syntax Warning</span>
+            <span className="font-semibold">Workflow Diagram (Source View)</span>
           </div>
           <button
             type="button"
             onClick={handleCopy}
-            className="flex items-center space-x-1 hover:text-onedark-fgBright transition-colors text-[11px] font-mono"
+            className="flex items-center space-x-1 hover:text-onedark-fgBright transition-colors text-[11px] font-mono cursor-pointer"
           >
-            <Copy className="w-3 h-3" />
-            <span>Copy Source</span>
+            {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+            <span>{copied ? 'Copied' : 'Copy Source'}</span>
           </button>
         </div>
-        <div className="p-3 font-mono text-[11px] text-onedark-muted whitespace-pre-wrap overflow-x-auto leading-relaxed">
-          {error}
+        <div className="p-3 font-mono text-[11px] text-onedark-fg/80 whitespace-pre-wrap overflow-x-auto leading-relaxed bg-onedark-darkest/40">
+          {cleanCode || code}
+        </div>
+        <div className="px-3.5 py-1.5 bg-onedark-surface/40 border-t border-onedark-borderSubtle/60 text-[10.5px] text-onedark-muted font-mono">
+          Syntax issue: {error.split('\n')[0]}
         </div>
       </div>
     );
@@ -430,8 +597,19 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ code, className 
           onDoubleClick={() => setIsModalOpen(true)}
           title="Double-click to expand and inspect"
           className="p-5 overflow-x-auto flex items-center justify-center min-h-[140px] [&>svg]:max-w-full [&>svg]:h-auto [&>svg]:transition-all cursor-pointer"
-          dangerouslySetInnerHTML={{ __html: svgHtml }}
-        />
+        >
+          {svgHtml ? (
+            <div
+              className="w-full flex items-center justify-center [&>svg]:max-w-full [&>svg]:h-auto"
+              dangerouslySetInnerHTML={{ __html: svgHtml }}
+            />
+          ) : (
+            <div className="flex items-center gap-2 text-xs font-mono text-onedark-muted py-6">
+              <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-onedark-accent border-t-transparent" />
+              <span>Rendering workflow diagram...</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Expanded Modal */}

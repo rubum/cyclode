@@ -17,16 +17,25 @@ def generate_plan_markdown(plan: Dict[str, Any], title: str = "", prompt: str = 
     
     phases = plan.get("phases") or []
     
+    def _clean_mermaid_label(raw: str) -> str:
+        if not raw:
+            return ""
+        cleaned = raw.replace("\r", "").replace("\n", " ").strip()
+        cleaned = cleaned.replace('"', "'").replace("\\", "/")
+        if len(cleaned) > 50:
+            cleaned = cleaned[:47] + "..."
+        return cleaned
+
     # Format mermaid diagram
     mermaid_steps = []
     if steps and isinstance(steps, list):
         for idx, s in enumerate(steps):
-            s_title = s.get("title", f"Step {idx+1}").replace('"', "'")
+            s_title = _clean_mermaid_label(s.get("title", f"Step {idx+1}"))
             step_id = f"S{idx+1}"
             mermaid_steps.append(f'    {step_id}["{idx+1}. {s_title}"]')
     elif phases and isinstance(phases, list):
         for idx, p in enumerate(phases):
-            p_title = p.get("title", f"Phase {idx+1}").replace('"', "'")
+            p_title = _clean_mermaid_label(p.get("title", f"Phase {idx+1}"))
             step_id = f"P{idx+1}"
             mermaid_steps.append(f'    {step_id}["Phase {idx+1}: {p_title}"]')
     

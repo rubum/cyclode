@@ -2,8 +2,10 @@ import React, { useState } from 'react';
 import { Copy, Check, Info, AlertTriangle, AlertCircle, Sparkles, Flame, ChevronRight, ChevronDown, Compass, ArrowRight, Maximize2, Minimize2, ArrowLeftRight } from 'lucide-react';
 import katex from 'katex';
 import { highlightCode, resolveLanguage, escapeHtml } from '../../utils/syntaxHighlighter';
-import { MermaidDiagram } from './MermaidDiagram';
 import { ChatChartBlock } from '../Chat/ChatChartBlock';
+
+const MermaidDiagram = React.lazy(() => import('./MermaidDiagram').then(m => ({ default: m.MermaidDiagram })));
+
 
 interface MarkdownRendererProps {
   content: string;
@@ -185,12 +187,20 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
           // Dynamic in-chat & plan workflow diagram (Mermaid)
           if (language === 'mermaid') {
             return (
-              <MermaidDiagram
+              <React.Suspense
                 key={index}
-                code={code}
-              />
+                fallback={
+                  <div className="my-3 flex items-center gap-2 rounded border border-zinc-800 bg-zinc-900/40 p-4 text-xs font-mono text-zinc-500">
+                    <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+                    Rendering diagram...
+                  </div>
+                }
+              >
+                <MermaidDiagram code={code} isStreaming={isStreaming} />
+              </React.Suspense>
             );
           }
+
 
           const isCollapsed = !!collapsedCodeBlocks[index];
           const isFullHeight = !!fullHeightCodeBlocks[index];
