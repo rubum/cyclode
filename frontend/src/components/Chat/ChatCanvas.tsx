@@ -1461,11 +1461,20 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const [inputValue, setRawInputValue] = useState(currentDraft || '');
 
   const setInputValue = useCallback((valOrUpdater: string | ((prev: string) => string)) => {
-    setRawInputValue((prev) => {
-      const next = typeof valOrUpdater === 'function' ? valOrUpdater(prev) : valOrUpdater;
-      onDraftChangeRef.current?.(next);
-      return next;
-    });
+    if (typeof valOrUpdater === 'function') {
+      setRawInputValue((prev) => {
+        const next = valOrUpdater(prev);
+        setTimeout(() => {
+          onDraftChangeRef.current?.(next);
+        }, 0);
+        return next;
+      });
+    } else {
+      setRawInputValue(valOrUpdater);
+      setTimeout(() => {
+        onDraftChangeRef.current?.(valOrUpdater);
+      }, 0);
+    }
   }, []);
 
   useEffect(() => {
@@ -2017,28 +2026,30 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
         result[targetTurnIdx].logs.push(log);
       });
 
-      // Attach plan to each turn
+      // Attach plan to each turn (live task.plan prioritized for active/latest turn)
       result.forEach((turn, idx) => {
         const isLatestTurn = idx === result.length - 1;
         const msgWithPlan = turn.agentMessages.find((m) => !!m.plan);
-        if (msgWithPlan?.plan) {
-          turn.plan = msgWithPlan.plan;
-        } else if (isLatestTurn && task.plan) {
+
+        if (isLatestTurn && task.plan) {
           // If the latest turn is waiting for its own new plan to be generated
           // (i.e. it only has an optimistic user message or is in initial running state, with 0 agent messages and 0 logs)
           // and task.plan is an already completed historical plan, attribute task.plan to the preceding turn.
           const isFreshTurnWaiting = turn.agentMessages.length === 0 && turn.logs.length === 0 && (turn.userMessage?.isOptimistic || task.status === 'RUNNING');
-          const planCompleted = task.plan.evaluation && task.plan.evaluation.status !== 'pending';
+          const planCompleted = task.plan.evaluation && task.plan.evaluation.status !== 'pending' && task.plan.evaluation.status !== 'ready_for_review';
 
           if (isFreshTurnWaiting && planCompleted && result.length > 1) {
             // Attribute the completed plan to the preceding turn that actually ran it
             if (!result[result.length - 2].plan) {
               result[result.length - 2].plan = task.plan;
             }
-            turn.plan = null;
+            turn.plan = msgWithPlan?.plan || null;
           } else {
+            // Live active turn receives real-time task.plan with advancing step statuses
             turn.plan = task.plan;
           }
+        } else if (msgWithPlan?.plan) {
+          turn.plan = msgWithPlan.plan;
         }
       });
     }
@@ -2742,9 +2753,11 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     {
       group: 'Anthropic Claude',
       models: [
-        { id: 'claude-3-7-sonnet', label: 'Claude 3.7 Sonnet' },
-        { id: 'claude-3-5-sonnet', label: 'Claude 3.5 Sonnet' },
-        { id: 'claude-3-5-haiku', label: 'Claude 3.5 Haiku' },
+        { id: 'claude-opus-5-5', label: 'Claude Opus 5.5 (Flagship Autonomous & Coding)' },
+        { id: 'claude-fable-5-1', label: 'Claude Fable 5.1 (Mythos Frontier Long-Horizon)' },
+        { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5 (Balanced Intelligence)' },
+        { id: 'claude-3-7-sonnet', label: 'Claude 3.7 Sonnet (Hybrid Thinking)' },
+        { id: 'claude-haiku-5-5', label: 'Claude Haiku 5.5 (Fast Sub-agents)' },
       ],
     },
     {
@@ -3888,7 +3901,12 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                       </div>
 
                       <div className="flex items-center space-x-2 shrink-0">
-                        {isTurnRunning && turn.isLatest ? (
+                        {evalStatus === 'ready_for_review' ? (
+                          <span className="px-2 py-0.5 rounded-full bg-onedark-accent/10 text-onedark-accent text-[10.5px] font-mono flex items-center space-x-1.5 font-semibold">
+                            <Sparkles className="w-2.5 h-2.5" />
+                            <span>Awaiting Review</span>
+                          </span>
+                        ) : isTurnRunning && turn.isLatest ? (
                           <span className="px-2 py-0.5 rounded-full bg-onedark-yellow/10 text-onedark-yellow text-[10.5px] font-mono flex items-center space-x-1.5 font-semibold">
                             <span className="w-1.5 h-1.5 rounded-full bg-onedark-yellow animate-pulse" />
                             <span>Executing...</span>
