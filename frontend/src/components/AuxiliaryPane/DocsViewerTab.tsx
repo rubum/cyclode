@@ -35,7 +35,9 @@ import {
   GraduationCap,
   Columns,
   Layers,
-  GitBranch
+  GitBranch,
+  ShieldCheck,
+  ShieldAlert
 } from 'lucide-react';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
 import { PRReviewAgentPopover, LineContext } from './PRReviewAgentPopover';
@@ -537,7 +539,18 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'reader' | 'webview'>('reader');
+  const [isShieldActive, setIsShieldActive] = useState<boolean>(true);
   const [pdfViewMode, setPdfViewMode] = useState<'summary' | 'pdf' | 'split'>('split');
+
+  const effectiveWebviewUrl = useMemo(() => {
+    const target = currentUrl || url;
+    if (!target) return '';
+    const apiBase = import.meta.env.VITE_API_URL || '';
+    if (isShieldActive) {
+      return `${apiBase}/api/reader/proxy/webview?url=${encodeURIComponent(target)}&shield=true`;
+    }
+    return target;
+  }, [currentUrl, url, isShieldActive]);
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const [isBranchCopied, setIsBranchCopied] = useState<boolean>(false);
   const [prTab, setPrTab] = useState<'overview' | 'diff' | 'commits'>('overview');
@@ -1865,19 +1878,38 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
           {!isLoading && !error && viewMode === 'webview' && (
             <div className="h-full flex flex-col -m-4">
               <div className="px-3 py-1.5 bg-onedark-surface/80 border-b border-onedark-borderSubtle text-[11px] text-onedark-muted flex items-center justify-between">
-                <span>Embedded webview (sites with strict CSP or X-Frame-Options may block display)</span>
+                <div className="flex items-center space-x-2.5">
+                  <span className="font-medium text-onedark-fg/80">Embedded webview</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsShieldActive(!isShieldActive)}
+                    className={`flex items-center space-x-1 px-2 py-0.5 rounded text-[10.5px] font-medium transition-colors cursor-pointer ${
+                      isShieldActive
+                        ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                        : 'bg-onedark-darker text-onedark-muted hover:text-onedark-fg border border-onedark-borderSubtle'
+                    }`}
+                    title={isShieldActive ? 'Popup & Ad Shield Active — click to disable' : 'Shield Disabled — click to enable'}
+                  >
+                    {isShieldActive ? <ShieldCheck className="w-3 h-3 text-emerald-400" /> : <ShieldAlert className="w-3 h-3 text-amber-400" />}
+                    <span>{isShieldActive ? 'Shield: Active' : 'Shield: Off'}</span>
+                  </button>
+                  <span className="text-[10px] text-onedark-muted/70 hidden sm:inline">
+                    {isShieldActive ? '(Blocks newsletter popups & cookie banners)' : '(Raw unshielded)'}
+                  </span>
+                </div>
                 <button
                   onClick={() => setViewMode('reader')}
-                  className="text-onedark-accent hover:underline font-medium"
+                  className="text-onedark-accent hover:underline font-medium cursor-pointer"
                 >
                   Switch to Reader
                 </button>
               </div>
               <iframe
-                src={url}
+                key={effectiveWebviewUrl}
+                src={effectiveWebviewUrl}
                 title={data?.title || 'Web Preview'}
                 className="flex-1 w-full border-none bg-white"
-                sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+                sandbox="allow-same-origin allow-scripts allow-forms"
               />
             </div>
           )}

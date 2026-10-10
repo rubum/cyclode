@@ -7,7 +7,7 @@ from urllib.parse import urlparse, urljoin, quote, unquote
 from html.parser import HTMLParser
 import httpx
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, HTMLResponse
 from sqlalchemy import select, and_, or_
 from app.db.session import async_session_factory
 from app.db.models import DocPageCacheModel
@@ -1832,3 +1832,190 @@ async def proxy_pdf_stream(url: str = Query(..., description="Target PDF URL to 
     except Exception as e:
         logger.warning(f"Error in PDF proxy stream for {clean_url}: {e}")
         raise HTTPException(status_code=502, detail=f"Failed to fetch PDF stream: {str(e)}")
+
+
+@router.get("/proxy/webview")
+async def proxy_webview_stream(
+    url: str = Query(..., description="Target web page URL to proxy with anti-popup shielding"),
+    shield: bool = Query(True, description="Enable anti-popup, anti-modal, and cookie banner shielding")
+):
+    """
+    Proxies and filters an external web page to bypass X-Frame-Options/CSP restrictions
+    and optionally injects an anti-annoyance shield to strip intrusive newsletter popups,
+    cookie consent banners, floating chat bubbles, and background scroll locks.
+    """
+    clean_url = unquote(url).strip()
+    if not clean_url.startswith(("http://", "https://")):
+        clean_url = "https://" + clean_url
+
+    parsed = urlparse(clean_url)
+    if not parsed.hostname:
+        raise HTTPException(status_code=400, detail="Invalid target URL provided")
+
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=25.0, follow_redirects=True, verify=False) as client:
+            resp = await client.get(clean_url, headers=headers)
+            if resp.status_code >= 400:
+                raise HTTPException(status_code=resp.status_code, detail=f"Upstream server returned HTTP {resp.status_code}")
+
+            raw_html = resp.text
+            final_url = str(resp.url)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.warning(f"Error proxying webview for {clean_url}: {e}")
+        raise HTTPException(status_code=502, detail=f"Failed to fetch webpage: {str(e)}")
+
+    if not shield:
+        # Just inject base href so relative assets load
+        base_tag = f'<base href="{final_url}">'
+        if "<head>" in raw_html:
+            raw_html = raw_html.replace("<head>", f"<head>\n{base_tag}", 1)
+        elif "<HEAD>" in raw_html:
+            raw_html = raw_html.replace("<HEAD>", f"<HEAD>\n{base_tag}", 1)
+        else:
+            raw_html = f"{base_tag}\n" + raw_html
+        return HTMLResponse(content=raw_html, headers={"Access-Control-Allow-Origin": "*"})
+
+    # Shield Active: Anti-annoyance CSS, JS, and script stripping
+    anti_annoyance_css = """
+    <style id="cyclode-popup-shield">
+    /* Cyclode Anti-Popup, Cookie Banner & Newsletter Modal Shield */
+    [class*="popup" i]:not(html):not(body),
+    [id*="popup" i],
+    [class*="modal" i]:not([class*="code"]):not([class*="syntax"]):not([class*="prism"]):not(html):not(body),
+    [id*="modal" i],
+    [class*="overlay" i]:not([class*="code"]):not(html):not(body),
+    [id*="overlay" i],
+    [class*="cookie" i]:not(html):not(body),
+    [id*="cookie" i],
+    [class*="consent" i]:not(html):not(body),
+    [id*="consent" i],
+    [class*="newsletter" i]:not(html):not(body),
+    [id*="newsletter" i],
+    [class*="subscription" i]:not(html):not(body),
+    [id*="subscription" i],
+    [class*="leadbox" i],
+    [id*="leadbox" i],
+    [class*="optin" i],
+    [id*="optin" i],
+    [aria-modal="true"],
+    div[role="dialog"]:not([class*="code"]):not([class*="prism"]),
+    div[class*="floating-chat" i],
+    div[id*="floating-chat" i],
+    div[class*="whatsapp" i],
+    div[id*="whatsapp" i],
+    div[class*="chat-widget" i],
+    div[id*="chat-widget" i],
+    #onesignal-bell-container,
+    #onesignal-slidedown-dialog,
+    .sp-modal-content,
+    .widget-overlay,
+    .push-notification-banner {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+        z-index: -9999 !important;
+        clip: rect(0 0 0 0) !important;
+        clip-path: inset(50%) !important;
+        height: 0 !important;
+        width: 0 !important;
+        position: absolute !important;
+        overflow: hidden !important;
+    }
+
+    /* Prevent websites from freezing scroll on body / html behind modals */
+    html, body {
+        overflow: auto !important;
+        overflow-y: auto !important;
+        position: static !important;
+        height: auto !important;
+        max-height: none !important;
+    }
+    </style>
+    """
+
+    anti_annoyance_js = """
+    <script id="cyclode-popup-shield-script">
+    (function() {
+        // Neutralize popups and alerts
+        window.alert = function() { console.log('[Cyclode Shield] Blocked alert'); };
+        window.confirm = function() { console.log('[Cyclode Shield] Blocked confirm'); return false; };
+        window.prompt = function() { return null; };
+        window.open = function() { console.log('[Cyclode Shield] Blocked window.open'); return null; };
+
+        // Neutralize push notification permission traps
+        if (typeof Notification !== 'undefined') {
+            Notification.requestPermission = function() {
+                return Promise.resolve('denied');
+            };
+        }
+
+        // MutationObserver to remove dynamically injected full-screen modal backdrops & scroll locks
+        const unlock = function() {
+            if (document.documentElement) {
+                document.documentElement.style.setProperty('overflow', 'auto', 'important');
+            }
+            if (document.body) {
+                document.body.style.setProperty('overflow', 'auto', 'important');
+                document.body.style.setProperty('position', 'static', 'important');
+            }
+        };
+
+        const purgeModals = function() {
+            unlock();
+            const modals = document.querySelectorAll('[aria-modal="true"], div[role="dialog"]');
+            modals.forEach(function(el) {
+                if (!el.closest('pre, code')) {
+                    el.style.setProperty('display', 'none', 'important');
+                }
+            });
+        };
+
+        document.addEventListener('DOMContentLoaded', purgeModals);
+        window.addEventListener('load', purgeModals);
+        setInterval(purgeModals, 1000);
+    })();
+    </script>
+    """
+
+    # Neutralize common third-party popup / modal / tracker script tags
+    annoyance_script_regex = re.compile(
+        r'<script[^>]*src=["\'][^"\']*(?:optinmonster|cookiebot|onetrust|quantserve|mailchimp|sumome|hubspot|onesignal|intercom|drift|trustarc|usercentrics|termly|consentmanager)[^"\']*["\'][^>]*>.*?</script>',
+        re.IGNORECASE | re.DOTALL
+    )
+    cleaned_html = annoyance_script_regex.sub('<!-- [Cyclode Shield: Intrusive Script Blocked] -->', raw_html)
+
+    # Base tag for relative assets
+    base_tag = f'<base href="{final_url}">'
+    injected_head = f"{base_tag}\n{anti_annoyance_css}\n{anti_annoyance_js}"
+
+    if "<head>" in cleaned_html:
+        cleaned_html = cleaned_html.replace("<head>", f"<head>\n{injected_head}", 1)
+    elif "<HEAD>" in cleaned_html:
+        cleaned_html = cleaned_html.replace("<HEAD>", f"<HEAD>\n{injected_head}", 1)
+    elif "<html>" in cleaned_html:
+        cleaned_html = cleaned_html.replace("<html>", f"<html><head>{injected_head}</head>", 1)
+    elif "<HTML>" in cleaned_html:
+        cleaned_html = cleaned_html.replace("<HTML>", f"<HTML><head>{injected_head}</head>", 1)
+    else:
+        cleaned_html = f"<head>{injected_head}</head>\n" + cleaned_html
+
+    response_headers = {
+        "Content-Type": "text/html; charset=utf-8",
+        "Access-Control-Allow-Origin": "*",
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "public, max-age=300",
+    }
+
+    return HTMLResponse(content=cleaned_html, headers=response_headers)

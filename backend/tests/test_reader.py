@@ -520,5 +520,63 @@ async def test_fetch_github_pr_info():
         assert "diff --git" in data["diff_text"]
 
 
+@pytest.mark.asyncio
+async def test_proxy_webview_stream_shield():
+    from httpx import AsyncClient, ASGITransport
+    from unittest.mock import MagicMock, patch
+    from app.main import app
+
+    fake_html = """<!DOCTYPE html>
+<html>
+<head><title>Test Article</title></head>
+<body>
+<h1>Article Content</h1>
+<script src="https://api.optinmonster.com/app/js/api.min.js"></script>
+<div class="popup-modal newsletter-signup" aria-modal="true">
+  <h2>Sign up for annoying popup</h2>
+</div>
+</body>
+</html>"""
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.text = fake_html
+    mock_resp.url = "https://example.com/test-article"
+
+    orig_get = AsyncClient.get
+
+    async def mock_get(self, url, *args, **kwargs):
+        if str(url).startswith("https://example.com"):
+            return mock_resp
+        return await orig_get(self, url, *args, **kwargs)
+
+    with patch("httpx.AsyncClient.get", new=mock_get):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            # 1. With Shield Enabled
+            res = await ac.get("/api/reader/proxy/webview?url=https://example.com/test-article&shield=true")
+            assert res.status_code == 200
+            assert "text/html" in res.headers["content-type"]
+            body = res.text
+            # Base tag injected
+            assert '<base href="https://example.com/test-article">' in body
+            # Annoying script stripped
+            assert "api.optinmonster.com" not in body
+            assert "Intrusive Script Blocked" in body
+            # Anti-popup CSS shield injected
+            assert 'id="cyclode-popup-shield"' in body
+            assert '[aria-modal="true"]' in body
+            # Anti-popup JS injected
+            assert 'id="cyclode-popup-shield-script"' in body
+
+            # 2. With Shield Disabled
+            res_no_shield = await ac.get("/api/reader/proxy/webview?url=https://example.com/test-article&shield=false")
+            assert res_no_shield.status_code == 200
+            body_no_shield = res_no_shield.text
+            assert '<base href="https://example.com/test-article">' in body_no_shield
+            assert 'id="cyclode-popup-shield"' not in body_no_shield
+
+
+
 
 

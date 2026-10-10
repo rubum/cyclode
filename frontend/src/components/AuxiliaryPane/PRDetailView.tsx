@@ -3934,6 +3934,17 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
     return null;
   }, [url, prRecord, task, prNumber]);
 
+  const [isShieldActive, setIsShieldActive] = useState<boolean>(true);
+
+  const effectiveWebviewUrl = useMemo(() => {
+    if (!targetUrl) return '';
+    const apiBase = import.meta.env.VITE_API_URL || '';
+    if (isShieldActive) {
+      return `${apiBase}/api/reader/proxy/webview?url=${encodeURIComponent(targetUrl)}&shield=true`;
+    }
+    return targetUrl;
+  }, [targetUrl, isShieldActive]);
+
   const effectivePrNum = prNumber || prRecord?.pr_number || data?.pr_number;
 
   // Sync initial comments when reader data finishes loading
@@ -5909,7 +5920,25 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
           {!isLoading && !error && viewMode === 'webview' && targetUrl && (
             <div className="h-full flex flex-col -m-4">
               <div className="px-3 py-1.5 bg-onedark-surface/80 border-b border-onedark-borderSubtle text-[11px] text-onedark-muted flex items-center justify-between">
-                <span>Embedded webview</span>
+                <div className="flex items-center space-x-2.5">
+                  <span className="font-medium text-onedark-fg/80">Embedded webview</span>
+                  <button
+                    type="button"
+                    onClick={() => setIsShieldActive(!isShieldActive)}
+                    className={`flex items-center space-x-1 px-2 py-0.5 rounded text-[10.5px] font-medium transition-colors cursor-pointer ${
+                      isShieldActive
+                        ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
+                        : 'bg-onedark-darker text-onedark-muted hover:text-onedark-fg border border-onedark-borderSubtle'
+                    }`}
+                    title={isShieldActive ? 'Popup & Ad Shield Active — click to disable' : 'Shield Disabled — click to enable'}
+                  >
+                    {isShieldActive ? <ShieldCheck className="w-3 h-3 text-emerald-400" /> : <ShieldAlert className="w-3 h-3 text-amber-400" />}
+                    <span>{isShieldActive ? 'Shield: Active' : 'Shield: Off'}</span>
+                  </button>
+                  <span className="text-[10px] text-onedark-muted/70 hidden sm:inline">
+                    {isShieldActive ? '(Blocks newsletter popups & cookie banners)' : '(Raw unshielded)'}
+                  </span>
+                </div>
                 <button
                   onClick={() => setViewMode('reader')}
                   className="text-onedark-accent hover:underline font-medium cursor-pointer"
@@ -5918,10 +5947,11 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
                 </button>
               </div>
               <iframe
-                src={targetUrl}
+                key={effectiveWebviewUrl}
+                src={effectiveWebviewUrl}
                 title={effectiveTitle}
                 className="flex-1 w-full border-none bg-white min-h-[500px]"
-                sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+                sandbox="allow-same-origin allow-scripts allow-forms"
               />
             </div>
           )}
