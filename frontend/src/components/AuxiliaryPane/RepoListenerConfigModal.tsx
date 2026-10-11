@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   Radio, 
   X, 
@@ -194,9 +195,11 @@ export const RepoListenerConfigModal: React.FC<RepoListenerConfigModalProps> = (
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="bg-onedark-bg border border-onedark-borderSubtle rounded-xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+  if (!isOpen || typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-150">
+      <div className="bg-onedark-bg border border-onedark-border rounded-xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="p-4 border-b border-onedark-borderSubtle flex items-center justify-between bg-onedark-darker/60">
           <div className="flex items-center space-x-3">
@@ -370,21 +373,22 @@ export const RepoListenerConfigModal: React.FC<RepoListenerConfigModalProps> = (
           <div className="flex items-center space-x-2">
             <button
               onClick={onClose}
-              className="px-3 py-1.5 rounded-lg text-xs text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface transition-colors"
+              className="px-3.5 py-1.5 rounded-lg text-xs text-onedark-fgBright hover:bg-onedark-surface border border-onedark-borderSubtle transition-colors cursor-pointer"
             >
               Cancel
             </button>
             <button
               onClick={handleSave}
               disabled={loading}
-              className="px-4 py-1.5 rounded-lg bg-onedark-accent text-white hover:bg-onedark-accent/90 text-xs font-semibold shadow-sm transition-all flex items-center space-x-1.5"
+              className="px-4 py-1.5 rounded-lg bg-onedark-accent text-gray-950 hover:brightness-105 active:scale-95 text-xs font-bold shadow-sm transition-all flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
             >
-              <Check className="w-3.5 h-3.5" />
+              <Check className="w-3.5 h-3.5 stroke-[2.5]" />
               <span>{loading ? 'Saving...' : 'Save & Activate'}</span>
             </button>
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

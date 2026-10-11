@@ -751,7 +751,7 @@ export const EventInspectorTab: React.FC<EventInspectorTabProps> = ({ task }) =>
                           alert('Invalid JSON');
                         }
                       }}
-                      className="px-2.5 py-1 text-[11px] rounded bg-onedark-accent text-white hover:bg-onedark-accent/90"
+                      className="px-2.5 py-1 text-[11px] rounded bg-onedark-accent text-gray-950 font-bold hover:brightness-105 active:scale-95 cursor-pointer shadow-xs"
                     >
                       Inject Event
                     </button>

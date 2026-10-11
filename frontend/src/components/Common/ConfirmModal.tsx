@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   AlertTriangle, 
   Trash2, 
@@ -69,7 +70,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, isLoading, requireMatchText, matchInput, onConfirm, onCancel]);
 
-  if (!isOpen) return null;
+  if (!isOpen || typeof document === 'undefined') return null;
 
   const isMatchValid = !requireMatchText || matchInput.trim() === requireMatchText.trim();
 
@@ -80,28 +81,28 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
           icon: ShieldAlert,
           iconColor: 'text-onedark-yellow',
           iconBg: 'bg-onedark-yellow/15',
-          confirmBtn: 'bg-onedark-yellow hover:bg-onedark-yellow/90 text-onedark-darker font-bold',
+          confirmBtn: 'bg-onedark-yellow hover:brightness-105 active:scale-95 text-gray-950 font-bold shadow-md',
           badgeText: 'Warning Notice',
-          badgeBorder: 'text-onedark-yellow bg-onedark-yellow/15',
+          badgeBorder: 'text-onedark-yellow bg-onedark-yellow/15 border border-onedark-yellow/30',
         };
       case 'info':
         return {
           icon: Info,
           iconColor: 'text-onedark-accent',
           iconBg: 'bg-onedark-accent/15',
-          confirmBtn: 'bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker font-bold',
+          confirmBtn: 'bg-onedark-accent hover:brightness-105 active:scale-95 text-gray-950 font-bold shadow-md',
           badgeText: 'Action Confirmation',
-          badgeBorder: 'text-onedark-accent bg-onedark-accent/15',
+          badgeBorder: 'text-onedark-accent bg-onedark-accent/15 border border-onedark-accent/30',
         };
       case 'danger':
       default:
         return {
           icon: Trash2,
-          iconColor: 'text-onedark-red',
-          iconBg: 'bg-onedark-red/15',
-          confirmBtn: 'bg-onedark-red hover:bg-onedark-red/90 text-white font-bold',
+          iconColor: 'text-red-400',
+          iconBg: 'bg-red-500/15',
+          confirmBtn: 'bg-red-600 hover:bg-red-500 active:bg-red-700 text-white font-bold shadow-md ring-1 ring-red-500/30',
           badgeText: 'Destructive Action',
-          badgeBorder: 'text-onedark-red bg-onedark-red/15',
+          badgeBorder: 'text-red-400 bg-red-500/15 border border-red-500/30',
         };
     }
   };
@@ -109,13 +110,13 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
   const vStyles = getVariantStyles();
   const IconComponent = vStyles.icon;
 
-  return (
+  return createPortal(
     <div 
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 transition-opacity duration-150"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 transition-opacity duration-150 animate-in fade-in"
       onClick={onCancel}
     >
       <div 
-        className="w-full max-w-lg bg-onedark-darker border border-onedark-borderSubtle rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-modal-enter text-onedark-fg"
+        className="w-full max-w-lg bg-onedark-darker border border-onedark-border rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-modal-enter text-onedark-fg"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -212,7 +213,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
             <button
               onClick={onCancel}
               disabled={isLoading}
-              className="px-3.5 py-2 rounded-xl bg-onedark-surface hover:bg-onedark-darker text-onedark-fg text-xs font-medium transition-colors border border-onedark-borderSubtle cursor-pointer disabled:opacity-50"
+              className="px-4 py-2 rounded-xl bg-onedark-surface hover:bg-onedark-surface/80 text-onedark-fgBright text-xs font-semibold transition-colors border border-onedark-borderSubtle hover:border-onedark-border cursor-pointer disabled:opacity-50 shadow-xs"
             >
               {cancelText}
             </button>
@@ -227,6 +228,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

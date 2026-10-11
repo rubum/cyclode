@@ -80,6 +80,7 @@ export function useTaskStore(): TaskStoreState {
   }, []);
 
   const fetchTaskDetails = useCallback(async (taskId: string) => {
+    if (!taskId || taskId.startsWith("temp-")) return;
     try {
       const res = await fetch(`${API_BASE}/api/tasks/${taskId}`);
       if (res.ok) {

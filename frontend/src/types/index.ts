@@ -230,6 +230,54 @@ export interface Task {
   approvals?: TaskApproval[];
   diffs?: TaskDiff[];
   prs?: TaskPR[];
+  report?: SessionReport | null;
+}
+
+export interface SessionCitation {
+  title: string;
+  url: string;
+  domain: string;
+}
+
+export interface SessionFileChange {
+  path: string;
+  action: string;
+}
+
+export interface SessionReportMetrics {
+  total_tokens: number;
+  total_turns: number;
+  citations_count: number;
+  files_count: number;
+}
+
+export interface SessionCommandExecution {
+  command: string;
+  exit_code?: number;
+  duration_ms?: number;
+}
+
+export interface SessionReport {
+  task_id: string;
+  title: string;
+  executive_summary: string;
+  markdown: string;
+  html: string;
+  citations: SessionCitation[];
+  files_touched: SessionFileChange[];
+  metrics: SessionReportMetrics;
+  commands_executed?: SessionCommandExecution[];
+  experiential_memories?: Array<{
+    id: string;
+    category: string;
+    insight: string;
+    status: string;
+    trigger_pattern?: string;
+  }>;
+  persona?: string;
+  evaluation_status?: string;
+  workspace_file_path?: string | null;
+  created_at: string;
 }
 
 export interface AutomationRule {
@@ -542,7 +590,24 @@ export interface EvaluationScorecard {
   evaluated_at: string;
 }
 
-export type AuxTabType = 'docs' | 'files' | 'terminal' | 'preview' | 'changes' | 'prs' | 'activity' | 'agents' | 'subagents' | 'event';
+export type AuxTabType = 'docs' | 'files' | 'terminal' | 'preview' | 'changes' | 'prs' | 'intelligence' | 'agents' | 'subagents' | 'event';
+
+export interface KnowledgeEntry {
+  id: string;
+  repo_id?: string | null;
+  source_task_id?: string | null;
+  source_turn_index?: number | null;
+  git_commit_sha?: string | null;
+  category: string;
+  trigger_pattern: string;
+  insight: string;
+  context_files: string[];
+  status: 'PROVISIONAL' | 'PROMOTED' | 'INVALIDATED' | 'SUPERSEDED';
+  utility_score: number;
+  usage_count: number;
+  created_at: string;
+  updated_at: string;
+}
 
 export interface SubagentPod {
   id: string;

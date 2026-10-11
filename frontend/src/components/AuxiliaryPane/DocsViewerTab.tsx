@@ -1040,7 +1040,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
                 onClick={() => setViewMode('reader')}
                 className={`px-2 py-0.5 rounded transition-all ${
                   viewMode === 'reader'
-                    ? 'bg-onedark-accent text-white shadow-xs font-semibold'
+                    ? 'bg-onedark-accent text-gray-950 shadow-xs font-bold'
                     : 'text-onedark-muted hover:text-onedark-fg'
                 }`}
                 title="Clean Reader Mode"
@@ -1051,7 +1051,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
                 onClick={() => setViewMode('webview')}
                 className={`px-2 py-0.5 rounded transition-all ${
                   viewMode === 'webview'
-                    ? 'bg-onedark-accent text-white shadow-xs font-semibold'
+                    ? 'bg-onedark-accent text-gray-950 shadow-xs font-bold'
                     : 'text-onedark-muted hover:text-onedark-fg'
                 }`}
                 title="Live Embedded Webview"
@@ -1602,7 +1602,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
                     onClick={() => setSearchMode('tree')}
                     className={`px-2 py-0.5 rounded transition-all cursor-pointer ${
                       searchMode === 'tree'
-                        ? 'bg-onedark-accent text-white font-semibold shadow-xs'
+                        ? 'bg-onedark-accent text-gray-950 font-bold shadow-xs'
                         : 'text-onedark-muted hover:text-onedark-fg'
                     }`}
                   >
@@ -1612,7 +1612,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
                     onClick={() => setSearchMode('full')}
                     className={`px-2 py-0.5 rounded transition-all cursor-pointer ${
                       searchMode === 'full'
-                        ? 'bg-onedark-accent text-white font-semibold shadow-xs'
+                        ? 'bg-onedark-accent text-gray-950 font-bold shadow-xs'
                         : 'text-onedark-muted hover:text-onedark-fg'
                     }`}
                   >

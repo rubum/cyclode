@@ -72,6 +72,7 @@ import { formatRelativeTime, formatFullDateTime } from '../../utils/date';
 import { isLongPastedText, createSniffedPastedDoc, SniffedPastedDoc, localPastedDocs } from '../../utils/pastedDocSniffer';
 import { PastedDocModal } from './PastedDocModal';
 import { PastedDocPill } from './PastedDocPill';
+import { ReportModal } from './ReportModal';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -592,7 +593,7 @@ interface ChatCanvasProps {
   currentPreset?: LayoutPreset;
   onSetPreset?: (preset: LayoutPreset) => void;
   onOpenSandboxModal?: () => void;
-  onSelectAuxTab?: (tab: 'docs' | 'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'preview' | 'changes') => void;
+  onSelectAuxTab?: (tab: 'docs' | 'files' | 'prs' | 'intelligence' | 'subagents' | 'event' | 'preview' | 'changes') => void;
   onOpenFile?: (filePath: string) => void;
   onOpenDoc?: (target: { url: string; title?: string }) => void;
   onOpenPreview?: (url: string, title?: string) => void;
@@ -1492,6 +1493,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const [editValue, setEditValue] = useState<string>('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isSandboxModalOpen, setIsSandboxModalOpen] = useState(false);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isDeletingSession, setIsDeletingSession] = useState(false);
   const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
@@ -3023,13 +3025,13 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               {/* Persona Selector, Model Selector, Repo Pill & Attach Button */}
               <div className="flex items-center space-x-2 min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden py-0.5">
                 {/* Persona Pill */}
-                <div className="relative flex items-center h-8 rounded-lg bg-onedark-darker/60 hover:bg-onedark-darker border border-onedark-borderSubtle/80 hover:border-onedark-border text-xs text-onedark-fg font-mono transition-all shadow-2xs group flex-shrink-0 cursor-pointer">
+                <div className="relative flex items-center h-8 rounded-lg bg-onedark-darker hover:bg-onedark-surface border border-onedark-borderSubtle hover:border-onedark-border text-xs text-onedark-fgBright font-mono transition-all shadow-xs group flex-shrink-0 cursor-pointer">
                   <div className="flex items-center space-x-1.5 pl-2.5 pr-2 pointer-events-none">
                     <Sparkles className="w-3.5 h-3.5 text-onedark-yellow flex-shrink-0 group-hover:scale-110 transition-transform" />
-                    <span className="text-xs text-onedark-fg font-mono truncate max-w-[140px]">
+                    <span className="text-xs text-onedark-fgBright font-mono font-medium truncate max-w-[160px]">
                       {personas.find((p) => p.id === selectedPersona)?.label || 'General Assistant'}
                     </span>
-                    <ChevronDown className="w-3 h-3 text-onedark-muted group-hover:text-onedark-fg transition-colors flex-shrink-0" />
+                    <ChevronDown className="w-3 h-3 text-onedark-muted group-hover:text-onedark-fgBright transition-colors flex-shrink-0" />
                   </div>
                   <select
                     value={selectedPersona}
@@ -3038,7 +3040,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                     title="Select Persona"
                   >
                     {personas.map((p) => (
-                      <option key={p.id} value={p.id} className="bg-onedark-darker text-onedark-fg">
+                      <option key={p.id} value={p.id} className="bg-onedark-darker text-onedark-fgBright">
                         {p.label}
                       </option>
                     ))}
@@ -3046,13 +3048,13 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 </div>
 
                 {/* Model Selector Pill */}
-                <div className="relative flex items-center h-8 rounded-lg bg-onedark-darker/60 hover:bg-onedark-darker border border-onedark-borderSubtle/80 hover:border-onedark-border text-xs text-onedark-fg font-mono transition-all shadow-2xs group flex-shrink-0 cursor-pointer">
+                <div className="relative flex items-center h-8 rounded-lg bg-onedark-darker hover:bg-onedark-surface border border-onedark-borderSubtle hover:border-onedark-border text-xs text-onedark-fgBright font-mono transition-all shadow-xs group flex-shrink-0 cursor-pointer">
                   <div className="flex items-center space-x-1.5 pl-2.5 pr-2 pointer-events-none">
                     <Bot className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0 group-hover:scale-110 transition-transform" />
-                    <span className="text-xs text-onedark-fg font-mono truncate max-w-[130px]">
+                    <span className="text-xs text-onedark-fgBright font-mono font-medium truncate max-w-[150px]">
                       {modelOptions.flatMap((g) => g.models).find((m) => m.id === selectedModel)?.label || 'Auto Tiering'}
                     </span>
-                    <ChevronDown className="w-3 h-3 text-onedark-muted group-hover:text-onedark-fg transition-colors flex-shrink-0" />
+                    <ChevronDown className="w-3 h-3 text-onedark-muted group-hover:text-onedark-fgBright transition-colors flex-shrink-0" />
                   </div>
                   <select
                     value={selectedModel}
@@ -3063,7 +3065,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                     {modelOptions.map((g) => (
                       <optgroup key={g.group} label={g.group} className="bg-onedark-darker text-onedark-muted font-bold">
                         {g.models.map((m) => (
-                          <option key={m.id} value={m.id} className="bg-onedark-darker text-onedark-fg">
+                          <option key={m.id} value={m.id} className="bg-onedark-darker text-onedark-fgBright">
                             {m.label}
                           </option>
                         ))}
@@ -3106,7 +3108,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   <button
                     type="button"
                     onClick={() => chatFileInputRef.current?.click()}
-                    className="h-8 pl-2.5 pr-2 rounded-l-lg bg-onedark-darker/60 hover:bg-onedark-darker border border-r-0 border-onedark-borderSubtle/80 hover:border-onedark-border text-xs text-onedark-fg hover:text-onedark-fgBright font-mono shadow-2xs flex-shrink-0 transition-all flex items-center space-x-1.5 cursor-pointer active:scale-95 group"
+                    className="h-8 pl-2.5 pr-2 rounded-l-lg bg-onedark-darker hover:bg-onedark-surface border border-r-0 border-onedark-borderSubtle hover:border-onedark-border text-xs text-onedark-fgBright font-mono shadow-xs flex-shrink-0 transition-all flex items-center space-x-1.5 cursor-pointer active:scale-95 group"
                     title="Upload files to workspace"
                   >
                     <Paperclip className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0 group-hover:scale-110 transition-transform" />
@@ -3118,10 +3120,10 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                       e.stopPropagation();
                       setShowAttachMenuEmpty((v) => !v);
                     }}
-                    className="h-8 px-1.5 rounded-r-lg bg-onedark-darker/60 hover:bg-onedark-darker border border-onedark-borderSubtle/80 hover:border-onedark-border text-xs text-onedark-muted hover:text-onedark-fg font-mono shadow-2xs flex-shrink-0 transition-all flex items-center justify-center cursor-pointer active:scale-95 group"
+                    className="h-8 px-1.5 rounded-r-lg bg-onedark-darker hover:bg-onedark-surface border border-onedark-borderSubtle hover:border-onedark-border text-xs text-onedark-muted hover:text-onedark-fgBright font-mono shadow-xs flex-shrink-0 transition-all flex items-center justify-center cursor-pointer active:scale-95 group"
                     title="Upload folder options"
                   >
-                    <ChevronDown className={`w-3 h-3 text-onedark-muted group-hover:text-onedark-fg transition-transform duration-150 ${showAttachMenuEmpty ? 'rotate-180 text-onedark-accent' : ''}`} />
+                    <ChevronDown className={`w-3 h-3 text-onedark-muted group-hover:text-onedark-fgBright transition-transform duration-150 ${showAttachMenuEmpty ? 'rotate-180 text-onedark-accent' : ''}`} />
                   </button>
 
                   {showAttachMenuEmpty && (
@@ -3156,7 +3158,11 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               <button
                 type="submit"
                 disabled={(!inputValue.trim() && attachments.length === 0) || isSubmitting}
-                className="h-8 px-4 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker text-xs font-bold font-mono tracking-wide flex items-center space-x-1.5 transition-all duration-150 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm active:scale-95 cursor-pointer flex-shrink-0"
+                className={`h-8 px-4 rounded-lg text-xs font-mono font-bold tracking-wide flex items-center space-x-1.5 transition-all duration-150 shadow-sm flex-shrink-0 ${
+                  (!inputValue.trim() && attachments.length === 0) || isSubmitting
+                    ? 'bg-onedark-surface text-onedark-muted border border-onedark-borderSubtle cursor-not-allowed select-none'
+                    : 'bg-onedark-accent hover:brightness-110 active:scale-95 text-gray-950 font-extrabold cursor-pointer shadow-md ring-1 ring-onedark-accent/40'
+                }`}
               >
                 {isSubmitting ? (
                   <>
@@ -3478,6 +3484,26 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               <Box className="w-3 h-3 flex-shrink-0" />
               <span className="hidden 2xl:inline">Sandbox: </span>
               <span>{task.sandbox_status === 'DESTROYED' ? 'Destroyed' : task.sandbox_status.toLowerCase()} ↗</span>
+            </button>
+          )}
+
+          {/* Session Intelligence Report Button */}
+          {task.id && !task.id.startsWith('temp-') && (
+            <button
+              type="button"
+              onClick={() => setIsReportModalOpen(true)}
+              className={`px-2 py-0.5 rounded-md text-[10.5px] font-mono flex items-center space-x-1.5 transition-all shadow-xs active:scale-95 cursor-pointer flex-shrink-0 ${
+                task.report
+                  ? 'bg-onedark-accent/15 text-onedark-accent hover:bg-onedark-accent/25 border border-onedark-accent/30'
+                  : 'bg-onedark-surface/60 text-onedark-muted hover:bg-onedark-surface hover:text-onedark-fg border border-onedark-borderSubtle'
+              }`}
+              title="Inspect Session Intelligence Report & Executive Summary"
+            >
+              <FileText className="w-3 h-3 text-onedark-accent flex-shrink-0" />
+              <span>Report</span>
+              {task.report && (
+                <span className="w-1.5 h-1.5 rounded-full bg-onedark-accent flex-shrink-0" />
+              )}
             </button>
           )}
 
@@ -4209,12 +4235,12 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                               type="button"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                onSelectAuxTab('activity');
+                                onSelectAuxTab('intelligence');
                               }}
                               className="hidden md:flex items-center space-x-1 px-1.5 py-0.5 rounded-md bg-onedark-surface/30 hover:bg-onedark-surface text-onedark-muted hover:text-onedark-accent text-[10.5px] font-mono transition-colors"
-                              title="Inspect logs in Auxiliary Tool Activity tab"
+                              title="Inspect logs in Auxiliary Intelligence tab"
                             >
-                              <span>Activity</span>
+                              <span>Audit</span>
                               <ExternalLink className="w-2.5 h-2.5" />
                             </button>
                           )}
@@ -5027,7 +5053,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 <button
                   type="button"
                   onClick={() => onStopTask && onStopTask()}
-                  className="h-8 px-3.5 rounded-lg bg-onedark-red hover:bg-onedark-red/90 text-white text-xs font-bold font-mono flex items-center space-x-1.5 transition-all shadow-sm flex-shrink-0 btn-tactile animate-pulse cursor-pointer mb-0.5"
+                  className="h-8 px-3.5 rounded-lg bg-red-600 hover:bg-red-500 active:bg-red-700 text-white text-xs font-bold font-mono flex items-center space-x-1.5 transition-all shadow-md flex-shrink-0 ring-1 ring-red-500/30 animate-pulse cursor-pointer mb-0.5"
                   title="Stop execution (Esc)"
                 >
                   <Square className="w-3.5 h-3.5 fill-current" />
@@ -5037,7 +5063,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 <button
                   type="button"
                   disabled
-                  className="h-8 w-8 rounded-lg bg-onedark-accent/70 text-onedark-darker flex items-center justify-center transition-all shadow-sm flex-shrink-0 cursor-wait mb-0.5"
+                  className="h-8 w-8 rounded-lg bg-onedark-accent/80 text-gray-950 flex items-center justify-center transition-all shadow-sm flex-shrink-0 cursor-wait mb-0.5 font-bold"
                   title="Processing request..."
                 >
                   <Loader2 className="w-4 h-4 animate-spin stroke-[2.5]" />
@@ -5046,7 +5072,11 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 <button
                   type="submit"
                   disabled={!inputValue.trim() && attachments.length === 0}
-                  className="h-8 w-8 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-sm flex items-center justify-center flex-shrink-0 btn-tactile cursor-pointer mb-0.5"
+                  className={`h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all shadow-sm mb-0.5 ${
+                    !inputValue.trim() && attachments.length === 0
+                      ? 'bg-onedark-surface text-onedark-muted border border-onedark-borderSubtle cursor-not-allowed select-none'
+                      : 'bg-onedark-accent hover:brightness-110 active:scale-95 text-gray-950 font-extrabold cursor-pointer shadow-md ring-1 ring-onedark-accent/40'
+                  }`}
                   title="Send message (Enter ↵)"
                 >
                   <Send className="w-4 h-4 stroke-[2.5]" />
@@ -5277,6 +5307,21 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
           onUpdateDoc={handleUpdatePastedDoc}
           onUnwrapDoc={handleUnwrapPastedDoc}
           readOnly={isDocModalReadOnly}
+        />
+      )}
+
+      {/* Session Intelligence Report Modal */}
+      {isReportModalOpen && task && (
+        <ReportModal
+          isOpen={isReportModalOpen}
+          taskId={task.id}
+          report={task.report || null}
+          onClose={() => setIsReportModalOpen(false)}
+          onReportUpdated={(updatedReport) => {
+            if (task) {
+              task.report = updatedReport;
+            }
+          }}
         />
       )}
     </div>

@@ -70,6 +70,11 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
     }
     return null;
   });
+  const selectedFileRef = useRef<string | null>(selectedFile);
+  useEffect(() => {
+    selectedFileRef.current = selectedFile;
+  }, [selectedFile]);
+
   const [targetLine, setTargetLine] = useState<number | null>(() => {
     if (selectedLineNumber !== undefined) return selectedLineNumber;
     if (task?.id && taskActiveFileCache.has(task.id)) {
@@ -290,22 +295,28 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
       setData(json);
 
       if (json.file_tree && Array.isArray(json.file_tree) && json.file_tree.length > 0) {
-        setSelectedFile((prev) => {
-          if (prev && fileExistsInTree(json.file_tree!, prev)) {
-            return prev;
-          }
+        const curFile = selectedFileRef.current;
+        if (curFile && fileExistsInTree(json.file_tree, curFile)) {
+          // Keep current file
+        } else {
           const cachedActive = task?.id ? taskActiveFileCache.get(task.id) : null;
-          if (cachedActive && fileExistsInTree(json.file_tree!, cachedActive.filePath)) {
+          if (cachedActive && fileExistsInTree(json.file_tree, cachedActive.filePath)) {
             setTargetLine(cachedActive.line);
-            return cachedActive.filePath;
+            setSelectedFile(cachedActive.filePath);
+          } else {
+            const fallback = findPreferredOrFirstFile(json.file_tree);
+            if (fallback) {
+              if (task?.id) {
+                taskActiveFileCache.set(task.id, { filePath: fallback, line: null });
+              }
+              setTargetLine(null);
+              setSelectedFile(fallback);
+              setTimeout(() => {
+                onSelectFile?.(fallback);
+              }, 0);
+            }
           }
-          const fallback = findPreferredOrFirstFile(json.file_tree!);
-          if (fallback && task?.id) {
-            taskActiveFileCache.set(task.id, { filePath: fallback, line: null });
-            onSelectFile?.(fallback);
-          }
-          return fallback;
-        });
+        }
       }
     } catch (err: any) {
       if (task.status !== 'INITIALIZING' && task.sandbox_status !== 'PROVISIONING') {
@@ -397,17 +408,22 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
           setSelectedFile(cachedActive.filePath);
           setTargetLine(cachedActive.line);
         } else if (cached.file_tree && Array.isArray(cached.file_tree) && cached.file_tree.length > 0) {
-          setSelectedFile((prev) => {
-            if (prev && fileExistsInTree(cached.file_tree!, prev)) {
-              return prev;
+          const curFile = selectedFileRef.current;
+          if (curFile && fileExistsInTree(cached.file_tree, curFile)) {
+            // Keep current file
+          } else {
+            const fallback = findPreferredOrFirstFile(cached.file_tree);
+            if (fallback) {
+              if (task?.id) {
+                taskActiveFileCache.set(task.id, { filePath: fallback, line: null });
+              }
+              setTargetLine(null);
+              setSelectedFile(fallback);
+              setTimeout(() => {
+                onSelectFile?.(fallback);
+              }, 0);
             }
-            const fallback = findPreferredOrFirstFile(cached.file_tree!);
-            if (fallback && task?.id) {
-              taskActiveFileCache.set(task.id, { filePath: fallback, line: null });
-              onSelectFile?.(fallback);
-            }
-            return fallback;
-          });
+          }
         }
         // Fetch silently in background to refresh freshness
         fetchFilesystem(true);

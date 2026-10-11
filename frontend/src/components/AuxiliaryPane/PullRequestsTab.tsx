@@ -443,7 +443,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
                 onClick={() => setScopeFilter('SESSION')}
                 className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer ${
                   scopeFilter === 'SESSION'
-                    ? 'bg-onedark-accent text-white font-semibold'
+                    ? 'bg-onedark-accent text-gray-950 font-bold'
                     : 'text-onedark-muted hover:text-onedark-fg'
                 }`}
               >
@@ -453,7 +453,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
                 onClick={() => setScopeFilter('ALL_REPO')}
                 className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer ${
                   scopeFilter === 'ALL_REPO'
-                    ? 'bg-onedark-accent text-white font-semibold'
+                    ? 'bg-onedark-accent text-gray-950 font-bold'
                     : 'text-onedark-muted hover:text-onedark-fg'
                 }`}
               >
@@ -542,7 +542,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
                 onClick={() => setStatusFilter(filterKey)}
                 className={`px-2 py-0.5 rounded font-mono transition-colors cursor-pointer border ${
                   statusFilter === filterKey
-                    ? 'bg-onedark-accent text-white font-semibold shadow-xs border-onedark-accent'
+                    ? 'bg-onedark-accent text-gray-950 font-bold shadow-xs border-onedark-accent'
                     : 'bg-onedark-surface/50 border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface'
                 }`}
               >

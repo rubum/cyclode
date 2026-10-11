@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { GitPullRequest, Activity, Cpu, Inbox, Folder, Compass, Play, GitCompare, Terminal as TerminalIcon } from 'lucide-react';
+import { GitPullRequest, Activity, Cpu, Inbox, Folder, Compass, Play, GitCompare, Brain, Terminal as TerminalIcon } from 'lucide-react';
 import { Task, WorkspacePreviewInfo } from '../../types';
 import { PullRequestsTab } from './PullRequestsTab';
-import { ToolActivityTab } from './ToolActivityTab';
+import { IntelligenceTab } from './IntelligenceTab';
 import { AgentsTab } from './AgentsTab';
 import { SubagentsTab } from './SubagentsTab';
 import { EventInspectorTab } from './EventInspectorTab';
@@ -16,7 +16,7 @@ const DocsViewerTab = React.lazy(() => import('./DocsViewerTab').then(m => ({ de
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
-export type AuxTabType = 'docs' | 'files' | 'terminal' | 'preview' | 'changes' | 'prs' | 'activity' | 'agents' | 'subagents' | 'event';
+export type AuxTabType = 'docs' | 'files' | 'terminal' | 'preview' | 'changes' | 'prs' | 'intelligence' | 'agents' | 'subagents' | 'event';
 
 interface AuxiliaryPaneProps {
   task: Task | null;
@@ -95,7 +95,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
     if (previewTarget?.url) return isPrForTask(previewTarget.url, task) ? 'prs' : 'docs';
     if (task?.prs && task.prs.length > 0) return 'prs';
     if (task?.repo_name || task?.repo_url) return 'files';
-    return 'activity';
+    return 'intelligence';
   });
 
   const activeTab = controlledTab ?? internalTab;
@@ -151,7 +151,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
       } else if (task.repo_name || task.repo_url) {
         handleTabClick('files');
       } else {
-        handleTabClick('activity');
+        handleTabClick('intelligence');
       }
     }
   }, [task?.id, previewTarget?.url]);
@@ -163,7 +163,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
     { id: 'preview', label: 'Preview', icon: Play, iconClass: previewInfo?.has_preview ? 'text-onedark-green' : '', badge: previewInfo?.has_preview ? '●' : undefined },
     { id: 'changes', label: 'Changes', icon: GitCompare, count: task?.diffs?.length || 0, iconClass: (task?.diffs?.length || 0) > 0 ? 'text-onedark-accent' : '' },
     { id: 'prs', label: 'PRs', icon: GitPullRequest, count: task?.prs?.length || 0, badge: (previewTarget?.url && isPrForTask(previewTarget.url, task)) ? '●' : undefined },
-    { id: 'activity', label: 'Tool Activity', icon: Activity, count: task?.logs?.length || 0 },
+    { id: 'intelligence', label: 'Intelligence', icon: Brain, badge: task?.report ? '●' : undefined },
     { id: 'agents', label: 'Agents', icon: Cpu },
     { id: 'event', label: 'Event', icon: Inbox, badge: task?.event_id ? '●' : undefined },
   ];
@@ -354,17 +354,17 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
           </div>
         )}
 
-        {visitedTabs.has('activity') && (
+        {visitedTabs.has('intelligence') && (
           <div
             className={`absolute inset-0 w-full h-full transition-opacity duration-150 ${
-              activeTab === 'activity'
+              activeTab === 'intelligence'
                 ? 'opacity-100 pointer-events-auto z-10 visible'
                 : 'opacity-0 pointer-events-none z-0 invisible'
             }`}
-            aria-hidden={activeTab !== 'activity'}
+            aria-hidden={activeTab !== 'intelligence'}
           >
-            <ErrorBoundary fallbackTitle="Error Loading ACTIVITY Tab">
-              <ToolActivityTab logs={task?.logs} />
+            <ErrorBoundary fallbackTitle="Error Loading Intelligence Tab">
+              <IntelligenceTab task={task} />
             </ErrorBoundary>
           </div>
         )}

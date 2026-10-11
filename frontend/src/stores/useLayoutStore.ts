@@ -40,7 +40,7 @@ export function useLayoutStore(): LayoutState {
     }
     return "split";
   });
-  const [activeAuxTab, setActiveAuxTab] = useState<AuxTabType>("activity");
+  const [activeAuxTab, setActiveAuxTab] = useState<AuxTabType>("intelligence");
   const [isSandboxModalOpen, setIsSandboxModalOpen] = useState<boolean>(false);
 
   const setCurrentPreset = useCallback((preset: LayoutPreset) => {

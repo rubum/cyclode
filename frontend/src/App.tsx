@@ -123,7 +123,9 @@ const MainApp: React.FC = () => {
 
   useEffect(() => {
     if (activeTaskId) {
-      fetchTaskDetails(activeTaskId);
+      if (!activeTaskId.startsWith('temp-')) {
+        fetchTaskDetails(activeTaskId);
+      }
     } else {
       setActiveTaskDetails(null);
     }
@@ -518,6 +520,19 @@ const MainApp: React.FC = () => {
       }
     });
 
+    const unsubReportCompiled = subscribe('TASK_REPORT_COMPILED', (data: any) => {
+      if (activeTaskId === data.task_id) {
+        setActiveTaskDetails((prev) => (prev ? { ...prev, report: data.report } : prev));
+      }
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === data.task_id
+            ? { ...t, report: data.report }
+            : t
+        )
+      );
+    });
+
     return () => {
       if (streamRafRef.current) {
         cancelAnimationFrame(streamRafRef.current);
@@ -542,6 +557,7 @@ const MainApp: React.FC = () => {
       unsubChat();
       unsubEventReceived();
       unsubTurnReset();
+      unsubReportCompiled();
     };
   }, [subscribe, activeTaskId, fetchTasks, fetchTaskDetails, fetchEvents]);
 
@@ -1165,6 +1181,10 @@ const MainApp: React.FC = () => {
       activeTaskIdRef.current = null;
     }
 
+    if (taskId.startsWith('temp-')) {
+      return;
+    }
+
     try {
       const res = await fetch(`${API_BASE}/api/tasks/${taskId}`, {
         method: 'DELETE',
@@ -1358,8 +1378,8 @@ const MainApp: React.FC = () => {
 
   const activeTask = tasks.find((t) => t.id === activeTaskId);
 
-  const handleSelectAuxTab = (tab: 'files' | 'prs' | 'activity' | 'subagents' | 'event' | 'docs' | 'preview' | 'changes') => {
-    handleAuxTabChange(tab as AuxTabType);
+  const handleSelectAuxTab = (tab: AuxTabType) => {
+    handleAuxTabChange(tab);
     if (currentPreset === 'fullscreen') {
       handleSetPreset('split');
     }

@@ -1418,10 +1418,10 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
                                         e.stopPropagation();
                                         onLineComment(f.filename, activeLineNum, lineObj.text);
                                       }}
-                                      className="opacity-0 group-hover/line:opacity-100 transition-opacity p-0.5 rounded bg-onedark-accent text-white hover:bg-onedark-accent/90 hover:scale-110 shadow-xs cursor-pointer ml-1"
+                                      className="opacity-0 group-hover/line:opacity-100 transition-opacity p-0.5 rounded bg-onedark-accent text-gray-950 hover:brightness-105 hover:scale-110 shadow-xs cursor-pointer ml-1 font-bold"
                                       title={`Comment on line ${activeLineNum} with Reviewer Agent`}
                                     >
-                                      <MessageSquarePlus className="w-3 h-3" />
+                                      <MessageSquarePlus className="w-3 h-3 stroke-[2.5]" />
                                     </button>
                                   )}
                                 </div>
@@ -4537,7 +4537,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
               onClick={() => setViewMode('reader')}
               className={`px-2 py-0.5 rounded transition-all cursor-pointer whitespace-nowrap ${
                 viewMode === 'reader'
-                  ? 'bg-onedark-accent text-white shadow-xs font-semibold'
+                  ? 'bg-onedark-accent text-gray-950 shadow-xs font-bold'
                   : 'text-onedark-muted hover:text-onedark-fg'
               }`}
               title="Clean Reader Mode"
@@ -4548,7 +4548,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
               onClick={() => setViewMode('webview')}
               className={`px-2 py-0.5 rounded transition-all cursor-pointer whitespace-nowrap ${
                 viewMode === 'webview'
-                  ? 'bg-onedark-accent text-white shadow-xs font-semibold'
+                  ? 'bg-onedark-accent text-gray-950 shadow-xs font-bold'
                   : 'text-onedark-muted hover:text-onedark-fg'
               }`}
               title="Live Embedded Webview"
