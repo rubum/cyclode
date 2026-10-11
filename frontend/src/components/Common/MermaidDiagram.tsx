@@ -1,5 +1,4 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
-import mermaid from 'mermaid';
 import {
   Copy,
   Check,
@@ -164,11 +163,21 @@ function extractSvgDimensions(svgString: string): { width: number; height: numbe
   return null;
 }
 
+let mermaidInstance: any = null;
+async function getMermaidInstance() {
+  if (!mermaidInstance) {
+    const mod = await import('mermaid');
+    mermaidInstance = mod.default || mod;
+  }
+  return mermaidInstance;
+}
+
 /**
  * Re-configures Mermaid with theme-specific variables tailored for either
  * crisp light-mode or deep OneDark dark-mode, inheriting the active accent color.
  */
-function configureMermaid(isLight: boolean, accentColor: string) {
+async function configureMermaid(isLight: boolean, accentColor: string) {
+  const mermaid = await getMermaidInstance();
   mermaid.initialize({
     startOnLoad: false,
     suppressErrorRendering: true,
@@ -417,7 +426,6 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ code, className 
 
   useEffect(() => {
     let isMounted = true;
-    configureMermaid(isLight, accentColor);
 
     if (!cleanCode || cleanCode.trim().length < 5) {
       setSvgHtml('');
@@ -435,6 +443,8 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ code, className 
     async function renderChart() {
       try {
         setError(null);
+        await configureMermaid(isLight, accentColor);
+        const mermaid = await getMermaidInstance();
         // Primary render attempt
         const { svg } = await mermaid.render(renderId, cleanCode);
         if (isMounted) {
@@ -446,6 +456,7 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ code, className 
         if (repaired && repaired !== cleanCode) {
           try {
             const retryId = `${renderId}-r`;
+            const mermaid = await getMermaidInstance();
             const { svg } = await mermaid.render(retryId, repaired);
             if (isMounted) {
               setSvgHtml(svg);
@@ -720,3 +731,5 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ code, className 
     </>
   );
 };
+
+export default MermaidDiagram;

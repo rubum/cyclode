@@ -3,8 +3,9 @@ import { Copy, Check, Info, AlertTriangle, AlertCircle, Sparkles, Flame, Chevron
 import katex from 'katex';
 import { highlightCode, resolveLanguage, escapeHtml } from '../../utils/syntaxHighlighter';
 import { ChatChartBlock } from '../Chat/ChatChartBlock';
+import { ErrorBoundary } from './ErrorBoundary';
 
-const MermaidDiagram = React.lazy(() => import('./MermaidDiagram').then(m => ({ default: m.MermaidDiagram })));
+const MermaidDiagram = React.lazy(() => import('./MermaidDiagram'));
 
 
 interface MarkdownRendererProps {
@@ -187,17 +188,34 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
           // Dynamic in-chat & plan workflow diagram (Mermaid)
           if (language === 'mermaid') {
             return (
-              <React.Suspense
+              <ErrorBoundary
                 key={index}
-                fallback={
-                  <div className="my-3 flex items-center gap-2 rounded border border-zinc-800 bg-zinc-900/40 p-4 text-xs font-mono text-zinc-500">
-                    <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
-                    Rendering diagram...
+                fallback={(error) => (
+                  <div className="my-3 rounded-xl bg-onedark-darker/90 border border-onedark-borderSubtle overflow-hidden shadow-xs text-left">
+                    <div className="flex items-center justify-between px-3.5 py-1.5 bg-amber-500/10 border-b border-amber-500/20 text-[11px] text-amber-400 font-mono select-none">
+                      <div className="flex items-center space-x-1.5">
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        <span>Workflow Diagram (Source View)</span>
+                      </div>
+                      <span className="text-[10px] text-onedark-muted">{error?.message || 'Syntax notice'}</span>
+                    </div>
+                    <pre className="p-3.5 text-xs font-mono text-onedark-fg/90 overflow-x-auto whitespace-pre leading-relaxed">
+                      <code>{code}</code>
+                    </pre>
                   </div>
-                }
+                )}
               >
-                <MermaidDiagram code={code} isStreaming={isStreaming} />
-              </React.Suspense>
+                <React.Suspense
+                  fallback={
+                    <div className="my-3 flex items-center gap-2 rounded-xl border border-onedark-borderSubtle bg-onedark-darker/60 p-4 text-xs font-mono text-onedark-muted">
+                      <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-onedark-accent border-t-transparent" />
+                      Rendering diagram...
+                    </div>
+                  }
+                >
+                  <MermaidDiagram code={code} isStreaming={isStreaming} />
+                </React.Suspense>
+              </ErrorBoundary>
             );
           }
 
