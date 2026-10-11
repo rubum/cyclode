@@ -1286,6 +1286,27 @@ class AntigravityHarness:
                 except Exception as e:
                     logger.debug(f"Working memory injection notice: {e}")
 
+                try:
+                    from app.agent.engine.memory import retrieve_relevant_heuristics, format_working_memory_block
+                    heuristics = await retrieve_relevant_heuristics(
+                        repo_id=None,
+                        prompt=prompt,
+                        target_files=active_files if 'active_files' in locals() else None,
+                        limit=3
+                    )
+                    mem_block = format_working_memory_block(heuristics)
+                    if mem_block:
+                        contents.append({
+                            "role": "user",
+                            "parts": [{"text": mem_block}]
+                        })
+                        contents.append({
+                            "role": "model",
+                            "parts": [{"text": "Understood. I will apply these verified lessons and repository heuristics throughout execution."}]
+                        })
+                except Exception as e:
+                    logger.debug(f"Experiential memory injection notice: {e}")
+
         user_parts: List[Dict[str, Any]] = [{"text": prompt}]
         if workspace_path and workspace_path.exists():
             try:
@@ -3095,6 +3116,19 @@ class AntigravityHarness:
                                     subagent_task_ids=sub_ids_arg
                                 )
                                 out_str = json.dumps(tool_result, indent=2)
+                            elif fn_name == "compile_session_report":
+                                title_arg = args.get("title")
+                                fmt_arg = args.get("format", "markdown")
+                                save_ws = args.get("save_to_workspace", True)
+                                focus_arg = args.get("focus_areas")
+                                tool_result = await WorkspaceTools.compile_session_report(
+                                    task_id=task.id,
+                                    title=title_arg,
+                                    format=fmt_arg,
+                                    save_to_workspace=save_ws,
+                                    custom_instructions=focus_arg
+                                )
+                                out_str = json.dumps(tool_result, indent=2)
                             else:
                                 tool_result = {"error": f"Unknown tool: {fn_name}"}
                                 exit_code = 1
@@ -3731,6 +3765,12 @@ class AntigravityHarness:
                         "agent", final_agent_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
                     )
                     await _flush_staged_approvals()
+                    if not has_staged_approvals:
+                        try:
+                            from app.agent.engine.memory import promote_task_memories
+                            await promote_task_memories(task_id)
+                        except Exception as e:
+                            logger.debug(f"Error promoting task memories on completion: {e}")
                     return {"status": "AWAITING_APPROVAL" if has_staged_approvals else "COMPLETED", "summary": final_agent_text}
 
                 except Exception as e:
@@ -3811,6 +3851,12 @@ class AntigravityHarness:
             "agent", fallback_msg, on_message, on_stream_start, on_stream_chunk, on_stream_end
         )
         await _flush_staged_approvals()
+        if return_status == "COMPLETED" and not has_staged_approvals:
+            try:
+                from app.agent.engine.memory import promote_task_memories
+                await promote_task_memories(task_id)
+            except Exception as e:
+                logger.debug(f"Error promoting task memories on fallback completion: {e}")
         return {"status": "AWAITING_APPROVAL" if has_staged_approvals else return_status, "summary": fallback_msg}
 
 

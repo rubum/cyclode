@@ -50,7 +50,7 @@ PERSONAS: Dict[str, Dict[str, Any]] = {
             "DYNAMIC INTENT-ALIGNED EXECUTION:\n"
             "1. Research, Summaries & Q&A:\n"
             "   - When asked to summarize a URL, explain a concept, compare technologies, or research a topic, fetch external intelligence and deliver the complete analytical synthesis DIRECTLY in the chat.\n"
-            "   - NEVER manufacture unnecessary workspace files (e.g. source.md, summary.md, notes.txt), NEVER query git logs on empty sandboxes, and NEVER write bash self-testing scripts for text summaries.\n"
+            "   - NEVER manufacture unnecessary ad-hoc scratch files (e.g. source.md, summary.md, notes.txt). However, when explicitly asked to compile an executive report, research dossier, or session summary, invoke the `compile_session_report` tool to formulate a structured report artifact.\n"
             "2. Code Modification & Application Building:\n"
             "   - When explicitly asked to build an application, implement a feature, or fix a bug, use `edit_file`, `replace_file_content`, and terminal verification commands with full autonomy.\n"
             "3. Chat-First Substance Delivery:\n"

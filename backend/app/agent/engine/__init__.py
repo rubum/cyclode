@@ -25,6 +25,21 @@ from app.agent.engine.context import (
     format_plan_chat_summary,
     assemble_system_instruction,
 )
+from app.agent.engine.reporting import (
+    compile_session_report,
+    harvest_session_intelligence,
+    synthesize_report_markdown,
+    generate_printable_html,
+)
+from app.agent.engine.memory import (
+    extract_turn_heuristics,
+    promote_task_memories,
+    rollback_turn_memories,
+    retrieve_relevant_heuristics,
+    format_working_memory_block,
+    vote_memory_heuristic,
+    cascade_delete_task_memories,
+)
 
 __all__ = [
     "_get_isolated_git_env",
@@ -41,5 +56,16 @@ __all__ = [
     "estimate_messages_tokens",
     "format_plan_chat_summary",
     "assemble_system_instruction",
+    "compile_session_report",
+    "harvest_session_intelligence",
+    "synthesize_report_markdown",
+    "generate_printable_html",
+    "extract_turn_heuristics",
+    "promote_task_memories",
+    "rollback_turn_memories",
+    "retrieve_relevant_heuristics",
+    "format_working_memory_block",
+    "vote_memory_heuristic",
+    "cascade_delete_task_memories",
 ]
 

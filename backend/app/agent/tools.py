@@ -3981,3 +3981,38 @@ class WorkspaceTools:
                     "completed_at": t.completed_at.isoformat() if t.completed_at else None
                 })
             return {"results": results}
+
+    @classmethod
+    async def compile_session_report(
+        cls,
+        task_id: str,
+        title: Optional[str] = None,
+        format: str = "markdown",
+        save_to_workspace: bool = True,
+        custom_instructions: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Compiles all research findings, code diffs, citations, terminal executions,
+        and decisions from the current session into a structured executive report.
+        """
+        from app.agent.engine.reporting import compile_session_report
+        try:
+            report_data = await compile_session_report(
+                task_id=task_id,
+                title=title,
+                format=format,
+                save_to_workspace=save_to_workspace,
+                custom_instructions=custom_instructions
+            )
+            return {
+                "success": True,
+                "title": report_data["title"],
+                "summary": report_data["executive_summary"],
+                "workspace_file_path": report_data.get("workspace_file_path"),
+                "citations_count": len(report_data.get("citations", [])),
+                "files_count": len(report_data.get("files_touched", [])),
+                "preview": report_data["markdown"][:600] + "..." if len(report_data["markdown"]) > 600 else report_data["markdown"]
+            }
+        except Exception as e:
+            return {"error": f"Failed to compile session report: {str(e)}"}
+

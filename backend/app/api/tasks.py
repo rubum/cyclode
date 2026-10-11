@@ -36,6 +36,7 @@ from app.core.evals.runner import evaluation_runner
 from app.schemas.events import InboundEventSchema, OutboundEventSchema, EventTimelineItem
 from app.schemas.trajectory import AgentTrajectory, TrajectoryTurn, ToolInvocationRecord
 from app.schemas.evals import EvaluationScorecard, EvaluationCheck, EvaluationCategory
+from app.schemas.report import CompileReportRequest, SessionReportSchema
 
 router = APIRouter(prefix="/api/tasks", tags=["Tasks"])
 
@@ -698,6 +699,14 @@ async def delete_task(task_id: str, db: AsyncSession = Depends(get_db)):
                 pass
 
     targets = [(tid, task.workspace_path if tid == task_id else None) for tid in all_target_ids]
+
+    # Clean up or detach associated knowledge memories
+    try:
+        from app.agent.engine.memory import cascade_delete_task_memories
+        for tid in all_target_ids:
+            await cascade_delete_task_memories(tid, session=db)
+    except Exception as e:
+        logger.warning(f"Error cleaning task memories in delete_task: {e}")
 
     # Delete all associated records in dependency order
     await db.execute(delete(TaskMessageModel).where(TaskMessageModel.task_id.in_(all_target_ids)))
@@ -4757,6 +4766,102 @@ async def execute_task_plan(task_id: str, db: AsyncSession = Depends(get_db)):
     })
 
     return {"status": "ok", "message": "Plan execution initiated"}
+
+
+@router.post("/{task_id}/report")
+async def compile_task_report(
+    task_id: str,
+    req: CompileReportRequest = CompileReportRequest(),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Compiles an executive session report for the task from trajectory intelligence,
+    tool calls, web citations, diffs, and verification metrics.
+    """
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    res = await db.execute(stmt)
+    task = res.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    from app.agent.engine.reporting import compile_session_report
+    try:
+        report = await compile_session_report(
+            task_id=task_id,
+            title=req.title,
+            format=req.format,
+            save_to_workspace=req.save_to_workspace,
+            custom_instructions=req.custom_instructions
+        )
+        return report
+    except Exception as e:
+        logger.exception(f"Error compiling session report for {task_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to compile report: {str(e)}")
+
+
+@router.get("/{task_id}/report")
+async def get_task_report(task_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Retrieves the compiled session report for a task. Auto-compiles if not yet generated.
+    """
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    res = await db.execute(stmt)
+    task = res.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    if task.report:
+        return task.report
+
+    from app.agent.engine.reporting import compile_session_report
+    try:
+        report = await compile_session_report(task_id=task_id)
+        return report
+    except Exception as e:
+        logger.exception(f"Error auto-compiling report for {task_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to compile report: {str(e)}")
+
+
+@router.get("/{task_id}/report/download")
+async def download_task_report(
+    task_id: str,
+    format: str = Query("markdown", description="Download format: 'markdown' or 'html'"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Streams the compiled report as a downloadable attachment (.md or .html).
+    """
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    res = await db.execute(stmt)
+    task = res.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    report = task.report
+    if not report:
+        from app.agent.engine.reporting import compile_session_report
+        report = await compile_session_report(task_id=task_id)
+
+    report_title = report.get("title") or task.title or "session_report"
+    clean_name = re.sub(r'[^a-zA-Z0-9_-]', '_', report_title.lower())[:35]
+
+    from fastapi.responses import Response
+    if format.lower() == "html":
+        content = report.get("html", "")
+        filename = f"{clean_name}_{task_id[:6]}.html"
+        media_type = "text/html"
+    else:
+        content = report.get("markdown", "")
+        filename = f"{clean_name}_{task_id[:6]}.md"
+        media_type = "text/markdown"
+
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        }
+    )
 
 
 class CreateSubagentRequest(BaseModel):

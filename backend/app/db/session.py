@@ -91,67 +91,73 @@ def _migrate_db(connection):
 
     Base.metadata.create_all(connection)
     
-    if not is_sqlite:
-        return
-    
-    # Check tasks table columns
-    tasks_cols = [row[1] for row in connection.exec_driver_sql("PRAGMA table_info(tasks)").fetchall()]
-    new_task_columns = [
-        ("session_key", "VARCHAR(255)"),
-        ("repo_name", "VARCHAR(255)"),
-        ("repo_url", "VARCHAR(512)"),
-        ("target_branch", "VARCHAR(128)"),
-        ("commit_sha", "VARCHAR(64)"),
-        ("sandbox_status", "VARCHAR(32) DEFAULT 'NONE'"),
-        ("custom_title", "BOOLEAN DEFAULT 0"),
-        ("is_subsession", "BOOLEAN DEFAULT 0"),
-        ("parent_task_id", "VARCHAR(36)"),
-        ("plan", "JSON"),
-        ("is_listening", "BOOLEAN DEFAULT 0"),
-        ("listening_events", "TEXT DEFAULT 'check_run,pull_request_review_comment,push'"),
-        ("listener_persona", "VARCHAR(50) DEFAULT 'PAIR_PROGRAMMER'"),
-        ("auto_commit_fixes", "BOOLEAN DEFAULT 1"),
-        ("persona_instructions", "TEXT"),
-        ("role_definition", "VARCHAR(200)"),
-    ]
-    for col_name, col_type in new_task_columns:
-        if col_name not in tasks_cols:
-            connection.exec_driver_sql(f"ALTER TABLE tasks ADD COLUMN {col_name} {col_type}")
+    if is_sqlite:
+        # Check tasks table columns
+        tasks_cols = [row[1] for row in connection.exec_driver_sql("PRAGMA table_info(tasks)").fetchall()]
+        new_task_columns = [
+            ("session_key", "VARCHAR(255)"),
+            ("repo_name", "VARCHAR(255)"),
+            ("repo_url", "VARCHAR(512)"),
+            ("target_branch", "VARCHAR(128)"),
+            ("commit_sha", "VARCHAR(64)"),
+            ("sandbox_status", "VARCHAR(32) DEFAULT 'NONE'"),
+            ("custom_title", "BOOLEAN DEFAULT 0"),
+            ("is_subsession", "BOOLEAN DEFAULT 0"),
+            ("parent_task_id", "VARCHAR(36)"),
+            ("plan", "JSON"),
+            ("report", "JSON"),
+            ("is_listening", "BOOLEAN DEFAULT 0"),
+            ("listening_events", "TEXT DEFAULT 'check_run,pull_request_review_comment,push'"),
+            ("listener_persona", "VARCHAR(50) DEFAULT 'PAIR_PROGRAMMER'"),
+            ("auto_commit_fixes", "BOOLEAN DEFAULT 1"),
+            ("persona_instructions", "TEXT"),
+            ("role_definition", "VARCHAR(200)"),
+        ]
+        for col_name, col_type in new_task_columns:
+            if col_name not in tasks_cols:
+                connection.exec_driver_sql(f"ALTER TABLE tasks ADD COLUMN {col_name} {col_type}")
 
-    # Check task_messages table columns
-    msg_cols = [row[1] for row in connection.exec_driver_sql("PRAGMA table_info(task_messages)").fetchall()]
-    if "tokens" not in msg_cols:
-        connection.exec_driver_sql("ALTER TABLE task_messages ADD COLUMN tokens INTEGER DEFAULT 0")
-    if "plan" not in msg_cols:
-        connection.exec_driver_sql("ALTER TABLE task_messages ADD COLUMN plan JSON")
+        # Check task_messages table columns
+        msg_cols = [row[1] for row in connection.exec_driver_sql("PRAGMA table_info(task_messages)").fetchall()]
+        if "tokens" not in msg_cols:
+            connection.exec_driver_sql("ALTER TABLE task_messages ADD COLUMN tokens INTEGER DEFAULT 0")
+        if "plan" not in msg_cols:
+            connection.exec_driver_sql("ALTER TABLE task_messages ADD COLUMN plan JSON")
 
-    # Check task_prs table columns
-    prs_cols = [row[1] for row in connection.exec_driver_sql("PRAGMA table_info(task_prs)").fetchall()]
-    if prs_cols:
-        if "body" not in prs_cols:
-            connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN body TEXT")
-        if "is_session_scoped" not in prs_cols:
-            connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN is_session_scoped BOOLEAN DEFAULT 1")
-        if "is_draft" not in prs_cols:
-            connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN is_draft BOOLEAN DEFAULT 0")
-        if "is_listening" not in prs_cols:
-            connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN is_listening BOOLEAN DEFAULT 0")
-        if "listening_events" not in prs_cols:
-            connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN listening_events TEXT DEFAULT 'check_run,pull_request_review_comment,push'")
-        if "listener_persona" not in prs_cols:
-            connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN listener_persona VARCHAR(50) DEFAULT 'PAIR_PROGRAMMER'")
-        if "auto_commit_fixes" not in prs_cols:
-            connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN auto_commit_fixes BOOLEAN DEFAULT 1")
+        # Check task_prs table columns
+        prs_cols = [row[1] for row in connection.exec_driver_sql("PRAGMA table_info(task_prs)").fetchall()]
+        if prs_cols:
+            if "body" not in prs_cols:
+                connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN body TEXT")
+            if "is_session_scoped" not in prs_cols:
+                connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN is_session_scoped BOOLEAN DEFAULT 1")
+            if "is_draft" not in prs_cols:
+                connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN is_draft BOOLEAN DEFAULT 0")
+            if "is_listening" not in prs_cols:
+                connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN is_listening BOOLEAN DEFAULT 0")
+            if "listening_events" not in prs_cols:
+                connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN listening_events TEXT DEFAULT 'check_run,pull_request_review_comment,push'")
+            if "listener_persona" not in prs_cols:
+                connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN listener_persona VARCHAR(50) DEFAULT 'PAIR_PROGRAMMER'")
+            if "auto_commit_fixes" not in prs_cols:
+                connection.exec_driver_sql("ALTER TABLE task_prs ADD COLUMN auto_commit_fixes BOOLEAN DEFAULT 1")
 
-    # Check repository_configs table columns
-    repo_cols = [row[1] for row in connection.exec_driver_sql("PRAGMA table_info(repository_configs)").fetchall()]
-    if repo_cols:
-        if "is_listening" not in repo_cols:
-            connection.exec_driver_sql("ALTER TABLE repository_configs ADD COLUMN is_listening BOOLEAN DEFAULT 0")
-        if "subscribed_events" not in repo_cols:
-            connection.exec_driver_sql("ALTER TABLE repository_configs ADD COLUMN subscribed_events TEXT DEFAULT 'pull_request.opened,issues.opened,check_run'")
-        if "default_persona" not in repo_cols:
-            connection.exec_driver_sql("ALTER TABLE repository_configs ADD COLUMN default_persona VARCHAR(50) DEFAULT 'AUTONOMOUS_WORKER'")
+        # Check repository_configs table columns
+        repo_cols = [row[1] for row in connection.exec_driver_sql("PRAGMA table_info(repository_configs)").fetchall()]
+        if repo_cols:
+            if "is_listening" not in repo_cols:
+                connection.exec_driver_sql("ALTER TABLE repository_configs ADD COLUMN is_listening BOOLEAN DEFAULT 0")
+            if "subscribed_events" not in repo_cols:
+                connection.exec_driver_sql("ALTER TABLE repository_configs ADD COLUMN subscribed_events TEXT DEFAULT 'pull_request.opened,issues.opened,check_run'")
+            if "default_persona" not in repo_cols:
+                connection.exec_driver_sql("ALTER TABLE repository_configs ADD COLUMN default_persona VARCHAR(50) DEFAULT 'AUTONOMOUS_WORKER'")
+
+        # Check knowledge_entries table columns
+        ke_info = connection.exec_driver_sql("PRAGMA table_info(knowledge_entries)").fetchall()
+        if ke_info:
+            ke_cols = [row[1] for row in ke_info]
+            if "usage_count" not in ke_cols:
+                connection.exec_driver_sql("ALTER TABLE knowledge_entries ADD COLUMN usage_count INTEGER DEFAULT 0")
 
     elif "postgres" in connection.dialect.name.lower():
         postgres_task_cols = [
@@ -165,10 +171,13 @@ def _migrate_db(connection):
             ("is_subsession", "BOOLEAN DEFAULT FALSE"),
             ("parent_task_id", "VARCHAR(36)"),
             ("plan", "JSON"),
+            ("report", "JSON"),
             ("is_listening", "BOOLEAN DEFAULT FALSE"),
             ("listening_events", "TEXT DEFAULT 'check_run,pull_request_review_comment,push'"),
             ("listener_persona", "VARCHAR(50) DEFAULT 'PAIR_PROGRAMMER'"),
             ("auto_commit_fixes", "BOOLEAN DEFAULT TRUE"),
+            ("persona_instructions", "TEXT"),
+            ("role_definition", "VARCHAR(200)"),
         ]
         for col_name, col_type in postgres_task_cols:
             try:

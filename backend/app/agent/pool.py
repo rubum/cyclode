@@ -2157,6 +2157,14 @@ class AgentTaskPool:
                     )
                 )
 
+            # Rollback provisional memories synchronously with git and DB reset
+            try:
+                from app.agent.engine.memory import rollback_turn_memories
+                from_turn = 1 if is_initial_turn else (target_turn_num if 'target_turn_num' in locals() else 2)
+                await rollback_turn_memories(task_id=task_id, from_turn_index=from_turn, session=session)
+            except Exception as e:
+                logger.warning(f"Error rolling back task memories in reset_task_turn: {e}")
+
             # 3. Restore plan state
             if task.plan and isinstance(task.plan, dict):
                 import copy

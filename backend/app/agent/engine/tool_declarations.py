@@ -615,6 +615,31 @@ ALL_TOOLS_DECLARATIONS = [
                     },
                     "required": ["subagent_task_ids"]
                 }
+            },
+            {
+                "name": "compile_session_report",
+                "description": "Compiles all research findings, code diffs, citations, terminal executions, and decisions from the current session into a structured executive report. Supports Markdown, standalone printable HTML, and DOCX formats.",
+                "parameters": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "title": {
+                            "type": "STRING",
+                            "description": "Optional executive title for the compiled report (defaults to session title)"
+                        },
+                        "format": {
+                            "type": "STRING",
+                            "description": "Report output format: 'markdown', 'html', or 'docx' (default: 'markdown')"
+                        },
+                        "save_to_workspace": {
+                            "type": "BOOLEAN",
+                            "description": "Whether to write the markdown report directly to reports/ in the workspace (default: true)"
+                        },
+                        "focus_areas": {
+                            "type": "STRING",
+                            "description": "Optional focus instructions (e.g. 'Focus on benchmark findings and competitor comparisons')"
+                        }
+                    }
+                }
             }
         ]
     }

@@ -58,6 +58,7 @@ class TaskModel(Base):
     total_tokens: Mapped[int] = mapped_column(Integer, default=0)
     result_summary: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     plan: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    report: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
     
     # Event Listener / Sentinel State
     is_listening: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -258,5 +259,28 @@ class SemanticCacheModel(Base):
     hit_count: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
     last_hit_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
+
+
+class KnowledgeEntryModel(Base):
+    __tablename__ = "knowledge_entries"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
+    repo_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("repository_configs.id", ondelete="SET NULL"), nullable=True, index=True)
+    source_task_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=True, index=True)
+    source_turn_index: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    git_commit_sha: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    
+    category: Mapped[str] = mapped_column(String(50), default="failure_recovery", index=True)  # failure_recovery, architecture_rule, tool_recipe, api_quirk
+    trigger_pattern: Mapped[str] = mapped_column(Text, nullable=False)                         # Error string, keywords, or command pattern
+    insight: Mapped[str] = mapped_column(Text, nullable=False)                                 # Condensed actionable rule/heuristic
+    context_files: Mapped[List[str]] = mapped_column(JSON, default=list)                       # Files or subsystems associated with this rule
+    
+    status: Mapped[str] = mapped_column(String(20), default="PROVISIONAL", index=True)        # PROVISIONAL, PROMOTED, INVALIDATED, SUPERSEDED
+    utility_score: Mapped[float] = mapped_column(Float, default=1.0)                          # Reinforced when helpful, penalized on failure
+    usage_count: Mapped[int] = mapped_column(Integer, default=0)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now, onupdate=get_utc_now)
+
 
 
