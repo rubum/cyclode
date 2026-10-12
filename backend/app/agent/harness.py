@@ -1694,13 +1694,6 @@ class AntigravityHarness:
                         if provider_resp.status_code == 404:
                             err_text = provider_resp.error_message or f"Requested model '{active_model}' not found (404)."
                             logger.warning(f"{provider_label} Model Not Found Notice (404): {err_text}")
-                            not_found_thought = (
-                                f"**{provider_label} Model Not Found Notice (404)**: {err_text}\n\n"
-                                f"*Please select an active model (e.g. GPT-4o, o3-mini) or configure a valid model in Settings > Integrations.*"
-                            )
-                            await self._emit_streamed_thought(
-                                not_found_thought, on_thought, on_stream_start, on_stream_chunk, on_stream_end
-                            )
 
                             for s in current_plan.get("steps", []):
                                 if s.get("status") == "in_progress":
@@ -1731,13 +1724,6 @@ class AntigravityHarness:
                             err_text = provider_resp.error_message or "API quota limit reached or credits depleted."
                             logger.warning(f"{provider_label} Quota Notice (429): {err_text}")
                             quota_exhausted = True
-                            quota_thought = (
-                                f"**{provider_label} API Quota Notice (429)**: {err_text}\n\n"
-                                f"*Please verify billing limits or configure a fresh API key in Settings > Integrations.*"
-                            )
-                            await self._emit_streamed_thought(
-                                quota_thought, on_thought, on_stream_start, on_stream_chunk, on_stream_end
-                            )
 
                             # Fail active plan steps & mark evaluation as needs_revision
                             for s in current_plan.get("steps", []):
@@ -1767,13 +1753,6 @@ class AntigravityHarness:
                         if provider_resp.status_code in [401, 403]:
                             err_text = provider_resp.error_message or "API key has been denied access or is unauthenticated."
                             logger.warning(f"{provider_label} API Access Notice ({provider_resp.status_code}): {err_text}")
-                            perm_thought = (
-                                f"**{provider_label} API Access Notice ({provider_resp.status_code})**: {err_text}\n\n"
-                                f"*Please verify your project permissions or provide a valid API key in Settings > Integrations.*"
-                            )
-                            await self._emit_streamed_thought(
-                                perm_thought, on_thought, on_stream_start, on_stream_chunk, on_stream_end
-                            )
 
                             for s in current_plan.get("steps", []):
                                 if s.get("status") == "in_progress":
@@ -1840,13 +1819,6 @@ class AntigravityHarness:
                                 last_api_error_text = err_msg
                                 logger.warning(f"API notice on turn {turn} model {active_model} ({provider_resp.status_code}): {err_msg}")
                             
-                            fail_thought = (
-                                f"**{provider_label} API Notice ({provider_resp.status_code})**: {err_msg}\n\n"
-                                f"*Please check your provider configuration or switch to an active model.*"
-                            )
-                            await self._emit_streamed_thought(
-                                fail_thought, on_thought, on_stream_start, on_stream_chunk, on_stream_end
-                            )
                             for s in current_plan.get("steps", []):
                                 if s.get("status") == "in_progress":
                                     s["status"] = "failed"

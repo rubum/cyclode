@@ -658,15 +658,6 @@ const ReasoningProcessContainer: React.FC<ReasoningProcessContainerProps> = ({
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const isUserScrolledUpRef = useRef(false);
-  const [copiedAll, setCopiedAll] = useState(false);
-
-  const handleCopyAll = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const fullText = thoughts.map((t) => t.thought).join('\n\n');
-    navigator.clipboard.writeText(fullText);
-    setCopiedAll(true);
-    setTimeout(() => setCopiedAll(false), 2000);
-  };
 
   const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
     if (e.deltaY < 0) {
@@ -707,37 +698,8 @@ const ReasoningProcessContainer: React.FC<ReasoningProcessContainerProps> = ({
     }
   }, [isStreamingActive]);
 
-  const totalTokens = useMemo(() => thoughts.reduce((acc, t) => acc + (t.tokens || 0), 0), [thoughts]);
-
   return (
     <div className="border-t border-white/[0.06] bg-onedark-darker/60 flex flex-col">
-      {/* Sub-header toolbar with Copy button */}
-      <div className="px-3.5 py-1.5 border-b border-white/[0.04] bg-white/[0.015] flex items-center justify-between text-[11px] font-mono text-onedark-muted select-none">
-        <div className="flex items-center space-x-2">
-          {totalTokens > 0 && (
-            <span className="text-[10.5px] text-onedark-muted/70">{totalTokens.toLocaleString()} tokens</span>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={handleCopyAll}
-          className="inline-flex items-center space-x-1 px-2 py-0.5 rounded hover:bg-onedark-surface/60 hover:text-onedark-fg text-onedark-muted transition-colors cursor-pointer"
-          title="Copy full reasoning text to clipboard"
-        >
-          {copiedAll ? (
-            <>
-              <Check className="w-3 h-3 text-onedark-green" />
-              <span className="text-[10.5px] text-onedark-green font-medium">Copied</span>
-            </>
-          ) : (
-            <>
-              <Copy className="w-3 h-3" />
-              <span className="text-[10.5px]">Copy Reasoning</span>
-            </>
-          )}
-        </button>
-      </div>
-
       <div
         ref={scrollRef}
         onScroll={handleScroll}
@@ -3998,7 +3960,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                       <div className="flex items-center space-x-2 shrink-0">
                         <span className="px-2 py-0.5 rounded-full bg-onedark-accent/10 text-onedark-accent text-[10.5px] font-mono flex items-center space-x-1.5 font-semibold">
                           <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                          <span>Synthesizing plan...</span>
+                          <span>Synthesizing...</span>
                         </span>
                       </div>
                     </div>
@@ -4012,9 +3974,16 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                       ? 'bg-onedark-darker/60 border border-white/[0.08]'
                       : 'bg-onedark-darker/40 hover:bg-onedark-darker/60 border border-white/[0.04]'
                   }`}>
-                    <button
-                      type="button"
+                    <div
+                      role="button"
+                      tabIndex={0}
                       onClick={() => setOpenThoughts((prev) => ({ ...prev, [turn.id]: !isTurnOpen }))}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setOpenThoughts((prev) => ({ ...prev, [turn.id]: !isTurnOpen }));
+                        }
+                      }}
                       className="w-full px-3.5 py-2.5 flex items-center justify-between text-xs text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/30 transition-colors cursor-pointer select-none btn-tactile"
                     >
                       <div className="flex items-center space-x-2">
@@ -4038,13 +4007,37 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                             {isTurnOpen ? 'Hide' : 'Show details'}
                           </span>
                         )}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const fullText = turn.thoughts.map((t) => t.thought).filter(Boolean).join('\n\n---\n\n');
+                            if (fullText) {
+                              handleCopyText(`thoughts-${turn.id}`, fullText);
+                            }
+                          }}
+                          className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded hover:bg-onedark-surface/80 hover:text-onedark-fg text-onedark-muted transition-colors cursor-pointer"
+                          title="Copy full reasoning text to clipboard"
+                        >
+                          {copiedId === `thoughts-${turn.id}` ? (
+                            <>
+                              <Check className="w-3 h-3 text-onedark-green" />
+                              <span className="text-[10px] text-onedark-green font-medium">Copied</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3" />
+                              <span className="text-[10px]">Copy</span>
+                            </>
+                          )}
+                        </button>
                         {isTurnOpen ? (
                           <ChevronDown className="w-4 h-4 text-onedark-muted" />
                         ) : (
                           <ChevronRight className="w-4 h-4 text-onedark-muted" />
                         )}
                       </div>
-                    </button>
+                    </div>
 
                     {isTurnOpen && (
                       <ReasoningProcessContainer 
