@@ -2869,7 +2869,12 @@ class AntigravityHarness:
                             elif fn_name == "connect_repository":
                                 repo_url_arg = args.get("repo_url", "")
                                 token_arg = args.get("token")
-                                tool_result = await WorkspaceTools.connect_repository(repo_url_arg, token_arg)
+                                tool_result = await WorkspaceTools.connect_repository(
+                                    repo_url=repo_url_arg,
+                                    token=token_arg,
+                                    workspace_path=self.workspace_path,
+                                    task_id=task_id
+                                )
                                 out_str = json.dumps(tool_result, indent=2)
                             elif fn_name == "ask_user_inquiry":
                                 question_arg = args.get("question", "Please clarify your preference:")

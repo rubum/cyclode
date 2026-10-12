@@ -1395,6 +1395,57 @@ async def get_sandbox_folder_children(
         raise HTTPException(status_code=500, detail=f"Failed to read directory: {str(e)}")
 
 
+def _resolve_sandbox_file(ws_path: Path, raw_path: str) -> Tuple[Path, str]:
+    """
+    Safely resolves a relative path within ws_path, with fallbacks for:
+    1. Redundant workspace/sandbox directory prefixes (e.g. sandbox-id/...)
+    2. Attachments directory (.cyclode/attachments/...)
+    3. Stripping leading repository folder prefix (e.g. 'openmeter/collector/go.mod' -> 'collector/go.mod')
+    """
+    clean_rel = unquote(raw_path).lstrip("/\\")
+    if clean_rel.startswith(ws_path.name + "/"):
+        clean_rel = clean_rel[len(ws_path.name) + 1:]
+    elif clean_rel.startswith(ws_path.name + "\\"):
+        clean_rel = clean_rel[len(ws_path.name) + 1:]
+    elif clean_rel.startswith("sandbox-"):
+        parts = re.split(r"[/\\]", clean_rel, 1)
+        if len(parts) > 1 and parts[0].startswith("sandbox-"):
+            clean_rel = parts[1]
+
+    target_file = (ws_path / clean_rel).resolve()
+    try:
+        target_file.relative_to(ws_path)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied: Path outside sandbox workspace")
+
+    if not target_file.exists() or not target_file.is_file():
+        # Fallback 1: check attachments
+        alt_target = (ws_path / ".cyclode" / "attachments" / Path(clean_rel).name).resolve()
+        if alt_target.exists() and alt_target.is_file():
+            try:
+                alt_target.relative_to(ws_path)
+                target_file = alt_target
+                clean_rel = str(target_file.relative_to(ws_path))
+            except ValueError:
+                pass
+
+        # Fallback 2: strip top-level directory prefix if path was prefixed with repository name
+        if not target_file.exists() or not target_file.is_file():
+            parts = re.split(r"[/\\]", clean_rel, 1)
+            if len(parts) > 1:
+                stripped_rel = parts[1]
+                stripped_target = (ws_path / stripped_rel).resolve()
+                try:
+                    stripped_target.relative_to(ws_path)
+                    if stripped_target.exists() and stripped_target.is_file():
+                        target_file = stripped_target
+                        clean_rel = stripped_rel
+                except ValueError:
+                    pass
+
+    return target_file, clean_rel
+
+
 @router.get("/{task_id}/files/content")
 async def get_sandbox_file_content(
     task_id: str,
@@ -1423,38 +1474,9 @@ async def get_sandbox_file_content(
     if not ws_path or not ws_path.exists() or not ws_path.is_dir():
         raise HTTPException(status_code=404, detail="Sandbox workspace does not exist on disk")
 
-    # Sanitize and resolve target path
-    clean_rel = unquote(path).lstrip("/\\")
-
-    # Strip redundant sandbox folder prefix if path was prefixed with sandbox name
-    if clean_rel.startswith(ws_path.name + "/"):
-        clean_rel = clean_rel[len(ws_path.name) + 1:]
-    elif clean_rel.startswith(ws_path.name + "\\"):
-        clean_rel = clean_rel[len(ws_path.name) + 1:]
-    elif clean_rel.startswith("sandbox-"):
-        parts = re.split(r"[/\\]", clean_rel, 1)
-        if len(parts) > 1 and parts[0].startswith("sandbox-"):
-            clean_rel = parts[1]
-
-    target_file = (ws_path / clean_rel).resolve()
-
-    # Security check: must reside inside workspace
-    try:
-        target_file.relative_to(ws_path)
-    except ValueError:
-        raise HTTPException(status_code=403, detail="Access denied: Path outside sandbox workspace")
-
+    target_file, clean_rel = _resolve_sandbox_file(ws_path, path)
     if not target_file.exists() or not target_file.is_file():
-        alt_target = (ws_path / ".cyclode" / "attachments" / Path(clean_rel).name).resolve()
-        if alt_target.exists() and alt_target.is_file():
-            try:
-                alt_target.relative_to(ws_path)
-                target_file = alt_target
-                clean_rel = str(target_file.relative_to(ws_path))
-            except ValueError:
-                pass
-        if not target_file.exists() or not target_file.is_file():
-            raise HTTPException(status_code=404, detail=f"File '{clean_rel}' not found")
+        raise HTTPException(status_code=404, detail=f"File '{clean_rel}' not found")
 
     file_stat = target_file.stat()
     file_size = file_stat.st_size
@@ -1650,21 +1672,9 @@ async def get_sandbox_file_blame(
     if not ws_path or not ws_path.exists() or not ws_path.is_dir():
         raise HTTPException(status_code=404, detail="Sandbox workspace does not exist on disk")
 
-    clean_rel = unquote(path).lstrip("/\\")
-    if clean_rel.startswith(ws_path.name + "/"):
-        clean_rel = clean_rel[len(ws_path.name) + 1:]
-    elif clean_rel.startswith(ws_path.name + "\\"):
-        clean_rel = clean_rel[len(ws_path.name) + 1:]
-    elif clean_rel.startswith("sandbox-"):
-        parts = re.split(r"[/\\]", clean_rel, 1)
-        if len(parts) > 1 and parts[0].startswith("sandbox-"):
-            clean_rel = parts[1]
-
-    target_file = (ws_path / clean_rel).resolve()
-    try:
-        target_file.relative_to(ws_path)
-    except ValueError:
-        raise HTTPException(status_code=403, detail="Access denied: Path outside sandbox workspace")
+    target_file, clean_rel = _resolve_sandbox_file(ws_path, path)
+    if not target_file.exists() or not target_file.is_file():
+        raise HTTPException(status_code=404, detail=f"File '{clean_rel}' not found")
 
     blame_res = worktree_manager.get_git_blame(
         workspace_path=ws_path,
@@ -1701,34 +1711,9 @@ async def get_sandbox_file_raw(
     if not ws_path or not ws_path.exists() or not ws_path.is_dir():
         raise HTTPException(status_code=404, detail="Sandbox workspace does not exist on disk")
 
-    clean_rel = unquote(path).lstrip("/\\")
-    if clean_rel.startswith(ws_path.name + "/"):
-        clean_rel = clean_rel[len(ws_path.name) + 1:]
-    elif clean_rel.startswith(ws_path.name + "\\"):
-        clean_rel = clean_rel[len(ws_path.name) + 1:]
-    elif clean_rel.startswith("sandbox-"):
-        parts = re.split(r"[/\\]", clean_rel, 1)
-        if len(parts) > 1 and parts[0].startswith("sandbox-"):
-            clean_rel = parts[1]
-
-    target_file = (ws_path / clean_rel).resolve()
-
-    try:
-        target_file.relative_to(ws_path)
-    except ValueError:
-        raise HTTPException(status_code=403, detail="Access denied: Path outside sandbox workspace")
-
+    target_file, clean_rel = _resolve_sandbox_file(ws_path, path)
     if not target_file.exists() or not target_file.is_file():
-        alt_target = (ws_path / ".cyclode" / "attachments" / Path(clean_rel).name).resolve()
-        if alt_target.exists() and alt_target.is_file():
-            try:
-                alt_target.relative_to(ws_path)
-                target_file = alt_target
-                clean_rel = str(target_file.relative_to(ws_path))
-            except ValueError:
-                pass
-        if not target_file.exists() or not target_file.is_file():
-            raise HTTPException(status_code=404, detail=f"File '{clean_rel}' not found")
+        raise HTTPException(status_code=404, detail=f"File '{clean_rel}' not found")
 
     # Determine MIME type
     mime_type, _ = mimetypes.guess_type(target_file.name)

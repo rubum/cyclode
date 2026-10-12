@@ -57,6 +57,30 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     return `${protocol}//${host}/ws/live`;
   };
 
+  const safeCloseWebSocket = (ws: WebSocket | null) => {
+    if (!ws) return;
+    ws.onmessage = null;
+    ws.onerror = null;
+    ws.onclose = null;
+
+    if (ws.readyState === WebSocket.CONNECTING) {
+      // Avoid browser warning "WebSocket is closed before the connection is established"
+      ws.onopen = () => {
+        try {
+          ws.close(1000, 'Client unmounted');
+        } catch {
+          // ignore
+        }
+      };
+    } else if (ws.readyState === WebSocket.OPEN) {
+      try {
+        ws.close(1000, 'Normal closure');
+      } catch {
+        // ignore
+      }
+    }
+  };
+
   const connect = useCallback(() => {
     if (socketRef.current && (socketRef.current.readyState === WebSocket.OPEN || socketRef.current.readyState === WebSocket.CONNECTING)) {
       return;
@@ -133,7 +157,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
       ws.onerror = () => {
         try {
-          ws.close();
+          safeCloseWebSocket(ws);
         } catch {
           // ignore
         }
@@ -152,11 +176,7 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
 
   const reconnect = useCallback(() => {
     if (socketRef.current) {
-      try {
-        socketRef.current.close();
-      } catch {
-        // ignore
-      }
+      safeCloseWebSocket(socketRef.current);
       socketRef.current = null;
     }
     connect();
@@ -188,7 +208,10 @@ export const WebSocketProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       window.removeEventListener('online', handleOnline);
       if (heartbeatIntervalRef.current) clearInterval(heartbeatIntervalRef.current);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
-      if (socketRef.current) socketRef.current.close();
+      if (socketRef.current) {
+        safeCloseWebSocket(socketRef.current);
+        socketRef.current = null;
+      }
     };
   }, [connect]);
 

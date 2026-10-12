@@ -2581,11 +2581,15 @@ class WorkspaceTools:
     async def connect_repository(
         cls,
         repo_url: str,
-        token: Optional[str] = None
+        token: Optional[str] = None,
+        workspace_path: Optional[Path] = None,
+        task_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Connects and vaults a GitHub repository, verifying remote branch access.
+        If workspace_path is provided and empty, clones the repository directly into the workspace.
         """
+        import shutil
         from app.integrations.manager import integration_manager
         test_res = await integration_manager.test_remote_repo(repo_url, token)
         if test_res.get("accessible"):
@@ -2595,11 +2599,66 @@ class WorkspaceTools:
                 branches=test_res.get("branches"),
                 default_branch=test_res.get("default_branch")
             )
+
+            cloned_into_workspace = False
+            if workspace_path and workspace_path.exists():
+                try:
+                    entries = [p for p in workspace_path.iterdir() if p.name not in [".git", ".cyclode"]]
+                    if not entries:
+                        from app.integrations.github_client import github_client
+                        active_token = token or (await integration_manager.get_github_token_for_repo(repo_url)) or github_client.token
+                        clone_url = repo_url
+                        if active_token and "github.com" in repo_url and not ("@" in repo_url):
+                            clone_url = repo_url.replace("https://", f"https://x-access-token:{active_token}@")
+
+                        git_dir = workspace_path / ".git"
+                        if git_dir.exists():
+                            shutil.rmtree(git_dir, ignore_errors=True)
+
+                        default_br = test_res.get("default_branch")
+                        cmd = ["git", "clone", "--depth", "1", "--single-branch", "--no-tags"]
+                        if default_br:
+                            cmd.extend(["--branch", default_br])
+                        cmd.extend([clone_url, str(workspace_path)])
+
+                        git_env = dict(os.environ)
+                        git_env["GIT_TERMINAL_PROMPT"] = "0"
+                        git_env["GIT_CONFIG_GLOBAL"] = "/dev/null"
+                        git_env["GIT_CONFIG_NOSYSTEM"] = "1"
+                        proc = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True, timeout=300, env=git_env)
+                        if proc.returncode == 0:
+                            cloned_into_workspace = True
+                            logger.info(f"Successfully cloned repository {repo_url} into task workspace {workspace_path}")
+                        else:
+                            logger.warning(f"Git clone into workspace failed: {proc.stderr}")
+                except Exception as e:
+                    logger.error(f"Failed to clone repository into task workspace: {e}")
+
+            if task_id:
+                try:
+                    from app.db.session import async_session_factory
+                    from app.db.models import TaskModel
+                    from sqlalchemy import update
+                    async with async_session_factory() as session:
+                        await session.execute(
+                            update(TaskModel)
+                            .where(TaskModel.id == task_id)
+                            .values(
+                                repo_name=save_res.get("full_name"),
+                                repo_url=repo_url,
+                                target_branch=test_res.get("default_branch")
+                            )
+                        )
+                        await session.commit()
+                except Exception as e:
+                    logger.error(f"Failed to update task with connected repository: {e}")
+
             return {
                 "success": True,
-                "message": f"Successfully connected repository {save_res.get('full_name')}",
+                "message": f"Successfully connected repository {save_res.get('full_name')}" + (" and cloned into workspace" if cloned_into_workspace else ""),
                 "default_branch": test_res.get("default_branch"),
-                "branches": test_res.get("branches")
+                "branches": test_res.get("branches"),
+                "cloned_to_workspace": cloned_into_workspace
             }
         return {
             "success": False,

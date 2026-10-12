@@ -68,7 +68,6 @@ import { ConfirmModal } from '../Common/ConfirmModal';
 import { SandboxInspectorModal } from '../Sandbox/SandboxInspectorModal';
 import { PRReviewApprovalCard } from './PRReviewApprovalCard';
 import { readDroppedFileSystemEntries, extractFilesFromInput, groupAttachmentsByFolder, openNativeFolderPicker, UploadableItem } from '../../utils/fileUpload';
-import { formatRelativeTime, formatFullDateTime } from '../../utils/date';
 import { isLongPastedText, createSniffedPastedDoc, SniffedPastedDoc, localPastedDocs } from '../../utils/pastedDocSniffer';
 import { PastedDocModal } from './PastedDocModal';
 import { PastedDocPill } from './PastedDocPill';
@@ -3370,96 +3369,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
           )}
         </div>
 
-        {/* Right: Creation Time, Model Badge, Status Badge, Presets, Retry */}
+        {/* Right: Sandbox Button & Views (Layout Presets) */}
         <div className="flex items-center space-x-1.5 flex-shrink-0">
-          {/* Creation Time Badge */}
-          {task.created_at && (
-            <div 
-              className="hidden lg:flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10.5px] font-mono text-onedark-muted bg-onedark-surface/40 border border-onedark-borderSubtle cursor-default"
-              title={`Created: ${formatFullDateTime(task.created_at)}`}
-            >
-              <Clock className="w-3 h-3 text-onedark-muted/70 flex-shrink-0" />
-              <span>{formatRelativeTime(task.created_at)}</span>
-            </div>
-          )}
-
-          {/* Model Badge */}
-          {task.model_name && (
-            <div 
-              className={`hidden sm:flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10.5px] font-mono ${
-                task.model_name.startsWith('claude') 
-                  ? 'bg-amber-500/15 text-amber-400' 
-                  : task.model_name.startsWith('gpt') || task.model_name.startsWith('o') || task.model_name.startsWith('codex')
-                  ? 'bg-emerald-500/15 text-emerald-400' 
-                  : 'bg-cyan-500/15 text-cyan-400'
-              }`}
-              title={`Active Model: ${task.model_name}`}
-            >
-              {task.model_name.startsWith('claude') ? (
-                <Bot className="w-3 h-3" />
-              ) : task.model_name.startsWith('gpt') || task.model_name.startsWith('o') || task.model_name.startsWith('codex') ? (
-                <Cpu className="w-3 h-3" />
-              ) : (
-                <Sparkles className="w-3 h-3" />
-              )}
-              <span className="truncate max-w-[110px]">{task.model_name}</span>
-            </div>
-          )}
-
-          {/* Status Badge */}
-          <div className="flex items-center space-x-1 flex-shrink-0">
-            <span
-              className={`px-2 py-0.5 rounded-full text-[10.5px] font-mono flex items-center space-x-1.5 ${
-                task.status === 'RUNNING' || task.status === 'INITIALIZING'
-                  ? 'bg-onedark-yellow/10 text-onedark-yellow'
-                  : task.status === 'COMPLETED'
-                  ? 'bg-onedark-green/10 text-onedark-green'
-                  : task.status === 'AWAITING_INPUT' || task.status === 'AWAITING_APPROVAL'
-                  ? 'bg-onedark-accent/10 text-onedark-accent'
-                  : task.status === 'FAILED'
-                  ? 'bg-onedark-red/10 text-onedark-red'
-                  : 'bg-onedark-surface/60 text-onedark-muted'
-              }`}
-              title={`Status: ${task.status}`}
-            >
-              <span
-                className={`w-1.5 h-1.5 rounded-full ${
-                  task.status === 'RUNNING' || task.status === 'INITIALIZING'
-                    ? 'bg-onedark-yellow animate-pulse'
-                    : task.status === 'COMPLETED'
-                    ? 'bg-onedark-green'
-                    : task.status === 'AWAITING_INPUT' || task.status === 'AWAITING_APPROVAL'
-                    ? 'bg-onedark-accent'
-                    : task.status === 'FAILED'
-                    ? 'bg-onedark-red'
-                    : 'bg-onedark-muted'
-                }`}
-              />
-              <span>
-                {task.status === 'COMPLETED' ? 'Done' :
-                 task.status === 'RUNNING' ? 'Running' :
-                 task.status === 'INITIALIZING' ? 'Init' :
-                 task.status === 'AWAITING_APPROVAL' ? 'Approval' :
-                 task.status === 'AWAITING_INPUT' ? 'Input' :
-                 task.status === 'FAILED' ? 'Failed' :
-                 task.status === 'IDLE' ? 'Standby' :
-                 task.status.replace('_', ' ')}
-              </span>
-            </span>
-          </div>
-
-          {/* Live App Preview Button */}
-          {previewInfo?.has_preview && onSelectAuxTab && (
-            <button
-              onClick={() => onSelectAuxTab('preview')}
-              className="px-2.5 py-0.5 rounded-md text-[11px] font-mono bg-onedark-green/15 text-onedark-green hover:bg-onedark-green/25 flex items-center space-x-1.5 transition-all shadow-xs active:scale-95 cursor-pointer flex-shrink-0"
-              title={`Preview application (${previewInfo.title || previewInfo.entry_point || 'Web App'})`}
-            >
-              <Play className="w-3 h-3 fill-current" />
-              <span className="font-semibold">Live Preview</span>
-            </button>
-          )}
-
           {/* Sandbox Inspector Button */}
           {task.sandbox_status && task.sandbox_status !== 'NONE' && (
             <button
@@ -3482,34 +3393,13 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               title="Inspect Sandbox Environment & Filesystem"
             >
               <Box className="w-3 h-3 flex-shrink-0" />
-              <span className="hidden 2xl:inline">Sandbox: </span>
-              <span>{task.sandbox_status === 'DESTROYED' ? 'Destroyed' : task.sandbox_status.toLowerCase()} ↗</span>
+              <span>Sandbox: {task.sandbox_status === 'DESTROYED' ? 'Destroyed' : task.sandbox_status.toLowerCase()} ↗</span>
             </button>
           )}
 
-          {/* Session Intelligence Report Button */}
-          {task.id && !task.id.startsWith('temp-') && (
-            <button
-              type="button"
-              onClick={() => setIsReportModalOpen(true)}
-              className={`px-2 py-0.5 rounded-md text-[10.5px] font-mono flex items-center space-x-1.5 transition-all shadow-xs active:scale-95 cursor-pointer flex-shrink-0 ${
-                task.report
-                  ? 'bg-onedark-accent/15 text-onedark-accent hover:bg-onedark-accent/25 border border-onedark-accent/30'
-                  : 'bg-onedark-surface/60 text-onedark-muted hover:bg-onedark-surface hover:text-onedark-fg border border-onedark-borderSubtle'
-              }`}
-              title="Inspect Session Intelligence Report & Executive Summary"
-            >
-              <FileText className="w-3 h-3 text-onedark-accent flex-shrink-0" />
-              <span>Report</span>
-              {task.report && (
-                <span className="w-1.5 h-1.5 rounded-full bg-onedark-accent flex-shrink-0" />
-              )}
-            </button>
-          )}
-
-          {/* Presets */}
+          {/* Presets (Views) */}
           {onSetPreset && (
-            <div className="hidden xl:flex items-center space-x-0.5 bg-onedark-surface/40 p-0.5 rounded-lg font-mono text-[10.5px] flex-shrink-0">
+            <div className="flex items-center space-x-0.5 bg-onedark-surface/40 p-0.5 rounded-lg font-mono text-[10.5px] flex-shrink-0">
               <button
                 onClick={() => onSetPreset('split')}
                 className={`px-2 py-0.5 rounded-md transition-all ${
