@@ -724,8 +724,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
         ]}
         onConfirm={async () => {
           if (taskToDelete && onDeleteTask) {
+            const targetId = taskToDelete.id;
             try {
-              await onDeleteTask(taskToDelete.id);
+              await onDeleteTask(targetId);
             } finally {
               setTaskToDelete(null);
             }

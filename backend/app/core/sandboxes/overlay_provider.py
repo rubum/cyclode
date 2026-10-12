@@ -303,15 +303,27 @@ class OverlayFSSandboxProvider(SandboxProvider):
             # User-Space CoW Shadow Engine: Reflect base repo via fast hardlink/copy-on-write tree
             if base_repo_path and base_repo_path.exists():
                 logger.info(f"CoW Shadow Sync: Hydrating shadow baseline for task {task_id}")
+                copy_succeeded = False
                 try:
-                    subprocess.run(["cp", "-al", f"{base_repo_path}/.", str(workspace_path)], capture_output=True, timeout=15)
-                except Exception:
-                    for item in base_repo_path.iterdir():
-                        dest = workspace_path / item.name
-                        if item.is_dir():
-                            shutil.copytree(item, dest, symlinks=True, ignore_dangling_symlinks=True)
+                    cp_proc = subprocess.run(["cp", "-al", f"{base_repo_path}/.", str(workspace_path)], capture_output=True, timeout=120)
+                    if cp_proc.returncode == 0:
+                        copy_succeeded = True
+                    else:
+                        logger.warning(f"cp -al returned code {cp_proc.returncode} for task {task_id}")
+                except Exception as cp_err:
+                    logger.warning(f"Fast hardlink copy for task {task_id} failed or timed out: {cp_err}")
+
+                if not copy_succeeded:
+                    # Clean any partial artifacts in workspace_path before fallback copy to prevent SameFileError or FileExistsError
+                    for item in workspace_path.iterdir():
+                        if item.is_dir() and not item.is_symlink():
+                            shutil.rmtree(item, ignore_errors=True)
                         else:
-                            shutil.copy2(item, dest)
+                            try:
+                                item.unlink(missing_ok=True)
+                            except Exception:
+                                pass
+                    shutil.copytree(base_repo_path, workspace_path, symlinks=True, dirs_exist_ok=True)
             else:
                 workspace_path.mkdir(parents=True, exist_ok=True)
 
@@ -371,11 +383,23 @@ class OverlayFSSandboxProvider(SandboxProvider):
                 logger.info(f"Forked sandbox {parent_context.task_id} -> {new_task_id} via stacked OverlayFS")
 
         if not mounted:
+            fork_succeeded = False
             try:
-                cp_proc = subprocess.run(["cp", "-al", f"{parent_context.workspace_path}/.", str(fork_workspace_path)], capture_output=True, timeout=10)
-                if cp_proc.returncode != 0:
-                    shutil.copytree(parent_context.workspace_path, fork_workspace_path, symlinks=True, dirs_exist_ok=True)
-            except Exception:
+                cp_proc = subprocess.run(["cp", "-al", f"{parent_context.workspace_path}/.", str(fork_workspace_path)], capture_output=True, timeout=60)
+                if cp_proc.returncode == 0:
+                    fork_succeeded = True
+            except Exception as f_err:
+                logger.warning(f"Fork fast hardlink copy failed: {f_err}")
+
+            if not fork_succeeded:
+                for item in fork_workspace_path.iterdir():
+                    if item.is_dir() and not item.is_symlink():
+                        shutil.rmtree(item, ignore_errors=True)
+                    else:
+                        try:
+                            item.unlink(missing_ok=True)
+                        except Exception:
+                            pass
                 shutil.copytree(parent_context.workspace_path, fork_workspace_path, symlinks=True, dirs_exist_ok=True)
 
         context = SandboxContext(

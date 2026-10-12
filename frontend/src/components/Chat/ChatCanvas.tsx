@@ -1912,19 +1912,21 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
             isLatest: false,
           });
         }
-      } else if (m.thought) {
-        if (!isInternalNotice(m.thought)) {
-          // Add thought to the active turn
-          if (result.length === 0) {
-            result.push({
-              id: 'init-turn',
-              thoughts: [],
-              logs: [],
-              agentMessages: [],
-              isLatest: false,
-            });
-          }
-          const currentTurn = result[result.length - 1];
+      } else {
+        // Agent or System message
+        if (result.length === 0) {
+          result.push({
+            id: 'init-turn',
+            thoughts: [],
+            logs: [],
+            agentMessages: [],
+            isLatest: false,
+          });
+        }
+        const currentTurn = result[result.length - 1];
+
+        // 1. Process thought if present
+        if (m.thought && !isInternalNotice(m.thought)) {
           const existingThoughtIdx = currentTurn.thoughts.findIndex(
             (t) => t.id === m.id || (t.thought.trim() === m.thought.trim() && m.thought.trim().length > 0)
           );
@@ -1950,39 +1952,31 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
             }
           }
         }
-      } else {
-        // Agent or System message
-        if (result.length === 0) {
-          result.push({
-            id: 'init-turn',
-            thoughts: [],
-            logs: [],
-            agentMessages: [],
-            isLatest: false,
-          });
-        }
-        const currentTurn = result[result.length - 1];
-        const existingMsgIdx = currentTurn.agentMessages.findIndex((msg) => {
-          if (msg.id === m.id) return true;
-          if (msg.sender === m.sender && msg.content.trim().length > 0 && m.content.trim().length > 0) {
-            if (msg.content.trim() === m.content.trim()) return true;
-            if (msg.isStreaming && m.content.trim().startsWith(msg.content.trim())) return true;
-            if (m.isStreaming && msg.content.trim().startsWith(m.content.trim())) return true;
-          }
-          return false;
-        });
 
-        if (existingMsgIdx >= 0) {
-          currentTurn.agentMessages[existingMsgIdx] = {
-            ...currentTurn.agentMessages[existingMsgIdx],
-            ...m,
-            id: m.id.startsWith('msg-') || m.id.startsWith('stream_') ? currentTurn.agentMessages[existingMsgIdx].id : m.id,
-            tokens: m.tokens ?? currentTurn.agentMessages[existingMsgIdx].tokens,
-            plan: m.plan || currentTurn.agentMessages[existingMsgIdx].plan,
-            isStreaming: m.isStreaming ?? false,
-          };
-        } else {
-          currentTurn.agentMessages.push(m);
+        // 2. Process content if present
+        if (m.content && m.content.trim().length > 0) {
+          const existingMsgIdx = currentTurn.agentMessages.findIndex((msg) => {
+            if (msg.id === m.id) return true;
+            if (msg.sender === m.sender && msg.content.trim().length > 0 && m.content.trim().length > 0) {
+              if (msg.content.trim() === m.content.trim()) return true;
+              if (msg.isStreaming && m.content.trim().startsWith(msg.content.trim())) return true;
+              if (m.isStreaming && msg.content.trim().startsWith(m.content.trim())) return true;
+            }
+            return false;
+          });
+
+          if (existingMsgIdx >= 0) {
+            currentTurn.agentMessages[existingMsgIdx] = {
+              ...currentTurn.agentMessages[existingMsgIdx],
+              ...m,
+              id: m.id.startsWith('msg-') || m.id.startsWith('stream_') ? currentTurn.agentMessages[existingMsgIdx].id : m.id,
+              tokens: m.tokens ?? currentTurn.agentMessages[existingMsgIdx].tokens,
+              plan: m.plan || currentTurn.agentMessages[existingMsgIdx].plan,
+              isStreaming: m.isStreaming ?? false,
+            };
+          } else {
+            currentTurn.agentMessages.push(m);
+          }
         }
       }
     });
@@ -4373,7 +4367,14 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                       <span className="font-sans font-medium text-onedark-fg">{task.persona}</span>
                     </div>
                     <div className="text-onedark-fg text-[13px] sm:text-[13.5px] leading-relaxed w-full flex items-center min-h-[22px]">
-                      <span className="terminal-cursor" title="Generating..." />
+                      {task?.sandbox_status === 'PROVISIONING' ? (
+                        <div className="flex items-center space-x-2 text-xs font-mono text-onedark-muted py-1">
+                          <Loader2 className="w-3.5 h-3.5 text-onedark-yellow animate-spin" />
+                          <span>Preparing sandbox workspace and repository...</span>
+                        </div>
+                      ) : (
+                        <span className="terminal-cursor" title="Generating..." />
+                      )}
                     </div>
                   </div>
                 )}
@@ -5173,12 +5174,13 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
           ]}
           onConfirm={async () => {
             if (onDeleteTask && task.id) {
+              const targetId = task.id;
+              setIsDeleteModalOpen(false);
+              setIsDeletingSession(true);
               try {
-                setIsDeletingSession(true);
-                await onDeleteTask(task.id);
+                await onDeleteTask(targetId);
               } finally {
                 setIsDeletingSession(false);
-                setIsDeleteModalOpen(false);
               }
             }
           }}

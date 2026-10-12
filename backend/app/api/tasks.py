@@ -671,8 +671,8 @@ async def clear_all_tasks(db: AsyncSession = Depends(get_db)):
 
 @router.delete("/{task_id}")
 async def delete_task(task_id: str, db: AsyncSession = Depends(get_db)):
-    if not task_id or task_id.strip() == "":
-        return await clear_all_tasks(db)
+    if not task_id or not task_id.strip():
+        raise HTTPException(status_code=400, detail="A valid task_id must be provided")
 
     stmt = select(TaskModel).where(TaskModel.id == task_id)
     result = await db.execute(stmt)

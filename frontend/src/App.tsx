@@ -1135,6 +1135,7 @@ const MainApp: React.FC = () => {
   };
 
   const handleDeleteTask = async (taskId: string) => {
+    setDeletingTaskId(taskId);
     // 1. Snapshot previous state for rollback
     const prevTasks = [...tasks];
     const prevActiveId = activeTaskId;
@@ -1174,6 +1175,14 @@ const MainApp: React.FC = () => {
       return next;
     });
 
+    try {
+      if (localStorage.getItem('cyclode_active_task_id') === taskId) {
+        localStorage.removeItem('cyclode_active_task_id');
+      }
+    } catch {
+      // ignore
+    }
+
     if (activeTaskId === taskId) {
       setActiveTaskId(null);
       setActiveTaskDetails(null);
@@ -1182,6 +1191,7 @@ const MainApp: React.FC = () => {
     }
 
     if (taskId.startsWith('temp-')) {
+      setDeletingTaskId(null);
       return;
     }
 
@@ -1204,6 +1214,8 @@ const MainApp: React.FC = () => {
       setActiveTaskDetails(prevActiveDetails);
       setActiveView(prevActiveView);
       activeTaskIdRef.current = prevActiveId;
+    } finally {
+      setDeletingTaskId(null);
     }
   };
 

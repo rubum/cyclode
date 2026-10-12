@@ -32,7 +32,33 @@ export interface TaskStoreState {
 
 export function useTaskStore(): TaskStoreState {
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [activeTaskId, setActiveTaskIdState] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem("cyclode_active_task_id") || null;
+    } catch {
+      return null;
+    }
+  });
+
+  const activeTaskIdRef = useRef<string | null>(activeTaskId);
+  useEffect(() => {
+    activeTaskIdRef.current = activeTaskId;
+  }, [activeTaskId]);
+
+  const setActiveTaskId = useCallback((id: string | null) => {
+    setActiveTaskIdState(id);
+    activeTaskIdRef.current = id;
+    try {
+      if (id && !id.startsWith("temp-")) {
+        localStorage.setItem("cyclode_active_task_id", id);
+      } else if (!id) {
+        localStorage.removeItem("cyclode_active_task_id");
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
   const [activeTaskDetails, setActiveTaskDetails] = useState<Task | null>(null);
   const [sessionPreviews, setSessionPreviews] = useState<Record<string, { url: string; title?: string } | null>>({});
   const [sessionFiles, setSessionFiles] = useState<Record<string, string | null>>({});
@@ -60,23 +86,6 @@ export function useTaskStore(): TaskStoreState {
       }
       return next;
     });
-  }, []);
-
-  const activeTaskIdRef = useRef<string | null>(activeTaskId);
-  useEffect(() => {
-    activeTaskIdRef.current = activeTaskId;
-  }, [activeTaskId]);
-
-  const fetchTasks = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/tasks`);
-      if (res.ok) {
-        const data = await res.json();
-        setTasks(data);
-      }
-    } catch (err) {
-      console.error("Error fetching tasks:", err);
-    }
   }, []);
 
   const fetchTaskDetails = useCallback(async (taskId: string) => {
@@ -149,6 +158,34 @@ export function useTaskStore(): TaskStoreState {
       console.error("Error fetching task details:", err);
     }
   }, []);
+
+  const fetchTasks = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/tasks`);
+      if (res.ok) {
+        const data: Task[] = await res.json();
+        setTasks(data);
+
+        // Auto-restore or select active task on load / reload
+        const currentActive = activeTaskIdRef.current;
+        if ((!currentActive || !data.some((t: Task) => t.id === currentActive)) && data.length > 0) {
+          let savedId: string | null = null;
+          try {
+            savedId = localStorage.getItem("cyclode_active_task_id");
+          } catch {
+            // ignore
+          }
+          const target = (savedId && data.find((t: Task) => t.id === savedId)) || data.find((t: Task) => !t.is_subsession) || data[0];
+          if (target) {
+            setActiveTaskId(target.id);
+            fetchTaskDetails(target.id);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching tasks:", err);
+    }
+  }, [fetchTaskDetails, setActiveTaskId]);
 
   return {
     tasks,

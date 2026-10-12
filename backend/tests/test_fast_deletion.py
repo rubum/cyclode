@@ -82,6 +82,15 @@ async def test_fast_task_deletion_api(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_delete_empty_task_id_fails_safely():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        res = await client.delete("/api/tasks/%20")
+        assert res.status_code == 400
+        assert "valid task_id" in res.json()["detail"]
+
+
+@pytest.mark.asyncio
 async def test_fast_clear_all_tasks_api(tmp_path):
     task_ids = ["task-clear-1", "task-clear-2", "task-clear-3"]
     async with async_session_factory() as session:

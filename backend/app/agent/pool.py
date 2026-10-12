@@ -990,11 +990,15 @@ class AgentTaskPool:
                         .values(status="FAILED", result_summary=str(e), completed_at=get_utc_now())
                     )
                     await session.commit()
+                    await session.refresh(err_msg)
+                    err_msg_id = err_msg.id
             except Exception as dbe:
                 logger.debug(f"Error saving failure state for task {task_id}: {dbe}")
+                err_msg_id = f"err_{task_id}_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
 
             try:
-                await ws_manager.broadcast("TASK_MESSAGE", {
+                await ws_manager.broadcast("CHAT_MESSAGE", {
+                    "id": err_msg_id,
                     "task_id": task_id,
                     "sender": "agent",
                     "content": err_content,
