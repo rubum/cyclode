@@ -56,7 +56,7 @@ interface CodeViewerProps {
   taskId: string;
   filePath: string | null;
   targetLine?: number | null;
-  onFileNotFound?: () => void;
+  onFileNotFound?: () => boolean | void;
   onClose?: () => void;
   onAskAboutLine?: (context: LineContext, initialPrompt?: string) => void;
   onOpenAgentChat?: () => void;
@@ -289,7 +289,14 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
         );
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.detail || `Failed to read file (${res.status})`);
+          const errMsg = errData.detail || `Failed to read file (${res.status})`;
+          if (res.status === 404 && onFileNotFound) {
+            const handled = onFileNotFound();
+            if (handled !== false) {
+              return;
+            }
+          }
+          throw new Error(errMsg);
         }
         const json = await res.json();
         if (isMounted) {

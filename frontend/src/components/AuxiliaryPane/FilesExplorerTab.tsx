@@ -52,6 +52,61 @@ const DEFAULT_TREE_WIDTH = 280;
 const MIN_TREE_WIDTH = 180;
 const MAX_TREE_WIDTH = 600;
 
+const fileExistsInTree = (nodes: FileNode[], targetPath: string): boolean => {
+  for (const n of nodes) {
+    if (!n.is_dir && (n.path === targetPath || n.name === targetPath)) return true;
+    if (n.children && fileExistsInTree(n.children, targetPath)) return true;
+  }
+  return false;
+};
+
+const findPreferredOrFirstFile = (nodes: FileNode[]): string | null => {
+  const findByName = (items: FileNode[], names: string[]): string | null => {
+    for (const item of items) {
+      if (!item.is_dir && names.includes(item.name.toLowerCase())) return item.path;
+      if (item.children) {
+        const found = findByName(item.children, names);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  const readme = findByName(nodes, ['readme.md', 'readme', 'pyproject.toml', 'package.json', 'mix.exs', 'cargo.toml', 'go.mod']);
+  if (readme) return readme;
+
+  const findFirst = (items: FileNode[]): string | null => {
+    for (const item of items) {
+      if (!item.is_dir) return item.path;
+      if (item.children) {
+        const found = findFirst(item.children);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+  return findFirst(nodes);
+};
+
+const computeActiveFile = (targetTaskId?: string, explicitPath?: string | null, explicitLine?: number | null) => {
+  if (explicitPath) {
+    return { file: explicitPath, line: explicitLine ?? null };
+  }
+  if (!targetTaskId) return { file: null, line: null };
+  const cachedActive = taskActiveFileCache.get(targetTaskId);
+  const cachedSandbox = sandboxCache.get(targetTaskId);
+  if (cachedActive && cachedSandbox?.file_tree && fileExistsInTree(cachedSandbox.file_tree, cachedActive.filePath)) {
+    return { file: cachedActive.filePath, line: cachedActive.line };
+  }
+  if (cachedSandbox?.file_tree && Array.isArray(cachedSandbox.file_tree) && cachedSandbox.file_tree.length > 0) {
+    return { file: findPreferredOrFirstFile(cachedSandbox.file_tree), line: null };
+  }
+  if (cachedActive) {
+    return { file: cachedActive.filePath, line: cachedActive.line };
+  }
+  return { file: null, line: null };
+};
+
 export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({ 
   task,
   selectedFilePath,
@@ -63,25 +118,27 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
   const [data, setData] = useState<SandboxInfo | null>(() => (task?.id ? sandboxCache.get(task.id) || null : null));
   const [loading, setLoading] = useState<boolean>(() => !(task?.id && sandboxCache.has(task.id)));
   const [error, setError] = useState<string | null>(null);
-  const [selectedFile, setSelectedFile] = useState<string | null>(() => {
-    if (selectedFilePath) return selectedFilePath;
-    if (task?.id && taskActiveFileCache.has(task.id)) {
-      return taskActiveFileCache.get(task.id)!.filePath;
-    }
-    return null;
-  });
-  const selectedFileRef = useRef<string | null>(selectedFile);
-  useEffect(() => {
-    selectedFileRef.current = selectedFile;
-  }, [selectedFile]);
 
-  const [targetLine, setTargetLine] = useState<number | null>(() => {
-    if (selectedLineNumber !== undefined) return selectedLineNumber;
-    if (task?.id && taskActiveFileCache.has(task.id)) {
-      return taskActiveFileCache.get(task.id)!.line;
-    }
-    return null;
-  });
+  const [prevTaskId, setPrevTaskId] = useState<string | undefined>(task?.id);
+
+  const initialFileState = computeActiveFile(task?.id, selectedFilePath, selectedLineNumber);
+  const [selectedFile, setSelectedFile] = useState<string | null>(initialFileState.file);
+  const [targetLine, setTargetLine] = useState<number | null>(initialFileState.line);
+
+  // Synchronously adapt state during render if task.id changes
+  if (task?.id !== prevTaskId) {
+    setPrevTaskId(task?.id);
+    const nextFileState = computeActiveFile(task?.id, selectedFilePath, selectedLineNumber);
+    const cachedSandbox = task?.id ? sandboxCache.get(task.id) || null : null;
+    setSelectedFile(nextFileState.file);
+    setTargetLine(nextFileState.line);
+    setData(cachedSandbox);
+    setLoading(!cachedSandbox);
+    setError(null);
+  }
+
+  const selectedFileRef = useRef<string | null>(selectedFile);
+  selectedFileRef.current = selectedFile;
 
   const handleSelectFile = useCallback((path: string, line?: number | null) => {
     setSelectedFile(path);
@@ -94,11 +151,11 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
   }, [task?.id, onSelectFile]);
 
   useEffect(() => {
-    if (selectedFilePath) {
+    if (selectedFilePath !== undefined) {
       setSelectedFile(selectedFilePath);
       const lineVal = selectedLineNumber ?? null;
       setTargetLine(lineVal);
-      if (task?.id) {
+      if (task?.id && selectedFilePath) {
         taskActiveFileCache.set(task.id, { filePath: selectedFilePath, line: lineVal });
       }
     }
@@ -228,42 +285,6 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
 
   const pollTimerRef = useRef<any>(null);
   const prevTaskIdRef = useRef<string | null>(null);
-
-  const fileExistsInTree = (nodes: FileNode[], targetPath: string): boolean => {
-    for (const n of nodes) {
-      if (!n.is_dir && (n.path === targetPath || n.name === targetPath)) return true;
-      if (n.children && fileExistsInTree(n.children, targetPath)) return true;
-    }
-    return false;
-  };
-
-  const findPreferredOrFirstFile = (nodes: FileNode[]): string | null => {
-    const findByName = (items: FileNode[], names: string[]): string | null => {
-      for (const item of items) {
-        if (!item.is_dir && names.includes(item.name.toLowerCase())) return item.path;
-        if (item.children) {
-          const found = findByName(item.children, names);
-          if (found) return found;
-        }
-      }
-      return null;
-    };
-
-    const readme = findByName(nodes, ['readme.md', 'readme', 'pyproject.toml', 'package.json', 'mix.exs', 'cargo.toml', 'go.mod']);
-    if (readme) return readme;
-
-    const findFirst = (items: FileNode[]): string | null => {
-      for (const item of items) {
-        if (!item.is_dir) return item.path;
-        if (item.children) {
-          const found = findFirst(item.children);
-          if (found) return found;
-        }
-      }
-      return null;
-    };
-    return findFirst(nodes);
-  };
 
   const fetchFilesystem = async (silent = false) => {
     if (!task?.id || task.id.startsWith('temp-')) {
@@ -408,21 +429,16 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
           setSelectedFile(cachedActive.filePath);
           setTargetLine(cachedActive.line);
         } else if (cached.file_tree && Array.isArray(cached.file_tree) && cached.file_tree.length > 0) {
-          const curFile = selectedFileRef.current;
-          if (curFile && fileExistsInTree(cached.file_tree, curFile)) {
-            // Keep current file
-          } else {
-            const fallback = findPreferredOrFirstFile(cached.file_tree);
-            if (fallback) {
-              if (task?.id) {
-                taskActiveFileCache.set(task.id, { filePath: fallback, line: null });
-              }
-              setTargetLine(null);
-              setSelectedFile(fallback);
-              setTimeout(() => {
-                onSelectFile?.(fallback);
-              }, 0);
+          const fallback = findPreferredOrFirstFile(cached.file_tree);
+          if (fallback) {
+            if (task?.id) {
+              taskActiveFileCache.set(task.id, { filePath: fallback, line: null });
             }
+            setTargetLine(null);
+            setSelectedFile(fallback);
+            setTimeout(() => {
+              onSelectFile?.(fallback);
+            }, 0);
           }
         }
         // Fetch silently in background to refresh freshness
@@ -660,10 +676,12 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
           }}
           onFileNotFound={() => {
             const fallback = findPreferredOrFirstFile(fileTree);
-            if (fallback) {
+            if (fallback && fallback !== selectedFile) {
               pushPoint({ filePath: fallback, line: 1 });
               handleSelectFile(fallback, 1);
+              return true;
             }
+            return false;
           }}
           onAskAboutLine={(context, prompt) => {
             setActiveSnippetContext(context);
