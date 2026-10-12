@@ -71,11 +71,34 @@ export const initThemeMode = (): ThemeMode => {
   return savedMode;
 };
 
+export const hexToRgb = (hex: string): string | null => {
+  let clean = hex.replace(/^#/, '').trim();
+  if (clean.length === 3) {
+    clean = clean.split('').map((c) => c + c).join('');
+  }
+  if (clean.length !== 6) return null;
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  if (isNaN(r) || isNaN(g) || isNaN(b)) return null;
+  return `${r}, ${g}, ${b}`;
+};
+
 export const applyThemeColors = (accentHex: string, folderHex: string = '#E5C07B') => {
   document.documentElement.style.setProperty('--color-accent', accentHex);
   document.documentElement.style.setProperty('--color-folder', folderHex);
   // Calculate subtle transparent background
   document.documentElement.style.setProperty('--color-accent-subtle', `${accentHex}26`);
+  
+  const accentRgb = hexToRgb(accentHex);
+  if (accentRgb) {
+    document.documentElement.style.setProperty('--color-accent-rgb', accentRgb);
+  }
+  const folderRgb = hexToRgb(folderHex);
+  if (folderRgb) {
+    document.documentElement.style.setProperty('--color-folder-rgb', folderRgb);
+  }
+
   try {
     localStorage.setItem('cyclode_theme_accent', accentHex);
     localStorage.setItem('cyclode_theme_folder', folderHex);
