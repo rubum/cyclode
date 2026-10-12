@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { GitPullRequest, Activity, Cpu, Inbox, Folder, Compass, Play, GitCompare, Brain, Terminal as TerminalIcon } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { GitPullRequest, Activity, Cpu, Inbox, Folder, Compass, Play, GitCompare, Brain, Terminal as TerminalIcon, MoreHorizontal, ChevronDown } from 'lucide-react';
 import { Task, WorkspacePreviewInfo } from '../../types';
 import { PullRequestsTab } from './PullRequestsTab';
 import { IntelligenceTab } from './IntelligenceTab';
@@ -156,51 +156,195 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
     }
   }, [task?.id, previewTarget?.url]);
 
-  const tabs = [
-    { id: 'docs', label: 'Web & Docs', icon: Compass, badge: (previewTarget?.url && !isPrForTask(previewTarget.url, task)) ? '●' : undefined },
-    { id: 'files', label: 'Files', icon: Folder, iconClass: 'text-onedark-folder' },
-    { id: 'terminal', label: 'Terminal', icon: TerminalIcon, iconClass: 'text-onedark-accent' },
-    { id: 'preview', label: 'Preview', icon: Play, iconClass: previewInfo?.has_preview ? 'text-onedark-green' : '', badge: previewInfo?.has_preview ? '●' : undefined },
-    { id: 'changes', label: 'Changes', icon: GitCompare, count: task?.diffs?.length || 0, iconClass: (task?.diffs?.length || 0) > 0 ? 'text-onedark-accent' : '' },
-    { id: 'prs', label: 'PRs', icon: GitPullRequest, count: task?.prs?.length || 0, badge: (previewTarget?.url && isPrForTask(previewTarget.url, task)) ? '●' : undefined },
-    { id: 'intelligence', label: 'Intelligence', icon: Brain, badge: task?.report ? '●' : undefined },
-    { id: 'agents', label: 'Agents', icon: Cpu },
-    { id: 'event', label: 'Event', icon: Inbox, badge: task?.event_id ? '●' : undefined },
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showMoreMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
+        setShowMoreMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showMoreMenu]);
+
+  const allTabs: Array<{
+    id: AuxTabType;
+    label: string;
+    icon: React.ComponentType<{ className?: string }>;
+    iconClass?: string;
+    badge?: string;
+    count?: number;
+    isContextual: boolean;
+    hasData: boolean;
+  }> = [
+    {
+      id: 'docs',
+      label: 'Web & Docs',
+      icon: Compass,
+      badge: (previewTarget?.url && !isPrForTask(previewTarget.url, task)) ? '●' : undefined,
+      isContextual: true,
+      hasData: Boolean(previewTarget?.url && !isPrForTask(previewTarget.url, task)),
+    },
+    {
+      id: 'files',
+      label: 'Files',
+      icon: Folder,
+      iconClass: 'text-onedark-folder',
+      isContextual: false,
+      hasData: true,
+    },
+    {
+      id: 'terminal',
+      label: 'Terminal',
+      icon: TerminalIcon,
+      iconClass: 'text-onedark-accent',
+      isContextual: false,
+      hasData: true,
+    },
+    {
+      id: 'preview',
+      label: 'Preview',
+      icon: Play,
+      iconClass: previewInfo?.has_preview ? 'text-onedark-green' : '',
+      badge: previewInfo?.has_preview ? '●' : undefined,
+      isContextual: true,
+      hasData: Boolean(previewInfo?.has_preview),
+    },
+    {
+      id: 'changes',
+      label: 'Changes',
+      icon: GitCompare,
+      count: task?.diffs?.length || 0,
+      iconClass: (task?.diffs?.length || 0) > 0 ? 'text-onedark-accent' : '',
+      isContextual: true,
+      hasData: (task?.diffs?.length || 0) > 0 || Boolean(targetCommitSha),
+    },
+    {
+      id: 'prs',
+      label: 'PRs',
+      icon: GitPullRequest,
+      count: task?.prs?.length || 0,
+      badge: (previewTarget?.url && isPrForTask(previewTarget.url, task)) ? '●' : undefined,
+      isContextual: true,
+      hasData: (task?.prs?.length || 0) > 0 || Boolean(previewTarget?.url && isPrForTask(previewTarget.url, task)),
+    },
+    {
+      id: 'intelligence',
+      label: 'Intelligence',
+      icon: Brain,
+      badge: task?.report ? '●' : undefined,
+      isContextual: false,
+      hasData: true,
+    },
+    {
+      id: 'agents',
+      label: 'Agents',
+      icon: Cpu,
+      isContextual: false,
+      hasData: true,
+    },
+    {
+      id: 'event',
+      label: 'Event',
+      icon: Inbox,
+      badge: task?.event_id ? '●' : undefined,
+      isContextual: true,
+      hasData: Boolean(task?.event_id),
+    },
   ];
+
+  // Core tabs always stay visible; contextual tabs are promoted to the tab bar if they have data or are actively selected
+  const visibleTabs = allTabs.filter(
+    (tab) => !tab.isContextual || tab.hasData || activeTab === tab.id || (tab.id === 'agents' && activeTab === 'subagents')
+  );
+
+  // Contextual tabs currently lacking data and not active are cleanly tucked into the overflow menu
+  const overflowTabs = allTabs.filter(
+    (tab) => tab.isContextual && !tab.hasData && activeTab !== tab.id && !(tab.id === 'agents' && activeTab === 'subagents')
+  );
 
   return (
     <div className="flex flex-col h-full bg-onedark-darker overflow-hidden select-none text-onedark-fg">
-      {/* Tab bar with kinetic styling */}
-      <div className="flex items-center bg-onedark-darker px-2 py-1.5 space-x-1 overflow-x-auto no-scrollbar border-b border-onedark-borderSubtle/60">
-        {tabs.map((tab) => {
-          const Icon = tab.icon;
-          const isActive = activeTab === tab.id || (tab.id === 'agents' && activeTab === 'subagents');
-          return (
+      {/* Tab bar with kinetic styling and contextual visibility */}
+      <div className="flex items-center justify-between bg-onedark-darker px-2 py-1.5 border-b border-onedark-borderSubtle/60">
+        <div className="flex items-center space-x-1 overflow-x-auto no-scrollbar min-w-0 flex-1">
+          {visibleTabs.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = activeTab === tab.id || (tab.id === 'agents' && activeTab === 'subagents');
+            return (
+              <button
+                key={tab.id}
+                onClick={() => handleTabClick(tab.id as any)}
+                className={`relative flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium cursor-pointer flex-shrink-0 rounded-lg btn-tactile transition-all duration-150 ${
+                  isActive
+                    ? 'bg-onedark-surface text-onedark-fgBright shadow-xs font-semibold border border-onedark-borderSubtle'
+                    : 'bg-onedark-surface/40 text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface/70 border border-onedark-borderSubtle/60'
+                }`}
+              >
+                <Icon className={`w-3.5 h-3.5 transition-transform duration-150 ${isActive ? 'scale-105' : ''} ${tab.iconClass || ''}`} />
+                <span>{tab.label}</span>
+                {tab.badge && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-onedark-green animate-subagent-pulse ml-0.5" />
+                )}
+                {tab.count !== undefined && tab.count > 0 && (
+                  <span className={`ml-1 text-[10px] font-mono transition-colors duration-150 ${isActive ? 'text-onedark-accent font-bold' : 'text-onedark-muted'}`}>
+                    {tab.count}
+                  </span>
+                )}
+                {isActive && (
+                  <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-onedark-accent rounded-full animate-active-tab-glow" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Overflow dropdown for contextual views without active data */}
+        {overflowTabs.length > 0 && (
+          <div className="relative flex-shrink-0 ml-1.5" ref={moreMenuRef}>
             <button
-              key={tab.id}
-              onClick={() => handleTabClick(tab.id as any)}
-              className={`relative flex items-center space-x-1.5 px-3 py-1.5 text-xs font-medium cursor-pointer flex-shrink-0 rounded-lg btn-tactile transition-all duration-150 ${
-                isActive
-                  ? 'bg-onedark-surface text-onedark-fgBright shadow-xs font-semibold border border-onedark-borderSubtle'
-                  : 'bg-onedark-surface/40 text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface/70 border border-onedark-borderSubtle/60'
+              type="button"
+              onClick={() => setShowMoreMenu((prev) => !prev)}
+              className={`flex items-center space-x-1 px-2 py-1.5 text-xs rounded-lg border transition-all cursor-pointer ${
+                showMoreMenu
+                  ? 'bg-onedark-surface text-onedark-fgBright border-onedark-borderSubtle shadow-xs'
+                  : 'bg-onedark-surface/30 hover:bg-onedark-surface/60 text-onedark-muted hover:text-onedark-fg border-transparent hover:border-onedark-borderSubtle/50'
               }`}
+              title="More workspace views"
             >
-              <Icon className={`w-3.5 h-3.5 transition-transform duration-150 ${isActive ? 'scale-105' : ''} ${tab.iconClass || ''}`} />
-              <span>{tab.label}</span>
-              {tab.badge && (
-                <span className="w-1.5 h-1.5 rounded-full bg-onedark-green animate-subagent-pulse ml-0.5" />
-              )}
-              {tab.count !== undefined && tab.count > 0 && (
-                <span className={`ml-1 text-[10px] font-mono transition-colors duration-150 ${isActive ? 'text-onedark-accent font-bold' : 'text-onedark-muted'}`}>
-                  {tab.count}
-                </span>
-              )}
-              {isActive && (
-                <span className="absolute bottom-0 left-2 right-2 h-0.5 bg-onedark-accent rounded-full animate-active-tab-glow" />
-              )}
+              <MoreHorizontal className="w-3.5 h-3.5" />
+              <ChevronDown className={`w-3 h-3 transition-transform duration-150 ${showMoreMenu ? 'rotate-180' : ''}`} />
             </button>
-          );
-        })}
+
+            {showMoreMenu && (
+              <div className="absolute right-0 top-full mt-1.5 w-44 bg-onedark-bg border border-onedark-border rounded-xl shadow-2xl py-1 z-50 animate-scaleIn font-sans">
+                <div className="px-2.5 py-1 text-[10px] font-mono font-semibold uppercase tracking-wider text-onedark-muted border-b border-onedark-borderSubtle/60">
+                  Additional Views
+                </div>
+                {overflowTabs.map((tab) => {
+                  const Icon = tab.icon;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => {
+                        handleTabClick(tab.id as any);
+                        setShowMoreMenu(false);
+                      }}
+                      className="w-full flex items-center space-x-2 px-2.5 py-1.5 text-xs text-onedark-fg hover:text-onedark-fgBright hover:bg-onedark-surface/70 transition-colors text-left cursor-pointer"
+                    >
+                      <Icon className={`w-3.5 h-3.5 ${tab.iconClass || 'text-onedark-muted'}`} />
+                      <span>{tab.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Tab body with persistent keep-alive state across tab switches */}
