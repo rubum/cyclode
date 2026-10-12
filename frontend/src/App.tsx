@@ -55,6 +55,8 @@ const MainApp: React.FC = () => {
     setIsClearingAll,
     deletingTaskId,
     setDeletingTaskId,
+    isSessionLoading,
+    setIsSessionLoading,
     fetchTasks,
     fetchTaskDetails,
     activeTaskIdRef,
@@ -563,6 +565,7 @@ const MainApp: React.FC = () => {
 
   const handleSelectTask = (taskId: string) => {
     if (taskId === activeTaskId) return;
+    setIsSessionLoading(true);
     setActiveTaskId(taskId);
     setActiveView('chat');
     const existing = tasks.find((t) => t.id === taskId);
@@ -577,6 +580,7 @@ const MainApp: React.FC = () => {
   };
 
   const handleNewChat = () => {
+    setIsSessionLoading(false);
     setActiveTaskId(null);
     setActiveTaskDetails(null);
     setActiveView('chat');
@@ -932,6 +936,7 @@ const MainApp: React.FC = () => {
         ...prev,
         status: 'RUNNING',
         result_summary: null,
+        plan: null,
         logs: [],
         diffs: [],
         approvals: [],
@@ -996,6 +1001,7 @@ const MainApp: React.FC = () => {
         ...prev,
         status: 'RUNNING',
         result_summary: null,
+        plan: null,
         logs: [],
         diffs: [],
         approvals: [],
@@ -1027,6 +1033,18 @@ const MainApp: React.FC = () => {
       const sanitized = parseUserMessageAttachments(promptToRestore, activeTaskId).cleanedText.trim() || promptToRestore.trim();
       handleDraftChange(activeTaskId, sanitized);
     }
+    setActiveTaskDetails((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        status: 'IDLE',
+        result_summary: null,
+        plan: null,
+        logs: [],
+        diffs: [],
+        approvals: [],
+      };
+    });
     try {
       const res = await fetch(`${API_BASE}/api/tasks/${activeTaskId}/reset-turn`, {
         method: 'POST',
@@ -1276,6 +1294,7 @@ const MainApp: React.FC = () => {
         return (
           <ChatCanvas
             task={activeTaskDetails}
+            isLoadingSession={isSessionLoading}
             repositories={repositories}
             currentDraft={activeTaskId ? (sessionDrafts[activeTaskId] || '') : (sessionDrafts['draft'] || '')}
             onDraftChange={(draft) => handleDraftChange(activeTaskId || 'draft', draft)}

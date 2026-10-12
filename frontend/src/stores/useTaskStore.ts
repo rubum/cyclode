@@ -14,6 +14,8 @@ export interface TaskStoreState {
   sessionDrafts: Record<string, string>;
   isClearingAll: boolean;
   deletingTaskId: string | null;
+  isSessionLoading: boolean;
+  setIsSessionLoading: React.Dispatch<React.SetStateAction<boolean>>;
   fetchTasks: () => Promise<void>;
   fetchTaskDetails: (taskId: string) => Promise<void>;
   setActiveTaskId: (id: string | null) => void;
@@ -75,6 +77,7 @@ export function useTaskStore(): TaskStoreState {
   });
   const [isClearingAll, setIsClearingAll] = useState<boolean>(false);
   const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
+  const [isSessionLoading, setIsSessionLoading] = useState<boolean>(() => !!activeTaskId);
 
   const setSessionDraft = useCallback((sessionKey: string, draft: string) => {
     setSessionDrafts((prev) => {
@@ -156,6 +159,10 @@ export function useTaskStore(): TaskStoreState {
       }
     } catch (err) {
       console.error("Error fetching task details:", err);
+    } finally {
+      if (activeTaskIdRef.current === taskId) {
+        setIsSessionLoading(false);
+      }
     }
   }, []);
 
@@ -177,6 +184,7 @@ export function useTaskStore(): TaskStoreState {
           }
           const target = (savedId && data.find((t: Task) => t.id === savedId)) || data.find((t: Task) => !t.is_subsession) || data[0];
           if (target) {
+            setIsSessionLoading(true);
             setActiveTaskId(target.id);
             fetchTaskDetails(target.id);
           }
@@ -198,6 +206,8 @@ export function useTaskStore(): TaskStoreState {
     sessionDrafts,
     isClearingAll,
     deletingTaskId,
+    isSessionLoading,
+    setIsSessionLoading,
     fetchTasks,
     fetchTaskDetails,
     setActiveTaskId,

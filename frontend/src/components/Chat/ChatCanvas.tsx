@@ -574,6 +574,7 @@ const getToolActionInfo = (
 
 interface ChatCanvasProps {
   task: Task | null;
+  isLoadingSession?: boolean;
   repositories?: RepositoryConfig[];
   currentDraft?: string;
   onDraftChange?: (draft: string) => void;
@@ -1428,6 +1429,7 @@ const RepoAutoCarousel: React.FC<RepoAutoCarouselProps> = ({
 
 export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   task,
+  isLoadingSession,
   repositories: propRepositories,
   currentDraft,
   onDraftChange,
@@ -2819,6 +2821,34 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     ? 'max-w-xl'
     : 'max-w-2xl';
 
+  // Session Loading State (Centered spinner indicator)
+  if (isLoadingSession) {
+    return (
+      <div className="flex flex-col h-full bg-onedark-bg relative font-sans text-onedark-fg">
+        {/* Top Control Bar in Loading State */}
+        <div className="h-10 px-4 bg-onedark-darker/80 border-b border-onedark-borderSubtle/60 flex items-center justify-between text-xs text-onedark-muted select-none flex-shrink-0">
+          <div className="flex items-center space-x-2">
+            <Loader2 className="w-3.5 h-3.5 text-onedark-accent animate-spin" />
+            <span className="font-mono text-[11.5px] font-semibold text-onedark-fgBright">Loading Session...</span>
+          </div>
+        </div>
+
+        {/* Centered Loading Spinner and Message */}
+        <div className="flex-1 flex flex-col items-center justify-center p-6 space-y-4">
+          <div className="w-12 h-12 rounded-2xl bg-onedark-surface/60 border border-onedark-borderSubtle/60 flex items-center justify-center shadow-lg backdrop-blur-xs">
+            <Loader2 className="w-6 h-6 text-onedark-accent animate-spin" />
+          </div>
+          <div className="text-center space-y-1.5">
+            <h3 className="text-sm font-medium text-onedark-fgBright font-mono">Restoring Session</h3>
+            <p className="text-xs text-onedark-muted font-sans max-w-sm">
+              Loading chat history, workspace diffs, and execution context...
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // Empty State / New Task Launcher
   if (!task) {
     return (
@@ -3760,7 +3790,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 )}
 
                 {/* 2. Execution Plan Accordion (Situated ABOVE Reasoning & Activity) */}
-                {hasPlan && (
+                {hasPlan ? (
                   <div className={`rounded-xl overflow-hidden shadow-xs transition-all duration-200 ${
                     isTurnRunning && turn.isLatest 
                       ? 'bg-onedark-darker/60 border border-white/[0.08]' 
@@ -3957,6 +3987,35 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                         )}
                       </div>
                     )}
+                  </div>
+                ) : (isTurnRunning && turn.isLatest) ? (
+                  <div className="rounded-xl overflow-hidden shadow-xs bg-onedark-darker/60 border border-white/[0.08]">
+                    <div className="w-full px-3.5 py-2.5 flex items-center justify-between text-xs text-onedark-muted select-none">
+                      <div className="flex items-center space-x-2 min-w-0 pr-2">
+                        <ListOrdered className="w-3.5 h-3.5 text-onedark-accent shrink-0 animate-pulse" />
+                        <span className="font-mono text-xs font-medium text-onedark-fg">
+                          Execution Plan
+                        </span>
+                        <span className="text-[11px] text-onedark-accent font-mono flex items-center space-x-1.5 ml-1">
+                          <Loader2 className="w-2.5 h-2.5 text-onedark-accent animate-spin" />
+                          <span>Synthesizing plan...</span>
+                        </span>
+                      </div>
+                      <div className="flex items-center space-x-2 shrink-0">
+                        <span className="px-2 py-0.5 rounded-full bg-onedark-accent/10 text-onedark-accent text-[10.5px] font-mono flex items-center space-x-1.5 font-semibold">
+                          <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                          <span>Planning...</span>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {/* Turn Initial Running Strategy indicator when no messages, thoughts, or logs yet */}
+                {isTurnRunning && turn.isLatest && turn.agentMessages.length === 0 && !hasThoughts && !hasLogs && !hasPlan && (
+                  <div className="flex items-center space-x-2 py-2 px-1 text-xs text-onedark-muted font-mono">
+                    <Loader2 className="w-3.5 h-3.5 text-onedark-accent animate-spin" />
+                    <span>Analyzing request and formulating execution strategy...</span>
                   </div>
                 )}
 

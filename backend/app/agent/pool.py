@@ -5,7 +5,7 @@ import subprocess
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, Any, Optional, List
-from sqlalchemy import select, update, delete
+from sqlalchemy import select, update, delete, or_, and_
 from sqlalchemy.orm.attributes import flag_modified
 from app.config import settings
 from app.db.session import async_session_factory
@@ -1850,6 +1850,7 @@ class AgentTaskPool:
                 task.status = "RUNNING"
                 task.result_summary = None
                 task.completed_at = None
+                task.plan = None
 
                 # Delete all messages, logs, approvals, diffs
                 await session.execute(delete(TaskMessageModel).where(TaskMessageModel.task_id == task_id))
@@ -1881,11 +1882,17 @@ class AgentTaskPool:
                 target_created_at = target_msg.created_at
                 target_msg.content = new_content
 
-                # Delete messages created strictly after this message
+                # Delete messages created strictly after this message (or agent responses for this turn)
                 await session.execute(
                     delete(TaskMessageModel).where(
                         TaskMessageModel.task_id == task_id,
-                        TaskMessageModel.created_at > target_created_at
+                        or_(
+                            TaskMessageModel.created_at > target_created_at,
+                            and_(
+                                TaskMessageModel.created_at >= target_created_at,
+                                TaskMessageModel.id != message_id
+                            )
+                        )
                     )
                 )
                 # Prune logs, diffs, approvals created after
@@ -1911,6 +1918,7 @@ class AgentTaskPool:
                 task.status = "RUNNING"
                 task.result_summary = None
                 task.completed_at = None
+                task.plan = None
                 await session.commit()
 
                 # Fetch history up to this message
@@ -1926,7 +1934,11 @@ class AgentTaskPool:
                 ]
                 prompt_to_run = new_content
 
-        # Broadcast status change
+        # Broadcast status and plan reset immediately to UI
+        await ws_manager.broadcast("TASK_PLAN_UPDATED", {
+            "task_id": task_id,
+            "plan": None
+        })
         await ws_manager.broadcast("TASK_STATUS_CHANGE", {
             "task_id": task_id,
             "status": "RUNNING"
@@ -2170,14 +2182,14 @@ class AgentTaskPool:
                 logger.warning(f"Error rolling back task memories in reset_task_turn: {e}")
 
             # 3. Restore plan state
-            if task.plan and isinstance(task.plan, dict):
+            if is_initial_turn:
+                task.plan = None
+            elif task.plan and isinstance(task.plan, dict):
                 import copy
                 p_copy = copy.deepcopy(task.plan)
                 steps = p_copy.get("steps", [])
                 for s in steps:
-                    s["status"] = "pending" if is_initial_turn else "in_progress"
-                if steps and is_initial_turn:
-                    steps[0]["status"] = "in_progress"
+                    s["status"] = "in_progress"
                 p_copy["steps"] = steps
                 if "evaluation" in p_copy:
                     p_copy["evaluation"]["status"] = "in_progress"
