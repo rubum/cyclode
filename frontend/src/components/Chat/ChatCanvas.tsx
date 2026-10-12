@@ -707,17 +707,15 @@ const ReasoningProcessContainer: React.FC<ReasoningProcessContainerProps> = ({
     }
   }, [isStreamingActive]);
 
+  const totalTokens = useMemo(() => thoughts.reduce((acc, t) => acc + (t.tokens || 0), 0), [thoughts]);
+
   return (
     <div className="border-t border-white/[0.06] bg-onedark-darker/60 flex flex-col">
-      {/* Sub-header toolbar with step counter and Copy button */}
+      {/* Sub-header toolbar with Copy button */}
       <div className="px-3.5 py-1.5 border-b border-white/[0.04] bg-white/[0.015] flex items-center justify-between text-[11px] font-mono text-onedark-muted select-none">
         <div className="flex items-center space-x-2">
-          <span>{thoughts.length} reasoning step{thoughts.length > 1 ? 's' : ''}</span>
-          {isStreamingActive && (
-            <span className="flex items-center space-x-1 text-onedark-yellow text-[10.5px]">
-              <span className="w-1.5 h-1.5 rounded-full bg-onedark-yellow animate-pulse" />
-              <span>Thinking...</span>
-            </span>
+          {totalTokens > 0 && (
+            <span className="text-[10.5px] text-onedark-muted/70">{totalTokens.toLocaleString()} tokens</span>
           )}
         </div>
         <button
@@ -753,7 +751,9 @@ const ReasoningProcessContainer: React.FC<ReasoningProcessContainerProps> = ({
           >
             {thoughts.length > 1 && (
               <div className="flex items-center space-x-2 text-[10.5px] font-mono text-onedark-muted mb-1.5 select-none">
-                <span className="font-semibold text-onedark-accent/80 uppercase tracking-wider text-[10px]">
+                <span className={`font-semibold uppercase tracking-wider text-[10px] ${
+                  m.isStreaming ? 'text-onedark-yellow' : 'text-onedark-accent/80'
+                }`}>
                   Step {idx + 1}
                 </span>
                 {m.tokens && (
@@ -763,9 +763,8 @@ const ReasoningProcessContainer: React.FC<ReasoningProcessContainerProps> = ({
                   </>
                 )}
                 {m.isStreaming && (
-                  <span className="inline-flex items-center space-x-1 text-onedark-yellow text-[10px]">
+                  <span className="inline-flex items-center text-onedark-yellow" title="Streaming">
                     <span className="w-1.5 h-1.5 rounded-full bg-onedark-yellow animate-pulse" />
-                    <span>Thinking</span>
                   </span>
                 )}
               </div>
