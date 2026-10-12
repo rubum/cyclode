@@ -209,7 +209,7 @@ const MainApp: React.FC = () => {
           if (existingIdx >= 0) {
             messages[existingIdx] = {
               ...messages[existingIdx],
-              content: data.accumulated,
+              content: data.stream_type === 'message' ? data.accumulated : (messages[existingIdx].content || ''),
               thought: data.stream_type === 'thought' ? data.accumulated : messages[existingIdx].thought,
               isStreaming: true,
             };
@@ -218,7 +218,7 @@ const MainApp: React.FC = () => {
               id: data.stream_id,
               task_id: data.task_id,
               sender: 'agent',
-              content: data.accumulated,
+              content: data.stream_type === 'message' ? data.accumulated : '',
               thought: data.stream_type === 'thought' ? data.accumulated : undefined,
               isStreaming: true,
               created_at: new Date().toISOString(),
@@ -256,7 +256,7 @@ const MainApp: React.FC = () => {
           if (existingIdx >= 0) {
             messages[existingIdx] = {
               ...messages[existingIdx],
-              content: data.final_content,
+              content: data.stream_type === 'message' ? data.final_content : (messages[existingIdx].content || ''),
               thought: data.stream_type === 'thought' ? data.final_content : messages[existingIdx].thought,
               tokens: data.tokens,
               isStreaming: false,
@@ -266,7 +266,7 @@ const MainApp: React.FC = () => {
               id: data.stream_id,
               task_id: data.task_id,
               sender: 'agent',
-              content: data.final_content,
+              content: data.stream_type === 'message' ? data.final_content : '',
               thought: data.stream_type === 'thought' ? data.final_content : undefined,
               tokens: data.tokens,
               isStreaming: false,
@@ -298,7 +298,7 @@ const MainApp: React.FC = () => {
               ...messages[thoughtIdx],
               id: data.id || messages[thoughtIdx].id,
               thought: data.thought,
-              content: data.thought,
+              content: (messages[thoughtIdx].content && messages[thoughtIdx].content !== data.thought) ? messages[thoughtIdx].content : '',
               tokens: data.tokens ?? messages[thoughtIdx].tokens,
               isStreaming: false,
               created_at: messages[thoughtIdx].created_at || data.timestamp || new Date().toISOString(),
@@ -314,7 +314,7 @@ const MainApp: React.FC = () => {
                 id: data.id || `thought-${Date.now()}`,
                 task_id: data.task_id,
                 sender: 'agent',
-                content: data.thought,
+                content: '',
                 thought: data.thought,
                 tokens: data.tokens,
                 isStreaming: false,

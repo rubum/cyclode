@@ -1955,8 +1955,12 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
           }
         }
 
-        // 2. Process content if present
-        if (m.content && m.content.trim().length > 0) {
+        // 2. Process content if present (filter out any thought mirroring)
+        const isDuplicatedThought = Boolean(
+          (m.thought && m.content && m.content.trim() === m.thought.trim()) ||
+          (m.content && currentTurn.thoughts.some((t) => t.thought.trim() === m.content.trim()))
+        );
+        if (m.content && m.content.trim().length > 0 && !isDuplicatedThought) {
           const existingMsgIdx = currentTurn.agentMessages.findIndex((msg) => {
             if (msg.id === m.id) return true;
             if (msg.sender === m.sender && msg.content.trim().length > 0 && m.content.trim().length > 0) {
