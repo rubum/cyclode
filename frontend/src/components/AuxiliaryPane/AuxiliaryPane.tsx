@@ -387,6 +387,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
             <ErrorBoundary fallbackTitle="Error Loading FILES Tab">
               {task ? (
                 <FilesExplorerTab 
+                  key={task.id}
                   task={task} 
                   selectedFilePath={selectedFilePath} 
                   selectedLineNumber={selectedLineNumber}
@@ -424,6 +425,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
             <ErrorBoundary fallbackTitle="Error Loading TERMINAL Tab">
               <React.Suspense fallback={<div className="h-full flex items-center justify-center text-xs text-onedark-muted font-mono">Loading terminal...</div>}>
                 <TerminalTab
+                  key={task?.id}
                   task={task}
                   isActive={activeTab === 'terminal'}
                   onOpenFile={(filePath) => {
@@ -449,6 +451,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
           >
             <ErrorBoundary fallbackTitle="Error Loading PREVIEW Tab">
               <AppPreviewTab
+                key={task?.id}
                 task={task}
                 onSelectAuxTab={handleTabClick}
                 onAskAgent={onAskAboutComment}
@@ -468,6 +471,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
           >
             <ErrorBoundary fallbackTitle="Error Loading CHANGES Tab">
               <ChangesDiffTab 
+                key={task?.id}
                 task={task} 
                 onSelectAuxTab={handleTabClick} 
                 targetCommitSha={targetCommitSha}
@@ -488,6 +492,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
           >
             <ErrorBoundary fallbackTitle="Error Loading PRs Tab">
               <PullRequestsTab
+                key={task?.id}
                 task={task}
                 selectedPrUrl={isPrForTask(previewTarget?.url, task) ? previewTarget?.url : undefined}
                 onClearSelectedPr={onClearPreview}
@@ -508,7 +513,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
             aria-hidden={activeTab !== 'intelligence'}
           >
             <ErrorBoundary fallbackTitle="Error Loading Intelligence Tab">
-              <IntelligenceTab task={task} />
+              <IntelligenceTab key={task?.id} task={task} />
             </ErrorBoundary>
           </div>
         )}

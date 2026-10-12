@@ -6,10 +6,10 @@ import {
   Layers,
   FolderLock,
   Sparkles,
-  Bot,
   Folder,
   PanelLeftOpen,
-  PanelLeftClose
+  PanelLeftClose,
+  GitBranch
 } from 'lucide-react';
 import { Task } from '../../types';
 import { FileTreeExplorer, FileNode, ExternalSearchRequest } from '../Files/FileTreeExplorer';
@@ -286,6 +286,8 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
   const pollTimerRef = useRef<any>(null);
   const prevTaskIdRef = useRef<string | null>(null);
 
+  const [isSyncingRepo, setIsSyncingRepo] = useState(false);
+
   const fetchFilesystem = async (silent = false) => {
     if (!task?.id || task.id.startsWith('temp-')) {
       setLoading(false);
@@ -347,6 +349,23 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
       if (!silent) setLoading(false);
     }
   };
+
+  const handleSyncRepo = useCallback(async () => {
+    if (!task?.id || isSyncingRepo) return;
+    setIsSyncingRepo(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/tasks/${task.id}/sandbox/sync`, { method: 'POST' });
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.detail || `Failed to sync repository (${res.status})`);
+      }
+      await fetchFilesystem(false);
+    } catch (err: any) {
+      alert(err.message || 'Error syncing repository');
+    } finally {
+      setIsSyncingRepo(false);
+    }
+  }, [task?.id, isSyncingRepo]);
 
   const handleRenameFile = useCallback(async (oldPath: string, newPath: string): Promise<boolean> => {
     if (!task?.id || task.id.startsWith('temp-')) return false;
@@ -567,6 +586,41 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
             ? 'The sandbox workspace directory is currently empty.'
             : 'Sandbox workspace has not been initialized or is no longer present on disk.'}
         </div>
+
+        {!isDestroyed && !isNoRepo && (
+          <div className="flex flex-col items-center space-y-2.5 mt-3">
+            <div className="text-[11px] text-onedark-muted font-sans px-2.5 py-1 rounded bg-onedark-surface/60 border border-onedark-borderSubtle">
+              Repository: <span className="font-semibold text-onedark-fg">{task.repo_name || task.repo_url}</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <button
+                type="button"
+                onClick={handleSyncRepo}
+                disabled={isSyncingRepo}
+                className="px-3 py-1.5 rounded-lg bg-onedark-accent text-white text-xs font-sans hover:bg-onedark-accent/90 transition-colors flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {isSyncingRepo ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Syncing Repo...</span>
+                  </>
+                ) : (
+                  <>
+                    <GitBranch className="w-3.5 h-3.5" />
+                    <span>Sync / Clone Repository</span>
+                  </>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => fetchFilesystem(false)}
+                className="px-3 py-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-border text-onedark-fg text-xs font-sans transition-colors cursor-pointer border border-onedark-borderSubtle"
+              >
+                Refresh
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -588,6 +642,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
                 }`}
               >
                 <FileTreeExplorer
+                  key={task.id}
                   taskId={task.id}
                   tree={fileTree}
                   selectedFile={selectedFile}

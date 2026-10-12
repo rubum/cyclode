@@ -1304,6 +1304,124 @@ async def promote_task_warm_cache(task_id: str, cache_key: Optional[str] = None,
     return {"ok": success, "task_id": task.id}
 
 
+@router.post("/{task_id}/sandbox/sync")
+async def sync_task_sandbox_repository(task_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Syncs or clones the linked repository into the task sandbox workspace if missing or empty.
+    """
+    stmt = select(TaskModel).where(TaskModel.id == task_id)
+    res = await db.execute(stmt)
+    task = res.scalars().first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    repo_url = task.repo_url
+    if not repo_url and task.repo_name:
+        repo_url = f"https://github.com/{task.repo_name}.git"
+
+    if not repo_url:
+        raise HTTPException(status_code=400, detail="No repository linked to this task session")
+
+    ws_path = Path(task.workspace_path).resolve() if task.workspace_path else None
+    if not ws_path:
+        specific_sb = Path(settings.WORKSPACE_ROOT) / f"sandbox-{task.id}"
+        ws_path = specific_sb
+
+    ws_path.mkdir(parents=True, exist_ok=True)
+
+    from app.integrations.github_client import github_client
+    from app.integrations.manager import integration_manager
+    active_token = await integration_manager.get_github_token_for_repo(repo_url) or github_client.token
+    clone_url = repo_url
+    if active_token and "github.com" in repo_url and not ("@" in repo_url):
+        clone_url = repo_url.replace("https://", f"https://x-access-token:{active_token}@")
+
+    git_dir = ws_path / ".git"
+    git_env = dict(os.environ)
+    git_env["GIT_TERMINAL_PROMPT"] = "0"
+    git_env["GIT_CONFIG_GLOBAL"] = "/dev/null"
+    git_env["GIT_CONFIG_NOSYSTEM"] = "1"
+
+    target_remote_branch = task.target_branch
+
+    if git_dir.exists():
+        # Check if workspace has actual repo files or is an empty git repo
+        fetch_cmd = ["git", "remote", "set-url", "origin", clone_url]
+        await asyncio.to_thread(subprocess.run, fetch_cmd, cwd=ws_path, capture_output=True, env=git_env)
+        
+        # Try fetching origin
+        fetch_origin_cmd = ["git", "fetch", "--depth", "1", "origin"]
+        if target_remote_branch:
+            fetch_origin_cmd.append(target_remote_branch)
+        proc = await asyncio.to_thread(subprocess.run, fetch_origin_cmd, cwd=ws_path, capture_output=True, text=True, timeout=120, env=git_env)
+        
+        # Try checking out target remote branch or HEAD
+        co_cmd = ["git", "checkout", "-f", "FETCH_HEAD"]
+        co_proc = await asyncio.to_thread(subprocess.run, co_cmd, cwd=ws_path, capture_output=True, text=True, env=git_env)
+        
+        if proc.returncode != 0 or co_proc.returncode != 0:
+            # Clean clone into temp and sync files into workspace
+            tmp_clone = ws_path.parent / f"tmp_clone_{task.id}"
+            shutil.rmtree(tmp_clone, ignore_errors=True)
+            cmd = ["git", "clone", "--depth", "1"]
+            if target_remote_branch:
+                cmd.extend(["--branch", target_remote_branch])
+            cmd.extend([clone_url, str(tmp_clone)])
+            clone_proc = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True, timeout=180, env=git_env)
+            if clone_proc.returncode != 0 and target_remote_branch:
+                shutil.rmtree(tmp_clone, ignore_errors=True)
+                clone_proc = await asyncio.to_thread(
+                    subprocess.run,
+                    ["git", "clone", "--depth", "1", clone_url, str(tmp_clone)],
+                    capture_output=True,
+                    text=True,
+                    timeout=180,
+                    env=git_env
+                )
+            if clone_proc.returncode == 0:
+                for item in tmp_clone.iterdir():
+                    dest = ws_path / item.name
+                    if dest.exists():
+                        if dest.is_dir():
+                            shutil.rmtree(dest, ignore_errors=True)
+                        else:
+                            dest.unlink(missing_ok=True)
+                    shutil.move(str(item), str(dest))
+                shutil.rmtree(tmp_clone, ignore_errors=True)
+            else:
+                raise HTTPException(status_code=500, detail=f"Failed to clone repository: {clone_proc.stderr}")
+    else:
+        cmd = ["git", "clone", "--depth", "1"]
+        if target_remote_branch:
+            cmd.extend(["--branch", target_remote_branch])
+        cmd.extend([clone_url, str(ws_path)])
+        proc = await asyncio.to_thread(subprocess.run, cmd, capture_output=True, text=True, timeout=300, env=git_env)
+        if proc.returncode != 0 and target_remote_branch:
+            shutil.rmtree(ws_path, ignore_errors=True)
+            ws_path.mkdir(parents=True, exist_ok=True)
+            proc = await asyncio.to_thread(
+                subprocess.run,
+                ["git", "clone", "--depth", "1", clone_url, str(ws_path)],
+                capture_output=True,
+                text=True,
+                timeout=300,
+                env=git_env
+            )
+        if proc.returncode != 0:
+            raise HTTPException(status_code=500, detail=f"Failed to clone repository: {proc.stderr}")
+
+    branch_proc = subprocess.run(["git", "branch", "--show-current"], cwd=ws_path, capture_output=True, text=True, env=git_env)
+    detected_branch = branch_proc.stdout.strip()
+    if detected_branch and task.target_branch != detected_branch:
+        task.target_branch = detected_branch
+        await db.commit()
+
+    if task.git_branch:
+        subprocess.run(["git", "checkout", "-B", task.git_branch], cwd=ws_path, capture_output=True, env=git_env)
+
+    return {"ok": True, "task_id": task.id, "workspace_path": str(ws_path)}
+
+
 @router.get("/{task_id}/files/children")
 async def get_sandbox_folder_children(
     task_id: str,

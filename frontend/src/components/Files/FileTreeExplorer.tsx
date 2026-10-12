@@ -223,6 +223,28 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
   const [dynamicChildren, setDynamicChildren] = useState<Record<string, FileNode[]>>({});
   const [loadingFolders, setLoadingFolders] = useState<Record<string, boolean>>({});
 
+  // Reset local search, expanded folders, and rename states if taskId changes
+  const prevTaskIdRef = useRef(taskId);
+  useEffect(() => {
+    if (prevTaskIdRef.current !== taskId) {
+      prevTaskIdRef.current = taskId;
+      setFilter('');
+      setSearchResults(null);
+      setIsSearching(false);
+      setSearchError(null);
+      setRenamingPath(null);
+      const initial: Record<string, boolean> = { '': true };
+      tree.forEach((node) => {
+        if (node.is_dir) {
+          initial[node.path] = true;
+        }
+      });
+      setExpandedFolders(initial);
+      setDynamicChildren({});
+      setLoadingFolders({});
+    }
+  }, [taskId, tree]);
+
   const toggleFolder = async (node: FileNode) => {
     const nextState = !expandedFolders[node.path];
     setExpandedFolders((prev) => ({ ...prev, [node.path]: nextState }));
