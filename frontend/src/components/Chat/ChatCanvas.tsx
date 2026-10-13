@@ -3225,12 +3225,9 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     );
   }
 
-  const pendingApprovals = useMemo(
-    () => (task.approvals || []).filter((a) => a.status === 'PENDING'),
-    [task.approvals]
-  );
+  const pendingApprovals = (task.approvals || []).filter((a) => a.status === 'PENDING');
 
-  const currentApproval = useMemo(() => {
+  const currentApproval = (() => {
     if (pendingApprovals.length === 0) return null;
     if (activeApprovalId) {
       const found = pendingApprovals.find((a) => a.id === activeApprovalId);
@@ -3240,7 +3237,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
       a.action_type === 'post_pull_request_review' || a.action_type === 'post_pr_review'
     );
     return mainReview || pendingApprovals[0];
-  }, [pendingApprovals, activeApprovalId]);
+  })();
 
   const latestApproval = currentApproval;
   const isAnyStreamActive = Boolean(
