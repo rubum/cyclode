@@ -98,7 +98,7 @@ def test_code_reviewer_proactive_staging_invariant():
 def test_persona_editorial_synthesis_standards_in_all_personas():
     for name, persona in PERSONAS.items():
         instructions = persona["system_instructions"]
-        assert "Communication & Editorial Synthesis Standards" in instructions
+        assert "Communication & Synthesis Standards" in instructions
         assert "Analytical Synthesis Over Data Dumping" in instructions
         assert "Anti-'Badge Salad' & Inline Code Discipline" in instructions
         assert "Anti-Pseudo-Bullet Rule" in instructions

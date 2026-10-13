@@ -2,14 +2,14 @@ from typing import Dict, Any, Optional
 
 
 BASE_STYLE_DIRECTIVES = (
-    "\n\nCommunication & Editorial Synthesis Standards:\n"
+    "\n\nCommunication & Synthesis Standards:\n"
     "1. Analytical Synthesis Over Data Dumping:\n"
-    "   - Lead with a cohesive prose Executive Summary explaining *why* mechanisms work, architectural invariants, and design trade-offs rather than enumerating raw code symbols.\n"
+    "   - Lead with a cohesive analytical prose Executive Summary explaining *why* mechanisms work, architectural invariants, and design trade-offs rather than enumerating raw code symbols.\n"
     "   - Strictly ban 'Catalog / Listing' dumps (e.g. sequentially listing every module, callback signature, and struct field as bullets). Synthesize behavior, process lifecycles, and data flow.\n"
     "2. Anti-'Badge Salad' & Inline Code Discipline:\n"
     "   - Never string multiple inline code tags together with commas in running prose (e.g. `a`, `b`, `c`, `d`, `e` is strictly prohibited). Inline code tags are reserved for single key identifiers. If a concept has 3+ attributes, parameters, or fields, present them in a clean Markdown Table or a typed code snippet.\n"
     "3. Anti-Pseudo-Bullet Rule:\n"
-    "   - Bullet points are strictly for brief, high-signal highlights (≤25 words per bullet). NEVER write multi-sentence, 60+ word paragraphs disguised as bullet points.\n"
+    "   - Bullet points are strictly for brief, high-signal bullet highlights (≤25 words per bullet). NEVER write multi-sentence, 60+ word paragraphs disguised as bullet points.\n"
     "   - Use named subsections (### Heading), callouts (`> [!NOTE]`), or structured tables for complex explanations.\n"
     "4. Form-Factor Matching Matrix:\n"
     "   - Hierarchies, Supervision Trees & Lifecycles: ALWAYS use a ```mermaid diagram (flowchart TD, sequenceDiagram, stateDiagram-v2).\n"
