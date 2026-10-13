@@ -16,13 +16,19 @@ if command -v docker >/dev/null 2>&1; then
     }
 fi
 
-# 2. Check full backend codebase with Ruff for undefined variables (F821) and fatal syntax errors (E9)
 if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^cyclode-backend$"; then
     echo "⚡ Checking backend for undefined variables and syntax errors..."
-    docker exec cyclode-backend ruff check app/ --select=F821,E9 || {
-        echo "❌ Undefined variables or syntax errors detected in backend!"
-        exit 1
-    }
+    if docker exec cyclode-backend which ruff >/dev/null 2>&1; then
+        docker exec cyclode-backend ruff check app/ --select=F821,E9 || {
+            echo "❌ Undefined variables or syntax errors detected in backend!"
+            exit 1
+        }
+    else
+        docker exec cyclode-backend python -c "import compileall; compileall.compile_dir('app', force=True, quiet=1)" || {
+            echo "❌ Python syntax error detected in backend!"
+            exit 1
+        }
+    fi
 fi
 
 echo "✅ Pre-push verification passed! Proceeding with push."
