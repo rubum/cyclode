@@ -1492,7 +1492,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
   useEffect(() => {
     checkPreviewStatus();
-    const interval = setInterval(checkPreviewStatus, 5000);
+    const interval = setInterval(checkPreviewStatus, 15000);
     return () => clearInterval(interval);
   }, [checkPreviewStatus]);
 

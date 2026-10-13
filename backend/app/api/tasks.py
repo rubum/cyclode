@@ -1422,6 +1422,61 @@ async def sync_task_sandbox_repository(task_id: str, db: AsyncSession = Depends(
     return {"ok": True, "task_id": task.id, "workspace_path": str(ws_path)}
 
 
+def _read_folder_entries(target_dir: Path, ws_path: Path) -> Tuple[List[Dict[str, Any]], int]:
+    IGNORE_TREE_NAMES = {
+        ".git", "__pycache__", ".pytest_cache", "node_modules",
+        "dist", "build", ".gemini", ".next", ".cache", ".idea", ".vscode"
+    }
+    entries = []
+    try:
+        with os.scandir(target_dir) as it:
+            for entry in it:
+                if entry.name in IGNORE_TREE_NAMES:
+                    continue
+                try:
+                    is_dir = entry.is_dir(follow_symlinks=False)
+                except Exception:
+                    is_dir = False
+                entries.append((entry, is_dir))
+    except Exception:
+        return [], 0
+
+    entries.sort(key=lambda x: (not x[1], x[0].name.lower()))
+
+    items = []
+    ws_str = str(ws_path)
+    for entry, is_dir in entries[:300]:
+        rel = os.path.relpath(entry.path, ws_str)
+        if is_dir:
+            direct_count = 0
+            try:
+                with os.scandir(entry.path) as sub_it:
+                    direct_count = sum(1 for sub_entry in sub_it if sub_entry.name not in IGNORE_TREE_NAMES)
+            except Exception:
+                direct_count = 0
+            items.append({
+                "name": entry.name,
+                "path": rel,
+                "is_dir": True,
+                "type": "directory",
+                "child_count": direct_count,
+                "children": []
+            })
+        else:
+            try:
+                f_size = entry.stat(follow_symlinks=False).st_size
+            except Exception:
+                f_size = 0
+            items.append({
+                "name": entry.name,
+                "path": rel,
+                "is_dir": False,
+                "type": "file",
+                "size": f_size
+            })
+    return items, len(entries)
+
+
 @router.get("/{task_id}/files/children")
 async def get_sandbox_folder_children(
     task_id: str,
@@ -1467,47 +1522,13 @@ async def get_sandbox_folder_children(
     if not target_dir.exists() or not target_dir.is_dir():
         raise HTTPException(status_code=404, detail=f"Directory '{clean_rel}' not found")
 
-    IGNORE_TREE_NAMES = {
-        ".git", "__pycache__", ".pytest_cache", "node_modules",
-        "dist", "build", ".gemini", ".next", ".cache", ".idea", ".vscode"
-    }
-
     try:
-        entries = [
-            p for p in target_dir.iterdir()
-            if p.name not in IGNORE_TREE_NAMES
-        ]
-        entries.sort(key=lambda x: (not x.is_dir(), x.name.lower()))
-        
-        items = []
-        for p in entries[:300]:
-            rel = str(p.relative_to(ws_path))
-            if p.is_dir():
-                try:
-                    direct_count = sum(1 for child in p.iterdir() if child.name not in IGNORE_TREE_NAMES)
-                except Exception:
-                    direct_count = 0
-                items.append({
-                    "name": p.name,
-                    "path": rel,
-                    "is_dir": True,
-                    "type": "directory",
-                    "child_count": direct_count,
-                    "children": []
-                })
-            else:
-                items.append({
-                    "name": p.name,
-                    "path": rel,
-                    "is_dir": False,
-                    "type": "file",
-                    "size": p.stat().st_size
-                })
+        items, total_entries = await asyncio.to_thread(_read_folder_entries, target_dir, ws_path)
         return {
             "path": clean_rel,
             "children": items,
-            "total_entries": len(entries),
-            "has_more": len(entries) > 300
+            "total_entries": total_entries,
+            "has_more": total_entries > 300
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to read directory: {str(e)}")

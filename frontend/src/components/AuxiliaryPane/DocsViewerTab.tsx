@@ -1897,12 +1897,24 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
                     {isShieldActive ? '(Blocks newsletter popups & cookie banners)' : '(Raw unshielded)'}
                   </span>
                 </div>
-                <button
-                  onClick={() => setViewMode('reader')}
-                  className="text-onedark-accent hover:underline font-medium cursor-pointer"
-                >
-                  Switch to Reader
-                </button>
+                <div className="flex items-center space-x-3">
+                  <a
+                    href={currentUrl || url || '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center space-x-1 text-onedark-muted hover:text-onedark-fg transition-colors"
+                    title="Open live webpage in new browser tab"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    <span>Open in new tab</span>
+                  </a>
+                  <button
+                    onClick={() => setViewMode('reader')}
+                    className="text-onedark-accent hover:underline font-medium cursor-pointer"
+                  >
+                    Switch to Reader
+                  </button>
+                </div>
               </div>
               <iframe
                 key={effectiveWebviewUrl}

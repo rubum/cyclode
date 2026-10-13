@@ -87,7 +87,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
 
   useEffect(() => {
     checkPreviewStatus();
-    const interval = setInterval(checkPreviewStatus, 5000);
+    const interval = setInterval(checkPreviewStatus, 15000);
     return () => clearInterval(interval);
   }, [checkPreviewStatus]);
 

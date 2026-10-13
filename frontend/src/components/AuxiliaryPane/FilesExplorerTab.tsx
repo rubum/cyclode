@@ -483,7 +483,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
         fetchFilesystem(false);
       }
     } else {
-      // Same task: refresh tree silently in the background without resetting selectedFile or unmounting
+      // Same task: refresh tree silently if status changed
       fetchFilesystem(true);
     }
 
@@ -492,7 +492,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
       if (pollTimerRef.current) clearInterval(pollTimerRef.current);
       pollTimerRef.current = setInterval(() => {
         fetchFilesystem(true);
-      }, 1800);
+      }, 2500);
     }
 
     return () => {
@@ -500,7 +500,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
         clearInterval(pollTimerRef.current);
       }
     };
-  }, [task.id, task.sandbox_status, task.status, task.workspace_path, task.updated_at]);
+  }, [task.id, task.sandbox_status, task.status, task.workspace_path]);
 
   if (loading && !data && task.status !== 'INITIALIZING' && task.sandbox_status !== 'PROVISIONING') {
     return (

@@ -73,7 +73,17 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with async_session_factory() as session:
         try:
             yield session
-            await session.commit()
+            if session.dirty or session.new or session.deleted:
+                await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+
+
+async def get_readonly_db() -> AsyncGenerator[AsyncSession, None]:
+    async with async_session_factory() as session:
+        try:
+            yield session
         except Exception:
             await session.rollback()
             raise

@@ -1996,6 +1996,11 @@ async def proxy_webview_stream(
     )
     cleaned_html = annoyance_script_regex.sub('<!-- [Cyclode Shield: Intrusive Script Blocked] -->', raw_html)
 
+    if "github.com" in parsed.hostname.lower():
+        # GitHub's client scripts perform cross-origin AJAX fetches back to github.com which fail CORS
+        # Strip script tags so the page renders statically and quickly without hanging or error loops
+        cleaned_html = re.sub(r'<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>', '', cleaned_html, flags=re.I)
+
     # Base tag for relative assets
     base_tag = f'<base href="{final_url}">'
     injected_head = f"{base_tag}\n{anti_annoyance_css}\n{anti_annoyance_js}"
