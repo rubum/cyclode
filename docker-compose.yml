@@ -10,6 +10,7 @@ services:
       - "${PORT:-8000}:8000"
     volumes:
       - ./backend:/app
+      - ./.agents:/app/.agents:ro
       - ../Ingrations:/ingrations:ro
       - ./workspaces:/workspaces
       - cyclode_data:/data
@@ -62,7 +63,7 @@ services:
       - cyclode-net
 
   postgres:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     container_name: cyclode-postgres
     restart: unless-stopped
     environment:

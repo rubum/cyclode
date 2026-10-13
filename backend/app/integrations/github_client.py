@@ -62,18 +62,19 @@ class GitHubClient:
         Opens a Pull Request on GitHub (with draft option).
         """
         import os
+        if os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
+            return {
+                "id": 101,
+                "number": 42,
+                "html_url": f"https://github.com/{owner}/{repo}/pull/42",
+                "title": title,
+                "state": "open",
+                "draft": draft,
+                "simulated": True
+            }
+
         token = custom_token or self.token
         if not token:
-            if os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
-                return {
-                    "id": 101,
-                    "number": 42,
-                    "html_url": f"https://github.com/{owner}/{repo}/pull/42",
-                    "title": title,
-                    "state": "open",
-                    "draft": draft,
-                    "simulated": True
-                }
             return {
                 "error": "GitHub Personal Access Token is required to create pull requests. Configure a token in Settings or session Vault.",
                 "status_code": 401,
@@ -508,18 +509,19 @@ class GitHubClient:
         Submits a formal PR review on GitHub (COMMENT, APPROVE, REQUEST_CHANGES).
         """
         import os
+        if os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
+            return {
+                "ok": True,
+                "id": 303,
+                "pr_number": pr_number,
+                "body": body,
+                "event": event,
+                "html_url": f"https://github.com/{owner}/{repo}/pull/{pr_number}#pullrequestreview-303",
+                "simulated": True
+            }
+
         token = custom_token or self.token
         if not token:
-            if os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
-                return {
-                    "ok": True,
-                    "id": 303,
-                    "pr_number": pr_number,
-                    "body": body,
-                    "event": event,
-                    "html_url": f"https://github.com/{owner}/{repo}/pull/{pr_number}#pullrequestreview-303",
-                    "simulated": True
-                }
             return {
                 "ok": False,
                 "error": "GitHub Personal Access Token is required to submit pull request reviews.",
@@ -560,16 +562,17 @@ class GitHubClient:
         Merges a pull request on GitHub (merge_method: squash, merge, rebase).
         """
         import os
+        if os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
+            return {
+                "ok": True,
+                "sha": "6dcb09b5b57875f334f61aebed695e2e4193db5e",
+                "merged": True,
+                "message": "Pull Request successfully merged",
+                "simulated": True
+            }
+
         token = custom_token or self.token
         if not token:
-            if os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
-                return {
-                    "ok": True,
-                    "sha": "6dcb09b5b57875f334f61aebed695e2e4193db5e",
-                    "merged": True,
-                    "message": "Pull Request successfully merged",
-                    "simulated": True
-                }
             return {
                 "ok": False,
                 "error": "GitHub Personal Access Token is required to merge pull requests.",
@@ -646,6 +649,18 @@ class GitHubClient:
         """
         Posts an inline diff review comment on a specific line of a pull request.
         """
+        import os
+        if os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
+            return {
+                "ok": True,
+                "id": 404,
+                "body": body,
+                "path": path,
+                "line": line,
+                "html_url": f"https://github.com/{owner}/{repo}/pull/{pr_number}#discussion_r404",
+                "simulated": True
+            }
+
         token = custom_token or self.token
         if not token:
             return {

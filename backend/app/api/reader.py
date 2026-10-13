@@ -510,6 +510,16 @@ async def _get_github_auth_token(owner: str, repo: str) -> Optional[str]:
         vault_token = await integration_manager.get_github_token_for_repo(f"https://github.com/{full_name}")
         if vault_token:
             token = vault_token
+        if not token:
+            import shutil
+            import subprocess
+            if shutil.which("gh"):
+                try:
+                    gh_res = subprocess.run(["gh", "auth", "token"], capture_output=True, text=True, timeout=2)
+                    if gh_res.returncode == 0 and gh_res.stdout.strip():
+                        token = gh_res.stdout.strip()
+                except Exception:
+                    pass
     except Exception as e:
         logger.debug(f"GitHub token lookup notice for {owner}/{repo}: {e}")
     return token

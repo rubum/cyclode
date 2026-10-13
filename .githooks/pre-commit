@@ -29,7 +29,7 @@ if [ -n "$STAGED_PY" ]; then
             echo "❌ Ruff lint check failed. Undefined variable or syntax error in staged files."
             exit 1
         }
-    elif docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^cyclode-backend$"; then
+    elif docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^cyclode-backend$" && docker exec cyclode-backend which ruff >/dev/null 2>&1; then
         CONTAINER_PY=""
         for f in $STAGED_PY; do
             if [[ "$f" =~ ^backend/(.*) ]]; then
