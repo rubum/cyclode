@@ -756,39 +756,37 @@ class IntegrationManager:
     async def get_github_token_for_repo(self, repo_name_or_url: Optional[str] = None) -> Optional[str]:
         """
         Retrieves active GitHub token for a specific repository or global token.
-        Searches memory client, then looks up decrypted token from RepositoryConfigModel.
+        Looks up decrypted token from RepositoryConfigModel first, then falls back to memory client / global token.
         """
+        if repo_name_or_url:
+            clean_target = repo_name_or_url.lower().strip().replace(".git", "")
+            if "github.com/" in clean_target:
+                clean_target = clean_target.split("github.com/")[-1]
+
+            try:
+                from app.db.session import async_session_factory
+                from app.db.models import RepositoryConfigModel
+                from app.core.security import decrypt_secret
+                from sqlalchemy import select
+
+                async with async_session_factory() as session:
+                    stmt = select(RepositoryConfigModel)
+                    res = await session.execute(stmt)
+                    repos = res.scalars().all()
+                    for r in repos:
+                        r_full = (r.full_name or "").lower()
+                        r_name = (r.name or "").lower()
+                        r_clone = (r.clone_url or "").lower()
+                        if clean_target in (r_full, r_name) or clean_target in r_clone or r_name in clean_target:
+                            if r.encrypted_token:
+                                dec = decrypt_secret(r.encrypted_token)
+                                if dec:
+                                    return dec
+            except Exception as e:
+                logger.debug(f"Repo token resolution note: {e}")
+
         if github_client.token:
             return github_client.token
-
-        if not repo_name_or_url:
-            return None
-
-        clean_target = repo_name_or_url.lower().strip().replace(".git", "")
-        if "github.com/" in clean_target:
-            clean_target = clean_target.split("github.com/")[-1]
-
-        try:
-            from app.db.session import async_session_factory
-            from app.db.models import RepositoryConfigModel
-            from app.core.security import decrypt_secret
-            from sqlalchemy import select
-
-            async with async_session_factory() as session:
-                stmt = select(RepositoryConfigModel)
-                res = await session.execute(stmt)
-                repos = res.scalars().all()
-                for r in repos:
-                    r_full = (r.full_name or "").lower()
-                    r_name = (r.name or "").lower()
-                    r_clone = (r.clone_url or "").lower()
-                    if clean_target in (r_full, r_name) or clean_target in r_clone or r_name in clean_target:
-                        if r.encrypted_token:
-                            dec = decrypt_secret(r.encrypted_token)
-                            if dec:
-                                return dec
-        except Exception as e:
-            logger.debug(f"Repo token resolution note: {e}")
 
         return None
 

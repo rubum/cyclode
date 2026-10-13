@@ -868,13 +868,18 @@ const MainApp: React.FC = () => {
 
   const handleApprove = async (feedback?: string, custom_details?: any) => {
     if (!activeTaskId) return;
+    const targetApprovalId = custom_details?.approval_id;
+    const isApproveAll = Boolean(custom_details?.approve_all);
+
     setActiveTaskDetails((prev) => {
       if (!prev) return prev;
-      const updatedApprovals = (prev.approvals || []).map((a) =>
-        a.status === 'PENDING'
-          ? { ...a, status: 'APPROVED' as const, feedback, resolved_at: new Date().toISOString() }
-          : a
-      );
+      const updatedApprovals = (prev.approvals || []).map((a) => {
+        if (a.status !== 'PENDING') return a;
+        if (isApproveAll || !targetApprovalId || a.id === targetApprovalId) {
+          return { ...a, status: 'APPROVED' as const, feedback, resolved_at: new Date().toISOString() };
+        }
+        return a;
+      });
       return {
         ...prev,
         approvals: updatedApprovals,
@@ -885,7 +890,12 @@ const MainApp: React.FC = () => {
       await fetch(`${API_BASE}/api/tasks/${activeTaskId}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ feedback, custom_details }),
+        body: JSON.stringify({
+          feedback,
+          custom_details,
+          approval_id: targetApprovalId,
+          approve_all: isApproveAll,
+        }),
       });
       fetchTaskDetails(activeTaskId);
       fetchTasks();
@@ -894,30 +904,38 @@ const MainApp: React.FC = () => {
     }
   };
 
-  const handleReject = async (feedback?: string) => {
+  const handleReject = async (feedback?: string, custom_details?: any) => {
     if (!activeTaskId) return;
+    const targetApprovalId = custom_details?.approval_id;
+    const isRejectAll = Boolean(custom_details?.reject_all);
+
     setActiveTaskDetails((prev) => {
       if (!prev) return prev;
-      const updatedApprovals = (prev.approvals || []).map((a) =>
-        a.status === 'PENDING'
-          ? { ...a, status: 'REJECTED' as const, feedback, resolved_at: new Date().toISOString() }
-          : a
-      );
+      const updatedApprovals = (prev.approvals || []).map((a) => {
+        if (a.status !== 'PENDING') return a;
+        if (isRejectAll || !targetApprovalId || a.id === targetApprovalId) {
+          return { ...a, status: 'REJECTED' as const, feedback, resolved_at: new Date().toISOString() };
+        }
+        return a;
+      });
+      const hasRemainingPending = updatedApprovals.some((a) => a.status === 'PENDING');
       return {
         ...prev,
-        status: 'CANCELLED',
+        status: hasRemainingPending ? prev.status : 'CANCELLED',
         approvals: updatedApprovals,
       };
     });
-    setTasks((prev) =>
-      prev.map((t) => (t.id === activeTaskId ? { ...t, status: 'CANCELLED' } : t))
-    );
 
     try {
       await fetch(`${API_BASE}/api/tasks/${activeTaskId}/reject`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ feedback }),
+        body: JSON.stringify({
+          feedback,
+          custom_details,
+          approval_id: targetApprovalId,
+          approve_all: isRejectAll,
+        }),
       });
       fetchTaskDetails(activeTaskId);
       fetchTasks();

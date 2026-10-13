@@ -580,7 +580,7 @@ interface ChatCanvasProps {
   onDraftChange?: (draft: string) => void;
   onSendMessage: (content: string, modelName?: string, files?: File[]) => Promise<void> | void;
   onApprove: (feedback?: string, customDetails?: any) => void;
-  onReject: (feedback?: string) => void;
+  onReject: (feedback?: string, customDetails?: any) => void;
   onNewChatWithPrompt?: (prompt: string, persona: string, modelName?: string, files?: File[]) => void;
   onEditMessage?: (messageId: string, newContent: string) => void;
   onRetryTask?: (fromMessageId?: string) => void;
@@ -1097,24 +1097,24 @@ const InquiryCard: React.FC<InquiryCardProps> = ({ taskId, approval, onResolved 
       </div>
 
       {/* Header */}
-      <div className="flex items-center justify-between pt-0.5">
-        <div className="flex items-center space-x-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2.5 pt-0.5 min-w-0">
+        <div className="flex items-center space-x-2.5 min-w-0 flex-1">
           <div className="w-5.5 h-5.5 rounded-md bg-onedark-accent/10 border border-onedark-accent/20 flex items-center justify-center text-onedark-accent flex-shrink-0">
             <Sparkles className="w-3.5 h-3.5" />
           </div>
-          <div>
-            <span className="text-xs font-semibold text-onedark-fgBright">
+          <div className="min-w-0 flex-1">
+            <span className="text-xs font-semibold text-onedark-fgBright truncate block">
               Interactive Inquiry & Configuration
             </span>
-            <div className="text-[10px] text-onedark-muted font-mono">
+            <div className="text-[10px] text-onedark-muted font-mono truncate">
               Autonomous Assistant Decision Point
             </div>
           </div>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 shrink-0">
           <span
-            className={`px-2 py-0.5 rounded-full text-[10.5px] font-mono border flex items-center space-x-1.5 ${
+            className={`px-2 py-0.5 rounded-full text-[10.5px] font-mono border flex items-center space-x-1.5 whitespace-nowrap ${
               remainingSeconds <= 5
                 ? 'bg-onedark-red/10 border-onedark-red/30 text-onedark-red animate-pulse'
                 : 'bg-onedark-surface border-onedark-borderSubtle text-onedark-muted'
@@ -1463,6 +1463,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const [titleInput, setTitleInput] = useState('');
   const [copiedBranch, setCopiedBranch] = useState(false);
   const [expandedRawPlanMsgIds, setExpandedRawPlanMsgIds] = useState<Record<string, boolean>>({});
+  const [activeApprovalId, setActiveApprovalId] = useState<string | null>(null);
 
   const [localRepos, setLocalRepos] = useState<RepositoryConfig[]>([]);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
@@ -3224,7 +3225,21 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     );
   }
 
-  const latestApproval = task.approvals?.find((a) => a.status === 'PENDING');
+  const pendingApprovals = (task.approvals || []).filter((a) => a.status === 'PENDING');
+
+  const currentApproval = (() => {
+    if (pendingApprovals.length === 0) return null;
+    if (activeApprovalId) {
+      const found = pendingApprovals.find((a) => a.id === activeApprovalId);
+      if (found) return found;
+    }
+    const mainReview = pendingApprovals.find((a) =>
+      a.action_type === 'post_pull_request_review' || a.action_type === 'post_pr_review'
+    );
+    return mainReview || pendingApprovals[0];
+  })();
+
+  const latestApproval = currentApproval;
   const isAnyStreamActive = Boolean(
     task.messages?.some((m) => m.isStreaming) ||
     turns.some((t) => t.isLatest && (
@@ -4067,6 +4082,14 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   const prCount = turn.logs.filter((l) => l.tool_name.includes('pull_request') || l.tool_name.includes('connect_repository')).length;
                   const failedCount = turn.logs.filter((l) => l.exit_code !== 0 && !l.isRunning).length;
                   const hasRunning = isRunning && (turn.logs.some((l) => l.isRunning) || (isTurnRunning && turn.isLatest && !!task?.active_tool));
+                  const totalActions = turn.logs.length + (task?.active_tool && !turn.logs.some(l => l.isRunning) ? 1 : 0);
+                  const breakdownParts: string[] = [];
+                  if (runCount > 0) breakdownParts.push(`${runCount} run${runCount > 1 ? 's' : ''}`);
+                  if (readCount > 0) breakdownParts.push(`${readCount} read${readCount > 1 ? 's' : ''}`);
+                  if (editCount > 0) breakdownParts.push(`${editCount} edit${editCount > 1 ? 's' : ''}`);
+                  if (prCount > 0) breakdownParts.push(`${prCount} PR${prCount > 1 ? 's' : ''}`);
+                  if (webCount > 0) breakdownParts.push(`${webCount} web`);
+                  const breakdownText = breakdownParts.join(' · ');
 
                   return (
                     <div className="rounded-xl bg-onedark-darker/40 hover:bg-onedark-darker/60 overflow-hidden shadow-xs transition-colors space-y-0">
@@ -4076,6 +4099,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                         className={`w-full px-3.5 py-2.5 flex items-center justify-between text-xs transition-colors cursor-pointer select-none group/hdr ${
                           isActOpen ? 'bg-onedark-surface/30' : 'hover:bg-onedark-surface/40'
                         }`}
+                        title={breakdownText ? `${totalActions} actions: ${breakdownText}` : undefined}
                       >
                         <div className="flex items-center space-x-2.5 min-w-0 pr-2">
                           <div className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 transition-colors ${
@@ -4083,7 +4107,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                               ? 'bg-onedark-accent/20 text-onedark-accent animate-pulse'
                               : failedCount > 0
                               ? 'bg-onedark-red/15 text-onedark-red'
-                              : 'bg-onedark-surface text-onedark-muted group-hover/hdr:text-onedark-accent'
+                              : 'bg-onedark-surface text-onedark-muted group-hover/hdr:text-onedark-fgBright'
                           }`}>
                             {hasRunning ? (
                               <RefreshCw className="w-3 h-3 animate-spin" />
@@ -4092,67 +4116,37 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                             )}
                           </div>
 
-                          <div className="flex items-center space-x-2 flex-wrap gap-y-1 min-w-0">
-                            <span className="font-mono text-[11.5px] font-medium text-onedark-fgBright">
-                              Workspace Actions
+                          <div className="flex items-center space-x-2 min-w-0">
+                            <span className="font-mono text-[11.5px] font-medium text-onedark-fgBright truncate">
+                              {hasRunning ? (
+                                `Running ${totalActions} action${totalActions === 1 ? '' : 's'}...`
+                              ) : (
+                                `${totalActions} action${totalActions === 1 ? '' : 's'} completed in ${formattedDuration}`
+                              )}
                             </span>
 
-                            {/* Categorized action chips */}
-                            <div className="flex items-center space-x-1 flex-wrap gap-1">
-                              {editCount > 0 && (
-                                <span className="px-1.5 py-0.5 rounded bg-onedark-green/10 text-onedark-green text-[10px] font-mono flex items-center space-x-1">
-                                  <Pencil className="w-2.5 h-2.5" />
-                                  <span>{editCount} edit{editCount > 1 ? 's' : ''}</span>
-                                </span>
-                              )}
-                              {runCount > 0 && (
-                                <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-950 border border-amber-300 dark:bg-onedark-yellow/10 dark:text-onedark-yellow dark:border-transparent text-[10px] font-mono flex items-center space-x-1 font-medium">
-                                  <Terminal className="w-2.5 h-2.5 text-amber-700 dark:text-onedark-yellow" />
-                                  <span>{runCount} run{runCount > 1 ? 's' : ''}</span>
-                                </span>
-                              )}
-                              {readCount > 0 && (
-                                <span className="px-1.5 py-0.5 rounded bg-onedark-accent/10 text-onedark-accent text-[10px] font-mono flex items-center space-x-1">
-                                  <FileCode2 className="w-2.5 h-2.5" />
-                                  <span>{readCount} read{readCount > 1 ? 's' : ''}</span>
-                                </span>
-                              )}
-                              {webCount > 0 && (
-                                <span className="px-1.5 py-0.5 rounded bg-onedark-purple/10 text-onedark-purple text-[10px] font-mono flex items-center space-x-1">
-                                  <Globe className="w-2.5 h-2.5" />
-                                  <span>{webCount} web</span>
-                                </span>
-                              )}
-                              {prCount > 0 && (
-                                <span className="px-1.5 py-0.5 rounded bg-onedark-green/10 text-onedark-green text-[10px] font-mono flex items-center space-x-1">
-                                  <GitPullRequest className="w-2.5 h-2.5" />
-                                  <span>{prCount} PR</span>
-                                </span>
-                              )}
-                            </div>
-
-                            <span className="text-[10.5px] text-onedark-muted font-mono hidden sm:inline">
-                              • {turn.logs.length + (task?.active_tool && !turn.logs.some(l => l.isRunning) ? 1 : 0)} total ({formattedDuration})
-                            </span>
+                            {breakdownText && (
+                              <span className="text-[10.5px] text-onedark-muted/60 font-mono hidden xl:inline truncate">
+                                · {breakdownText}
+                              </span>
+                            )}
                           </div>
                         </div>
 
-                        <div className="flex items-center space-x-1.5 flex-shrink-0">
-                          {/* Status indicator pill */}
-                          {hasRunning ? (
-                            <span className="px-2 py-0.5 rounded-md bg-onedark-accent/15 text-onedark-accent text-[10px] font-mono flex items-center space-x-1.5 animate-pulse">
-                              <span className="w-1.5 h-1.5 rounded-full bg-onedark-accent" />
-                              <span>Executing...</span>
-                            </span>
-                          ) : failedCount > 0 ? (
-                            <span className="px-2 py-0.5 rounded-md bg-onedark-red/10 text-onedark-red text-[10px] font-mono flex items-center space-x-1">
+                        <div className="flex items-center space-x-2 flex-shrink-0">
+                          {/* Error count pill */}
+                          {failedCount > 0 && !hasRunning && (
+                            <span className="px-2 py-0.5 rounded-full bg-onedark-red/10 text-onedark-red text-[10.5px] font-mono flex items-center space-x-1 font-medium">
                               <AlertCircle className="w-2.5 h-2.5" />
                               <span>{failedCount} error{failedCount > 1 ? 's' : ''}</span>
                             </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-md bg-onedark-green/5 text-onedark-green/90 text-[10px] font-mono flex items-center space-x-1">
-                              <Check className="w-2.5 h-2.5" />
-                              <span>Done ({formattedDuration})</span>
+                          )}
+
+                          {/* Running indicator pill */}
+                          {hasRunning && (
+                            <span className="px-2 py-0.5 rounded-full bg-onedark-accent/15 text-onedark-accent text-[10px] font-mono flex items-center space-x-1.5 animate-pulse">
+                              <span className="w-1.5 h-1.5 rounded-full bg-onedark-accent" />
+                              <span>Executing</span>
                             </span>
                           )}
 
@@ -4163,21 +4157,21 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                                 e.stopPropagation();
                                 onSelectAuxTab('intelligence');
                               }}
-                              className="hidden md:flex items-center space-x-1 px-1.5 py-0.5 rounded-md bg-onedark-surface/30 hover:bg-onedark-surface text-onedark-muted hover:text-onedark-accent text-[10.5px] font-mono transition-colors"
+                              className="hidden md:flex items-center space-x-1 px-1.5 py-0.5 rounded text-onedark-muted hover:text-onedark-accent hover:bg-onedark-surface/40 text-[10.5px] font-mono transition-colors"
                               title="Inspect logs in Auxiliary Intelligence tab"
                             >
                               <span>Audit</span>
-                              <ExternalLink className="w-2.5 h-2.5" />
+                              <ExternalLink className="w-2.5 h-2.5 opacity-70" />
                             </button>
                           )}
 
-                          <span className="px-2 py-0.5 rounded-md bg-onedark-surface/40 text-onedark-muted text-[10.5px] font-mono flex items-center space-x-1 group-hover/hdr:text-onedark-fgBright transition-colors">
-                            <span>{isActOpen ? 'Hide' : `Show (${turn.logs.length + (task?.active_tool && !turn.logs.some(l => l.isRunning) ? 1 : 0)})`}</span>
-                            {isActOpen ? (
-                              <ChevronDown className="w-3 h-3 ml-0.5 text-onedark-muted group-hover/hdr:text-onedark-fgBright" />
-                            ) : (
-                              <ChevronRight className="w-3 h-3 ml-0.5 text-onedark-muted group-hover/hdr:text-onedark-fgBright" />
-                            )}
+                          <span className="flex items-center space-x-1 text-onedark-muted group-hover/hdr:text-onedark-fgBright text-[11px] font-mono transition-colors pl-1">
+                            <span>{isActOpen ? 'Hide' : 'Show'}</span>
+                            <ChevronDown
+                              className={`w-3.5 h-3.5 transition-transform duration-200 ${
+                                isActOpen ? 'rotate-180 text-onedark-accent' : 'text-onedark-muted group-hover/hdr:text-onedark-fgBright'
+                              }`}
+                            />
                           </span>
                         </div>
                       </div>
@@ -4283,6 +4277,42 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                       {/* Inline Action Items Stream */}
                       {isActOpen && (
                         <div className="p-1.5 border-t border-white/[0.04] space-y-0.5 bg-onedark-darker/40">
+                          {/* Categorized action chips summary bar in expanded view */}
+                          {breakdownParts.length > 0 && (
+                            <div className="px-2 py-1.5 mb-1.5 flex items-center space-x-1.5 flex-wrap gap-1 border-b border-white/[0.04] text-[10.5px] font-mono">
+                              <span className="text-onedark-muted/60 text-[10px]">Breakdown:</span>
+                              {editCount > 0 && (
+                                <span className="px-1.5 py-0.5 rounded bg-onedark-surface/60 text-onedark-fg font-mono flex items-center space-x-1">
+                                  <Pencil className="w-2.5 h-2.5 text-onedark-green" />
+                                  <span>{editCount} edit{editCount > 1 ? 's' : ''}</span>
+                                </span>
+                              )}
+                              {runCount > 0 && (
+                                <span className="px-1.5 py-0.5 rounded bg-onedark-surface/60 text-onedark-fg font-mono flex items-center space-x-1">
+                                  <Terminal className="w-2.5 h-2.5 text-onedark-yellow" />
+                                  <span>{runCount} run{runCount > 1 ? 's' : ''}</span>
+                                </span>
+                              )}
+                              {readCount > 0 && (
+                                <span className="px-1.5 py-0.5 rounded bg-onedark-surface/60 text-onedark-fg font-mono flex items-center space-x-1">
+                                  <FileCode2 className="w-2.5 h-2.5 text-onedark-accent" />
+                                  <span>{readCount} read{readCount > 1 ? 's' : ''}</span>
+                                </span>
+                              )}
+                              {webCount > 0 && (
+                                <span className="px-1.5 py-0.5 rounded bg-onedark-surface/60 text-onedark-fg font-mono flex items-center space-x-1">
+                                  <Globe className="w-2.5 h-2.5 text-onedark-purple" />
+                                  <span>{webCount} web</span>
+                                </span>
+                              )}
+                              {prCount > 0 && (
+                                <span className="px-1.5 py-0.5 rounded bg-onedark-surface/60 text-onedark-fg font-mono flex items-center space-x-1">
+                                  <GitPullRequest className="w-2.5 h-2.5 text-onedark-green" />
+                                  <span>{prCount} PR</span>
+                                </span>
+                              )}
+                            </div>
+                          )}
                           {turn.logs.map((log, idx) => {
                             const logKey = log.id || `log-${turn.id}-${idx}`;
                             const isLatestLogInTurn = idx === turn.logs.length - 1;
@@ -4639,61 +4669,119 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
           {/* Pending Action Approval Card or Interactive Inquiry Card or PR Review Staging Card */}
           {shouldShowApproval && latestApproval && (
-            latestApproval.action_type === 'user_inquiry' ? (
-              <InquiryCard
-                taskId={task.id}
-                approval={latestApproval}
-                onResolved={() => {
-                  if (onApprove) onApprove();
-                }}
-              />
-            ) : (latestApproval.action_type === 'post_pull_request_review' || latestApproval.action_type === 'post_pull_request_line_comment' || latestApproval.action_type === 'post_pr_review' || latestApproval.action_type === 'post_line_comment') ? (
-              <PRReviewApprovalCard
-                taskId={task.id}
-                approval={latestApproval}
-                onApprove={onApprove}
-                onReject={onReject}
-              />
-            ) : (
-              <div className="rounded-xl border border-onedark-border bg-onedark-surface p-4 space-y-3 shadow-md">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2 text-onedark-yellow font-semibold text-xs">
-                    <ShieldAlert className="w-4 h-4 text-onedark-yellow" />
-                    <span>Action Approval Required</span>
-                  </div>
-                  <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-onedark-darker text-onedark-muted border border-onedark-border">
-                    Gated Policy
-                  </span>
-                </div>
+            <div className="space-y-2.5">
+              {/* Multi-Item Staging Bar if multiple approvals are pending */}
+              {pendingApprovals.length > 1 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 px-3 rounded-lg bg-onedark-surface/90 border border-onedark-borderSubtle text-xs shadow-sm">
+                  <div className="flex items-center space-x-2 min-w-0 flex-1 overflow-hidden">
+                    <span className="font-semibold text-onedark-fg flex items-center space-x-1.5 shrink-0">
+                      <span className="w-2 h-2 rounded-full bg-onedark-yellow animate-pulse" />
+                      <span>Staged Items ({pendingApprovals.length})</span>
+                    </span>
+                    <div className="flex items-center space-x-1 overflow-x-auto py-0.5 scrollbar-thin">
+                      {pendingApprovals.map((appr, idx) => {
+                        const isSelected = appr.id === latestApproval.id;
+                        const isReview = appr.action_type.includes('review');
+                        const path = appr.action_details?.path;
+                        const line = appr.action_details?.line;
+                        const label = isReview
+                          ? 'Formal Review'
+                          : (path ? `${path.split('/').pop()}:${line || ''}` : `Comment #${idx + 1}`);
 
-                <div className="p-3.5 rounded-lg bg-onedark-darker border border-onedark-border text-xs text-onedark-fg font-mono space-y-1 leading-relaxed">
-                  <div><strong className="text-onedark-muted">Action:</strong> {latestApproval.action_type}</div>
-                  <div><strong className="text-onedark-muted">Target:</strong> {latestApproval.action_details.command || latestApproval.action_details.title || latestApproval.action_details.branch || 'Workspace Action'}</div>
-                  {latestApproval.action_details.description && (
-                    <div className="mt-2 text-onedark-muted whitespace-pre-wrap text-xs">
-                      {latestApproval.action_details.description}
+                        return (
+                          <button
+                            key={appr.id || idx}
+                            onClick={() => setActiveApprovalId(appr.id || null)}
+                            className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors whitespace-nowrap cursor-pointer ${
+                              isSelected
+                                ? 'bg-onedark-accent text-onedark-darker font-bold shadow-sm'
+                                : 'bg-onedark-darker text-onedark-muted hover:text-onedark-fg hover:bg-onedark-darker/80 border border-onedark-borderSubtle/40'
+                            }`}
+                            title={path ? `${path}:${line}` : 'PR Review'}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
                     </div>
-                  )}
-                </div>
+                  </div>
 
-                <div className="flex items-center space-x-2.5 pt-1">
-                  <button
-                    onClick={() => onApprove()}
-                    className="py-2 px-3.5 rounded-lg bg-onedark-green hover:bg-onedark-green/90 text-onedark-darker font-bold text-xs flex items-center space-x-1.5 transition-colors shadow-sm cursor-pointer"
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>Approve & Execute</span>
-                  </button>
-
-                  <button
-                    onClick={() => onReject()}
-                    className="py-2 px-3.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-red border border-onedark-border text-xs font-semibold transition-colors cursor-pointer"
-                  >
-                    <span>Reject</span>
-                  </button>
+                  <div className="flex items-center space-x-2 shrink-0">
+                    <button
+                      onClick={() => onApprove && onApprove('Approve all staged items', { approve_all: true })}
+                      className="px-2.5 py-1 rounded bg-onedark-green hover:bg-onedark-green/90 text-onedark-darker font-bold text-xs flex items-center space-x-1 shadow-sm transition-colors cursor-pointer"
+                      title="Approve and submit all staged comments and review to GitHub"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Approve All ({pendingApprovals.length})</span>
+                    </button>
+                    <button
+                      onClick={() => onReject && onReject('Dismiss all staged items', { reject_all: true })}
+                      className="px-2 py-1 rounded bg-onedark-darker hover:bg-onedark-surface text-onedark-muted hover:text-onedark-red border border-onedark-borderSubtle/60 text-xs transition-colors cursor-pointer"
+                      title="Dismiss all pending approvals"
+                    >
+                      <span>Dismiss All</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )
+              )}
+
+              {latestApproval.action_type === 'user_inquiry' ? (
+                <InquiryCard
+                  taskId={task.id}
+                  approval={latestApproval}
+                  onResolved={() => {
+                    if (onApprove) onApprove();
+                  }}
+                />
+              ) : (latestApproval.action_type === 'post_pull_request_review' || latestApproval.action_type === 'post_pull_request_line_comment' || latestApproval.action_type === 'post_pr_review' || latestApproval.action_type === 'post_line_comment') ? (
+                <PRReviewApprovalCard
+                  taskId={task.id}
+                  approval={latestApproval}
+                  onApprove={onApprove}
+                  onReject={onReject}
+                />
+              ) : (
+                <div className="rounded-xl border border-onedark-border bg-onedark-surface p-4 space-y-3 shadow-md">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center space-x-2 text-onedark-yellow font-semibold text-xs min-w-0">
+                      <ShieldAlert className="w-4 h-4 text-onedark-yellow shrink-0" />
+                      <span className="truncate">Action Approval Required</span>
+                    </div>
+                    <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-onedark-darker text-onedark-muted border border-onedark-border shrink-0">
+                      Gated Policy
+                    </span>
+                  </div>
+
+                  <div className="p-3.5 rounded-lg bg-onedark-darker border border-onedark-border text-xs text-onedark-fg font-mono space-y-1 leading-relaxed break-words">
+                    <div><strong className="text-onedark-muted">Action:</strong> {latestApproval.action_type}</div>
+                    <div><strong className="text-onedark-muted">Target:</strong> {latestApproval.action_details.command || latestApproval.action_details.title || latestApproval.action_details.branch || 'Workspace Action'}</div>
+                    {latestApproval.action_details.description && (
+                      <div className="mt-2 text-onedark-muted whitespace-pre-wrap text-xs">
+                        {latestApproval.action_details.description}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                    <button
+                      onClick={() => onApprove(undefined, { approval_id: latestApproval.id })}
+                      className="py-2 px-3.5 rounded-lg bg-onedark-green hover:bg-onedark-green/90 text-onedark-darker font-bold text-xs flex items-center space-x-1.5 transition-colors shadow-sm cursor-pointer whitespace-nowrap"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Approve & Execute</span>
+                    </button>
+
+                    <button
+                      onClick={() => onReject(undefined, { approval_id: latestApproval.id })}
+                      className="py-2 px-3.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-red border border-onedark-border text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
+                    >
+                      <span>Reject</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
 
           <div ref={messagesEndRef} />

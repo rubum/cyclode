@@ -20,7 +20,8 @@ class ContainerLifecycleManager:
         self._active_containers: Dict[str, str] = {}  # task_id -> container_name
 
     def get_container_name(self, task_id: str) -> str:
-        clean_id = task_id.replace(" ", "-").replace("/", "-")[:32]
+        from app.core.sandboxes.container.daemon import normalize_sandbox_id
+        clean_id = normalize_sandbox_id(task_id)
         return f"cyclode-sb-{clean_id}"
 
     def resolve_bind_source(self, workspace_path: Path) -> str:
@@ -29,7 +30,7 @@ class ContainerLifecycleManager:
         to the host machine filesystem path expected by the host container daemon.
         """
         resolved = workspace_path.resolve()
-        host_root = settings.HOST_WORKSPACE_ROOT or os.environ.get("HOST_WORKSPACE_ROOT")
+        host_root = settings.HOST_WORKSPACE_ROOT
         if host_root:
             try:
                 rel = resolved.relative_to(Path(settings.WORKSPACE_ROOT).resolve())
@@ -73,10 +74,17 @@ class ContainerLifecycleManager:
         bind_source = self.resolve_bind_source(workspace_path)
 
         # Prepare run arguments
+        from app.core.sandboxes.container.daemon import SOCKETS_DIR, DAEMON_SCRIPT_PYTHON, get_socket_path
+        try:
+            SOCKETS_DIR.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+
         run_args = [
             "run", "-d",
             "--name", container_name,
             "-v", f"{bind_source}:/workspace:rw",
+            "-v", f"{SOCKETS_DIR}:/cyclode_sockets:rw",
             "-w", "/workspace"
         ]
         run_args.extend(effective_policy.to_cli_args())
@@ -86,6 +94,15 @@ class ContainerLifecycleManager:
         if code == 0:
             self._active_containers[task_id] = container_name
             logger.info(f"Spawned container sandbox {container_name} for task {task_id} using {effective_image}")
+            # Opportunistically start in-container daemon detached for sub-millisecond execution
+            try:
+                c_sock = f"/cyclode_sockets/{get_socket_path(task_id).name}"
+                await self.client.run_cli([
+                    "exec", "-d", container_name,
+                    "python3", "-u", "-c", DAEMON_SCRIPT_PYTHON, c_sock
+                ], timeout=4.0)
+            except Exception as e:
+                logger.debug(f"Daemon startup check: {e}")
             return container_name
         else:
             logger.warning(f"Failed to spawn container sandbox {container_name}: {err}")
@@ -93,6 +110,11 @@ class ContainerLifecycleManager:
 
     async def destroy_container(self, task_id: str) -> bool:
         """Stops and removes the container for the specified task."""
+        from app.core.sandboxes.container.daemon import get_socket_path
+        try:
+            get_socket_path(task_id).unlink(missing_ok=True)
+        except Exception:
+            pass
         container_name = self._active_containers.pop(task_id, None) or self.get_container_name(task_id)
         code, _, _ = await self.client.run_cli(["rm", "-f", container_name], timeout=8.0)
         return code == 0

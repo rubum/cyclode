@@ -1,12 +1,36 @@
 from datetime import datetime, timezone
 import uuid
 from typing import Optional, Dict, Any, List
-from sqlalchemy import String, Text, Boolean, Integer, Float, DateTime, JSON, ForeignKey
+from sqlalchemy import String, Text, Boolean, Integer, Float, DateTime, JSON, ForeignKey, TypeDecorator
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
 class Base(DeclarativeBase):
     pass
+
+
+class UTCDateTime(TypeDecorator):
+    """
+    Timezone-aware UTC DateTime column type (TIMESTAMPTZ in PostgreSQL).
+    Ensures datetimes are always stored and returned with tzinfo=timezone.utc
+    across both PostgreSQL (asyncpg) and SQLite (aiosqlite).
+    """
+    impl = DateTime(timezone=True)
+    cache_ok = True
+
+    def process_bind_param(self, value: Optional[datetime], dialect) -> Optional[datetime]:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
+
+    def process_result_value(self, value: Optional[datetime], dialect) -> Optional[datetime]:
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc)
 
 
 def generate_uuid() -> str:
@@ -26,7 +50,7 @@ class EventModel(Base):
     payload: Mapped[Dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
     signature_valid: Mapped[bool] = mapped_column(Boolean, default=True)
     status: Mapped[str] = mapped_column(String(30), default="PROCESSED")  # PROCESSED, IGNORED, ERROR
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=get_utc_now)
 
     tasks: Mapped[List["TaskModel"]] = relationship("TaskModel", back_populates="event", cascade="all, delete-orphan")
 
@@ -69,9 +93,9 @@ class TaskModel(Base):
     is_subsession: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     parent_task_id: Mapped[Optional[str]] = mapped_column(String(36), ForeignKey("tasks.id", ondelete="CASCADE"), nullable=True, index=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now, onupdate=get_utc_now)
-    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=get_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=get_utc_now, onupdate=get_utc_now)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, nullable=True)
 
     event: Mapped[Optional["EventModel"]] = relationship("EventModel", back_populates="tasks")
     messages: Mapped[List["TaskMessageModel"]] = relationship("TaskMessageModel", back_populates="task", cascade="all, delete-orphan")
@@ -120,8 +144,8 @@ class TaskPRModel(Base):
     listener_persona: Mapped[Optional[str]] = mapped_column(String(50), default="PAIR_PROGRAMMER")
     auto_commit_fixes: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now, onupdate=get_utc_now)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=get_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=get_utc_now, onupdate=get_utc_now)
 
     task: Mapped["TaskModel"] = relationship("TaskModel", back_populates="prs")
 
@@ -136,7 +160,7 @@ class TaskMessageModel(Base):
     thought: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Gemini 3.7 Flash reasoning
     plan: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)  # First-class execution plan & evaluation
     tokens: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=get_utc_now)
 
     task: Mapped["TaskModel"] = relationship("TaskModel", back_populates="messages")
 
@@ -151,7 +175,7 @@ class TaskLogModel(Base):
     tool_output: Mapped[str] = mapped_column(Text, default="")
     exit_code: Mapped[int] = mapped_column(Integer, default=0)
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=get_utc_now)
 
     task: Mapped["TaskModel"] = relationship("TaskModel", back_populates="logs")
 
@@ -165,8 +189,8 @@ class TaskApprovalModel(Base):
     action_details: Mapped[Dict[str, Any]] = mapped_column(JSON, default=dict)
     status: Mapped[str] = mapped_column(String(30), default="PENDING")  # PENDING, APPROVED, REJECTED
     feedback: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
-    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=get_utc_now)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, nullable=True)
 
     task: Mapped["TaskModel"] = relationship("TaskModel", back_populates="approvals")
 
@@ -180,7 +204,7 @@ class TaskDiffModel(Base):
     diff_content: Mapped[str] = mapped_column(Text, nullable=False)
     additions: Mapped[int] = mapped_column(Integer, default=0)
     deletions: Mapped[int] = mapped_column(Integer, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=get_utc_now)
 
     task: Mapped["TaskModel"] = relationship("TaskModel", back_populates="diffs")
 
@@ -198,7 +222,7 @@ class AutomationRuleModel(Base):
     auto_post_comment: Mapped[bool] = mapped_column(Boolean, default=True)
     require_approval: Mapped[bool] = mapped_column(Boolean, default=False)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=get_utc_now)
 
 
 class RepositoryConfigModel(Base):
@@ -227,9 +251,9 @@ class RepositoryConfigModel(Base):
     subscribed_events: Mapped[Optional[str]] = mapped_column(Text, default="pull_request.opened,issues.opened,check_run")
     default_persona: Mapped[Optional[str]] = mapped_column(String(50), default="AUTONOMOUS_WORKER")
 
-    last_synced_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now, onupdate=get_utc_now)
+    last_synced_at: Mapped[datetime] = mapped_column(UTCDateTime, default=get_utc_now)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=get_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=get_utc_now, onupdate=get_utc_now)
 
 
 class DocPageCacheModel(Base):
@@ -241,8 +265,8 @@ class DocPageCacheModel(Base):
     title: Mapped[str] = mapped_column(String(300), default="")
     content_markdown: Mapped[str] = mapped_column(Text, default="")
     headings_json: Mapped[str] = mapped_column(Text, default="[]")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now, onupdate=get_utc_now)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=get_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=get_utc_now, onupdate=get_utc_now)
 
 
 class SemanticCacheModel(Base):
@@ -257,8 +281,8 @@ class SemanticCacheModel(Base):
     response_text: Mapped[str] = mapped_column(Text, nullable=False)
     similarity_threshold: Mapped[float] = mapped_column(Float, default=0.90)
     hit_count: Mapped[int] = mapped_column(Integer, default=1)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
-    last_hit_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=get_utc_now)
+    last_hit_at: Mapped[datetime] = mapped_column(UTCDateTime, default=get_utc_now)
 
 
 class KnowledgeEntryModel(Base):
@@ -279,8 +303,8 @@ class KnowledgeEntryModel(Base):
     utility_score: Mapped[float] = mapped_column(Float, default=1.0)                          # Reinforced when helpful, penalized on failure
     usage_count: Mapped[int] = mapped_column(Integer, default=0)
     
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=get_utc_now, onupdate=get_utc_now)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=get_utc_now)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=get_utc_now, onupdate=get_utc_now)
 
 
 

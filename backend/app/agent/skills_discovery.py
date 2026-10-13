@@ -23,6 +23,7 @@ def discover_available_skills(workspace_path: Optional[Path] = None) -> List[Dic
     # Platform / repository level skill directory
     repo_root = Path(__file__).resolve().parents[3]
     search_dirs.append(repo_root / ".agents" / "skills")
+    search_dirs.append(Path(__file__).resolve().parents[2] / ".agents" / "skills")
 
     for s_dir in search_dirs:
         if not s_dir.exists() or not s_dir.is_dir():

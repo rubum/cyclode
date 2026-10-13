@@ -477,7 +477,9 @@ const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ commits }) => {
                           <span>•</span>
                           <span className="flex items-center space-x-1 text-onedark-muted/80">
                             <Clock className="w-3 h-3" />
-                            <span>{new Date(c.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                            <span>
+                              {new Date(c.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}, {new Date(c.date).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true })}
+                            </span>
                           </span>
                         </>
                       )}

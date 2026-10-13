@@ -1,0 +1,53 @@
+:8080 {
+    log {
+        output stdout
+        format console
+        level INFO
+    }
+
+    # Health check
+    handle /healthz {
+        respond "OK" 200
+    }
+
+    # Sandbox web preview proxy: /preview/{task_id}/{port}/*
+    @preview path_regexp preview ^/preview/([^/]+)/([0-9]+)(/.*)?$
+    handle @preview {
+        # Strip restrictive headers to guarantee seamless iframe embedding
+        header {
+            -X-Frame-Options
+            -Content-Security-Policy
+            -X-Content-Security-Policy
+            Access-Control-Allow-Origin *
+            Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS, PATCH"
+            Access-Control-Allow-Headers *
+            X-Cyclode-Proxy "caddy-v2-accelerated"
+        }
+
+        # Handle CORS pre-flight OPTIONS directly
+        @options method OPTIONS
+        handle @options {
+            respond "" 204
+        }
+
+        # Rewrite path to strip /preview/{task_id}/{port}
+        rewrite * {re.preview.3}
+
+        # Proxy directly to the companion sandbox container across cyclode-net
+        reverse_proxy cyclode-sb-{re.preview.1}:{re.preview.2} {
+            header_up Host {upstream_hostport}
+            header_up X-Real-IP {remote_host}
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto {scheme}
+            transport http {
+                dial_timeout 2s
+                response_header_timeout 60s
+            }
+        }
+    }
+
+    # Root status page
+    handle {
+        respond "Cyclode High-Speed Preview Gateway (Caddy 2 Active)" 200
+    }
+}

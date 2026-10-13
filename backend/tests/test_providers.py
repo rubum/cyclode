@@ -580,6 +580,7 @@ async def test_update_credentials_preserves_existing_key(monkeypatch):
     from unittest.mock import patch
 
     mgr = IntegrationManager()
+    monkeypatch.setattr(mgr, "get_custom_credential", lambda p, k="api_key": None)
     monkeypatch.setattr(settings, "DEEPSEEK_API_KEY", "sk-existing-secret-key")
     monkeypatch.setattr(settings, "DEEPSEEK_BASE_URL", "https://api.deepseek.com")
 

@@ -2,10 +2,11 @@ import asyncio
 import logging
 import re
 import subprocess
+import uuid
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, Any, Optional, List
-from sqlalchemy import select, update, delete, or_, and_
+from sqlalchemy import select, update, delete, or_, and_, func
 from sqlalchemy.orm.attributes import flag_modified
 from app.config import settings
 from app.db.session import async_session_factory
@@ -525,25 +526,26 @@ class AgentTaskPool:
                 c_id = call_id or active_tool_call_ids.pop(tool_name, None)
                 safe_input = _serialize_json_safe(tool_input) if tool_input else {}
                 tool_tokens = estimate_tokens(str(tool_output)) + estimate_tokens(str(safe_input))
-                async with async_session_factory() as session:
-                    log = TaskLogModel(
-                        task_id=task_id,
-                        tool_name=tool_name,
-                        tool_input=safe_input,
-                        tool_output=tool_output,
-                        exit_code=exit_code,
-                        duration_ms=duration_ms
-                    )
-                    session.add(log)
-                    if tool_tokens > 0:
-                        await session.execute(
+                log_id = str(uuid.uuid4())
+                log = TaskLogModel(
+                    id=log_id,
+                    task_id=task_id,
+                    tool_name=tool_name,
+                    tool_input=safe_input,
+                    tool_output=tool_output,
+                    exit_code=exit_code,
+                    duration_ms=duration_ms
+                )
+                from app.db.write_buffer import write_buffer
+                await write_buffer.add_entity(log)
+                if tool_tokens > 0:
+                    async def update_task_tokens(s):
+                        await s.execute(
                             update(TaskModel)
                             .where(TaskModel.id == task_id)
                             .values(total_tokens=TaskModel.total_tokens + tool_tokens)
                         )
-                    await session.commit()
-                    await session.refresh(log)
-                    log_id = log.id
+                    await write_buffer.add_custom_action(update_task_tokens)
 
                 await ws_manager.broadcast("TOOL_END", {
                     "id": log_id,
@@ -560,23 +562,25 @@ class AgentTaskPool:
             async def on_message(sender: str, content: str, stream_id: Optional[str] = None):
                 m_tokens = estimate_tokens(content)
                 safe_plan = _serialize_json_safe(active_plan) if sender == "agent" else None
-                async with async_session_factory() as session:
-                    msg = TaskMessageModel(
-                        task_id=task_id,
-                        sender=sender,
-                        content=content,
-                        plan=safe_plan,
-                        tokens=m_tokens
-                    )
-                    session.add(msg)
-                    await session.execute(
-                        update(TaskModel)
-                        .where(TaskModel.id == task_id)
-                        .values(total_tokens=TaskModel.total_tokens + m_tokens)
-                    )
-                    await session.commit()
-                    await session.refresh(msg)
-                    msg_id = msg.id
+                msg_id = str(uuid.uuid4())
+                msg = TaskMessageModel(
+                    id=msg_id,
+                    task_id=task_id,
+                    sender=sender,
+                    content=content,
+                    plan=safe_plan,
+                    tokens=m_tokens
+                )
+                from app.db.write_buffer import write_buffer
+                await write_buffer.add_entity(msg)
+                if m_tokens > 0:
+                    async def update_msg_tokens(s):
+                        await s.execute(
+                            update(TaskModel)
+                            .where(TaskModel.id == task_id)
+                            .values(total_tokens=TaskModel.total_tokens + m_tokens)
+                        )
+                    await write_buffer.add_custom_action(update_msg_tokens)
 
                 await ws_manager.broadcast("CHAT_MESSAGE", {
                     "id": msg_id,
@@ -820,6 +824,10 @@ class AgentTaskPool:
                 persona_instructions=task_persona_instructions,
                 role_definition=task_role_definition
             )
+
+            # Flush buffered writes before reading final state
+            from app.db.write_buffer import write_buffer
+            await write_buffer.flush()
 
             # Determine final status
             raw_status = result.get("status", "COMPLETED")
@@ -1094,326 +1102,341 @@ class AgentTaskPool:
         })
         return {"ok": True, "task_id": task_id, "status": "RESOLVED"}
 
-    async def approve_task(self, task_id: str, feedback: Optional[str] = None, custom_details: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    async def approve_task(
+        self,
+        task_id: str,
+        feedback: Optional[str] = None,
+        custom_details: Optional[Dict[str, Any]] = None,
+        approval_id: Optional[str] = None,
+        approve_all: Optional[bool] = False
+    ) -> Dict[str, Any]:
         """
         Processes human approval for an awaiting task based on approval action_type.
+        Supports single approval targeting by approval_id, or batch approval via approve_all=True.
         """
         async with async_session_factory() as session:
-            stmt = select(TaskApprovalModel).where(
-                TaskApprovalModel.task_id == task_id,
-                TaskApprovalModel.status == "PENDING"
-            )
-            result = await session.execute(stmt)
-            approval = result.scalars().first()
-
             task_stmt = select(TaskModel).where(TaskModel.id == task_id)
             task_res = await session.execute(task_stmt)
             task = task_res.scalars().first()
 
-            if approval and approval.action_type == "user_inquiry":
-                return await self.respond_to_inquiry(
-                    task_id=task_id,
-                    custom_response=feedback,
-                    feedback=feedback
+            if approve_all:
+                stmt = select(TaskApprovalModel).where(
+                    TaskApprovalModel.task_id == task_id,
+                    TaskApprovalModel.status == "PENDING"
+                ).order_by(TaskApprovalModel.created_at.asc())
+                result = await session.execute(stmt)
+                target_approvals = list(result.scalars().all())
+            elif approval_id:
+                stmt = select(TaskApprovalModel).where(
+                    TaskApprovalModel.id == approval_id,
+                    TaskApprovalModel.status == "PENDING"
                 )
+                result = await session.execute(stmt)
+                appr = result.scalars().first()
+                target_approvals = [appr] if appr else []
+            else:
+                stmt = select(TaskApprovalModel).where(
+                    TaskApprovalModel.task_id == task_id,
+                    TaskApprovalModel.status == "PENDING"
+                ).order_by(TaskApprovalModel.created_at.asc())
+                result = await session.execute(stmt)
+                appr = result.scalars().first()
+                target_approvals = [appr] if appr else []
 
-            action_type = approval.action_type if approval else "generic"
-            action_details = approval.action_details if approval and approval.action_details else {}
-            if custom_details and isinstance(custom_details, dict):
-                action_details = {**action_details, **custom_details}
+            if not target_approvals:
+                return {"ok": True, "task_id": task_id, "status": "NO_PENDING_APPROVALS"}
 
-            if approval:
+            results = []
+            should_resume_in_progress = False
+            last_summary_msg = ""
+
+            for approval in target_approvals:
+                if approval.action_type == "user_inquiry":
+                    return await self.respond_to_inquiry(
+                        task_id=task_id,
+                        custom_response=feedback,
+                        feedback=feedback
+                    )
+
+                action_type = approval.action_type
+                action_details = approval.action_details.copy() if approval.action_details else {}
+                if custom_details and isinstance(custom_details, dict):
+                    action_details.update(custom_details)
+
                 approval.status = "APPROVED"
                 approval.feedback = feedback
                 approval.action_details = action_details
                 approval.resolved_at = get_utc_now()
 
-            # Route by action_type
-            if action_type == "DESTRUCTIVE_COMMAND_BLOCKED":
-                cmd = action_details.get("command", "")
-                ws_path_str = task.workspace_path if task else ""
-                ws_path = Path(ws_path_str) if ws_path_str else Path.cwd()
+                if action_type == "DESTRUCTIVE_COMMAND_BLOCKED":
+                    cmd = action_details.get("command", "")
+                    ws_path_str = task.workspace_path if task else ""
+                    ws_path = Path(ws_path_str) if ws_path_str else Path.cwd()
 
-                exec_res = WorkspaceTools.run_command(ws_path, cmd, bypass_safety=True) if cmd else {}
-                stdout = exec_res.get("stdout", "")
-                stderr = exec_res.get("stderr", "")
-                err = exec_res.get("error", "")
-                exit_code = exec_res.get("exit_code", 0)
+                    exec_res = WorkspaceTools.run_command(ws_path, cmd, bypass_safety=True) if cmd else {}
+                    stdout = exec_res.get("stdout", "")
+                    stderr = exec_res.get("stderr", "")
+                    err = exec_res.get("error", "")
+                    exit_code = exec_res.get("exit_code", 0)
 
-                msg_content = f"Command executed: `{cmd}`\n"
-                if stdout:
-                    msg_content += f"```\n{stdout}\n```\n"
-                if stderr:
-                    msg_content += f"```\nstderr:\n{stderr}\n```\n"
-                elif err:
-                    msg_content += f"```\nerror:\n{err}\n```\n"
-                if not stdout and not stderr and not err:
-                    msg_content += f"(Command completed with exit code {exit_code})\n"
+                    msg_content = f"Command executed: `{cmd}`\n"
+                    if stdout:
+                        msg_content += f"```\n{stdout}\n```\n"
+                    if stderr:
+                        msg_content += f"```\nstderr:\n{stderr}\n```\n"
+                    elif err:
+                        msg_content += f"```\nerror:\n{err}\n```\n"
+                    if not stdout and not stderr and not err:
+                        msg_content += f"(Command completed with exit code {exit_code})\n"
 
-                msg = TaskMessageModel(
-                    task_id=task_id,
-                    sender="agent",
-                    content=msg_content.strip()
+                    msg = TaskMessageModel(
+                        task_id=task_id,
+                        sender="agent",
+                        content=msg_content.strip()
+                    )
+                    session.add(msg)
+                    last_summary_msg = f"Command Executed: {cmd}" if cmd else "Command Executed"
+                    should_resume_in_progress = True
+                    results.append({"approval_id": approval.id, "action_type": action_type, "result": exec_res})
+
+                elif action_type in ["create_pull_request", "create_pr"]:
+                    owner = action_details.get("owner", "org")
+                    repo = action_details.get("repo", task.repo_name if task else "repo")
+                    title = action_details.get("title", f"fix: resolve task {task_id[:8]}")
+                    body = action_details.get("body", f"Approved resolution for task {task_id}")
+                    head_branch = action_details.get("head_branch", f"cyclode/fix-{task_id[:8]}")
+                    base_branch = action_details.get("base_branch", "main")
+
+                    pr_res = await github_client.create_pull_request(
+                        owner=owner,
+                        repo=repo,
+                        title=title,
+                        body=body,
+                        head_branch=head_branch,
+                        base_branch=base_branch
+                    )
+
+                    pr_url = pr_res.get("html_url")
+                    if pr_url:
+                        content_msg = f"Pull request created: [{pr_url}]({pr_url})"
+                        last_summary_msg = f"PR Created: {pr_url}"
+                    else:
+                        content_msg = f"Pull request created for task `{task_id[:8]}`."
+                        last_summary_msg = "PR Created"
+
+                    msg = TaskMessageModel(
+                        task_id=task_id,
+                        sender="agent",
+                        content=content_msg
+                    )
+                    session.add(msg)
+                    results.append({"approval_id": approval.id, "action_type": action_type, "result": pr_res})
+
+                elif action_type in ["post_pull_request_review", "post_pr_review"]:
+                    repo_arg = action_details.get("repository") or action_details.get("repo", task.repo_name if task else "repo")
+                    pr_num = int(action_details.get("pr_number", 1))
+                    body_arg = action_details.get("body", "")
+                    event_arg = action_details.get("event", "COMMENT")
+                    is_chat_only = bool(action_details.get("chat_only", False) or feedback == "chat_only")
+
+                    if is_chat_only:
+                        content_msg = f"Review preserved in chat (GitHub submission skipped for {repo_arg}#{pr_num})."
+                        last_summary_msg = f"Review Preserved in Chat: {repo_arg}#{pr_num}"
+                        pr_res = {"status": "chat_only", "repository": repo_arg, "pr_number": pr_num, "ok": True}
+                    else:
+                        owner, repo = WorkspaceTools._parse_repo(repo_arg)
+                        token = await integration_manager.get_github_token_for_repo(f"{owner}/{repo}")
+                        pr_res = await github_client.post_pull_request_review(
+                            owner=owner,
+                            repo=repo,
+                            pr_number=pr_num,
+                            body=body_arg,
+                            event=event_arg,
+                            custom_token=token
+                        )
+                        if pr_res.get("ok"):
+                            html_url = pr_res.get("html_url") or f"https://github.com/{owner}/{repo}/pull/{pr_num}"
+                            event_label = "Approved" if event_arg == "APPROVE" else ("Changes Requested" if event_arg == "REQUEST_CHANGES" else "Commented")
+                            if pr_res.get("converted_to_comment"):
+                                content_msg = f"Submitted {event_label.lower()} review on [{owner}/{repo}#{pr_num}]({html_url}) *(converted to review comment per GitHub author rules)*."
+                            else:
+                                content_msg = f"Submitted {event_label.lower()} review on [{owner}/{repo}#{pr_num}]({html_url})."
+                            last_summary_msg = f"Review Posted: {owner}/{repo}#{pr_num}"
+                        else:
+                            err = pr_res.get("error") or "Unknown error"
+                            content_msg = f"Failed to submit review on {owner}/{repo}#{pr_num}: {err}"
+                            last_summary_msg = f"Review Failed: {owner}/{repo}#{pr_num}"
+
+                    msg = TaskMessageModel(
+                        task_id=task_id,
+                        sender="agent",
+                        content=content_msg
+                    )
+                    session.add(msg)
+                    results.append({"approval_id": approval.id, "action_type": action_type, "result": pr_res})
+
+                elif action_type in ["post_pull_request_line_comment", "post_line_comment"]:
+                    repo_arg = action_details.get("repository") or action_details.get("repo", task.repo_name if task else "repo")
+                    pr_num = int(action_details.get("pr_number", 1))
+                    body_arg = action_details.get("body", "")
+                    commit_sha = action_details.get("commit_sha", "")
+                    path = action_details.get("path", "")
+                    line = int(action_details.get("line", 1))
+                    side = action_details.get("side", "RIGHT")
+                    is_chat_only = bool(action_details.get("chat_only", False) or feedback == "chat_only")
+
+                    if is_chat_only:
+                        content_msg = f"Inline comment preserved in chat (GitHub submission skipped for {repo_arg}#{pr_num})."
+                        last_summary_msg = f"Comment Preserved in Chat: {repo_arg}#{pr_num}"
+                        comment_res = {"status": "chat_only", "ok": True}
+                    else:
+                        owner, repo = WorkspaceTools._parse_repo(repo_arg)
+                        token = await integration_manager.get_github_token_for_repo(f"{owner}/{repo}")
+                        comment_res = await github_client.post_pull_request_line_comment(
+                            owner=owner,
+                            repo=repo,
+                            pr_number=pr_num,
+                            body=body_arg,
+                            commit_id=commit_sha,
+                            commit_sha=commit_sha,
+                            path=path,
+                            line=line,
+                            side=side,
+                            custom_token=token
+                        )
+                        if comment_res.get("ok"):
+                            html_url = comment_res.get("html_url") or f"https://github.com/{owner}/{repo}/pull/{pr_num}"
+                            if comment_res.get("converted_to_issue_comment"):
+                                content_msg = f"Submitted comment on `{path}:{line}` to [{repo_arg}#{pr_num}]({html_url}) *(line was outside PR diff, posted as PR discussion)*."
+                            else:
+                                content_msg = f"Submitted inline comment on `{path}:{line}` to [{repo_arg}#{pr_num}]({html_url})."
+                            last_summary_msg = f"Line Comment Posted: {path}:{line}"
+                        else:
+                            err = comment_res.get("error") or "Unknown error"
+                            content_msg = f"Failed to submit inline comment on `{path}:{line}` to {repo_arg}#{pr_num}: {err}"
+                            last_summary_msg = f"Comment Failed: {path}:{line}"
+
+                    msg = TaskMessageModel(
+                        task_id=task_id,
+                        sender="agent",
+                        content=content_msg
+                    )
+                    session.add(msg)
+                    results.append({"approval_id": approval.id, "action_type": action_type, "result": comment_res})
+
+                else:
+                    desc = action_details.get("description", feedback or f"Action {action_type} approved")
+                    last_summary_msg = f"Approved: {desc}"
+                    msg = TaskMessageModel(
+                        task_id=task_id,
+                        sender="agent",
+                        content=f"Approved: {desc}"
+                    )
+                    session.add(msg)
+                    results.append({"approval_id": approval.id, "action_type": action_type, "result": "ok"})
+
+            # Check if any pending approvals remain for this task
+            remaining_pending = await session.scalar(
+                select(func.count(TaskApprovalModel.id)).where(
+                    TaskApprovalModel.task_id == task_id,
+                    TaskApprovalModel.status == "PENDING"
                 )
-                session.add(msg)
+            )
 
+            if remaining_pending == 0:
+                final_status = "IN_PROGRESS" if should_resume_in_progress else "COMPLETED"
+                summary_msg = last_summary_msg if (len(target_approvals) == 1 and last_summary_msg) else f"Approved {len(target_approvals)} action(s)"
                 await session.execute(
                     update(TaskModel)
                     .where(TaskModel.id == task_id)
                     .values(
-                        status="IN_PROGRESS",
+                        status=final_status,
+                        result_summary=summary_msg,
+                        completed_at=get_utc_now() if final_status == "COMPLETED" else None,
                         updated_at=get_utc_now()
                     )
                 )
-                await session.commit()
-
-                await ws_manager.broadcast("CHAT_MESSAGE", {
-                    "task_id": task_id,
-                    "sender": "agent",
-                    "content": msg_content.strip(),
-                    "timestamp": get_utc_now().isoformat()
-                })
-                await ws_manager.broadcast("APPROVAL_RESOLVED", {
-                    "task_id": task_id,
-                    "status": "APPROVED",
-                    "action_type": action_type
-                })
-                await ws_manager.broadcast("TASK_STATUS_CHANGE", {
-                    "task_id": task_id,
-                    "status": "IN_PROGRESS"
-                })
-
-                return {"ok": True, "task_id": task_id, "status": "APPROVED", "result": exec_res}
-
-            elif action_type in ["create_pull_request", "create_pr"]:
-                owner = action_details.get("owner", "org")
-                repo = action_details.get("repo", task.repo_name if task else "repo")
-                title = action_details.get("title", f"fix: resolve task {task_id[:8]}")
-                body = action_details.get("body", f"Approved resolution for task {task_id}")
-                head_branch = action_details.get("head_branch", f"cyclode/fix-{task_id[:8]}")
-                base_branch = action_details.get("base_branch", "main")
-
-                pr_res = await github_client.create_pull_request(
-                    owner=owner,
-                    repo=repo,
-                    title=title,
-                    body=body,
-                    head_branch=head_branch,
-                    base_branch=base_branch
-                )
-
-                pr_url = pr_res.get("html_url")
-                if pr_url:
-                    content_msg = f"Pull request created: [{pr_url}]({pr_url})"
-                    summary_msg = f"PR Created: {pr_url}"
-                else:
-                    content_msg = f"Pull request created for task `{task_id[:8]}`."
-                    summary_msg = "PR Created"
-
-                msg = TaskMessageModel(
-                    task_id=task_id,
-                    sender="agent",
-                    content=content_msg
-                )
-                session.add(msg)
-
-                await session.execute(
-                    update(TaskModel)
-                    .where(TaskModel.id == task_id)
-                    .values(
-                        status="COMPLETED",
-                        result_summary=summary_msg,
-                        completed_at=get_utc_now()
-                    )
-                )
-                await session.commit()
-
-                await ws_manager.broadcast("APPROVAL_RESOLVED", {
-                    "task_id": task_id,
-                    "status": "APPROVED",
-                    "pr_url": pr_url
-                })
-                await ws_manager.broadcast("TASK_STATUS_CHANGE", {
-                    "task_id": task_id,
-                    "status": "COMPLETED"
-                })
-
-                return {"ok": True, "task_id": task_id, "status": "APPROVED", "pr": pr_res}
-
-            elif action_type in ["post_pull_request_review", "post_pr_review"]:
-                repo_arg = action_details.get("repository") or action_details.get("repo", task.repo_name if task else "repo")
-                pr_num = int(action_details.get("pr_number", 1))
-                body_arg = action_details.get("body", "")
-                event_arg = action_details.get("event", "COMMENT")
-                is_chat_only = bool(action_details.get("chat_only", False) or feedback == "chat_only")
-
-                if is_chat_only:
-                    content_msg = f"Review preserved in chat (GitHub submission skipped for {repo_arg}#{pr_num})."
-                    summary_msg = f"Review Preserved in Chat: {repo_arg}#{pr_num}"
-                    pr_res = {"status": "chat_only", "repository": repo_arg, "pr_number": pr_num}
-                else:
-                    owner, repo = WorkspaceTools._parse_repo(repo_arg)
-                    token = await integration_manager.get_github_token_for_repo(f"{owner}/{repo}")
-                    pr_res = await github_client.post_pull_request_review(
-                        owner=owner,
-                        repo=repo,
-                        pr_number=pr_num,
-                        body=body_arg,
-                        event=event_arg,
-                        custom_token=token
-                    )
-                    html_url = pr_res.get("html_url") or f"https://github.com/{owner}/{repo}/pull/{pr_num}"
-                    event_label = "Approved" if event_arg == "APPROVE" else ("Changes Requested" if event_arg == "REQUEST_CHANGES" else "Commented")
-                    content_msg = f"Submitted {event_label.lower()} review on [{owner}/{repo}#{pr_num}]({html_url})."
-                    summary_msg = f"Review Posted: {owner}/{repo}#{pr_num}"
-
-                msg = TaskMessageModel(
-                    task_id=task_id,
-                    sender="agent",
-                    content=content_msg
-                )
-                session.add(msg)
-
-                await session.execute(
-                    update(TaskModel)
-                    .where(TaskModel.id == task_id)
-                    .values(
-                        status="COMPLETED",
-                        result_summary=summary_msg,
-                        completed_at=get_utc_now()
-                    )
-                )
-                await session.commit()
-
-                await ws_manager.broadcast("APPROVAL_RESOLVED", {
-                    "task_id": task_id,
-                    "status": "APPROVED",
-                    "action_type": action_type,
-                    "result": pr_res
-                })
-                await ws_manager.broadcast("TASK_STATUS_CHANGE", {
-                    "task_id": task_id,
-                    "status": "COMPLETED"
-                })
-
-                return {"ok": True, "task_id": task_id, "status": "APPROVED", "result": pr_res}
-
-            elif action_type in ["post_pull_request_line_comment", "post_line_comment"]:
-                repo_arg = action_details.get("repository") or action_details.get("repo", task.repo_name if task else "repo")
-                pr_num = int(action_details.get("pr_number", 1))
-                body_arg = action_details.get("body", "")
-                commit_sha = action_details.get("commit_sha", "")
-                path = action_details.get("path", "")
-                line = int(action_details.get("line", 1))
-                side = action_details.get("side", "RIGHT")
-                is_chat_only = bool(action_details.get("chat_only", False) or feedback == "chat_only")
-
-                if is_chat_only:
-                    content_msg = f"Inline comment preserved in chat (GitHub submission skipped for {repo_arg}#{pr_num})."
-                    summary_msg = f"Comment Preserved in Chat: {repo_arg}#{pr_num}"
-                    comment_res = {"status": "chat_only"}
-                else:
-                    owner, repo = WorkspaceTools._parse_repo(repo_arg)
-                    token = await integration_manager.get_github_token_for_repo(f"{owner}/{repo}")
-                    comment_res = await github_client.post_pull_request_line_comment(
-                        owner=owner,
-                        repo=repo,
-                        pr_number=pr_num,
-                        body=body_arg,
-                        commit_sha=commit_sha,
-                        path=path,
-                        line=line,
-                        side=side,
-                        custom_token=token
-                    )
-                    html_url = f"https://github.com/{owner}/{repo}/pull/{pr_num}"
-                    content_msg = f"Submitted inline comment on `{path}:{line}` to [{repo_arg}#{pr_num}]({html_url})."
-                    summary_msg = f"Line Comment Posted: {path}:{line}"
-
-                msg = TaskMessageModel(
-                    task_id=task_id,
-                    sender="agent",
-                    content=content_msg
-                )
-                session.add(msg)
-
-                await session.execute(
-                    update(TaskModel)
-                    .where(TaskModel.id == task_id)
-                    .values(
-                        status="COMPLETED",
-                        result_summary=summary_msg,
-                        completed_at=get_utc_now()
-                    )
-                )
-                await session.commit()
-
-                await ws_manager.broadcast("APPROVAL_RESOLVED", {
-                    "task_id": task_id,
-                    "status": "APPROVED",
-                    "action_type": action_type,
-                    "result": comment_res
-                })
-                await ws_manager.broadcast("TASK_STATUS_CHANGE", {
-                    "task_id": task_id,
-                    "status": "COMPLETED"
-                })
-
-                return {"ok": True, "task_id": task_id, "status": "APPROVED", "result": comment_res}
-
             else:
-                desc = action_details.get("description", feedback or f"Action {action_type} approved")
-                msg = TaskMessageModel(
-                    task_id=task_id,
-                    sender="agent",
-                    content=f"Approved: {desc}"
-                )
-                session.add(msg)
+                final_status = "AWAITING_APPROVAL"
 
-                await session.execute(
-                    update(TaskModel)
-                    .where(TaskModel.id == task_id)
-                    .values(
-                        status="IN_PROGRESS",
-                        updated_at=get_utc_now()
-                    )
-                )
-                await session.commit()
+            await session.commit()
 
+            for item in results:
                 await ws_manager.broadcast("APPROVAL_RESOLVED", {
                     "task_id": task_id,
                     "status": "APPROVED",
-                    "action_type": action_type
-                })
-                await ws_manager.broadcast("TASK_STATUS_CHANGE", {
-                    "task_id": task_id,
-                    "status": "IN_PROGRESS"
+                    "approval_id": item["approval_id"],
+                    "action_type": item["action_type"],
+                    "result": item.get("result"),
+                    "remaining_pending": remaining_pending
                 })
 
-                return {"ok": True, "task_id": task_id, "status": "APPROVED"}
+            await ws_manager.broadcast("TASK_STATUS_CHANGE", {
+                "task_id": task_id,
+                "status": final_status
+            })
 
-    async def reject_task(self, task_id: str, feedback: Optional[str] = None) -> Dict[str, Any]:
+            return {
+                "ok": True,
+                "task_id": task_id,
+                "status": "APPROVED",
+                "remaining_pending": remaining_pending,
+                "results": results
+            }
+
+    async def reject_task(
+        self,
+        task_id: str,
+        feedback: Optional[str] = None,
+        approval_id: Optional[str] = None,
+        reject_all: Optional[bool] = False
+    ) -> Dict[str, Any]:
         """
         Rejects an action or task.
+        Supports single approval rejection by approval_id, or batch rejection via reject_all=True.
         """
         async with async_session_factory() as session:
-            stmt = select(TaskApprovalModel).where(
-                TaskApprovalModel.task_id == task_id,
-                TaskApprovalModel.status == "PENDING"
-            )
-            result = await session.execute(stmt)
-            approval = result.scalars().first()
+            if reject_all:
+                stmt = select(TaskApprovalModel).where(
+                    TaskApprovalModel.task_id == task_id,
+                    TaskApprovalModel.status == "PENDING"
+                )
+                result = await session.execute(stmt)
+                target_approvals = list(result.scalars().all())
+            elif approval_id:
+                stmt = select(TaskApprovalModel).where(
+                    TaskApprovalModel.id == approval_id,
+                    TaskApprovalModel.status == "PENDING"
+                )
+                result = await session.execute(stmt)
+                appr = result.scalars().first()
+                target_approvals = [appr] if appr else []
+            else:
+                stmt = select(TaskApprovalModel).where(
+                    TaskApprovalModel.task_id == task_id,
+                    TaskApprovalModel.status == "PENDING"
+                ).order_by(TaskApprovalModel.created_at.asc())
+                result = await session.execute(stmt)
+                appr = result.scalars().first()
+                target_approvals = [appr] if appr else []
 
-            if approval:
+            for approval in target_approvals:
                 approval.status = "REJECTED"
                 approval.feedback = feedback
                 approval.resolved_at = get_utc_now()
+
+            remaining_pending = await session.scalar(
+                select(func.count(TaskApprovalModel.id)).where(
+                    TaskApprovalModel.task_id == task_id,
+                    TaskApprovalModel.status == "PENDING"
+                )
+            )
 
             cancel_reason = feedback.strip() if feedback else ""
             if cancel_reason and not any(k in cancel_reason.lower() for k in ["no feedback", "none"]):
                 clean_content = f"Action cancelled: {cancel_reason}."
             else:
-                clean_content = "Action cancelled."
+                clean_content = f"Action cancelled ({len(target_approvals)} item(s) dismissed)."
 
             msg = TaskMessageModel(
                 task_id=task_id,
@@ -1422,28 +1445,36 @@ class AgentTaskPool:
             )
             session.add(msg)
 
-            await session.execute(
-                update(TaskModel)
-                .where(TaskModel.id == task_id)
-                .values(
-                    status="CANCELLED",
-                    result_summary=f"Cancelled: {feedback or 'No feedback'}",
-                    completed_at=get_utc_now()
+            if remaining_pending == 0:
+                final_status = "CANCELLED"
+                await session.execute(
+                    update(TaskModel)
+                    .where(TaskModel.id == task_id)
+                    .values(
+                        status="CANCELLED",
+                        result_summary=f"Cancelled: {feedback or 'No feedback'}",
+                        completed_at=get_utc_now()
+                    )
                 )
-            )
+            else:
+                final_status = "AWAITING_APPROVAL"
+
             await session.commit()
 
-        await ws_manager.broadcast("APPROVAL_RESOLVED", {
-            "task_id": task_id,
-            "status": "REJECTED",
-            "feedback": feedback
-        })
-        await ws_manager.broadcast("TASK_STATUS_CHANGE", {
-            "task_id": task_id,
-            "status": "CANCELLED"
-        })
+            for appr in target_approvals:
+                await ws_manager.broadcast("APPROVAL_RESOLVED", {
+                    "task_id": task_id,
+                    "status": "REJECTED",
+                    "approval_id": appr.id,
+                    "remaining_pending": remaining_pending
+                })
 
-        return {"ok": True, "task_id": task_id, "status": "REJECTED"}
+            await ws_manager.broadcast("TASK_STATUS_CHANGE", {
+                "task_id": task_id,
+                "status": final_status
+            })
+
+            return {"ok": True, "task_id": task_id, "status": "REJECTED", "remaining_pending": remaining_pending}
 
     async def stop_task(self, task_id: str, reason: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -1602,11 +1633,15 @@ class AgentTaskPool:
             elif action == "post_review":
                 review_body = custom_feedback or pr.review_summary or f"AI Review for PR #{pr.pr_number}: Automated analysis complete."
                 if repo_name:
+                    owner, repo = WorkspaceTools._parse_repo(repo_name)
+                    token = await integration_manager.get_github_token_for_repo(f"{owner}/{repo}")
                     review_res = await github_client.post_pull_request_review(
-                        repo_name=repo_name,
+                        owner=owner,
+                        repo=repo,
                         pr_number=pr.pr_number,
                         body=review_body,
-                        event="COMMENT"
+                        event="COMMENT",
+                        custom_token=token
                     )
                     pr.review_summary = review_body
                     await session.commit()
@@ -1616,7 +1651,7 @@ class AgentTaskPool:
                         "pr_number": pr.pr_number,
                         "review_summary": pr.review_summary
                     })
-                    return {"ok": True, "result": review_res}
+                    return {"ok": review_res.get("ok", True), "result": review_res}
                 return {"ok": False, "error": "No repository name attached to task"}
 
             return {"ok": False, "error": f"Unknown action '{action}'"}
@@ -2186,20 +2221,20 @@ class AgentTaskPool:
                 logger.warning(f"Error rolling back task memories in reset_task_turn: {e}")
 
             # 3. Restore plan state
-            if is_initial_turn:
-                task.plan = None
-            elif task.plan and isinstance(task.plan, dict):
+            if task.plan and isinstance(task.plan, dict):
                 import copy
                 p_copy = copy.deepcopy(task.plan)
                 steps = p_copy.get("steps", [])
-                for s in steps:
-                    s["status"] = "in_progress"
+                for i, s in enumerate(steps):
+                    s["status"] = "in_progress" if i == 0 else "pending"
                 p_copy["steps"] = steps
-                if "evaluation" in p_copy:
+                if "evaluation" in p_copy and isinstance(p_copy["evaluation"], dict):
                     p_copy["evaluation"]["status"] = "in_progress"
                     p_copy["evaluation"]["summary"] = "Task reset by user."
                 task.plan = p_copy
                 flag_modified(task, "plan")
+            else:
+                task.plan = None
 
             # 4. Clean task execution state
             task.status = "PAUSED"

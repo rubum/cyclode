@@ -57,18 +57,21 @@ async def _periodic_sandbox_reconciler():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: initialize database tables and seed default rules
+    # Startup: initialize database tables, write buffer, and seed default rules
     await init_db()
+    from app.db.write_buffer import write_buffer
+    write_buffer.start()
     async with async_session_factory() as session:
         await ensure_default_rules(session)
     reconciler_task = asyncio.create_task(_periodic_sandbox_reconciler())
     yield
-    # Shutdown: cleanup background reconciler
+    # Shutdown: cleanup background reconciler and flush buffered writes
     reconciler_task.cancel()
     try:
         await reconciler_task
     except asyncio.CancelledError:
         pass
+    await write_buffer.stop()
 
 
 app = FastAPI(

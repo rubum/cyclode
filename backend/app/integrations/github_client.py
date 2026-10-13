@@ -62,18 +62,19 @@ class GitHubClient:
         Opens a Pull Request on GitHub (with draft option).
         """
         import os
+        if os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
+            return {
+                "id": 101,
+                "number": 42,
+                "html_url": f"https://github.com/{owner}/{repo}/pull/42",
+                "title": title,
+                "state": "open",
+                "draft": draft,
+                "simulated": True
+            }
+
         token = custom_token or self.token
         if not token:
-            if os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
-                return {
-                    "id": 101,
-                    "number": 42,
-                    "html_url": f"https://github.com/{owner}/{repo}/pull/42",
-                    "title": title,
-                    "state": "open",
-                    "draft": draft,
-                    "simulated": True
-                }
             return {
                 "error": "GitHub Personal Access Token is required to create pull requests. Configure a token in Settings or session Vault.",
                 "status_code": 401,
@@ -497,29 +498,40 @@ class GitHubClient:
 
     async def post_pull_request_review(
         self,
-        owner: str,
-        repo: str,
-        pr_number: int,
-        body: str,
+        owner: str = "",
+        repo: str = "",
+        pr_number: int = 1,
+        body: str = "",
         event: str = "COMMENT",
-        custom_token: Optional[str] = None
+        custom_token: Optional[str] = None,
+        repo_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Submits a formal PR review on GitHub (COMMENT, APPROVE, REQUEST_CHANGES).
         """
         import os
+        if repo_name and not owner:
+            parts = repo_name.split("/", 1)
+            owner = parts[0]
+            repo = parts[1] if len(parts) > 1 else ""
+        elif "/" in owner and not repo:
+            parts = owner.split("/", 1)
+            owner = parts[0]
+            repo = parts[1]
+
+        if os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
+            return {
+                "ok": True,
+                "id": 303,
+                "pr_number": pr_number,
+                "body": body,
+                "event": event,
+                "html_url": f"https://github.com/{owner}/{repo}/pull/{pr_number}#pullrequestreview-303",
+                "simulated": True
+            }
+
         token = custom_token or self.token
         if not token:
-            if os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
-                return {
-                    "ok": True,
-                    "id": 303,
-                    "pr_number": pr_number,
-                    "body": body,
-                    "event": event,
-                    "html_url": f"https://github.com/{owner}/{repo}/pull/{pr_number}#pullrequestreview-303",
-                    "simulated": True
-                }
             return {
                 "ok": False,
                 "error": "GitHub Personal Access Token is required to submit pull request reviews.",
@@ -542,6 +554,25 @@ class GitHubClient:
                     data["ok"] = True
                     data["pr_number"] = pr_number
                     return data
+                if resp.status_code == 422 and event in ("REQUEST_CHANGES", "APPROVE"):
+                    err_lower = resp.text.lower()
+                    if "your own pull request" in err_lower or "own pull request" in err_lower:
+                        # GitHub does not permit author to request changes or approve their own PR.
+                        # Gracefully fall back to posting as a review with event='COMMENT'
+                        event_label = "Changes Requested" if event == "REQUEST_CHANGES" else "Approved"
+                        fallback_body = f"> **Review Verdict: {event_label}** *(Submitted as a review comment because GitHub does not permit authors to formally approve or request changes on their own pull requests)*\n\n{body}"
+                        fallback_resp = await client.post(
+                            url,
+                            headers=headers,
+                            json={"body": fallback_body, "event": "COMMENT"},
+                            timeout=15.0
+                        )
+                        if fallback_resp.status_code in (200, 201):
+                            fallback_data = fallback_resp.json()
+                            fallback_data["ok"] = True
+                            fallback_data["pr_number"] = pr_number
+                            fallback_data["converted_to_comment"] = True
+                            return fallback_data
                 return {"ok": False, "error": resp.text, "status_code": resp.status_code, "simulated": False}
             except Exception as e:
                 return {"ok": False, "error": str(e), "simulated": False}
@@ -560,16 +591,17 @@ class GitHubClient:
         Merges a pull request on GitHub (merge_method: squash, merge, rebase).
         """
         import os
+        if os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
+            return {
+                "ok": True,
+                "sha": "6dcb09b5b57875f334f61aebed695e2e4193db5e",
+                "merged": True,
+                "message": "Pull Request successfully merged",
+                "simulated": True
+            }
+
         token = custom_token or self.token
         if not token:
-            if os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
-                return {
-                    "ok": True,
-                    "sha": "6dcb09b5b57875f334f61aebed695e2e4193db5e",
-                    "merged": True,
-                    "message": "Pull Request successfully merged",
-                    "simulated": True
-                }
             return {
                 "ok": False,
                 "error": "GitHub Personal Access Token is required to merge pull requests.",
@@ -608,6 +640,7 @@ class GitHubClient:
         token = custom_token or self.token
         if not token:
             return {
+                "ok": True,
                 "id": 202,
                 "body": comment,
                 "html_url": f"https://github.com/{owner}/{repo}/issues/{issue_number}#issuecomment-202",
@@ -621,31 +654,71 @@ class GitHubClient:
         }
         async with httpx.AsyncClient() as client:
             url = f"{self.api_base}/repos/{owner}/{repo}/issues/{issue_number}/comments"
-            resp = await client.post(
-                url,
-                headers=headers,
-                json={"body": comment},
-                timeout=15.0
-            )
-            if resp.status_code in (200, 201):
-                return resp.json()
-            return {"error": resp.text, "status_code": resp.status_code}
+            try:
+                resp = await client.post(
+                    url,
+                    headers=headers,
+                    json={"body": comment},
+                    timeout=15.0
+                )
+                if resp.status_code in (200, 201):
+                    data = resp.json()
+                    if isinstance(data, dict):
+                        data["ok"] = True
+                    return data
+                return {"ok": False, "error": resp.text, "status_code": resp.status_code}
+            except Exception as e:
+                return {"ok": False, "error": str(e)}
 
     async def post_pull_request_line_comment(
         self,
-        owner: str,
-        repo: str,
-        pr_number: int,
-        body: str,
-        commit_id: str,
-        path: str,
-        line: int,
+        owner: str = "",
+        repo: str = "",
+        pr_number: int = 1,
+        body: str = "",
+        commit_id: Optional[str] = None,
+        path: str = "",
+        line: int = 1,
         side: str = "RIGHT",
-        custom_token: Optional[str] = None
+        custom_token: Optional[str] = None,
+        commit_sha: Optional[str] = None,
+        repo_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Posts an inline diff review comment on a specific line of a pull request.
+        Supports both commit_id and commit_sha, with automatic head SHA fallback.
+        If line is outside diff range (422), gracefully falls back to a PR issue comment.
         """
+        import os
+        if repo_name and not owner:
+            parts = repo_name.split("/", 1)
+            owner = parts[0]
+            repo = parts[1] if len(parts) > 1 else ""
+        elif "/" in owner and not repo:
+            parts = owner.split("/", 1)
+            owner = parts[0]
+            repo = parts[1]
+
+        if os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
+            return {
+                "ok": True,
+                "id": 404,
+                "body": body,
+                "path": path,
+                "line": line,
+                "html_url": f"https://github.com/{owner}/{repo}/pull/{pr_number}#discussion_r404",
+                "simulated": True
+            }
+
+        target_commit = (commit_id or commit_sha or "").strip()
+        if not target_commit:
+            try:
+                pr_info = await self.get_pull_request(owner, repo, pr_number, custom_token=custom_token)
+                if isinstance(pr_info, dict):
+                    target_commit = pr_info.get("head", {}).get("sha", "")
+            except Exception as e:
+                logger.debug(f"Failed to auto-resolve head SHA for {owner}/{repo}#{pr_number}: {e}")
+
         token = custom_token or self.token
         if not token:
             return {
@@ -667,7 +740,7 @@ class GitHubClient:
             url = f"{self.api_base}/repos/{owner}/{repo}/pulls/{pr_number}/comments"
             payload = {
                 "body": body,
-                "commit_id": commit_id,
+                "commit_id": target_commit,
                 "path": path,
                 "line": line,
                 "side": side
@@ -678,6 +751,24 @@ class GitHubClient:
                     data = resp.json()
                     data["ok"] = True
                     return data
+                if resp.status_code == 422:
+                    # Line may not be in the PR diff hunk or commit SHA mismatch.
+                    # Fall back to posting as a PR issue comment so feedback is not lost.
+                    fallback_body = f"> **Review Comment on `{path}:{line}`** *(Submitted as PR comment because line is outside the modified diff range)*\n\n{body}"
+                    issue_comment_url = f"{self.api_base}/repos/{owner}/{repo}/issues/{pr_number}/comments"
+                    fallback_resp = await client.post(
+                        issue_comment_url,
+                        headers=headers,
+                        json={"body": fallback_body},
+                        timeout=15.0
+                    )
+                    if fallback_resp.status_code in (200, 201):
+                        fallback_data = fallback_resp.json()
+                        fallback_data["ok"] = True
+                        fallback_data["converted_to_issue_comment"] = True
+                        fallback_data["path"] = path
+                        fallback_data["line"] = line
+                        return fallback_data
                 return {"ok": False, "error": resp.text, "status_code": resp.status_code, "simulated": False}
             except Exception as e:
                 return {"ok": False, "error": str(e), "simulated": False}
@@ -876,7 +967,7 @@ class GitHubClient:
         Otherwise, posts a top-level conversation comment.
         """
         token = custom_token or self.token
-        if not token:
+        if not token or os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
             return {
                 "ok": True,
                 "id": 999,
