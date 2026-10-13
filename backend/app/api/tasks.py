@@ -87,6 +87,8 @@ class RetryTaskRequest(BaseModel):
 class ApprovalActionRequest(BaseModel):
     feedback: Optional[str] = None
     custom_details: Optional[Dict[str, Any]] = None
+    approval_id: Optional[str] = None
+    approve_all: Optional[bool] = False
 
 
 class InquiryResponseRequest(BaseModel):
@@ -578,7 +580,13 @@ async def sync_task_repo_prs(task_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.post("/{task_id}/approve")
 async def approve_task_action(task_id: str, req: ApprovalActionRequest):
-    res = await agent_pool.approve_task(task_id, req.feedback, req.custom_details)
+    res = await agent_pool.approve_task(
+        task_id,
+        feedback=req.feedback,
+        custom_details=req.custom_details,
+        approval_id=req.approval_id,
+        approve_all=req.approve_all
+    )
     return res
 
 
@@ -595,7 +603,12 @@ async def respond_to_inquiry_action(task_id: str, req: InquiryResponseRequest):
 
 @router.post("/{task_id}/reject")
 async def reject_task_action(task_id: str, req: ApprovalActionRequest):
-    res = await agent_pool.reject_task(task_id, req.feedback)
+    res = await agent_pool.reject_task(
+        task_id,
+        feedback=req.feedback,
+        approval_id=req.approval_id,
+        reject_all=req.approve_all
+    )
     return res
 
 

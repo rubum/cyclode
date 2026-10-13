@@ -35,7 +35,7 @@ interface PRReviewApprovalCardProps {
     };
   };
   onApprove: (feedback?: string, customDetails?: any) => void;
-  onReject: (feedback?: string) => void;
+  onReject: (feedback?: string, customDetails?: any) => void;
 }
 
 export const PRReviewApprovalCard: React.FC<PRReviewApprovalCardProps> = ({
@@ -139,10 +139,15 @@ export const PRReviewApprovalCard: React.FC<PRReviewApprovalCardProps> = ({
     setSubmitting(true);
     try {
       await onApprove(buttonConfig.feedback, {
+        approval_id: approval.id,
         body: editedBody,
         event: selectedEvent,
         repository: repo,
         pr_number: prNumber,
+        path: details.path,
+        line: details.line,
+        side: details.side,
+        commit_sha: details.commit_sha,
         chat_only: false,
       });
     } finally {
@@ -155,10 +160,15 @@ export const PRReviewApprovalCard: React.FC<PRReviewApprovalCardProps> = ({
     setSubmitting(true);
     try {
       await onApprove('chat_only', {
+        approval_id: approval.id,
         body: editedBody,
         event: selectedEvent,
         repository: repo,
         pr_number: prNumber,
+        path: details.path,
+        line: details.line,
+        side: details.side,
+        commit_sha: details.commit_sha,
         chat_only: true,
       });
     } finally {
@@ -167,7 +177,9 @@ export const PRReviewApprovalCard: React.FC<PRReviewApprovalCardProps> = ({
   };
 
   const handleDismiss = () => {
-    onReject('Review submission cancelled by user');
+    onReject('Review item dismissed by user', {
+      approval_id: approval.id,
+    });
   };
 
   return (

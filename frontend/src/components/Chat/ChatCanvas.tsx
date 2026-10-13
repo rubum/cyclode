@@ -580,7 +580,7 @@ interface ChatCanvasProps {
   onDraftChange?: (draft: string) => void;
   onSendMessage: (content: string, modelName?: string, files?: File[]) => Promise<void> | void;
   onApprove: (feedback?: string, customDetails?: any) => void;
-  onReject: (feedback?: string) => void;
+  onReject: (feedback?: string, customDetails?: any) => void;
   onNewChatWithPrompt?: (prompt: string, persona: string, modelName?: string, files?: File[]) => void;
   onEditMessage?: (messageId: string, newContent: string) => void;
   onRetryTask?: (fromMessageId?: string) => void;
@@ -1463,6 +1463,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const [titleInput, setTitleInput] = useState('');
   const [copiedBranch, setCopiedBranch] = useState(false);
   const [expandedRawPlanMsgIds, setExpandedRawPlanMsgIds] = useState<Record<string, boolean>>({});
+  const [activeApprovalId, setActiveApprovalId] = useState<string | null>(null);
 
   const [localRepos, setLocalRepos] = useState<RepositoryConfig[]>([]);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
@@ -3224,7 +3225,24 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     );
   }
 
-  const latestApproval = task.approvals?.find((a) => a.status === 'PENDING');
+  const pendingApprovals = useMemo(
+    () => (task.approvals || []).filter((a) => a.status === 'PENDING'),
+    [task.approvals]
+  );
+
+  const currentApproval = useMemo(() => {
+    if (pendingApprovals.length === 0) return null;
+    if (activeApprovalId) {
+      const found = pendingApprovals.find((a) => a.id === activeApprovalId);
+      if (found) return found;
+    }
+    const mainReview = pendingApprovals.find((a) =>
+      a.action_type === 'post_pull_request_review' || a.action_type === 'post_pr_review'
+    );
+    return mainReview || pendingApprovals[0];
+  }, [pendingApprovals, activeApprovalId]);
+
+  const latestApproval = currentApproval;
   const isAnyStreamActive = Boolean(
     task.messages?.some((m) => m.isStreaming) ||
     turns.some((t) => t.isLatest && (
@@ -4654,61 +4672,119 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
           {/* Pending Action Approval Card or Interactive Inquiry Card or PR Review Staging Card */}
           {shouldShowApproval && latestApproval && (
-            latestApproval.action_type === 'user_inquiry' ? (
-              <InquiryCard
-                taskId={task.id}
-                approval={latestApproval}
-                onResolved={() => {
-                  if (onApprove) onApprove();
-                }}
-              />
-            ) : (latestApproval.action_type === 'post_pull_request_review' || latestApproval.action_type === 'post_pull_request_line_comment' || latestApproval.action_type === 'post_pr_review' || latestApproval.action_type === 'post_line_comment') ? (
-              <PRReviewApprovalCard
-                taskId={task.id}
-                approval={latestApproval}
-                onApprove={onApprove}
-                onReject={onReject}
-              />
-            ) : (
-              <div className="rounded-xl border border-onedark-border bg-onedark-surface p-4 space-y-3 shadow-md">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center space-x-2 text-onedark-yellow font-semibold text-xs min-w-0">
-                    <ShieldAlert className="w-4 h-4 text-onedark-yellow shrink-0" />
-                    <span className="truncate">Action Approval Required</span>
-                  </div>
-                  <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-onedark-darker text-onedark-muted border border-onedark-border shrink-0">
-                    Gated Policy
-                  </span>
-                </div>
+            <div className="space-y-2.5">
+              {/* Multi-Item Staging Bar if multiple approvals are pending */}
+              {pendingApprovals.length > 1 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 px-3 rounded-lg bg-onedark-surface/90 border border-onedark-borderSubtle text-xs shadow-sm">
+                  <div className="flex items-center space-x-2 min-w-0 flex-1 overflow-hidden">
+                    <span className="font-semibold text-onedark-fg flex items-center space-x-1.5 shrink-0">
+                      <span className="w-2 h-2 rounded-full bg-onedark-yellow animate-pulse" />
+                      <span>Staged Items ({pendingApprovals.length})</span>
+                    </span>
+                    <div className="flex items-center space-x-1 overflow-x-auto py-0.5 scrollbar-thin">
+                      {pendingApprovals.map((appr, idx) => {
+                        const isSelected = appr.id === latestApproval.id;
+                        const isReview = appr.action_type.includes('review');
+                        const path = appr.action_details?.path;
+                        const line = appr.action_details?.line;
+                        const label = isReview
+                          ? 'Formal Review'
+                          : (path ? `${path.split('/').pop()}:${line || ''}` : `Comment #${idx + 1}`);
 
-                <div className="p-3.5 rounded-lg bg-onedark-darker border border-onedark-border text-xs text-onedark-fg font-mono space-y-1 leading-relaxed break-words">
-                  <div><strong className="text-onedark-muted">Action:</strong> {latestApproval.action_type}</div>
-                  <div><strong className="text-onedark-muted">Target:</strong> {latestApproval.action_details.command || latestApproval.action_details.title || latestApproval.action_details.branch || 'Workspace Action'}</div>
-                  {latestApproval.action_details.description && (
-                    <div className="mt-2 text-onedark-muted whitespace-pre-wrap text-xs">
-                      {latestApproval.action_details.description}
+                        return (
+                          <button
+                            key={appr.id || idx}
+                            onClick={() => setActiveApprovalId(appr.id || null)}
+                            className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors whitespace-nowrap cursor-pointer ${
+                              isSelected
+                                ? 'bg-onedark-accent text-onedark-darker font-bold shadow-sm'
+                                : 'bg-onedark-darker text-onedark-muted hover:text-onedark-fg hover:bg-onedark-darker/80 border border-onedark-borderSubtle/40'
+                            }`}
+                            title={path ? `${path}:${line}` : 'PR Review'}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
                     </div>
-                  )}
-                </div>
+                  </div>
 
-                <div className="flex flex-wrap items-center gap-2.5 pt-1">
-                  <button
-                    onClick={() => onApprove()}
-                    className="py-2 px-3.5 rounded-lg bg-onedark-green hover:bg-onedark-green/90 text-onedark-darker font-bold text-xs flex items-center space-x-1.5 transition-colors shadow-sm cursor-pointer whitespace-nowrap"
-                  >
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>Approve & Execute</span>
-                  </button>
-
-                  <button
-                    onClick={() => onReject()}
-                    className="py-2 px-3.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-red border border-onedark-border text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
-                  >
-                    <span>Reject</span>
-                  </button>
+                  <div className="flex items-center space-x-2 shrink-0">
+                    <button
+                      onClick={() => onApprove && onApprove('Approve all staged items', { approve_all: true })}
+                      className="px-2.5 py-1 rounded bg-onedark-green hover:bg-onedark-green/90 text-onedark-darker font-bold text-xs flex items-center space-x-1 shadow-sm transition-colors cursor-pointer"
+                      title="Approve and submit all staged comments and review to GitHub"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Approve All ({pendingApprovals.length})</span>
+                    </button>
+                    <button
+                      onClick={() => onReject && onReject('Dismiss all staged items', { reject_all: true })}
+                      className="px-2 py-1 rounded bg-onedark-darker hover:bg-onedark-surface text-onedark-muted hover:text-onedark-red border border-onedark-borderSubtle/60 text-xs transition-colors cursor-pointer"
+                      title="Dismiss all pending approvals"
+                    >
+                      <span>Dismiss All</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )
+              )}
+
+              {latestApproval.action_type === 'user_inquiry' ? (
+                <InquiryCard
+                  taskId={task.id}
+                  approval={latestApproval}
+                  onResolved={() => {
+                    if (onApprove) onApprove();
+                  }}
+                />
+              ) : (latestApproval.action_type === 'post_pull_request_review' || latestApproval.action_type === 'post_pull_request_line_comment' || latestApproval.action_type === 'post_pr_review' || latestApproval.action_type === 'post_line_comment') ? (
+                <PRReviewApprovalCard
+                  taskId={task.id}
+                  approval={latestApproval}
+                  onApprove={onApprove}
+                  onReject={onReject}
+                />
+              ) : (
+                <div className="rounded-xl border border-onedark-border bg-onedark-surface p-4 space-y-3 shadow-md">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center space-x-2 text-onedark-yellow font-semibold text-xs min-w-0">
+                      <ShieldAlert className="w-4 h-4 text-onedark-yellow shrink-0" />
+                      <span className="truncate">Action Approval Required</span>
+                    </div>
+                    <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-onedark-darker text-onedark-muted border border-onedark-border shrink-0">
+                      Gated Policy
+                    </span>
+                  </div>
+
+                  <div className="p-3.5 rounded-lg bg-onedark-darker border border-onedark-border text-xs text-onedark-fg font-mono space-y-1 leading-relaxed break-words">
+                    <div><strong className="text-onedark-muted">Action:</strong> {latestApproval.action_type}</div>
+                    <div><strong className="text-onedark-muted">Target:</strong> {latestApproval.action_details.command || latestApproval.action_details.title || latestApproval.action_details.branch || 'Workspace Action'}</div>
+                    {latestApproval.action_details.description && (
+                      <div className="mt-2 text-onedark-muted whitespace-pre-wrap text-xs">
+                        {latestApproval.action_details.description}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                    <button
+                      onClick={() => onApprove(undefined, { approval_id: latestApproval.id })}
+                      className="py-2 px-3.5 rounded-lg bg-onedark-green hover:bg-onedark-green/90 text-onedark-darker font-bold text-xs flex items-center space-x-1.5 transition-colors shadow-sm cursor-pointer whitespace-nowrap"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Approve & Execute</span>
+                    </button>
+
+                    <button
+                      onClick={() => onReject(undefined, { approval_id: latestApproval.id })}
+                      className="py-2 px-3.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-red border border-onedark-border text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
+                    >
+                      <span>Reject</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
 
           <div ref={messagesEndRef} />

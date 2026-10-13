@@ -640,14 +640,16 @@ class GitHubClient:
         repo: str,
         pr_number: int,
         body: str,
-        commit_id: str,
-        path: str,
-        line: int,
+        commit_id: Optional[str] = None,
+        path: str = "",
+        line: int = 1,
         side: str = "RIGHT",
-        custom_token: Optional[str] = None
+        custom_token: Optional[str] = None,
+        commit_sha: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Posts an inline diff review comment on a specific line of a pull request.
+        Supports both commit_id and commit_sha, with automatic head SHA fallback.
         """
         import os
         if os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
@@ -660,6 +662,15 @@ class GitHubClient:
                 "html_url": f"https://github.com/{owner}/{repo}/pull/{pr_number}#discussion_r404",
                 "simulated": True
             }
+
+        target_commit = (commit_id or commit_sha or "").strip()
+        if not target_commit:
+            try:
+                pr_info = await self.get_pull_request(owner, repo, pr_number, custom_token=custom_token)
+                if isinstance(pr_info, dict):
+                    target_commit = pr_info.get("head", {}).get("sha", "")
+            except Exception as e:
+                logger.debug(f"Failed to auto-resolve head SHA for {owner}/{repo}#{pr_number}: {e}")
 
         token = custom_token or self.token
         if not token:
@@ -682,7 +693,7 @@ class GitHubClient:
             url = f"{self.api_base}/repos/{owner}/{repo}/pulls/{pr_number}/comments"
             payload = {
                 "body": body,
-                "commit_id": commit_id,
+                "commit_id": target_commit,
                 "path": path,
                 "line": line,
                 "side": side
