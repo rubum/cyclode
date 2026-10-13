@@ -1217,8 +1217,10 @@ class AgentTaskPool:
                     pr_url = pr_res.get("html_url")
                     if pr_url:
                         content_msg = f"Pull request created: [{pr_url}]({pr_url})"
+                        last_summary_msg = f"PR Created: {pr_url}"
                     else:
                         content_msg = f"Pull request created for task `{task_id[:8]}`."
+                        last_summary_msg = "PR Created"
 
                     msg = TaskMessageModel(
                         task_id=task_id,
@@ -1237,6 +1239,7 @@ class AgentTaskPool:
 
                     if is_chat_only:
                         content_msg = f"Review preserved in chat (GitHub submission skipped for {repo_arg}#{pr_num})."
+                        last_summary_msg = f"Review Preserved in Chat: {repo_arg}#{pr_num}"
                         pr_res = {"status": "chat_only", "repository": repo_arg, "pr_number": pr_num}
                     else:
                         owner, repo = WorkspaceTools._parse_repo(repo_arg)
@@ -1252,6 +1255,7 @@ class AgentTaskPool:
                         html_url = pr_res.get("html_url") or f"https://github.com/{owner}/{repo}/pull/{pr_num}"
                         event_label = "Approved" if event_arg == "APPROVE" else ("Changes Requested" if event_arg == "REQUEST_CHANGES" else "Commented")
                         content_msg = f"Submitted {event_label.lower()} review on [{owner}/{repo}#{pr_num}]({html_url})."
+                        last_summary_msg = f"Review Posted: {owner}/{repo}#{pr_num}"
 
                     msg = TaskMessageModel(
                         task_id=task_id,
@@ -1273,6 +1277,7 @@ class AgentTaskPool:
 
                     if is_chat_only:
                         content_msg = f"Inline comment preserved in chat (GitHub submission skipped for {repo_arg}#{pr_num})."
+                        last_summary_msg = f"Comment Preserved in Chat: {repo_arg}#{pr_num}"
                         comment_res = {"status": "chat_only"}
                     else:
                         owner, repo = WorkspaceTools._parse_repo(repo_arg)
@@ -1291,6 +1296,7 @@ class AgentTaskPool:
                         )
                         html_url = comment_res.get("html_url") or f"https://github.com/{owner}/{repo}/pull/{pr_num}"
                         content_msg = f"Submitted inline comment on `{path}:{line}` to [{repo_arg}#{pr_num}]({html_url})."
+                        last_summary_msg = f"Line Comment Posted: {path}:{line}"
 
                     msg = TaskMessageModel(
                         task_id=task_id,
@@ -1302,6 +1308,7 @@ class AgentTaskPool:
 
                 else:
                     desc = action_details.get("description", feedback or f"Action {action_type} approved")
+                    last_summary_msg = f"Approved: {desc}"
                     msg = TaskMessageModel(
                         task_id=task_id,
                         sender="agent",
@@ -1320,7 +1327,7 @@ class AgentTaskPool:
 
             if remaining_pending == 0:
                 final_status = "IN_PROGRESS" if should_resume_in_progress else "COMPLETED"
-                summary_msg = f"Approved {len(target_approvals)} action(s)"
+                summary_msg = last_summary_msg if (len(target_approvals) == 1 and last_summary_msg) else f"Approved {len(target_approvals)} action(s)"
                 await session.execute(
                     update(TaskModel)
                     .where(TaskModel.id == task_id)
