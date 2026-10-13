@@ -1097,24 +1097,24 @@ const InquiryCard: React.FC<InquiryCardProps> = ({ taskId, approval, onResolved 
       </div>
 
       {/* Header */}
-      <div className="flex items-center justify-between pt-0.5">
-        <div className="flex items-center space-x-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2.5 pt-0.5 min-w-0">
+        <div className="flex items-center space-x-2.5 min-w-0 flex-1">
           <div className="w-5.5 h-5.5 rounded-md bg-onedark-accent/10 border border-onedark-accent/20 flex items-center justify-center text-onedark-accent flex-shrink-0">
             <Sparkles className="w-3.5 h-3.5" />
           </div>
-          <div>
-            <span className="text-xs font-semibold text-onedark-fgBright">
+          <div className="min-w-0 flex-1">
+            <span className="text-xs font-semibold text-onedark-fgBright truncate block">
               Interactive Inquiry & Configuration
             </span>
-            <div className="text-[10px] text-onedark-muted font-mono">
+            <div className="text-[10px] text-onedark-muted font-mono truncate">
               Autonomous Assistant Decision Point
             </div>
           </div>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 shrink-0">
           <span
-            className={`px-2 py-0.5 rounded-full text-[10.5px] font-mono border flex items-center space-x-1.5 ${
+            className={`px-2 py-0.5 rounded-full text-[10.5px] font-mono border flex items-center space-x-1.5 whitespace-nowrap ${
               remainingSeconds <= 5
                 ? 'bg-onedark-red/10 border-onedark-red/30 text-onedark-red animate-pulse'
                 : 'bg-onedark-surface border-onedark-borderSubtle text-onedark-muted'
@@ -4671,17 +4671,17 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               />
             ) : (
               <div className="rounded-xl border border-onedark-border bg-onedark-surface p-4 space-y-3 shadow-md">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2 text-onedark-yellow font-semibold text-xs">
-                    <ShieldAlert className="w-4 h-4 text-onedark-yellow" />
-                    <span>Action Approval Required</span>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center space-x-2 text-onedark-yellow font-semibold text-xs min-w-0">
+                    <ShieldAlert className="w-4 h-4 text-onedark-yellow shrink-0" />
+                    <span className="truncate">Action Approval Required</span>
                   </div>
-                  <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-onedark-darker text-onedark-muted border border-onedark-border">
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-onedark-darker text-onedark-muted border border-onedark-border shrink-0">
                     Gated Policy
                   </span>
                 </div>
 
-                <div className="p-3.5 rounded-lg bg-onedark-darker border border-onedark-border text-xs text-onedark-fg font-mono space-y-1 leading-relaxed">
+                <div className="p-3.5 rounded-lg bg-onedark-darker border border-onedark-border text-xs text-onedark-fg font-mono space-y-1 leading-relaxed break-words">
                   <div><strong className="text-onedark-muted">Action:</strong> {latestApproval.action_type}</div>
                   <div><strong className="text-onedark-muted">Target:</strong> {latestApproval.action_details.command || latestApproval.action_details.title || latestApproval.action_details.branch || 'Workspace Action'}</div>
                   {latestApproval.action_details.description && (
@@ -4691,10 +4691,10 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   )}
                 </div>
 
-                <div className="flex items-center space-x-2.5 pt-1">
+                <div className="flex flex-wrap items-center gap-2.5 pt-1">
                   <button
                     onClick={() => onApprove()}
-                    className="py-2 px-3.5 rounded-lg bg-onedark-green hover:bg-onedark-green/90 text-onedark-darker font-bold text-xs flex items-center space-x-1.5 transition-colors shadow-sm cursor-pointer"
+                    className="py-2 px-3.5 rounded-lg bg-onedark-green hover:bg-onedark-green/90 text-onedark-darker font-bold text-xs flex items-center space-x-1.5 transition-colors shadow-sm cursor-pointer whitespace-nowrap"
                   >
                     <CheckCircle2 className="w-4 h-4" />
                     <span>Approve & Execute</span>
@@ -4702,7 +4702,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
                   <button
                     onClick={() => onReject()}
-                    className="py-2 px-3.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-red border border-onedark-border text-xs font-semibold transition-colors cursor-pointer"
+                    className="py-2 px-3.5 rounded-lg bg-onedark-darker hover:bg-onedark-surface text-onedark-red border border-onedark-border text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap"
                   >
                     <span>Reject</span>
                   </button>

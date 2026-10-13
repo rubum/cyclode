@@ -98,7 +98,7 @@ export const PRReviewApprovalCard: React.FC<PRReviewApprovalCardProps> = ({
   const getBadgeConfig = () => {
     if (isLineComment) {
       return {
-        text: 'Inline Comment Staging',
+        text: 'Staged Line Comment',
         className: 'bg-onedark-surface text-onedark-accent border-onedark-accent/30',
         Icon: ShieldCheck,
         iconBoxClass: 'bg-onedark-accent/15 border-onedark-accent/30 text-onedark-accent',
@@ -107,14 +107,14 @@ export const PRReviewApprovalCard: React.FC<PRReviewApprovalCardProps> = ({
     switch (selectedEvent) {
       case 'REQUEST_CHANGES':
         return {
-          text: 'Request Changes Staging',
+          text: 'Request Changes',
           className: 'bg-onedark-red/15 text-onedark-red border-onedark-red/30',
           Icon: AlertCircle,
           iconBoxClass: 'bg-onedark-red/15 border-onedark-red/30 text-onedark-red',
         };
       case 'APPROVE':
         return {
-          text: 'Approval Staging',
+          text: 'Approve PR',
           className: 'bg-onedark-green/15 text-onedark-green border-onedark-green/30',
           Icon: CheckCircle2,
           iconBoxClass: 'bg-onedark-green/15 border-onedark-green/30 text-onedark-green',
@@ -122,7 +122,7 @@ export const PRReviewApprovalCard: React.FC<PRReviewApprovalCardProps> = ({
       case 'COMMENT':
       default:
         return {
-          text: 'Review Staging',
+          text: 'General Comment',
           className: 'bg-onedark-surface text-onedark-accent border-onedark-accent/30',
           Icon: ShieldCheck,
           iconBoxClass: 'bg-onedark-accent/15 border-onedark-accent/30 text-onedark-accent',
@@ -171,32 +171,34 @@ export const PRReviewApprovalCard: React.FC<PRReviewApprovalCardProps> = ({
   };
 
   return (
-    <div className="rounded-xl border border-onedark-border bg-onedark-darker/95 p-4 sm:p-5 space-y-4 shadow-lg overflow-hidden relative transition-all">
+    <div className="rounded-xl border border-onedark-border bg-onedark-darker/95 p-3.5 sm:p-4.5 space-y-4 shadow-lg overflow-hidden relative transition-all">
       {/* Top Accent Strip */}
       <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-onedark-accent via-onedark-purple to-onedark-green" />
 
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pt-1">
-        <div className="flex items-center space-x-2.5">
+      {/* Responsive Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-1 min-w-0">
+        <div className="flex items-center space-x-2.5 min-w-0 flex-1">
           <div className={`w-7 h-7 rounded-lg border flex items-center justify-center flex-shrink-0 shadow-xs transition-colors ${badgeConfig.iconBoxClass}`}>
             <HeaderIcon className="w-4 h-4" />
           </div>
-          <div>
-            <div className="flex items-center space-x-2">
-              <span className="text-xs font-bold text-onedark-fgBright">
-                {isLineComment ? 'GitHub Inline PR Comment Staging' : 'GitHub PR Review Staging'}
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center flex-wrap gap-1.5 min-w-0">
+              <span className="text-xs font-bold text-onedark-fgBright truncate">
+                {isLineComment ? 'GitHub Inline PR Comment' : 'GitHub PR Review'}
               </span>
-              <span className={`text-[10px] font-mono px-2 py-0.5 rounded border font-semibold transition-colors ${badgeConfig.className}`}>
+              <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border font-semibold shrink-0 whitespace-nowrap transition-colors ${badgeConfig.className}`}>
                 {badgeConfig.text}
               </span>
             </div>
-            <div className="text-[11px] text-onedark-muted font-mono flex items-center space-x-1.5 pt-0.5">
-              <span>Target:</span>
-              <strong className="text-onedark-fgBright font-semibold">{repo}#{prNumber}</strong>
+            <div className="text-[11px] text-onedark-muted font-mono flex items-center flex-wrap gap-x-1.5 gap-y-0.5 pt-0.5 min-w-0">
+              <span className="shrink-0">Target:</span>
+              <strong className="text-onedark-fgBright font-semibold shrink-0">{repo}#{prNumber}</strong>
               {details.path && (
                 <>
-                  <span className="text-onedark-muted/60">•</span>
-                  <span className="text-onedark-muted">{details.path}:{details.line}</span>
+                  <span className="text-onedark-muted/60 shrink-0">•</span>
+                  <span className="text-onedark-muted truncate max-w-full font-mono" title={`${details.path}:${details.line}`}>
+                    {details.path}:{details.line}
+                  </span>
                 </>
               )}
             </div>
@@ -204,11 +206,11 @@ export const PRReviewApprovalCard: React.FC<PRReviewApprovalCardProps> = ({
         </div>
 
         {/* Edit / Preview Mode Switcher */}
-        <div className="flex items-center space-x-1.5 self-start sm:self-auto bg-onedark-surface/60 p-1 rounded-lg border border-onedark-borderSubtle text-xs">
+        <div className="flex items-center space-x-1 shrink-0 bg-onedark-surface/60 p-1 rounded-lg border border-onedark-borderSubtle text-xs">
           <button
             type="button"
             onClick={() => setIsEditing(false)}
-            className={`flex items-center space-x-1 px-2.5 py-1 rounded-md transition-colors cursor-pointer text-[11px] font-medium ${
+            className={`flex items-center space-x-1 px-2.5 py-1 rounded-md transition-colors cursor-pointer text-[11px] font-medium whitespace-nowrap ${
               !isEditing
                 ? 'bg-onedark-darker text-onedark-fgBright shadow-xs'
                 : 'text-onedark-muted hover:text-onedark-fg'
@@ -220,7 +222,7 @@ export const PRReviewApprovalCard: React.FC<PRReviewApprovalCardProps> = ({
           <button
             type="button"
             onClick={() => setIsEditing(true)}
-            className={`flex items-center space-x-1 px-2.5 py-1 rounded-md transition-colors cursor-pointer text-[11px] font-medium ${
+            className={`flex items-center space-x-1 px-2.5 py-1 rounded-md transition-colors cursor-pointer text-[11px] font-medium whitespace-nowrap ${
               isEditing
                 ? 'bg-onedark-darker text-onedark-fgBright shadow-xs'
                 : 'text-onedark-muted hover:text-onedark-fg'
@@ -238,12 +240,12 @@ export const PRReviewApprovalCard: React.FC<PRReviewApprovalCardProps> = ({
           <label className="text-[11px] font-semibold text-onedark-muted uppercase tracking-wider font-mono">
             Review Submission Decision
           </label>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div className="flex flex-wrap gap-2">
             {/* Comment */}
             <button
               type="button"
               onClick={() => setSelectedEvent('COMMENT')}
-              className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer flex items-center space-x-2.5 ${
+              className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer flex items-center space-x-2.5 flex-1 min-w-[150px] ${
                 selectedEvent === 'COMMENT'
                   ? 'bg-onedark-accent/15 border-onedark-accent text-onedark-fgBright shadow-xs'
                   : 'bg-onedark-surface/30 hover:bg-onedark-surface/60 border-onedark-borderSubtle text-onedark-fg'
@@ -264,7 +266,7 @@ export const PRReviewApprovalCard: React.FC<PRReviewApprovalCardProps> = ({
             <button
               type="button"
               onClick={() => setSelectedEvent('APPROVE')}
-              className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer flex items-center space-x-2.5 ${
+              className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer flex items-center space-x-2.5 flex-1 min-w-[150px] ${
                 selectedEvent === 'APPROVE'
                   ? 'bg-onedark-green/15 border-onedark-green text-onedark-fgBright shadow-xs'
                   : 'bg-onedark-surface/30 hover:bg-onedark-surface/60 border-onedark-borderSubtle text-onedark-fg'
@@ -285,7 +287,7 @@ export const PRReviewApprovalCard: React.FC<PRReviewApprovalCardProps> = ({
             <button
               type="button"
               onClick={() => setSelectedEvent('REQUEST_CHANGES')}
-              className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer flex items-center space-x-2.5 ${
+              className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer flex items-center space-x-2.5 flex-1 min-w-[150px] ${
                 selectedEvent === 'REQUEST_CHANGES'
                   ? 'bg-onedark-red/15 border-onedark-red text-onedark-fgBright shadow-xs'
                   : 'bg-onedark-surface/30 hover:bg-onedark-surface/60 border-onedark-borderSubtle text-onedark-fg'
@@ -306,7 +308,7 @@ export const PRReviewApprovalCard: React.FC<PRReviewApprovalCardProps> = ({
       )}
 
       {/* Review Body (Editable or Markdown Preview) */}
-      <div className="space-y-1.5">
+      <div className="space-y-1.5 min-w-0">
         <label className="text-[11px] font-semibold text-onedark-muted uppercase tracking-wider font-mono flex items-center justify-between">
           <span>{isEditing ? 'Edit Review Body (Markdown)' : 'Review Body Preview'}</span>
           <span className="text-[10px] text-onedark-muted/80 lowercase">{editedBody.length} characters</span>
@@ -321,7 +323,7 @@ export const PRReviewApprovalCard: React.FC<PRReviewApprovalCardProps> = ({
             className="w-full bg-onedark-surface/30 border border-onedark-borderSubtle rounded-xl p-3 text-xs text-onedark-fg font-mono focus:outline-none focus:border-onedark-accent resize-y leading-relaxed"
           />
         ) : (
-          <div className="max-h-80 overflow-y-auto rounded-xl bg-onedark-surface/25 border border-onedark-borderSubtle p-3.5 text-xs text-onedark-fg font-sans leading-relaxed [scrollbar-gutter:stable]">
+          <div className="max-h-80 overflow-y-auto overflow-x-hidden rounded-xl bg-onedark-surface/25 border border-onedark-borderSubtle p-3.5 text-xs text-onedark-fg font-sans leading-relaxed [scrollbar-gutter:stable] break-words">
             {editedBody ? (
               <MarkdownRenderer content={editedBody} className="space-y-2 text-xs" />
             ) : (
@@ -332,14 +334,14 @@ export const PRReviewApprovalCard: React.FC<PRReviewApprovalCardProps> = ({
       </div>
 
       {/* Action Buttons Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pt-2 border-t border-onedark-borderSubtle/70">
-        <div className="flex items-center space-x-2">
+      <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2 border-t border-onedark-borderSubtle/70">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Dismiss / Reject */}
           <button
             type="button"
             onClick={handleDismiss}
             disabled={submitting}
-            className="px-3 py-1.5 rounded-lg bg-onedark-surface/40 hover:bg-onedark-surface text-onedark-muted hover:text-onedark-red border border-onedark-borderSubtle text-xs font-medium transition-colors cursor-pointer flex items-center space-x-1.5 disabled:opacity-50"
+            className="px-3 py-1.5 rounded-lg bg-onedark-surface/40 hover:bg-onedark-surface text-onedark-muted hover:text-onedark-red border border-onedark-borderSubtle text-xs font-medium transition-colors cursor-pointer flex items-center space-x-1.5 disabled:opacity-50 whitespace-nowrap shrink-0"
             title="Cancel and dismiss this review without any action"
           >
             <X className="w-3.5 h-3.5" />
@@ -351,7 +353,7 @@ export const PRReviewApprovalCard: React.FC<PRReviewApprovalCardProps> = ({
             type="button"
             onClick={handleKeepInChatOnly}
             disabled={submitting}
-            className="px-3 py-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-surface/80 text-onedark-fgBright border border-onedark-borderSubtle text-xs font-semibold transition-colors cursor-pointer flex items-center space-x-1.5 disabled:opacity-50"
+            className="px-3 py-1.5 rounded-lg bg-onedark-surface hover:bg-onedark-surface/80 text-onedark-fgBright border border-onedark-borderSubtle text-xs font-semibold transition-colors cursor-pointer flex items-center space-x-1.5 disabled:opacity-50 whitespace-nowrap shrink-0"
             title="Acknowledge review in this session without posting externally to GitHub"
           >
             <MessageSquare className="w-3.5 h-3.5 text-onedark-accent" />
@@ -367,7 +369,7 @@ export const PRReviewApprovalCard: React.FC<PRReviewApprovalCardProps> = ({
               type="button"
               onClick={handlePostToGitHub}
               disabled={submitting || !editedBody.trim()}
-              className={`px-4 py-2 rounded-xl font-bold text-xs flex items-center justify-center space-x-1.5 transition-all cursor-pointer disabled:opacity-50 select-none ${buttonConfig.buttonClass}`}
+              className={`px-4 py-2 rounded-xl font-bold text-xs flex items-center justify-center space-x-1.5 transition-all cursor-pointer disabled:opacity-50 select-none whitespace-nowrap shrink-0 ${buttonConfig.buttonClass}`}
               title={buttonConfig.tooltip}
             >
               {submitting ? (

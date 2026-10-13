@@ -1003,7 +1003,7 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
       return (
         <code
           key={i}
-          className="px-1.5 py-0.5 rounded-md bg-onedark-surface/80 border border-onedark-borderSubtle text-onedark-accent font-mono text-[13px] font-medium tracking-normal mx-0.5 align-baseline select-text shadow-2xs"
+          className="px-1.5 py-0.5 rounded-md bg-onedark-surface/80 border border-onedark-borderSubtle text-onedark-accent font-mono text-[13px] font-medium tracking-normal mx-0.5 align-baseline select-text shadow-2xs break-words [overflow-wrap:anywhere]"
         >
           {codeMatch[2]}
         </code>
