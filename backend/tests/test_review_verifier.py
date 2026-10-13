@@ -141,6 +141,33 @@ def test_falsification_and_verification_step(tmp_path: Path):
     rejected = review_verifier.verify_and_falsify(style_hypo, workspace_path=tmp_path)
     assert rejected is None
 
+    # 3. No-op or import-only replacement diff must be rejected
+    noop_diff_hypo = ReviewHypothesis(
+        id="hypo-3",
+        category="logic_invariant",
+        scanner_name="LLMLogicInvariantScanner",
+        file_path="app/db.py",
+        line_start=1,
+        line_end=2,
+        title="Socket path derivation mismatch",
+        description="Derives clean_task_id without truncation.",
+        invariant_violated="Path consistency.",
+        reproduction_scenario="Task ID > 32 chars",
+        suggested_diff=(
+            "```diff\n"
+            "-        clean_task_id = container_id.replace(\"cyclode-sb-\", \"\")\n"
+            "-        daemon_res = await dispatch_daemon_command(task_id=clean_task_id)\n"
+            "+        # Reuse the exact same derivation\n"
+            "+        from app.core.sandboxes.container.daemon import get_socket_path\n"
+            "+        clean_task_id = container_id.replace(\"cyclode-sb-\", \"\")\n"
+            "+        daemon_res = await dispatch_daemon_command(task_id=clean_task_id)\n"
+            "```"
+        ),
+        preliminary_confidence=0.95
+    )
+    assert review_verifier.is_noop_diff(noop_diff_hypo.suggested_diff) is True
+    assert review_verifier.verify_and_falsify(noop_diff_hypo, workspace_path=tmp_path) is None
+
 
 def test_deduplication_and_clustering():
     findings = [

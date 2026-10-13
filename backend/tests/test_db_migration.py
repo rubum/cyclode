@@ -66,3 +66,33 @@ def test_sqlite_legacy_task_prs_is_draft_migration(tmp_path):
         assert pr.pr_number == 42
         assert pr.is_draft is False
         assert pr.is_session_scoped is True
+
+
+def test_utc_datetime_timezone_awareness_and_comparisons(tmp_path):
+    """
+    Verifies that get_utc_now() returns timezone-aware UTC datetimes and UTCDateTime
+    columns return timezone-aware UTC datetimes on read so comparisons with
+    datetime.now(timezone.utc) never raise naive/aware TypeErrors.
+    """
+    from datetime import datetime, timezone, timedelta
+    from app.db.models import get_utc_now
+
+    now = get_utc_now()
+    assert now.tzinfo == timezone.utc
+
+    db_file = tmp_path / "tz_test.db"
+    sync_engine = create_engine(f"sqlite:///{db_file}")
+    Base.metadata.create_all(sync_engine)
+
+    with Session(sync_engine) as session:
+        task = TaskModel(id="tz-task-1", title="TZ Test")
+        session.add(task)
+        session.commit()
+
+    with Session(sync_engine) as session:
+        loaded = session.execute(select(TaskModel).where(TaskModel.id == "tz-task-1")).scalar_one()
+        assert loaded.created_at.tzinfo == timezone.utc
+        # Direct comparison with datetime.now(timezone.utc) must succeed without TypeError
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
+        assert loaded.created_at > cutoff
+

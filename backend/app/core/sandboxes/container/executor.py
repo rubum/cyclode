@@ -3,7 +3,7 @@ from typing import Optional, Dict, Any
 from app.core.sandboxes.container.client import container_client
 from app.core.sandboxes.base import CommandResult
 
-from app.core.sandboxes.container.daemon import dispatch_daemon_command
+from app.core.sandboxes.container.daemon import dispatch_daemon_command, normalize_sandbox_id
 
 logger = logging.getLogger("cyclode.sandbox.container.executor")
 
@@ -23,15 +23,16 @@ class ContainerExecutor:
         command: str,
         workdir: str = "/workspace",
         timeout: int = 120,
-        env: Optional[Dict[str, str]] = None
+        env: Optional[Dict[str, str]] = None,
+        task_id: Optional[str] = None
     ) -> CommandResult:
         """
         Executes a shell command inside the specified container.
         """
         # 1. Attempt ultra-fast execution via in-container daemon (<2ms)
-        clean_task_id = container_id.replace("cyclode-sb-", "")
+        effective_task_id = normalize_sandbox_id(task_id or container_id)
         daemon_res = await dispatch_daemon_command(
-            task_id=clean_task_id,
+            task_id=effective_task_id,
             command=command,
             workdir=workdir,
             timeout=float(timeout),

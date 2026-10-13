@@ -14,7 +14,7 @@ import asyncio
 import argparse
 import logging
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List
 
 # Ensure app package is importable
@@ -92,7 +92,7 @@ async def async_migrate(sqlite_path: str, pg_url: str, dry_run: bool = False, tr
                 continue
 
             # Get column list from SQLite
-            sqlite_cursor.execute(f"PRAGMA table_info({table_name});")
+            sqlite_cursor.execute(f'PRAGMA table_info("{table_name}");')
             src_cols = [row["name"] for row in sqlite_cursor.fetchall()]
 
             # Get column list and data types from PostgreSQL
@@ -109,7 +109,7 @@ async def async_migrate(sqlite_path: str, pg_url: str, dry_run: bool = False, tr
 
             # Read all rows from SQLite
             cols_str = ", ".join(f'"{c}"' for c in common_cols)
-            sqlite_cursor.execute(f"SELECT {cols_str} FROM {table_name};")
+            sqlite_cursor.execute(f'SELECT {cols_str} FROM "{table_name}";')
             rows = sqlite_cursor.fetchall()
 
             # Filter orphaned records that violate PostgreSQL foreign keys
@@ -168,8 +168,11 @@ async def async_migrate(sqlite_path: str, pg_url: str, dry_run: bool = False, tr
                     # Timestamp coercion
                     elif "timestamp" in col_type and isinstance(val, str):
                         try:
-                            dt = datetime.fromisoformat(val)
-                            item[c] = dt.replace(tzinfo=None)
+                            dt = datetime.fromisoformat(val.replace("Z", "+00:00"))
+                            if "without time zone" in col_type:
+                                item[c] = dt.replace(tzinfo=None)
+                            else:
+                                item[c] = dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
                         except Exception:
                             item[c] = val
                     else:

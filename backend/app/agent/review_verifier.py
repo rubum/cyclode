@@ -324,6 +324,38 @@ class ReviewVerifier:
         return hypotheses
 
     @classmethod
+    def is_noop_diff(cls, suggested_diff: str) -> bool:
+        """
+        Detects no-op replacement diffs where removed (-) and added (+) executable lines
+        are identical (or only add comments / unused imports).
+        """
+        if not suggested_diff or not suggested_diff.strip():
+            return False
+        removed = []
+        added = []
+        for raw_line in suggested_diff.splitlines():
+            line = raw_line.strip()
+            if line.startswith("```") or line.startswith("---") or line.startswith("+++") or line.startswith("@@"):
+                continue
+            if line.startswith("-"):
+                code = line[1:].strip()
+                if code and not code.startswith("#") and not code.startswith("//"):
+                    removed.append(code)
+            elif line.startswith("+"):
+                code = line[1:].strip()
+                if code and not code.startswith("#") and not code.startswith("//"):
+                    added.append(code)
+        if not removed and not added:
+            return False
+        if removed == added:
+            return True
+        # Check if added lines are identical to removed lines plus only a single import line
+        non_import_added = [l for l in added if not l.startswith("import ") and not l.startswith("from ")]
+        if removed and non_import_added == removed:
+            return True
+        return False
+
+    @classmethod
     def verify_and_falsify(
         cls,
         hypothesis: ReviewHypothesis,
@@ -332,14 +364,17 @@ class ReviewVerifier:
     ) -> Optional[VerifiedFinding]:
         """
         Adversarial Falsification & Zero-Style Verification Step.
-        1. Checks for and rejects any stylistic / cosmetic comments.
+        1. Checks for and rejects any stylistic / cosmetic comments or no-op diffs.
         2. Validates against workspace AST / caller context if available.
         3. Falsifies false alarms (e.g., test files, mock scripts, defensive guards upstream).
         4. Retains only findings meeting the >= 0.90 confidence threshold.
         """
-        # Step 1: Strict Zero-Style Filter
+        # Step 1: Strict Zero-Style & No-Op Diff Filter
         if cls.is_style_or_cosmetic(hypothesis.title, hypothesis.description, hypothesis.invariant_violated):
             logger.info(f"Zero-Style Filter: Rejected cosmetic hypothesis '{hypothesis.title}'")
+            return None
+        if cls.is_noop_diff(hypothesis.suggested_diff):
+            logger.info(f"No-Op Diff Filter: Rejected hypothesis '{hypothesis.title}' with functionally identical replacement diff")
             return None
 
         # Step 2: Test / Mock File Exclusion for non-critical warnings
@@ -690,9 +725,12 @@ class ReviewVerifier:
         4. Adversarial Red-Team LLM: Attempts to disprove the bug hypothesis with caller context.
         5. Enforces strict confidence threshold (>= 0.90).
         """
-        # Step 1: Strict Zero-Style Filter
+        # Step 1: Strict Zero-Style & No-Op Diff Filter
         if cls.is_style_or_cosmetic(hypothesis.title, hypothesis.description, hypothesis.invariant_violated):
             logger.info(f"Zero-Style Filter: Rejected cosmetic hypothesis '{hypothesis.title}'")
+            return None
+        if cls.is_noop_diff(hypothesis.suggested_diff):
+            logger.info(f"No-Op Diff Filter: Rejected hypothesis '{hypothesis.title}' with functionally identical replacement diff")
             return None
 
         # Step 2: Test / Mock File Exclusion for non-critical warnings
@@ -744,8 +782,8 @@ class ReviewVerifier:
             f"- Proposed Scenario: {hypothesis.reproduction_scenario}\n\n"
             f"SOURCE CODE CONTEXT:\n```\n{surrounding_context}\n```\n\n"
             f"FALSIFICATION INSTRUCTIONS:\n"
-            f"1. Aggressively search for reasons why this issue is a FALSE POSITIVE (e.g. handled by callers, sanitized by framework, guarded by preceding condition, intentional mock/test setup).\n"
-            f"2. If this is a stylistic, naming, formatting, or subjective preference, immediately verdict='FALSIFIED'.\n"
+            f"1. Aggressively search for reasons why this issue is a FALSE POSITIVE (e.g. handled by callers, normalized in callee, sanitized by framework, guarded by preceding condition, intentional mock/test setup).\n"
+            f"2. If this is a stylistic, naming, formatting, subjective preference, or if the suggested replacement diff is a no-op, immediately verdict='FALSIFIED'.\n"
             f"3. If this is an actual, unhandled runtime crash, security hole, data race, or broken invariant, verdict='CONFIRMED'.\n\n"
             f"Respond ONLY with a JSON object matching this schema:\n"
             f"{{\n"
@@ -789,6 +827,10 @@ class ReviewVerifier:
                 proof = parsed.get("verification_proof") or f"Adversarially verified in `{hypothesis.file_path}:{hypothesis.line_start}`."
                 repro = parsed.get("reproduction_scenario") or hypothesis.reproduction_scenario
                 diff_patch = parsed.get("suggested_diff") or hypothesis.suggested_diff
+
+                if cls.is_noop_diff(diff_patch):
+                    logger.info(f"No-Op Diff Filter: Dropped post-judge hypothesis '{hypothesis.title}' with no-op diff")
+                    return None
 
                 return VerifiedFinding(
                     id=f"vf-{hypothesis.id}",

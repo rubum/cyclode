@@ -989,7 +989,8 @@ class WorktreeManager:
                             container_id=c_name,
                             command=cmd,
                             workdir=container_workdir,
-                            timeout=180
+                            timeout=180,
+                            task_id=task_id
                         )
                         res_ok = (res.exit_code == 0)
                         res_exit_code = res.exit_code
@@ -1063,14 +1064,16 @@ class WorktreeManager:
                             container_id=c_name,
                             command=heal_cmd,
                             workdir=container_workdir,
-                            timeout=90
+                            timeout=90,
+                            task_id=task_id
                         )
                         if heal_res.exit_code == 0:
                             retry_res = await container_executor.execute_command(
                                 container_id=c_name,
                                 command=cmd,
                                 workdir=container_workdir,
-                                timeout=180
+                                timeout=180,
+                                task_id=task_id
                             )
                             res_ok = (retry_res.exit_code == 0)
                             res_exit_code = retry_res.exit_code

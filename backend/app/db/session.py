@@ -208,6 +208,18 @@ def _migrate_db(connection):
             connection.exec_driver_sql("ALTER TABLE repository_configs ADD COLUMN IF NOT EXISTS is_listening BOOLEAN DEFAULT FALSE;")
             connection.exec_driver_sql("ALTER TABLE repository_configs ADD COLUMN IF NOT EXISTS subscribed_events TEXT DEFAULT 'pull_request.opened,issues.opened,check_run';")
             connection.exec_driver_sql("ALTER TABLE repository_configs ADD COLUMN IF NOT EXISTS default_persona VARCHAR(50) DEFAULT 'AUTONOMOUS_WORKER';")
+
+            # Upgrade any legacy TIMESTAMP WITHOUT TIME ZONE columns to TIMESTAMPTZ
+            naive_cols = connection.exec_driver_sql("""
+                SELECT table_name, column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public'
+                  AND data_type = 'timestamp without time zone';
+            """).fetchall()
+            for tbl_name, col_name in naive_cols:
+                connection.exec_driver_sql(
+                    f'ALTER TABLE "{tbl_name}" ALTER COLUMN "{col_name}" TYPE TIMESTAMPTZ USING "{col_name}" AT TIME ZONE \'UTC\';'
+                )
         except Exception:
             pass
 

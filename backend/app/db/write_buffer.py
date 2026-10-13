@@ -75,19 +75,26 @@ class AsyncWriteBuffer:
         if not items:
             return
 
-        try:
-            async with async_session_factory() as session:
-                for kind, payload in items:
-                    if kind == "add":
-                        session.add(payload)
-                    elif kind == "action":
-                        res = payload(session)
-                        if asyncio.iscoroutine(res):
-                            await res
-                await session.commit()
-                logger.debug(f"Flushed {len(items)} batched entities to database")
-        except Exception as e:
-            logger.error(f"Error flushing database write buffer ({len(items)} items): {e}", exc_info=True)
+        max_attempts = 2
+        for attempt in range(1, max_attempts + 1):
+            try:
+                async with async_session_factory() as session:
+                    for kind, payload in items:
+                        if kind == "add":
+                            session.add(payload)
+                        elif kind == "action":
+                            res = payload(session)
+                            if asyncio.iscoroutine(res):
+                                await res
+                    await session.commit()
+                    logger.debug(f"Flushed {len(items)} batched entities to database")
+                    return
+            except Exception as e:
+                if attempt < max_attempts:
+                    logger.warning(f"Transient error flushing write buffer ({len(items)} items), retrying: {e}")
+                    await asyncio.sleep(0.05)
+                else:
+                    logger.error(f"Error flushing database write buffer ({len(items)} items) after {max_attempts} attempts: {e}", exc_info=True)
 
     async def _worker(self):
         while self._is_running:

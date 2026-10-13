@@ -77,8 +77,14 @@ while True:
 '''
 
 
+def normalize_sandbox_id(task_id: str) -> str:
+    """Normalizes a task_id or container_id into the canonical 32-char sandbox slug."""
+    raw = task_id[len("cyclode-sb-"):] if task_id.startswith("cyclode-sb-") else task_id
+    return raw.replace(" ", "-").replace("/", "-")[:32]
+
+
 def get_socket_path(task_id: str) -> Path:
-    clean_id = task_id.replace(" ", "-").replace("/", "-")[:32]
+    clean_id = normalize_sandbox_id(task_id)
     return SOCKETS_DIR / f"{clean_id}.sock"
 
 

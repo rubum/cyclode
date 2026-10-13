@@ -115,7 +115,8 @@ class ContainerSandboxProvider(SandboxProvider):
                 container_id=container_name,
                 command=command,
                 workdir="/workspace",
-                timeout=timeout
+                timeout=timeout,
+                task_id=context.task_id
             )
 
         # Fallback to host overlay execution

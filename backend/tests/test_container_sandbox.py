@@ -121,3 +121,17 @@ async def test_container_sandbox_provider_fallback(temp_workspace: Path):
         res = await provider.run_command(ctx, "echo 'fallback test'")
         assert res.exit_code == 0
         assert "fallback test" in res.stdout
+
+
+def test_normalize_sandbox_id_and_socket_derivation():
+    from app.core.sandboxes.container.daemon import normalize_sandbox_id, get_socket_path
+    long_task_id = "github:org/repo:pr:12345/very-long-task-identifier-exceeding-32-chars"
+    mgr = ContainerLifecycleManager(client=AsyncMock())
+
+    container_name = mgr.get_container_name(long_task_id)
+
+    # Socket path derived from raw task_id and from container_name must be identical
+    assert normalize_sandbox_id(long_task_id) == normalize_sandbox_id(container_name)
+    assert get_socket_path(long_task_id) == get_socket_path(container_name)
+    assert len(normalize_sandbox_id(long_task_id)) == 32
+

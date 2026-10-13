@@ -14,7 +14,7 @@ fi
 
 for file in $STAGED_FILES; do
     case "$file" in
-        *.env|.env.*|*.pem|*id_rsa*|*.key)
+        .env|*.env|.env.*|*/.env.*|*.pem|*id_rsa*|*.key)
             echo "❌ Blocked: Refusing to commit secret or credential file: $file"
             exit 1
             ;;

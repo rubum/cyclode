@@ -20,7 +20,8 @@ class ContainerLifecycleManager:
         self._active_containers: Dict[str, str] = {}  # task_id -> container_name
 
     def get_container_name(self, task_id: str) -> str:
-        clean_id = task_id.replace(" ", "-").replace("/", "-")[:32]
+        from app.core.sandboxes.container.daemon import normalize_sandbox_id
+        clean_id = normalize_sandbox_id(task_id)
         return f"cyclode-sb-{clean_id}"
 
     def resolve_bind_source(self, workspace_path: Path) -> str:
@@ -95,7 +96,7 @@ class ContainerLifecycleManager:
             logger.info(f"Spawned container sandbox {container_name} for task {task_id} using {effective_image}")
             # Opportunistically start in-container daemon detached for sub-millisecond execution
             try:
-                c_sock = f"/cyclode_sockets/{task_id.replace(' ', '-').replace('/', '-')[:32]}.sock"
+                c_sock = f"/cyclode_sockets/{get_socket_path(task_id).name}"
                 await self.client.run_cli([
                     "exec", "-d", container_name,
                     "python3", "-u", "-c", DAEMON_SCRIPT_PYTHON, c_sock
