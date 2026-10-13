@@ -3109,7 +3109,7 @@ class AntigravityHarness:
                                 save_ws = args.get("save_to_workspace", True)
                                 focus_arg = args.get("focus_areas")
                                 tool_result = await WorkspaceTools.compile_session_report(
-                                    task_id=task.id,
+                                    task_id=task_id,
                                     title=title_arg,
                                     format=fmt_arg,
                                     save_to_workspace=save_ws,

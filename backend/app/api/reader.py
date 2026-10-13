@@ -2,6 +2,7 @@ import re
 import json
 import hashlib
 import logging
+from pathlib import Path
 from typing import Optional, Dict, Any, List
 from urllib.parse import urlparse, urljoin, quote, unquote
 from html.parser import HTMLParser
