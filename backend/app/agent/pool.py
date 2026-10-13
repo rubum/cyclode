@@ -1148,6 +1148,7 @@ class AgentTaskPool:
 
             results = []
             should_resume_in_progress = False
+            last_summary_msg = ""
 
             for approval in target_approvals:
                 if approval.action_type == "user_inquiry":
@@ -1194,6 +1195,7 @@ class AgentTaskPool:
                         content=msg_content.strip()
                     )
                     session.add(msg)
+                    last_summary_msg = f"Command Executed: {cmd}" if cmd else "Command Executed"
                     should_resume_in_progress = True
                     results.append({"approval_id": approval.id, "action_type": action_type, "result": exec_res})
 
