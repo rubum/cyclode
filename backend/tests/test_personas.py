@@ -94,3 +94,15 @@ def test_code_reviewer_proactive_staging_invariant():
     assert "post_pull_request_review" in instructions
     assert "PRReviewApprovalCard" in instructions
 
+
+def test_persona_editorial_synthesis_standards_in_all_personas():
+    for name, persona in PERSONAS.items():
+        instructions = persona["system_instructions"]
+        assert "Communication & Editorial Synthesis Standards" in instructions
+        assert "Analytical Synthesis Over Data Dumping" in instructions
+        assert "Anti-'Badge Salad' & Inline Code Discipline" in instructions
+        assert "Anti-Pseudo-Bullet Rule" in instructions
+        assert "Form-Factor Matching Matrix" in instructions
+        assert "```mermaid diagram" in instructions
+        assert "Markdown Table" in instructions
+
