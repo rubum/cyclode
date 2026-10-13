@@ -192,7 +192,7 @@ async def test_post_pull_request_review_author_fallback(monkeypatch):
     from app.integrations.github_client import github_client
 
     monkeypatch.delenv("GITHUB_MOCK_TEST_MODE", raising=False)
-    github_client.token = "dummy_token"
+    monkeypatch.setattr(github_client, "token", "dummy_token")
 
     calls = []
 
@@ -242,7 +242,7 @@ async def test_post_pull_request_line_comment_outside_diff_fallback(monkeypatch)
     from app.integrations.github_client import github_client
 
     monkeypatch.delenv("GITHUB_MOCK_TEST_MODE", raising=False)
-    github_client.token = "dummy_token"
+    monkeypatch.setattr(github_client, "token", "dummy_token")
 
     calls = []
 

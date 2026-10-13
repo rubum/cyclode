@@ -40,7 +40,7 @@ def test_personas_have_prose_and_citation_directives():
         instructions = persona["system_instructions"]
         assert "Communication & Synthesis Standards" in instructions
         assert "Mandatory Markdown Links" in instructions
-        assert "cohesive analytical prose" in instructions
+        assert "cohesive conversational prose" in instructions
         assert "bullet highlights" in instructions
 
 

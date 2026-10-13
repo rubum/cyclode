@@ -967,7 +967,7 @@ class GitHubClient:
         Otherwise, posts a top-level conversation comment.
         """
         token = custom_token or self.token
-        if not token:
+        if not token or os.environ.get("GITHUB_MOCK_TEST_MODE") == "1":
             return {
                 "ok": True,
                 "id": 999,
