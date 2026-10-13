@@ -4067,6 +4067,14 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   const prCount = turn.logs.filter((l) => l.tool_name.includes('pull_request') || l.tool_name.includes('connect_repository')).length;
                   const failedCount = turn.logs.filter((l) => l.exit_code !== 0 && !l.isRunning).length;
                   const hasRunning = isRunning && (turn.logs.some((l) => l.isRunning) || (isTurnRunning && turn.isLatest && !!task?.active_tool));
+                  const totalActions = turn.logs.length + (task?.active_tool && !turn.logs.some(l => l.isRunning) ? 1 : 0);
+                  const breakdownParts: string[] = [];
+                  if (runCount > 0) breakdownParts.push(`${runCount} run${runCount > 1 ? 's' : ''}`);
+                  if (readCount > 0) breakdownParts.push(`${readCount} read${readCount > 1 ? 's' : ''}`);
+                  if (editCount > 0) breakdownParts.push(`${editCount} edit${editCount > 1 ? 's' : ''}`);
+                  if (prCount > 0) breakdownParts.push(`${prCount} PR${prCount > 1 ? 's' : ''}`);
+                  if (webCount > 0) breakdownParts.push(`${webCount} web`);
+                  const breakdownText = breakdownParts.join(' · ');
 
                   return (
                     <div className="rounded-xl bg-onedark-darker/40 hover:bg-onedark-darker/60 overflow-hidden shadow-xs transition-colors space-y-0">
@@ -4076,6 +4084,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                         className={`w-full px-3.5 py-2.5 flex items-center justify-between text-xs transition-colors cursor-pointer select-none group/hdr ${
                           isActOpen ? 'bg-onedark-surface/30' : 'hover:bg-onedark-surface/40'
                         }`}
+                        title={breakdownText ? `${totalActions} actions: ${breakdownText}` : undefined}
                       >
                         <div className="flex items-center space-x-2.5 min-w-0 pr-2">
                           <div className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 transition-colors ${
@@ -4083,7 +4092,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                               ? 'bg-onedark-accent/20 text-onedark-accent animate-pulse'
                               : failedCount > 0
                               ? 'bg-onedark-red/15 text-onedark-red'
-                              : 'bg-onedark-surface text-onedark-muted group-hover/hdr:text-onedark-accent'
+                              : 'bg-onedark-surface text-onedark-muted group-hover/hdr:text-onedark-fgBright'
                           }`}>
                             {hasRunning ? (
                               <RefreshCw className="w-3 h-3 animate-spin" />
@@ -4092,67 +4101,37 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                             )}
                           </div>
 
-                          <div className="flex items-center space-x-2 flex-wrap gap-y-1 min-w-0">
-                            <span className="font-mono text-[11.5px] font-medium text-onedark-fgBright">
-                              Workspace Actions
+                          <div className="flex items-center space-x-2 min-w-0">
+                            <span className="font-mono text-[11.5px] font-medium text-onedark-fgBright truncate">
+                              {hasRunning ? (
+                                `Running ${totalActions} action${totalActions === 1 ? '' : 's'}...`
+                              ) : (
+                                `${totalActions} action${totalActions === 1 ? '' : 's'} completed in ${formattedDuration}`
+                              )}
                             </span>
 
-                            {/* Categorized action chips */}
-                            <div className="flex items-center space-x-1 flex-wrap gap-1">
-                              {editCount > 0 && (
-                                <span className="px-1.5 py-0.5 rounded bg-onedark-green/10 text-onedark-green text-[10px] font-mono flex items-center space-x-1">
-                                  <Pencil className="w-2.5 h-2.5" />
-                                  <span>{editCount} edit{editCount > 1 ? 's' : ''}</span>
-                                </span>
-                              )}
-                              {runCount > 0 && (
-                                <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-950 border border-amber-300 dark:bg-onedark-yellow/10 dark:text-onedark-yellow dark:border-transparent text-[10px] font-mono flex items-center space-x-1 font-medium">
-                                  <Terminal className="w-2.5 h-2.5 text-amber-700 dark:text-onedark-yellow" />
-                                  <span>{runCount} run{runCount > 1 ? 's' : ''}</span>
-                                </span>
-                              )}
-                              {readCount > 0 && (
-                                <span className="px-1.5 py-0.5 rounded bg-onedark-accent/10 text-onedark-accent text-[10px] font-mono flex items-center space-x-1">
-                                  <FileCode2 className="w-2.5 h-2.5" />
-                                  <span>{readCount} read{readCount > 1 ? 's' : ''}</span>
-                                </span>
-                              )}
-                              {webCount > 0 && (
-                                <span className="px-1.5 py-0.5 rounded bg-onedark-purple/10 text-onedark-purple text-[10px] font-mono flex items-center space-x-1">
-                                  <Globe className="w-2.5 h-2.5" />
-                                  <span>{webCount} web</span>
-                                </span>
-                              )}
-                              {prCount > 0 && (
-                                <span className="px-1.5 py-0.5 rounded bg-onedark-green/10 text-onedark-green text-[10px] font-mono flex items-center space-x-1">
-                                  <GitPullRequest className="w-2.5 h-2.5" />
-                                  <span>{prCount} PR</span>
-                                </span>
-                              )}
-                            </div>
-
-                            <span className="text-[10.5px] text-onedark-muted font-mono hidden sm:inline">
-                              • {turn.logs.length + (task?.active_tool && !turn.logs.some(l => l.isRunning) ? 1 : 0)} total ({formattedDuration})
-                            </span>
+                            {breakdownText && (
+                              <span className="text-[10.5px] text-onedark-muted/60 font-mono hidden xl:inline truncate">
+                                · {breakdownText}
+                              </span>
+                            )}
                           </div>
                         </div>
 
-                        <div className="flex items-center space-x-1.5 flex-shrink-0">
-                          {/* Status indicator pill */}
-                          {hasRunning ? (
-                            <span className="px-2 py-0.5 rounded-md bg-onedark-accent/15 text-onedark-accent text-[10px] font-mono flex items-center space-x-1.5 animate-pulse">
-                              <span className="w-1.5 h-1.5 rounded-full bg-onedark-accent" />
-                              <span>Executing...</span>
-                            </span>
-                          ) : failedCount > 0 ? (
-                            <span className="px-2 py-0.5 rounded-md bg-onedark-red/10 text-onedark-red text-[10px] font-mono flex items-center space-x-1">
+                        <div className="flex items-center space-x-2 flex-shrink-0">
+                          {/* Error count pill */}
+                          {failedCount > 0 && !hasRunning && (
+                            <span className="px-2 py-0.5 rounded-full bg-onedark-red/10 text-onedark-red text-[10.5px] font-mono flex items-center space-x-1 font-medium">
                               <AlertCircle className="w-2.5 h-2.5" />
                               <span>{failedCount} error{failedCount > 1 ? 's' : ''}</span>
                             </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-md bg-onedark-green/5 text-onedark-green/90 text-[10px] font-mono flex items-center space-x-1">
-                              <Check className="w-2.5 h-2.5" />
-                              <span>Done ({formattedDuration})</span>
+                          )}
+
+                          {/* Running indicator pill */}
+                          {hasRunning && (
+                            <span className="px-2 py-0.5 rounded-full bg-onedark-accent/15 text-onedark-accent text-[10px] font-mono flex items-center space-x-1.5 animate-pulse">
+                              <span className="w-1.5 h-1.5 rounded-full bg-onedark-accent" />
+                              <span>Executing</span>
                             </span>
                           )}
 
@@ -4163,21 +4142,21 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                                 e.stopPropagation();
                                 onSelectAuxTab('intelligence');
                               }}
-                              className="hidden md:flex items-center space-x-1 px-1.5 py-0.5 rounded-md bg-onedark-surface/30 hover:bg-onedark-surface text-onedark-muted hover:text-onedark-accent text-[10.5px] font-mono transition-colors"
+                              className="hidden md:flex items-center space-x-1 px-1.5 py-0.5 rounded text-onedark-muted hover:text-onedark-accent hover:bg-onedark-surface/40 text-[10.5px] font-mono transition-colors"
                               title="Inspect logs in Auxiliary Intelligence tab"
                             >
                               <span>Audit</span>
-                              <ExternalLink className="w-2.5 h-2.5" />
+                              <ExternalLink className="w-2.5 h-2.5 opacity-70" />
                             </button>
                           )}
 
-                          <span className="px-2 py-0.5 rounded-md bg-onedark-surface/40 text-onedark-muted text-[10.5px] font-mono flex items-center space-x-1 group-hover/hdr:text-onedark-fgBright transition-colors">
-                            <span>{isActOpen ? 'Hide' : `Show (${turn.logs.length + (task?.active_tool && !turn.logs.some(l => l.isRunning) ? 1 : 0)})`}</span>
-                            {isActOpen ? (
-                              <ChevronDown className="w-3 h-3 ml-0.5 text-onedark-muted group-hover/hdr:text-onedark-fgBright" />
-                            ) : (
-                              <ChevronRight className="w-3 h-3 ml-0.5 text-onedark-muted group-hover/hdr:text-onedark-fgBright" />
-                            )}
+                          <span className="flex items-center space-x-1 text-onedark-muted group-hover/hdr:text-onedark-fgBright text-[11px] font-mono transition-colors pl-1">
+                            <span>{isActOpen ? 'Hide' : 'Show'}</span>
+                            <ChevronDown
+                              className={`w-3.5 h-3.5 transition-transform duration-200 ${
+                                isActOpen ? 'rotate-180 text-onedark-accent' : 'text-onedark-muted group-hover/hdr:text-onedark-fgBright'
+                              }`}
+                            />
                           </span>
                         </div>
                       </div>
@@ -4283,6 +4262,42 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                       {/* Inline Action Items Stream */}
                       {isActOpen && (
                         <div className="p-1.5 border-t border-white/[0.04] space-y-0.5 bg-onedark-darker/40">
+                          {/* Categorized action chips summary bar in expanded view */}
+                          {breakdownParts.length > 0 && (
+                            <div className="px-2 py-1.5 mb-1.5 flex items-center space-x-1.5 flex-wrap gap-1 border-b border-white/[0.04] text-[10.5px] font-mono">
+                              <span className="text-onedark-muted/60 text-[10px]">Breakdown:</span>
+                              {editCount > 0 && (
+                                <span className="px-1.5 py-0.5 rounded bg-onedark-surface/60 text-onedark-fg font-mono flex items-center space-x-1">
+                                  <Pencil className="w-2.5 h-2.5 text-onedark-green" />
+                                  <span>{editCount} edit{editCount > 1 ? 's' : ''}</span>
+                                </span>
+                              )}
+                              {runCount > 0 && (
+                                <span className="px-1.5 py-0.5 rounded bg-onedark-surface/60 text-onedark-fg font-mono flex items-center space-x-1">
+                                  <Terminal className="w-2.5 h-2.5 text-onedark-yellow" />
+                                  <span>{runCount} run{runCount > 1 ? 's' : ''}</span>
+                                </span>
+                              )}
+                              {readCount > 0 && (
+                                <span className="px-1.5 py-0.5 rounded bg-onedark-surface/60 text-onedark-fg font-mono flex items-center space-x-1">
+                                  <FileCode2 className="w-2.5 h-2.5 text-onedark-accent" />
+                                  <span>{readCount} read{readCount > 1 ? 's' : ''}</span>
+                                </span>
+                              )}
+                              {webCount > 0 && (
+                                <span className="px-1.5 py-0.5 rounded bg-onedark-surface/60 text-onedark-fg font-mono flex items-center space-x-1">
+                                  <Globe className="w-2.5 h-2.5 text-onedark-purple" />
+                                  <span>{webCount} web</span>
+                                </span>
+                              )}
+                              {prCount > 0 && (
+                                <span className="px-1.5 py-0.5 rounded bg-onedark-surface/60 text-onedark-fg font-mono flex items-center space-x-1">
+                                  <GitPullRequest className="w-2.5 h-2.5 text-onedark-green" />
+                                  <span>{prCount} PR</span>
+                                </span>
+                              )}
+                            </div>
+                          )}
                           {turn.logs.map((log, idx) => {
                             const logKey = log.id || `log-${turn.id}-${idx}`;
                             const isLatestLogInTurn = idx === turn.logs.length - 1;
