@@ -743,9 +743,11 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
                         </span>
 
                         {pr.created_at && (
-                          <span className="flex items-center gap-1 text-[10.5px] text-onedark-muted/70">
+                          <span className="flex items-center gap-1 text-[10.5px] text-onedark-muted/70" title={new Date(pr.created_at).toLocaleString()}>
                             <Clock className="w-3 h-3" />
-                            <span>{new Date(pr.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+                            <span>
+                              {new Date(pr.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}, {new Date(pr.created_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true })}
+                            </span>
                           </span>
                         )}
                       </div>
