@@ -184,3 +184,157 @@ async def test_agent_pool_approve_all(monkeypatch):
     async with async_session_factory() as session:
         t = (await session.execute(select(TaskModel).where(TaskModel.id == task_id))).scalar_one()
         assert t.status == "COMPLETED"
+
+
+@pytest.mark.asyncio
+async def test_post_pull_request_review_author_fallback(monkeypatch):
+    import httpx
+    from app.integrations.github_client import github_client
+
+    monkeypatch.delenv("GITHUB_MOCK_TEST_MODE", raising=False)
+    github_client.token = "dummy_token"
+
+    calls = []
+
+    async def mock_post(client, url, *args, **kwargs):
+        json_data = kwargs.get("json", {})
+        calls.append({"url": url, "json": json_data})
+        if json_data.get("event") == "REQUEST_CHANGES":
+            # Simulate GitHub's author error
+            req = httpx.Request("POST", url)
+            return httpx.Response(
+                422,
+                request=req,
+                text='{"message":"Unprocessable Entity","errors":["Review Can not request changes on your own pull request"]}'
+            )
+        elif json_data.get("event") == "COMMENT":
+            # Fallback succeeds
+            req = httpx.Request("POST", url)
+            return httpx.Response(
+                200,
+                request=req,
+                json={"id": 555, "state": "COMMENTED", "html_url": "https://github.com/rubum/cyclode/pull/4#pullrequestreview-555"}
+            )
+        req = httpx.Request("POST", url)
+        return httpx.Response(500, request=req)
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    res = await github_client.post_pull_request_review(
+        owner="rubum",
+        repo="cyclode",
+        pr_number=4,
+        body="Needs tests.",
+        event="REQUEST_CHANGES"
+    )
+
+    assert res["ok"] is True
+    assert res.get("converted_to_comment") is True
+    assert len(calls) == 2
+    assert calls[0]["json"]["event"] == "REQUEST_CHANGES"
+    assert calls[1]["json"]["event"] == "COMMENT"
+    assert "Review Verdict: Changes Requested" in calls[1]["json"]["body"]
+
+
+@pytest.mark.asyncio
+async def test_post_pull_request_line_comment_outside_diff_fallback(monkeypatch):
+    import httpx
+    from app.integrations.github_client import github_client
+
+    monkeypatch.delenv("GITHUB_MOCK_TEST_MODE", raising=False)
+    github_client.token = "dummy_token"
+
+    calls = []
+
+    async def mock_post(client, url, *args, **kwargs):
+        json_data = kwargs.get("json", {})
+        calls.append({"url": url, "json": json_data})
+        if "/pulls/4/comments" in str(url):
+            # Simulate line outside diff hunk
+            req = httpx.Request("POST", str(url))
+            return httpx.Response(
+                422,
+                request=req,
+                text='{"message":"Validation Failed","errors":[{"resource":"PullRequestReviewComment","code":"custom","message":"line must be part of the diff"}]}'
+            )
+        elif "/issues/4/comments" in str(url):
+            # Fallback to issue comment succeeds
+            req = httpx.Request("POST", str(url))
+            return httpx.Response(
+                201,
+                request=req,
+                json={"id": 888, "html_url": "https://github.com/rubum/cyclode/pull/4#issuecomment-888"}
+            )
+        req = httpx.Request("POST", str(url))
+        return httpx.Response(500, request=req)
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", mock_post)
+
+    res = await github_client.post_pull_request_line_comment(
+        owner="rubum",
+        repo="cyclode",
+        pr_number=4,
+        body="Missing type annotation.",
+        commit_sha="c0ffee",
+        path="backend/app/main.py",
+        line=100
+    )
+
+    assert res["ok"] is True
+    assert res.get("converted_to_issue_comment") is True
+    assert len(calls) == 2
+    assert "/pulls/4/comments" in str(calls[0]["url"])
+    assert "/issues/4/comments" in str(calls[1]["url"])
+    assert "Review Comment on `backend/app/main.py:100`" in calls[1]["json"]["body"]
+
+
+@pytest.mark.asyncio
+async def test_agent_pool_approve_review_failure_propagation(monkeypatch):
+    import uuid
+    from app.db.session import async_session_factory
+    from app.db.models import TaskModel, TaskApprovalModel, TaskMessageModel
+    from app.agent.pool import agent_pool
+    from app.integrations.github_client import github_client
+    from sqlalchemy import select
+
+    monkeypatch.delenv("GITHUB_MOCK_TEST_MODE", raising=False)
+    task_id = f"test-task-{uuid.uuid4().hex[:8]}"
+
+    async def mock_review_fail(*args, **kwargs):
+        return {"ok": False, "error": "Bad credentials (401)"}
+
+    monkeypatch.setattr(github_client, "post_pull_request_review", mock_review_fail)
+
+    async with async_session_factory() as session:
+        task = TaskModel(
+            id=task_id,
+            title="Test Failure Propagation",
+            workspace_path="/tmp",
+            status="AWAITING_APPROVAL"
+        )
+        session.add(task)
+        await session.flush()
+
+        appr = TaskApprovalModel(
+            id=f"appr-fail-{uuid.uuid4().hex[:6]}",
+            task_id=task_id,
+            action_type="post_pull_request_review",
+            action_details={"repository": "rubum/cyclode", "pr_number": 4, "body": "Review", "event": "APPROVE"},
+            status="PENDING"
+        )
+        session.add(appr)
+        await session.commit()
+
+    res = await agent_pool.approve_task(task_id, feedback="Go ahead", approve_all=True)
+    assert res["ok"] is True
+    assert len(res["results"]) == 1
+    assert res["results"][0]["result"]["ok"] is False
+
+    # Check that TaskMessage recorded failure rather than "Submitted approved review"
+    async with async_session_factory() as session:
+        messages = (await session.execute(
+            select(TaskMessageModel).where(TaskMessageModel.task_id == task_id)
+        )).scalars().all()
+        assert any("Failed to submit review" in m.content for m in messages)
+        assert not any("Submitted approved review" in m.content for m in messages)
+

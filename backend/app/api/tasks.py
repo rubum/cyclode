@@ -4271,10 +4271,17 @@ async def post_task_pr_review_decision(
         "review_summary": review_body
     })
 
+    if not result.get("ok"):
+        raise HTTPException(
+            status_code=result.get("status_code", 400),
+            detail=result.get("error", "Failed to submit pull request review to GitHub")
+        )
+
     return {
-        "ok": result.get("ok", True),
+        "ok": True,
         "result": result,
-        "event": clean_event,
+        "event": "COMMENT" if result.get("converted_to_comment") else clean_event,
+        "converted_to_comment": result.get("converted_to_comment", False),
         "pr_number": pr_number
     }
 

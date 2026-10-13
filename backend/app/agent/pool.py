@@ -1242,7 +1242,7 @@ class AgentTaskPool:
                     if is_chat_only:
                         content_msg = f"Review preserved in chat (GitHub submission skipped for {repo_arg}#{pr_num})."
                         last_summary_msg = f"Review Preserved in Chat: {repo_arg}#{pr_num}"
-                        pr_res = {"status": "chat_only", "repository": repo_arg, "pr_number": pr_num}
+                        pr_res = {"status": "chat_only", "repository": repo_arg, "pr_number": pr_num, "ok": True}
                     else:
                         owner, repo = WorkspaceTools._parse_repo(repo_arg)
                         token = await integration_manager.get_github_token_for_repo(f"{owner}/{repo}")
@@ -1254,10 +1254,18 @@ class AgentTaskPool:
                             event=event_arg,
                             custom_token=token
                         )
-                        html_url = pr_res.get("html_url") or f"https://github.com/{owner}/{repo}/pull/{pr_num}"
-                        event_label = "Approved" if event_arg == "APPROVE" else ("Changes Requested" if event_arg == "REQUEST_CHANGES" else "Commented")
-                        content_msg = f"Submitted {event_label.lower()} review on [{owner}/{repo}#{pr_num}]({html_url})."
-                        last_summary_msg = f"Review Posted: {owner}/{repo}#{pr_num}"
+                        if pr_res.get("ok"):
+                            html_url = pr_res.get("html_url") or f"https://github.com/{owner}/{repo}/pull/{pr_num}"
+                            event_label = "Approved" if event_arg == "APPROVE" else ("Changes Requested" if event_arg == "REQUEST_CHANGES" else "Commented")
+                            if pr_res.get("converted_to_comment"):
+                                content_msg = f"Submitted {event_label.lower()} review on [{owner}/{repo}#{pr_num}]({html_url}) *(converted to review comment per GitHub author rules)*."
+                            else:
+                                content_msg = f"Submitted {event_label.lower()} review on [{owner}/{repo}#{pr_num}]({html_url})."
+                            last_summary_msg = f"Review Posted: {owner}/{repo}#{pr_num}"
+                        else:
+                            err = pr_res.get("error") or "Unknown error"
+                            content_msg = f"Failed to submit review on {owner}/{repo}#{pr_num}: {err}"
+                            last_summary_msg = f"Review Failed: {owner}/{repo}#{pr_num}"
 
                     msg = TaskMessageModel(
                         task_id=task_id,
@@ -1280,7 +1288,7 @@ class AgentTaskPool:
                     if is_chat_only:
                         content_msg = f"Inline comment preserved in chat (GitHub submission skipped for {repo_arg}#{pr_num})."
                         last_summary_msg = f"Comment Preserved in Chat: {repo_arg}#{pr_num}"
-                        comment_res = {"status": "chat_only"}
+                        comment_res = {"status": "chat_only", "ok": True}
                     else:
                         owner, repo = WorkspaceTools._parse_repo(repo_arg)
                         token = await integration_manager.get_github_token_for_repo(f"{owner}/{repo}")
@@ -1296,9 +1304,17 @@ class AgentTaskPool:
                             side=side,
                             custom_token=token
                         )
-                        html_url = comment_res.get("html_url") or f"https://github.com/{owner}/{repo}/pull/{pr_num}"
-                        content_msg = f"Submitted inline comment on `{path}:{line}` to [{repo_arg}#{pr_num}]({html_url})."
-                        last_summary_msg = f"Line Comment Posted: {path}:{line}"
+                        if comment_res.get("ok"):
+                            html_url = comment_res.get("html_url") or f"https://github.com/{owner}/{repo}/pull/{pr_num}"
+                            if comment_res.get("converted_to_issue_comment"):
+                                content_msg = f"Submitted comment on `{path}:{line}` to [{repo_arg}#{pr_num}]({html_url}) *(line was outside PR diff, posted as PR discussion)*."
+                            else:
+                                content_msg = f"Submitted inline comment on `{path}:{line}` to [{repo_arg}#{pr_num}]({html_url})."
+                            last_summary_msg = f"Line Comment Posted: {path}:{line}"
+                        else:
+                            err = comment_res.get("error") or "Unknown error"
+                            content_msg = f"Failed to submit inline comment on `{path}:{line}` to {repo_arg}#{pr_num}: {err}"
+                            last_summary_msg = f"Comment Failed: {path}:{line}"
 
                     msg = TaskMessageModel(
                         task_id=task_id,
@@ -1617,11 +1633,15 @@ class AgentTaskPool:
             elif action == "post_review":
                 review_body = custom_feedback or pr.review_summary or f"AI Review for PR #{pr.pr_number}: Automated analysis complete."
                 if repo_name:
+                    owner, repo = WorkspaceTools._parse_repo(repo_name)
+                    token = await integration_manager.get_github_token_for_repo(f"{owner}/{repo}")
                     review_res = await github_client.post_pull_request_review(
-                        repo_name=repo_name,
+                        owner=owner,
+                        repo=repo,
                         pr_number=pr.pr_number,
                         body=review_body,
-                        event="COMMENT"
+                        event="COMMENT",
+                        custom_token=token
                     )
                     pr.review_summary = review_body
                     await session.commit()
@@ -1631,7 +1651,7 @@ class AgentTaskPool:
                         "pr_number": pr.pr_number,
                         "review_summary": pr.review_summary
                     })
-                    return {"ok": True, "result": review_res}
+                    return {"ok": review_res.get("ok", True), "result": review_res}
                 return {"ok": False, "error": "No repository name attached to task"}
 
             return {"ok": False, "error": f"Unknown action '{action}'"}
