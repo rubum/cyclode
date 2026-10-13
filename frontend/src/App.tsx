@@ -149,6 +149,17 @@ const MainApp: React.FC = () => {
     const unsubStatus = subscribe('TASK_STATUS_CHANGE', (data: any) => {
       fetchTasks();
       if (activeTaskId === data.task_id) {
+        if (data.status !== 'RUNNING' && data.status !== 'INITIALIZING') {
+          setActiveTaskDetails((prev) => {
+            if (!prev || prev.id !== data.task_id) return prev;
+            return {
+              ...prev,
+              status: data.status,
+              active_tool: null,
+              logs: (prev.logs || []).map((l: any) => ({ ...l, isRunning: false })),
+            };
+          });
+        }
         fetchTaskDetails(data.task_id);
       }
     });

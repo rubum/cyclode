@@ -1815,6 +1815,10 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   };
 
   const isRunning = task?.status === 'RUNNING' || task?.status === 'INITIALIZING';
+  const isRunningRef = useRef(isRunning);
+  useEffect(() => {
+    isRunningRef.current = isRunning;
+  }, [isRunning]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -2115,7 +2119,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     if (!container) return;
 
     const ro = new ResizeObserver(() => {
-      if (isAutoScrollEnabledRef.current) {
+      if (isAutoScrollEnabledRef.current && isRunningRef.current) {
         container.scrollTop = container.scrollHeight - container.clientHeight;
         setShowScrollBottomBtn(false);
       }
@@ -4062,7 +4066,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   const webCount = turn.logs.filter((l) => ['search_web', 'fetch_url'].includes(l.tool_name)).length;
                   const prCount = turn.logs.filter((l) => l.tool_name.includes('pull_request') || l.tool_name.includes('connect_repository')).length;
                   const failedCount = turn.logs.filter((l) => l.exit_code !== 0 && !l.isRunning).length;
-                  const hasRunning = turn.logs.some((l) => l.isRunning) || (isTurnRunning && turn.isLatest && !!task?.active_tool);
+                  const hasRunning = isRunning && (turn.logs.some((l) => l.isRunning) || (isTurnRunning && turn.isLatest && !!task?.active_tool));
 
                   return (
                     <div className="rounded-xl bg-onedark-darker/40 hover:bg-onedark-darker/60 overflow-hidden shadow-xs transition-colors space-y-0">
@@ -4186,11 +4190,11 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
                         const toolName = activeTaskTool ? activeTaskTool.tool_name : targetLog!.tool_name;
                         const toolInput = activeTaskTool ? activeTaskTool.tool_input : targetLog!.tool_input;
-                        const isRunning = activeTaskTool ? true : Boolean(targetLog!.isRunning);
-                        const actionInfo = getToolActionInfo(toolName, toolInput, isRunning);
+                        const isLogRunning = isRunning && (activeTaskTool ? true : Boolean(targetLog!.isRunning));
+                        const actionInfo = getToolActionInfo(toolName, toolInput, isLogRunning);
                         const ActionIcon = actionInfo.icon;
                         const logKey = targetLog ? (targetLog.id || `log-${turn.id}-${turn.logs.length - 1}`) : `active-tool-${turn.id}`;
-                        const defaultExpanded = Boolean(isTurnRunning && turn.isLatest && isRunning);
+                        const defaultExpanded = Boolean(isTurnRunning && turn.isLatest && isLogRunning);
                         const isExpanded = expandedLogIds[logKey] !== undefined ? expandedLogIds[logKey] : defaultExpanded;
 
                         const displayLog: TaskLog = targetLog || {
@@ -4202,7 +4206,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                           exit_code: 0,
                           duration_ms: 0,
                           created_at: new Date().toISOString(),
-                          isRunning: true,
+                          isRunning: isLogRunning,
                         };
 
                         return (
@@ -4210,7 +4214,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                             <div
                               onClick={() => setExpandedLogIds((prev) => ({ ...prev, [logKey]: !isExpanded }))}
                               className={`px-3.5 py-2 hover:bg-onedark-darker/80 transition-colors flex items-center justify-between text-xs font-mono cursor-pointer select-none group/peek min-h-[36px] ${
-                                isRunning
+                                isLogRunning
                                   ? 'bg-onedark-accent/10 text-onedark-fgBright'
                                   : targetLog && targetLog.exit_code !== 0
                                   ? 'bg-onedark-red/10 text-onedark-red'
@@ -4219,7 +4223,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                             >
                               <div className="flex items-center space-x-2.5 min-w-0 pr-2">
                                 <div className={`p-1 rounded ${actionInfo.badgeBg} flex items-center justify-center flex-shrink-0`}>
-                                  {isRunning ? (
+                                  {isLogRunning ? (
                                     <RefreshCw className="w-3 h-3 animate-spin text-onedark-accent" />
                                   ) : (
                                     <ActionIcon className={`w-3.5 h-3.5 ${actionInfo.colorClass}`} />
@@ -4236,7 +4240,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                               </div>
 
                               <div className="flex items-center space-x-2 flex-shrink-0 text-[10.5px]">
-                                {isRunning ? (
+                                {isLogRunning ? (
                                   <span className="px-1.5 py-0.5 rounded bg-onedark-accent/20 text-onedark-accent animate-pulse font-medium">
                                     running...
                                   </span>
@@ -4282,14 +4286,15 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                           {turn.logs.map((log, idx) => {
                             const logKey = log.id || `log-${turn.id}-${idx}`;
                             const isLatestLogInTurn = idx === turn.logs.length - 1;
+                            const isActionRunning = isRunning && Boolean(log.isRunning);
                             const isNextToolExecuting = Boolean(
                               (task?.active_tool && !turn.logs.some((l) => l.isRunning)) || !isLatestLogInTurn
                             );
                             const defaultExpanded = Boolean(
-                              isTurnRunning && turn.isLatest && (log.isRunning || (isLatestLogInTurn && !isNextToolExecuting))
+                              isTurnRunning && turn.isLatest && (isActionRunning || (isLatestLogInTurn && !isNextToolExecuting))
                             );
                             const isExpanded = expandedLogIds[logKey] !== undefined ? expandedLogIds[logKey] : defaultExpanded;
-                            const actionInfo = getToolActionInfo(log.tool_name, log.tool_input, log.isRunning);
+                            const actionInfo = getToolActionInfo(log.tool_name, log.tool_input, isActionRunning);
                             const ActionIcon = actionInfo.icon;
 
                             return (
@@ -4297,7 +4302,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                                 <div
                                   onClick={() => setExpandedLogIds((prev) => ({ ...prev, [logKey]: !isExpanded }))}
                                   className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-mono border transition-colors cursor-pointer select-none group/action ${
-                                    log.isRunning
+                                    isActionRunning
                                       ? 'bg-onedark-accent/10 text-onedark-fgBright border-onedark-accent/30 shadow-xs'
                                       : log.exit_code !== 0
                                       ? 'bg-onedark-red/10 text-onedark-red border-onedark-red/20 hover:bg-onedark-red/15 hover:border-onedark-red/30'
@@ -4308,7 +4313,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                                 >
                                   <div className="flex items-center space-x-2.5 min-w-0 pr-2">
                                     <div className={`p-1 rounded ${actionInfo.badgeBg} flex items-center justify-center flex-shrink-0`}>
-                                      {log.isRunning ? (
+                                      {isActionRunning ? (
                                         <RefreshCw className="w-3 h-3 animate-spin text-onedark-accent" />
                                       ) : (
                                         <ActionIcon className={`w-3.5 h-3.5 ${actionInfo.colorClass}`} />
@@ -4325,7 +4330,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                                   </div>
 
                                   <div className="flex items-center space-x-2 flex-shrink-0 text-[10.5px] text-onedark-muted">
-                                    {log.isRunning ? (
+                                    {isActionRunning ? (
                                       <span className="px-1.5 py-0.5 rounded bg-onedark-accent/20 text-onedark-accent text-[10px] animate-pulse">
                                         running...
                                       </span>

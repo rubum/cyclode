@@ -99,7 +99,14 @@ export function useTaskStore(): TaskStoreState {
         const data = await res.json();
         if (activeTaskIdRef.current === taskId) {
           setActiveTaskDetails((prev) => {
-            if (!prev || prev.id !== taskId) return data;
+            const isCurrentlyRunning = data.status === "RUNNING" || data.status === "INITIALIZING";
+            if (!prev || prev.id !== taskId) {
+              return {
+                ...data,
+                logs: isCurrentlyRunning ? (data.logs || []) : (data.logs || []).map((l: any) => ({ ...l, isRunning: false })),
+                active_tool: isCurrentlyRunning ? data.active_tool : null,
+              };
+            }
 
             const localMessages = prev.messages || [];
             const serverMessages: TaskMessage[] = data.messages || [];
@@ -128,14 +135,22 @@ export function useTaskStore(): TaskStoreState {
             );
 
             const serverLogs = data.logs || [];
-            const runningLogs = (prev.logs || []).filter((l: any) => l.isRunning && !serverLogs.some((sl: any) => sl.id === l.id));
-            const mergedLogs = runningLogs.length > 0 ? [...serverLogs, ...runningLogs] : serverLogs;
+            const runningLogs = isCurrentlyRunning
+              ? (prev.logs || []).filter((l: any) => l.isRunning && !serverLogs.some((sl: any) => sl.id === l.id))
+              : [];
+            const rawMergedLogs = runningLogs.length > 0 ? [...serverLogs, ...runningLogs] : serverLogs;
+            const mergedLogs = isCurrentlyRunning
+              ? rawMergedLogs
+              : rawMergedLogs.map((l: any) => ({ ...l, isRunning: false }));
+            const nextActiveTool = isCurrentlyRunning
+              ? (prev.active_tool && data.status === "RUNNING" ? prev.active_tool : data.active_tool)
+              : null;
 
             if (inFlightMessages.length === 0) {
               return {
                 ...data,
                 logs: mergedLogs,
-                active_tool: prev.active_tool && data.status === "RUNNING" ? prev.active_tool : data.active_tool,
+                active_tool: nextActiveTool,
               };
             }
 
@@ -151,7 +166,7 @@ export function useTaskStore(): TaskStoreState {
               ...data,
               messages: mergedMessages,
               logs: mergedLogs,
-              active_tool: prev.active_tool && data.status === "RUNNING" ? prev.active_tool : data.active_tool,
+              active_tool: nextActiveTool,
             };
           });
 

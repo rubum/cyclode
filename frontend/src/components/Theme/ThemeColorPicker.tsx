@@ -84,27 +84,39 @@ export const hexToRgb = (hex: string): string | null => {
   return `${r}, ${g}, ${b}`;
 };
 
-export const applyThemeColors = (accentHex: string, folderHex: string = '#E5C07B') => {
-  document.documentElement.style.setProperty('--color-accent', accentHex);
-  document.documentElement.style.setProperty('--color-folder', folderHex);
-  // Calculate subtle transparent background
-  document.documentElement.style.setProperty('--color-accent-subtle', `${accentHex}26`);
-  
-  const accentRgb = hexToRgb(accentHex);
-  if (accentRgb) {
-    document.documentElement.style.setProperty('--color-accent-rgb', accentRgb);
-  }
-  const folderRgb = hexToRgb(folderHex);
-  if (folderRgb) {
-    document.documentElement.style.setProperty('--color-folder-rgb', folderRgb);
-  }
+let themeStorageTimeout: any = null;
+let themeRafId: number | null = null;
 
-  try {
-    localStorage.setItem('cyclode_theme_accent', accentHex);
-    localStorage.setItem('cyclode_theme_folder', folderHex);
-  } catch (e) {
-    // localStorage may be disabled
+export const applyThemeColors = (accentHex: string, folderHex: string = '#E5C07B') => {
+  if (themeRafId) {
+    cancelAnimationFrame(themeRafId);
   }
+  themeRafId = requestAnimationFrame(() => {
+    document.documentElement.style.setProperty('--color-accent', accentHex);
+    document.documentElement.style.setProperty('--color-folder', folderHex);
+    document.documentElement.style.setProperty('--color-accent-subtle', `${accentHex}26`);
+    
+    const accentRgb = hexToRgb(accentHex);
+    if (accentRgb) {
+      document.documentElement.style.setProperty('--color-accent-rgb', accentRgb);
+    }
+    const folderRgb = hexToRgb(folderHex);
+    if (folderRgb) {
+      document.documentElement.style.setProperty('--color-folder-rgb', folderRgb);
+    }
+  });
+
+  if (themeStorageTimeout) {
+    clearTimeout(themeStorageTimeout);
+  }
+  themeStorageTimeout = setTimeout(() => {
+    try {
+      localStorage.setItem('cyclode_theme_accent', accentHex);
+      localStorage.setItem('cyclode_theme_folder', folderHex);
+    } catch (e) {
+      // localStorage may be disabled
+    }
+  }, 250);
 };
 
 export const initThemeColors = () => {
@@ -138,8 +150,8 @@ export const ThemeColorPicker: React.FC<ThemeColorPickerProps> = ({
   const [currentFolder, setCurrentFolder] = useState('#E5C07B');
   const [customHex, setCustomHex] = useState('#E5C07B');
   const [calculatedPlacement, setCalculatedPlacement] = useState<{ vertical: 'top' | 'bottom'; horizontal: 'left' | 'right' }>({
-    vertical: 'bottom',
-    horizontal: 'right'
+    vertical: direction === 'up' ? 'top' : 'bottom',
+    horizontal: align === 'left' ? 'left' : 'right'
   });
   const popoverRef = useRef<HTMLDivElement>(null);
 

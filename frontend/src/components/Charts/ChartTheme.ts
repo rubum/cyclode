@@ -58,9 +58,20 @@ export function useThemeObserver(): { isLight: boolean; accentColor: string } {
     // Initial read
     setThemeState(readCurrentThemeFromDOM());
 
+    let debounceTimer: any = null;
+
     // Observe class attribute (for .light-theme) and style attribute (for --color-accent)
-    const observer = new MutationObserver(() => {
-      setThemeState(readCurrentThemeFromDOM());
+    const observer = new MutationObserver((mutations) => {
+      const isClassChange = mutations.some((m) => m.attributeName === 'class');
+      if (isClassChange) {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        setThemeState(readCurrentThemeFromDOM());
+        return;
+      }
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        setThemeState(readCurrentThemeFromDOM());
+      }, 150);
     });
 
     observer.observe(document.documentElement, {
@@ -68,7 +79,10 @@ export function useThemeObserver(): { isLight: boolean; accentColor: string } {
       attributeFilter: ['class', 'style'],
     });
 
-    return () => observer.disconnect();
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      observer.disconnect();
+    };
   }, []);
 
   return themeState;

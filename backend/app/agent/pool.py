@@ -508,8 +508,11 @@ class AgentTaskPool:
                     "timestamp": datetime.now(timezone.utc).isoformat()
                 })
 
+            active_tool_call_ids: Dict[str, str] = {}
+
             async def on_tool_start(tool_name: str, tool_args: Dict[str, Any], call_id: Optional[str] = None):
                 c_id = call_id or f"call_{tool_name}_{int(datetime.now(timezone.utc).timestamp() * 1000)}"
+                active_tool_call_ids[tool_name] = c_id
                 await ws_manager.broadcast("TOOL_START", {
                     "task_id": task_id,
                     "call_id": c_id,
@@ -519,6 +522,7 @@ class AgentTaskPool:
                 })
 
             async def on_tool_end(tool_name: str, tool_output: str, exit_code: int, duration_ms: int, tool_input: Optional[Dict[str, Any]] = None, call_id: Optional[str] = None):
+                c_id = call_id or active_tool_call_ids.pop(tool_name, None)
                 safe_input = _serialize_json_safe(tool_input) if tool_input else {}
                 tool_tokens = estimate_tokens(str(tool_output)) + estimate_tokens(str(safe_input))
                 async with async_session_factory() as session:
@@ -543,7 +547,7 @@ class AgentTaskPool:
 
                 await ws_manager.broadcast("TOOL_END", {
                     "id": log_id,
-                    "call_id": call_id,
+                    "call_id": c_id,
                     "task_id": task_id,
                     "tool_name": tool_name,
                     "tool_input": safe_input,
