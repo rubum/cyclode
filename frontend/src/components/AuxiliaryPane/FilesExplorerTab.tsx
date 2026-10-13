@@ -150,6 +150,15 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
     onSelectFile?.(path, line ?? undefined);
   }, [task?.id, onSelectFile]);
 
+  const handleCloseFile = useCallback(() => {
+    setSelectedFile(null);
+    setTargetLine(null);
+    onClearSelectedFilePath?.();
+    if (task?.id) {
+      taskActiveFileCache.delete(task.id);
+    }
+  }, [task?.id, onClearSelectedFilePath]);
+
   useEffect(() => {
     if (selectedFilePath !== undefined) {
       setSelectedFile(selectedFilePath);
@@ -716,6 +725,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
           taskId={task.id}
           filePath={selectedFile}
           targetLine={targetLine}
+          onClose={handleCloseFile}
           canGoBack={canGoBack}
           canGoForward={canGoForward}
           onGoBack={goBack}

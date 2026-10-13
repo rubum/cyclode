@@ -97,6 +97,7 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
   filePath, 
   targetLine,
   onFileNotFound,
+  onClose,
   onAskAboutLine,
   onOpenAgentChat,
   canGoBack,
@@ -1048,6 +1049,17 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
               </button>
             </>
           ) : null}
+
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright transition-colors cursor-pointer border-l border-onedark-borderSubtle/60 ml-0.5 pl-1.5"
+              title="Close file"
+              aria-label="Close file"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
 

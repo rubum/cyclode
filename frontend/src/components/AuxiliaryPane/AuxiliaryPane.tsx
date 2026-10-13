@@ -297,6 +297,8 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
   );
 
   const handleCloseTab = (tabId: AuxTabType) => {
+    if (visibleTabs.length <= 1) return;
+
     setHiddenTabs((prev) => {
       const next = new Set(prev);
       next.add(tabId);
@@ -309,7 +311,9 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
       const currentIndex = visibleTabs.findIndex((t) => t.id === tabId);
       const fallback =
         (currentIndex > 0 ? remainingTabs[currentIndex - 1] : remainingTabs[0]) ||
-        allTabs.find((t) => t.id === 'files');
+        allTabs.find((t) => !hiddenTabs.has(t.id) && t.id !== tabId) ||
+        allTabs.find((t) => t.id === 'files') ||
+        allTabs[0];
       if (fallback) {
         setInternalTab(fallback.id as any);
         onTabChange?.(fallback.id as any);
@@ -330,7 +334,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
           {visibleTabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id || (tab.id === 'agents' && activeTab === 'subagents');
-            const canClose = tab.id !== 'files'; // Files is permanent anchor
+            const canClose = visibleTabs.length > 1;
             return (
               <div
                 key={tab.id}
