@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - feat/*
+      - fix/*
+      - "feat/**"
+      - "fix/**"
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-sanity:
+    name: Lint & Sanity Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Ruff
+        run: pip install ruff
+
+      - name: Check for undefined symbols and syntax errors
+        run: ruff check backend/app/ --select=F821,E9
+
+      - name: Validate Docker Compose Configuration
+        run: docker compose config -q
+
+  backend-tests:
+    name: Backend Tests (PostgreSQL)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cyclode
+          POSTGRES_PASSWORD: cyclode
+          POSTGRES_DB: cyclode_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cyclode -d cyclode_test"
+          --health-interval 5s
+          --health-timeout 2s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt pytest pytest-asyncio
+
+      - name: Run Pytest suite
+        env:
+          DATABASE_URL: postgresql+asyncpg://cyclode:cyclode@localhost:5432/cyclode_test
+          WORKSPACE_ROOT: /tmp/cyclode_workspaces
+          HOST_WORKSPACE_ROOT: /tmp/cyclode_workspaces
+          CYCLODE_HOME: /tmp/cyclode_home
+        run: |
+          mkdir -p /tmp/cyclode_workspaces /tmp/cyclode_home
+          pytest backend/tests/ -q --ignore=backend/tests/test_ingrations_bridge.py
+
+  frontend-build:
+    name: Frontend Typecheck & Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+          cache-dependency-path: frontend/package.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
