@@ -14,7 +14,7 @@ def generate_uuid() -> str:
 
 
 def get_utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class EventModel(Base):

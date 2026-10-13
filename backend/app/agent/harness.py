@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 from app.config import settings
 from app.core.policies import policy_engine
 from app.core.worktree import worktree_manager
+from app.core.concurrency import run_io_blocking
 from app.agent.tools import WorkspaceTools
 from app.agent.personas import get_persona
 from app.integrations.github_client import github_client
@@ -2434,7 +2435,7 @@ class AntigravityHarness:
 
                             if fn_name == "list_dir":
                                 subpath = args.get("subpath") or args.get("path") or args.get("directory") or args.get("dir") or "."
-                                tool_result = WorkspaceTools.list_dir(workspace_path, subpath)
+                                tool_result = await run_io_blocking(WorkspaceTools.list_dir, workspace_path, subpath)
                                 items = tool_result.get("items", [])
                                 if items:
                                     out_str = "\n".join(
@@ -2448,14 +2449,14 @@ class AntigravityHarness:
                                 file_path = args.get("file_path") or args.get("path") or args.get("filePath") or args.get("target_file") or args.get("filename") or args.get("file") or ""
                                 start_line = args.get("start_line") or args.get("startLine")
                                 end_line = args.get("end_line") or args.get("endLine")
-                                tool_result = WorkspaceTools.read_file(workspace_path, file_path, start_line=start_line, end_line=end_line)
+                                tool_result = await run_io_blocking(WorkspaceTools.read_file, workspace_path, file_path, start_line=start_line, end_line=end_line)
                                 if "content" in tool_result:
                                     out_str = tool_result["content"]
                                 else:
                                     out_str = tool_result.get("error", "Error reading file")
                             elif fn_name == "get_file_outline":
                                 file_path = args.get("file_path") or args.get("path") or args.get("filePath") or args.get("target_file") or args.get("filename") or args.get("file") or ""
-                                tool_result = WorkspaceTools.get_file_outline(workspace_path, file_path)
+                                tool_result = await run_io_blocking(WorkspaceTools.get_file_outline, workspace_path, file_path)
                                 if "outline" in tool_result:
                                     out_str = tool_result["outline"]
                                 else:
@@ -2636,7 +2637,8 @@ class AntigravityHarness:
                                 query = args.get("query", "")
                                 is_regex = args.get("is_regex", False)
                                 file_pattern = args.get("file_pattern")
-                                tool_result = WorkspaceTools.search_code(
+                                tool_result = await run_io_blocking(
+                                    WorkspaceTools.search_code,
                                     workspace_path, query, is_regex=is_regex, file_pattern=file_pattern
                                 )
                                 matches = tool_result.get("matches", [])
@@ -2651,7 +2653,8 @@ class AntigravityHarness:
                                 name_pattern = args.get("name_pattern", "")
                                 symbol_type = args.get("symbol_type")
                                 file_pattern = args.get("file_pattern")
-                                tool_result = WorkspaceTools.find_symbols(
+                                tool_result = await run_io_blocking(
+                                    WorkspaceTools.find_symbols,
                                     workspace_path, name_pattern=name_pattern, symbol_type=symbol_type, file_pattern=file_pattern
                                 )
                                 symbols = tool_result.get("symbols", [])
@@ -2664,7 +2667,7 @@ class AntigravityHarness:
                                     out_str = f"No symbols found matching '{name_pattern}'."
                             elif fn_name == "tgrep_ast":
                                 pattern = args.get("pattern", "")
-                                tool_result = WorkspaceTools.tgrep_ast(workspace_path, pattern)
+                                tool_result = await run_io_blocking(WorkspaceTools.tgrep_ast, workspace_path, pattern)
                                 matches = tool_result.get("matches", [])
                                 if matches:
                                     out_str = f"AST pattern '{pattern}' matched {len(matches)} node(s):\n" + "\n".join(

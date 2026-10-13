@@ -42,9 +42,10 @@ engine_kwargs: dict = {
 if "sqlite" in db_url:
     engine_kwargs["connect_args"] = {"timeout": 60, "check_same_thread": False}
 elif "postgresql" in db_url:
-    engine_kwargs["pool_size"] = 20
-    engine_kwargs["max_overflow"] = 10
+    engine_kwargs["pool_size"] = 25
+    engine_kwargs["max_overflow"] = 15
     engine_kwargs["pool_pre_ping"] = True
+    engine_kwargs["pool_recycle"] = 1800
 
 from sqlalchemy import event
 

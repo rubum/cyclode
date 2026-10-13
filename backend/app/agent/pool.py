@@ -525,25 +525,26 @@ class AgentTaskPool:
                 c_id = call_id or active_tool_call_ids.pop(tool_name, None)
                 safe_input = _serialize_json_safe(tool_input) if tool_input else {}
                 tool_tokens = estimate_tokens(str(tool_output)) + estimate_tokens(str(safe_input))
-                async with async_session_factory() as session:
-                    log = TaskLogModel(
-                        task_id=task_id,
-                        tool_name=tool_name,
-                        tool_input=safe_input,
-                        tool_output=tool_output,
-                        exit_code=exit_code,
-                        duration_ms=duration_ms
-                    )
-                    session.add(log)
-                    if tool_tokens > 0:
-                        await session.execute(
+                log_id = str(uuid.uuid4())
+                log = TaskLogModel(
+                    id=log_id,
+                    task_id=task_id,
+                    tool_name=tool_name,
+                    tool_input=safe_input,
+                    tool_output=tool_output,
+                    exit_code=exit_code,
+                    duration_ms=duration_ms
+                )
+                from app.db.write_buffer import write_buffer
+                await write_buffer.add_entity(log)
+                if tool_tokens > 0:
+                    async def update_task_tokens(s):
+                        await s.execute(
                             update(TaskModel)
                             .where(TaskModel.id == task_id)
                             .values(total_tokens=TaskModel.total_tokens + tool_tokens)
                         )
-                    await session.commit()
-                    await session.refresh(log)
-                    log_id = log.id
+                    await write_buffer.add_custom_action(update_task_tokens)
 
                 await ws_manager.broadcast("TOOL_END", {
                     "id": log_id,
@@ -560,23 +561,25 @@ class AgentTaskPool:
             async def on_message(sender: str, content: str, stream_id: Optional[str] = None):
                 m_tokens = estimate_tokens(content)
                 safe_plan = _serialize_json_safe(active_plan) if sender == "agent" else None
-                async with async_session_factory() as session:
-                    msg = TaskMessageModel(
-                        task_id=task_id,
-                        sender=sender,
-                        content=content,
-                        plan=safe_plan,
-                        tokens=m_tokens
-                    )
-                    session.add(msg)
-                    await session.execute(
-                        update(TaskModel)
-                        .where(TaskModel.id == task_id)
-                        .values(total_tokens=TaskModel.total_tokens + m_tokens)
-                    )
-                    await session.commit()
-                    await session.refresh(msg)
-                    msg_id = msg.id
+                msg_id = str(uuid.uuid4())
+                msg = TaskMessageModel(
+                    id=msg_id,
+                    task_id=task_id,
+                    sender=sender,
+                    content=content,
+                    plan=safe_plan,
+                    tokens=m_tokens
+                )
+                from app.db.write_buffer import write_buffer
+                await write_buffer.add_entity(msg)
+                if m_tokens > 0:
+                    async def update_msg_tokens(s):
+                        await s.execute(
+                            update(TaskModel)
+                            .where(TaskModel.id == task_id)
+                            .values(total_tokens=TaskModel.total_tokens + m_tokens)
+                        )
+                    await write_buffer.add_custom_action(update_msg_tokens)
 
                 await ws_manager.broadcast("CHAT_MESSAGE", {
                     "id": msg_id,
@@ -820,6 +823,10 @@ class AgentTaskPool:
                 persona_instructions=task_persona_instructions,
                 role_definition=task_role_definition
             )
+
+            # Flush buffered writes before reading final state
+            from app.db.write_buffer import write_buffer
+            await write_buffer.flush()
 
             # Determine final status
             raw_status = result.get("status", "COMPLETED")
@@ -2186,20 +2193,20 @@ class AgentTaskPool:
                 logger.warning(f"Error rolling back task memories in reset_task_turn: {e}")
 
             # 3. Restore plan state
-            if is_initial_turn:
-                task.plan = None
-            elif task.plan and isinstance(task.plan, dict):
+            if task.plan and isinstance(task.plan, dict):
                 import copy
                 p_copy = copy.deepcopy(task.plan)
                 steps = p_copy.get("steps", [])
-                for s in steps:
-                    s["status"] = "in_progress"
+                for i, s in enumerate(steps):
+                    s["status"] = "in_progress" if i == 0 else "pending"
                 p_copy["steps"] = steps
-                if "evaluation" in p_copy:
+                if "evaluation" in p_copy and isinstance(p_copy["evaluation"], dict):
                     p_copy["evaluation"]["status"] = "in_progress"
                     p_copy["evaluation"]["summary"] = "Task reset by user."
                 task.plan = p_copy
                 flag_modified(task, "plan")
+            else:
+                task.plan = None
 
             # 4. Clean task execution state
             task.status = "PAUSED"
