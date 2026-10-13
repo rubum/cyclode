@@ -27,7 +27,7 @@ export const ResizablePanes: React.FC<ResizablePanesProps> = ({
       const saved = localStorage.getItem('cyclode_layout_sidebar_w');
       if (saved) {
         const parsed = parseInt(saved, 10);
-        if (!isNaN(parsed) && parsed >= 180 && parsed <= 450) return parsed;
+        if (!isNaN(parsed) && parsed >= 210 && parsed <= 450) return parsed;
       }
     } catch {
       // ignore
@@ -71,7 +71,7 @@ export const ResizablePanes: React.FC<ResizablePanesProps> = ({
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       if (isDraggingSidebar.current) {
-        const newWidth = Math.max(180, Math.min(450, e.clientX));
+        const newWidth = Math.max(210, Math.min(450, e.clientX));
         setSidebarWidth(newWidth);
         sidebarWidthRef.current = newWidth;
       }

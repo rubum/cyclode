@@ -126,14 +126,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const getStatusDot = (status: string) => {
     switch (status) {
       case 'RUNNING':
-        return 'bg-onedark-yellow animate-subagent-pulse';
+        return 'bg-onedark-yellow animate-pulse';
       case 'COMPLETED':
         return 'bg-onedark-green';
       case 'IDLE':
         return 'bg-onedark-purple';
       case 'AWAITING_APPROVAL':
       case 'AWAITING_INPUT':
-        return 'bg-onedark-accent animate-subagent-pulse';
+        return 'bg-onedark-accent animate-pulse';
       case 'FAILED':
         return 'bg-onedark-red';
       default:
@@ -229,7 +229,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   >
                     <MessageSquare className={`w-4 h-4 ${isSelected ? 'text-onedark-accent' : 'text-onedark-muted'}`} />
                     {/* Status Dot */}
-                    <span className={`absolute bottom-0.5 right-0.5 w-2 h-2 rounded-full ring-1.5 ring-onedark-surface ${getStatusDot(task.status)}`} />
+                    <span className={`absolute bottom-1 right-1 w-1.5 h-1.5 rounded-full ring-2 ring-onedark-darker ${getStatusDot(task.status)}`} />
                   </button>
 
                   {/* Rich Floating Hover Card Tooltip */}
@@ -408,29 +408,31 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Fixed Header Section: Recent Sessions & Clear All & Search */}
       <div className="px-3 pt-3 pb-1 flex flex-col flex-shrink-0 select-none">
-        <div className="px-1 flex items-center justify-between text-[11px] font-semibold tracking-wider text-onedark-muted uppercase mb-1.5">
-          <div className="flex items-center space-x-1.5">
-            <span>Recent Sessions</span>
+        <div className="px-1 flex items-center justify-between mb-1.5 min-w-0">
+          <div className="flex items-center space-x-1.5 min-w-0">
+            <span className="text-[10.5px] font-semibold tracking-wider text-onedark-muted/80 uppercase whitespace-nowrap">
+              Recent Sessions
+            </span>
             {primaryTasksCount > 0 && (
-              <span className="font-mono text-[10px] text-onedark-muted font-normal">
-                ({primaryTasksCount})
+              <span className="font-mono text-[10px] text-onedark-muted/70 bg-onedark-surface/60 px-1.5 py-0.5 rounded-full flex-shrink-0 leading-none">
+                {primaryTasksCount}
               </span>
             )}
           </div>
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2 flex-shrink-0 ml-2">
             {primaryTasksCount > 0 && onClearAllTasks && (
               isClearingAll ? (
-                <div className="flex items-center space-x-1 text-[10px] text-onedark-red font-mono animate-pulse">
+                <div className="flex items-center space-x-1 text-[10px] text-onedark-red font-mono animate-pulse whitespace-nowrap">
                   <RefreshCw className="w-3 h-3 animate-spin text-onedark-red" />
                   <span>Clearing...</span>
                 </div>
               ) : (
                 <button
                   onClick={() => setIsClearAllOpen(true)}
-                  className="text-[10px] font-normal text-onedark-muted hover:text-onedark-red transition-colors capitalize tracking-normal cursor-pointer"
+                  className="text-[10.5px] font-normal text-onedark-muted/60 hover:text-onedark-red transition-colors whitespace-nowrap cursor-pointer hover:underline"
                   title="Clear all recent sessions"
                 >
-                  clear all
+                  Clear all
                 </button>
               )
             )}
