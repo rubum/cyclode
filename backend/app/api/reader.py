@@ -1963,29 +1963,295 @@ async def proxy_webview_stream(
         "Accept-Language": "en-US,en;q=0.9",
     }
 
+    def _build_webview_error_html(target_url: str, reason: str) -> HTMLResponse:
+        safe_url = (
+            target_url.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+        )
+        safe_reason = (
+            reason.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+        )
+        error_html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Webview Unavailable</title>
+<style>
+  body {{
+    margin: 0;
+    padding: 32px 24px;
+    background: #1e222a;
+    color: #abb2bf;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: calc(100vh - 64px);
+  }}
+  .card {{
+    max-width: 460px;
+    width: 100%;
+    background: #282c34;
+    border: 1px solid #3e4451;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  }}
+  .title {{
+    color: #e5c07b;
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0 0 8px 0;
+  }}
+  .desc {{
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: #9da5b4;
+    margin: 0 0 12px 0;
+    word-break: break-word;
+  }}
+  .url-box {{
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    background: #1e222a;
+    border: 1px solid #333842;
+    border-radius: 6px;
+    padding: 8px 10px;
+    color: #61afef;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-bottom: 16px;
+  }}
+  .actions {{
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }}
+  .btn {{
+    display: inline-flex;
+    align-items: center;
+    padding: 7px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    border: 1px solid transparent;
+  }}
+  .btn-primary {{
+    background: rgba(97, 175, 239, 0.15);
+    color: #61afef;
+    border-color: rgba(97, 175, 239, 0.35);
+  }}
+  .btn-secondary {{
+    background: #333842;
+    color: #dcdfe4;
+    border-color: #3e4451;
+  }}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="title">Unable to load page in embedded webview</div>
+    <p class="desc">{safe_reason}</p>
+    <div class="url-box" title="{safe_url}">{safe_url}</div>
+    <div class="actions">
+      <a class="btn btn-primary" href="{safe_url}" target="_blank" rel="noopener noreferrer" data-cyclode-external="true">
+        Open in Browser Tab ↗
+      </a>
+      <button type="button" class="btn btn-secondary" onclick="window.parent && window.parent.postMessage({{ type: 'CYCLODE_WEBVIEW_SWITCH_READER' }}, '*')">
+        Switch to Reader Mode
+      </button>
+    </div>
+  </div>
+</body>
+</html>"""
+        return HTMLResponse(content=error_html, status_code=200, headers={"Access-Control-Allow-Origin": "*"})
+
     try:
         async with httpx.AsyncClient(timeout=25.0, follow_redirects=True, verify=False) as client:
             resp = await client.get(clean_url, headers=headers)
             if resp.status_code >= 400:
-                raise HTTPException(status_code=resp.status_code, detail=f"Upstream server returned HTTP {resp.status_code}")
+                return _build_webview_error_html(
+                    clean_url,
+                    f"The upstream server returned HTTP {resp.status_code} when attempting to embed this page."
+                )
 
             raw_html = resp.text
             final_url = str(resp.url)
-    except HTTPException:
-        raise
     except Exception as e:
         logger.warning(f"Error proxying webview for {clean_url}: {e}")
-        raise HTTPException(status_code=502, detail=f"Failed to fetch webpage: {str(e)}")
+        return _build_webview_error_html(
+            clean_url,
+            f"Failed to fetch webpage from upstream server: {str(e)}"
+        )
+
+    # Strip existing <base> tags and restrictive CSP/X-Frame-Options meta tags so our base tag and nav bridge work reliably
+    raw_html = re.sub(r'<base\b[^>]*>', '', raw_html, flags=re.IGNORECASE)
+    raw_html = re.sub(
+        r'<meta\b[^>]*http-equiv=["\']?(?:Content-Security-Policy|X-Frame-Options)["\']?[^>]*>',
+        '',
+        raw_html,
+        flags=re.IGNORECASE,
+    )
+
+    final_url_json = json.dumps(final_url)
+    shield_json = "true" if shield else "false"
+
+    navigation_bridge_js = f"""
+    <script id="cyclode-webview-nav-bridge">
+    (function() {{
+        var BASE_URL = {final_url_json};
+        var SHIELD_MODE = {shield_json};
+        var lastUserInteraction = 0;
+
+        var recordInteraction = function() {{
+            lastUserInteraction = Date.now();
+        }};
+        document.addEventListener('pointerdown', recordInteraction, true);
+        document.addEventListener('mousedown', recordInteraction, true);
+        document.addEventListener('keydown', recordInteraction, true);
+
+        var navigateViaProxy = function(rawTargetUrl, linkTitle) {{
+            if (!rawTargetUrl) return false;
+            var resolved;
+            try {{
+                resolved = new URL(rawTargetUrl, BASE_URL).href;
+            }} catch (err) {{
+                return false;
+            }}
+            if (!/^https?:\\/\\//i.test(resolved)) {{
+                return false;
+            }}
+            try {{
+                if (window.parent && window.parent !== window) {{
+                    window.parent.postMessage({{
+                        type: 'CYCLODE_WEBVIEW_NAVIGATE',
+                        url: resolved,
+                        title: linkTitle || ''
+                    }}, '*');
+                }}
+            }} catch (err) {{}}
+            try {{
+                var proxyBase = window.location.origin + window.location.pathname;
+                var proxyUrl = proxyBase + '?url=' + encodeURIComponent(resolved) + '&shield=' + (SHIELD_MODE ? 'true' : 'false');
+                window.location.href = proxyUrl;
+            }} catch (err) {{}}
+            return true;
+        }};
+
+        window.__cyclodeNavigateViaProxy = navigateViaProxy;
+        window.__cyclodeHasRecentInteraction = function() {{
+            return (Date.now() - lastUserInteraction) < 1500;
+        }};
+
+        // Intercept all <a> clicks in capture phase so <base href> does not escape the proxy
+        document.addEventListener('click', function(e) {{
+            var target = e.target;
+            if (!target || typeof target.closest !== 'function') return;
+            var anchor = target.closest('a[href]');
+            if (!anchor) return;
+            if (anchor.getAttribute('data-cyclode-external') === 'true') return;
+            if (e.button && e.button !== 0) return;
+
+            var rawHref = (anchor.getAttribute('href') || '').trim();
+            if (!rawHref || /^javascript:/i.test(rawHref) || /^mailto:/i.test(rawHref) || /^tel:/i.test(rawHref)) {{
+                return;
+            }}
+
+            // Handle in-page #hash anchors without cross-origin navigation
+            if (rawHref.charAt(0) === '#') {{
+                e.preventDefault();
+                e.stopPropagation();
+                var hashId = decodeURIComponent(rawHref.slice(1));
+                if (!hashId) {{
+                    window.scrollTo({{ top: 0, behavior: 'smooth' }});
+                    return;
+                }}
+                var el = document.getElementById(hashId) || document.querySelector('[name="' + hashId.replace(/"/g, '\\\\"') + '"]');
+                if (el && typeof el.scrollIntoView === 'function') {{
+                    el.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+                }}
+                return;
+            }}
+
+            var resolvedHref;
+            try {{
+                resolvedHref = new URL(rawHref, BASE_URL).href;
+            }} catch (err) {{
+                return;
+            }}
+
+            var baseNoHash = BASE_URL.split('#')[0];
+            var resolvedParts = resolvedHref.split('#');
+            if (resolvedParts[0] === baseNoHash && resolvedParts.length > 1) {{
+                e.preventDefault();
+                e.stopPropagation();
+                var samePageHash = decodeURIComponent(resolvedParts.slice(1).join('#'));
+                var targetEl = samePageHash ? (document.getElementById(samePageHash) || document.querySelector('[name="' + samePageHash.replace(/"/g, '\\\\"') + '"]')) : null;
+                if (targetEl && typeof targetEl.scrollIntoView === 'function') {{
+                    targetEl.scrollIntoView({{ behavior: 'smooth', block: 'start' }});
+                }} else if (!samePageHash) {{
+                    window.scrollTo({{ top: 0, behavior: 'smooth' }});
+                }}
+                return;
+            }}
+
+            if (/^https?:\\/\\//i.test(resolvedHref)) {{
+                e.preventDefault();
+                e.stopPropagation();
+                anchor.removeAttribute('target');
+                var titleText = (anchor.innerText || anchor.textContent || anchor.getAttribute('title') || '').trim().slice(0, 120);
+                navigateViaProxy(resolvedHref, titleText);
+            }}
+        }}, true);
+
+        // Intercept GET form submissions (e.g. search inputs) so they remain proxied
+        document.addEventListener('submit', function(e) {{
+            var form = e.target;
+            if (!form || form.tagName !== 'FORM') return;
+            var method = (form.getAttribute('method') || 'get').toLowerCase();
+            if (method !== 'get') return;
+            var action = form.getAttribute('action') || BASE_URL;
+            try {{
+                var actionUrl = new URL(action, BASE_URL);
+                var formData = new FormData(form);
+                formData.forEach(function(value, key) {{
+                    if (typeof value === 'string') {{
+                        actionUrl.searchParams.set(key, value);
+                    }}
+                }});
+                e.preventDefault();
+                e.stopPropagation();
+                navigateViaProxy(actionUrl.href, '');
+            }} catch (err) {{}}
+        }}, true);
+    }})();
+    </script>
+    """
+
+    def _inject_into_head(html_doc: str, head_payload: str) -> str:
+        head_match = re.search(r'<head\b[^>]*>', html_doc, flags=re.IGNORECASE)
+        if head_match:
+            insert_pos = head_match.end()
+            return html_doc[:insert_pos] + f"\n{head_payload}" + html_doc[insert_pos:]
+        html_match = re.search(r'<html\b[^>]*>', html_doc, flags=re.IGNORECASE)
+        if html_match:
+            insert_pos = html_match.end()
+            return html_doc[:insert_pos] + f"<head>{head_payload}</head>" + html_doc[insert_pos:]
+        return f"<head>{head_payload}</head>\n" + html_doc
+
+    base_tag = f'<base href="{final_url}">'
 
     if not shield:
-        # Just inject base href so relative assets load
-        base_tag = f'<base href="{final_url}">'
-        if "<head>" in raw_html:
-            raw_html = raw_html.replace("<head>", f"<head>\n{base_tag}", 1)
-        elif "<HEAD>" in raw_html:
-            raw_html = raw_html.replace("<HEAD>", f"<HEAD>\n{base_tag}", 1)
-        else:
-            raw_html = f"{base_tag}\n" + raw_html
+        # Inject base href and navigation bridge so relative assets load and link clicks stay proxied
+        unshielded_head = f"{base_tag}\n{navigation_bridge_js}"
+        raw_html = _inject_into_head(raw_html, unshielded_head)
         return HTMLResponse(content=raw_html, headers={"Access-Control-Allow-Origin": "*"})
 
     # Shield Active: Anti-annoyance CSS, JS, and script stripping
@@ -2050,11 +2316,18 @@ async def proxy_webview_stream(
     anti_annoyance_js = """
     <script id="cyclode-popup-shield-script">
     (function() {
-        // Neutralize popups and alerts
+        // Neutralize popups and alerts while allowing user-initiated navigations
         window.alert = function() { console.log('[Cyclode Shield] Blocked alert'); };
         window.confirm = function() { console.log('[Cyclode Shield] Blocked confirm'); return false; };
         window.prompt = function() { return null; };
-        window.open = function() { console.log('[Cyclode Shield] Blocked window.open'); return null; };
+        window.open = function(url) {
+            if (url && window.__cyclodeHasRecentInteraction && window.__cyclodeHasRecentInteraction() && window.__cyclodeNavigateViaProxy) {
+                window.__cyclodeNavigateViaProxy(String(url), '');
+                return null;
+            }
+            console.log('[Cyclode Shield] Blocked window.open');
+            return null;
+        };
 
         // Neutralize push notification permission traps
         if (typeof Notification !== 'undefined') {
@@ -2103,20 +2376,9 @@ async def proxy_webview_stream(
         # Strip script tags so the page renders statically and quickly without hanging or error loops
         cleaned_html = re.sub(r'<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>', '', cleaned_html, flags=re.I)
 
-    # Base tag for relative assets
-    base_tag = f'<base href="{final_url}">'
-    injected_head = f"{base_tag}\n{anti_annoyance_css}\n{anti_annoyance_js}"
-
-    if "<head>" in cleaned_html:
-        cleaned_html = cleaned_html.replace("<head>", f"<head>\n{injected_head}", 1)
-    elif "<HEAD>" in cleaned_html:
-        cleaned_html = cleaned_html.replace("<HEAD>", f"<HEAD>\n{injected_head}", 1)
-    elif "<html>" in cleaned_html:
-        cleaned_html = cleaned_html.replace("<html>", f"<html><head>{injected_head}</head>", 1)
-    elif "<HTML>" in cleaned_html:
-        cleaned_html = cleaned_html.replace("<HTML>", f"<HTML><head>{injected_head}</head>", 1)
-    else:
-        cleaned_html = f"<head>{injected_head}</head>\n" + cleaned_html
+    # Base tag, navigation bridge, and shield assets
+    injected_head = f"{base_tag}\n{navigation_bridge_js}\n{anti_annoyance_css}\n{anti_annoyance_js}"
+    cleaned_html = _inject_into_head(cleaned_html, injected_head)
 
     response_headers = {
         "Content-Type": "text/html; charset=utf-8",

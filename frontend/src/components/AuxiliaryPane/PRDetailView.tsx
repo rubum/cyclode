@@ -4064,15 +4064,35 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
   }, [url, prRecord, task, prNumber]);
 
   const [isShieldActive, setIsShieldActive] = useState<boolean>(true);
+  const [webviewCurrentUrl, setWebviewCurrentUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    setWebviewCurrentUrl(targetUrl);
+  }, [targetUrl]);
+
+  useEffect(() => {
+    if (viewMode !== 'webview') return;
+    const handleWebviewMessage = (event: MessageEvent) => {
+      if (!event.data || typeof event.data !== 'object') return;
+      if (event.data.type === 'CYCLODE_WEBVIEW_NAVIGATE' && typeof event.data.url === 'string') {
+        const nextUrl = event.data.url.trim();
+        if (nextUrl && /^https?:\/\//i.test(nextUrl)) {
+          setWebviewCurrentUrl(nextUrl);
+        }
+      } else if (event.data.type === 'CYCLODE_WEBVIEW_SWITCH_READER') {
+        setViewMode('reader');
+      }
+    };
+    window.addEventListener('message', handleWebviewMessage);
+    return () => window.removeEventListener('message', handleWebviewMessage);
+  }, [viewMode]);
 
   const effectiveWebviewUrl = useMemo(() => {
-    if (!targetUrl) return '';
+    const activeTarget = webviewCurrentUrl || targetUrl;
+    if (!activeTarget) return '';
     const apiBase = import.meta.env.VITE_API_URL || '';
-    if (isShieldActive) {
-      return `${apiBase}/api/reader/proxy/webview?url=${encodeURIComponent(targetUrl)}&shield=true`;
-    }
-    return targetUrl;
-  }, [targetUrl, isShieldActive]);
+    return `${apiBase}/api/reader/proxy/webview?url=${encodeURIComponent(activeTarget)}&shield=${isShieldActive ? 'true' : 'false'}`;
+  }, [webviewCurrentUrl, targetUrl, isShieldActive]);
 
   const effectivePrNum = prNumber || prRecord?.pr_number || data?.pr_number;
 
@@ -5588,15 +5608,15 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
         )}
 
         {/* Main PR Body Viewport */}
-        <div ref={contentScrollRef} className="flex-1 overflow-y-auto p-4 select-text relative">
-          {isLoading && (
+        <div ref={contentScrollRef} className={`flex-1 ${viewMode === 'webview' ? 'overflow-hidden flex flex-col p-4' : 'overflow-y-auto p-4'} select-text relative`}>
+          {isLoading && viewMode === 'reader' && (
             <PRDetailLoading
               prNumber={data?.pr_number || prNumber || prRecord?.pr_number}
               title={effectiveTitle}
             />
           )}
 
-          {error && !isLoading && (
+          {error && !isLoading && viewMode === 'reader' && (
             <div className="p-4 rounded-xl border border-onedark-red/30 bg-onedark-red/10 text-xs text-onedark-fg space-y-2">
               <div className="flex items-center space-x-2 text-onedark-red font-semibold">
                 <AlertCircle className="w-4 h-4" />
@@ -6046,9 +6066,9 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
             )
           )}
 
-          {!isLoading && !error && viewMode === 'webview' && targetUrl && (
-            <div className="h-full flex flex-col -m-4">
-              <div className="px-3 py-1.5 bg-onedark-surface/80 border-b border-onedark-borderSubtle text-[11px] text-onedark-muted flex items-center justify-between">
+          {viewMode === 'webview' && (webviewCurrentUrl || targetUrl) && (
+            <div className="flex-1 h-full flex flex-col -m-4 overflow-hidden">
+              <div className="px-3 py-1.5 bg-onedark-surface/80 border-b border-onedark-borderSubtle text-[11px] text-onedark-muted flex items-center justify-between flex-shrink-0">
                 <div className="flex items-center space-x-2.5">
                   <span className="font-medium text-onedark-fg/80">Embedded webview</span>
                   <button
@@ -6079,8 +6099,8 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
                 key={effectiveWebviewUrl}
                 src={effectiveWebviewUrl}
                 title={effectiveTitle}
-                className="flex-1 w-full border-none bg-white min-h-[500px]"
-                sandbox="allow-same-origin allow-scripts allow-forms"
+                className="flex-1 w-full h-full border-none bg-white min-h-[500px]"
+                sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
               />
             </div>
           )}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { 
   BookOpen, 
   ExternalLink, 
@@ -137,6 +137,7 @@ interface DocsViewerTabProps {
   url: string | null;
   initialTitle?: string;
   onClear?: () => void;
+  onNavigateUrl?: (url: string, title?: string) => void;
   onAskAboutRepo?: (repoName: string) => void;
   onCloneToSession?: (repoUrl: string, repoName: string) => void;
   onAskAgent?: (prompt: string) => void;
@@ -528,6 +529,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
   url,
   initialTitle,
   onClear,
+  onNavigateUrl,
   onAskAboutRepo,
   onCloneToSession,
   onAskAgent,
@@ -542,11 +544,28 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
     return null;
   });
   const [currentUrl, setCurrentUrl] = useState<string | null>(url);
+  const [navTitleOverride, setNavTitleOverride] = useState<string | null>(null);
   const [history, setHistory] = useState<string[]>(url ? [url] : []);
   const [historyIndex, setHistoryIndex] = useState<number>(url ? 0 : -1);
   const initialMountRef = useRef<boolean>(true);
+  const historyRef = useRef<string[]>(url ? [url] : []);
+  const historyIndexRef = useRef<number>(url ? 0 : -1);
+  const currentUrlRef = useRef<string | null>(url);
+
+  useEffect(() => {
+    historyRef.current = history;
+  }, [history]);
+
+  useEffect(() => {
+    historyIndexRef.current = historyIndex;
+  }, [historyIndex]);
+
+  useEffect(() => {
+    currentUrlRef.current = currentUrl;
+  }, [currentUrl]);
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isWebviewLoading, setIsWebviewLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'reader' | 'webview'>('reader');
   const [isShieldActive, setIsShieldActive] = useState<boolean>(true);
@@ -556,11 +575,16 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
     const target = currentUrl || url;
     if (!target) return '';
     const apiBase = import.meta.env.VITE_API_URL || '';
-    if (isShieldActive) {
-      return `${apiBase}/api/reader/proxy/webview?url=${encodeURIComponent(target)}&shield=true`;
-    }
-    return target;
+    return `${apiBase}/api/reader/proxy/webview?url=${encodeURIComponent(target)}&shield=${isShieldActive ? 'true' : 'false'}`;
   }, [currentUrl, url, isShieldActive]);
+
+  useEffect(() => {
+    if (viewMode === 'webview' && effectiveWebviewUrl) {
+      setIsWebviewLoading(true);
+    } else {
+      setIsWebviewLoading(false);
+    }
+  }, [effectiveWebviewUrl, viewMode]);
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const [isBranchCopied, setIsBranchCopied] = useState<boolean>(false);
   const [prTab, setPrTab] = useState<'overview' | 'diff' | 'commits'>('overview');
@@ -610,12 +634,16 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
       return;
     }
     if (url) {
-      if (history.length === 0 || history[historyIndex] !== url) {
-        setHistory((prev) => {
-          const next = historyIndex >= 0 ? [...prev.slice(0, historyIndex + 1), url] : [url];
-          return next;
-        });
-        setHistoryIndex((prev) => prev + 1);
+      const curIdx = historyIndexRef.current;
+      const curHist = historyRef.current;
+      if (currentUrlRef.current !== url || curHist.length === 0 || curHist[curIdx] !== url) {
+        const nextHist = curIdx >= 0 ? [...curHist.slice(0, curIdx + 1), url] : [url];
+        historyRef.current = nextHist;
+        historyIndexRef.current = nextHist.length - 1;
+        currentUrlRef.current = url;
+        setNavTitleOverride(initialTitle || null);
+        setHistory(nextHist);
+        setHistoryIndex(nextHist.length - 1);
         setCurrentUrl(url);
       } else {
         // If re-triggered with the same URL, reload/re-evaluate
@@ -753,6 +781,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
       return;
     }
 
+    setData((prev) => (prev && prev.url === targetUrl ? prev : null));
     setIsLoading(true);
     try {
       const apiBase = import.meta.env.VITE_API_URL || '';
@@ -805,31 +834,78 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
   }, [currentUrl]);
 
   // Navigate to a new internal link or nav target
-  const navigateTo = (targetUrl: string) => {
-    if (!targetUrl || targetUrl === currentUrl) return;
-    const nextHist = [...history.slice(0, historyIndex + 1), targetUrl];
+  const navigateTo = useCallback((targetUrl: string, titleHint?: string) => {
+    if (!targetUrl) return;
+    if (titleHint) {
+      setNavTitleOverride(titleHint);
+    } else if (targetUrl !== currentUrlRef.current) {
+      setNavTitleOverride(null);
+    }
+    if (targetUrl === currentUrlRef.current) {
+      onNavigateUrl?.(targetUrl, titleHint);
+      return;
+    }
+    const curHist = historyRef.current;
+    const curIdx = historyIndexRef.current;
+    const nextHist = curIdx >= 0 ? [...curHist.slice(0, curIdx + 1), targetUrl] : [targetUrl];
+    historyRef.current = nextHist;
+    historyIndexRef.current = nextHist.length - 1;
+    currentUrlRef.current = targetUrl;
     setHistory(nextHist);
     setHistoryIndex(nextHist.length - 1);
     setCurrentUrl(targetUrl);
-  };
+    onNavigateUrl?.(targetUrl, titleHint);
+  }, [onNavigateUrl]);
+
+  // Listen for link click / mode switch messages from the proxied webview iframe
+  useEffect(() => {
+    const handleWebviewMessage = (event: MessageEvent) => {
+      if (!event.data || typeof event.data !== 'object') return;
+      if (event.data.type === 'CYCLODE_WEBVIEW_NAVIGATE' && typeof event.data.url === 'string') {
+        const nextUrl = event.data.url.trim();
+        const nextTitle = typeof event.data.title === 'string' ? event.data.title.trim() : undefined;
+        if (nextUrl && /^https?:\/\//i.test(nextUrl)) {
+          navigateTo(nextUrl, nextTitle || undefined);
+        }
+      } else if (event.data.type === 'CYCLODE_WEBVIEW_SWITCH_READER') {
+        setViewMode('reader');
+      }
+    };
+    window.addEventListener('message', handleWebviewMessage);
+    return () => window.removeEventListener('message', handleWebviewMessage);
+  }, [navigateTo]);
 
   const handleGoBack = () => {
-    if (historyIndex > 0) {
-      const nextIdx = historyIndex - 1;
+    if (historyIndexRef.current > 0) {
+      const nextIdx = historyIndexRef.current - 1;
+      const nextUrl = historyRef.current[nextIdx];
+      historyIndexRef.current = nextIdx;
+      currentUrlRef.current = nextUrl;
+      setNavTitleOverride(null);
       setHistoryIndex(nextIdx);
-      setCurrentUrl(history[nextIdx]);
+      setCurrentUrl(nextUrl);
+      if (nextUrl) {
+        onNavigateUrl?.(nextUrl);
+      }
     }
   };
 
   const handleGoForward = () => {
-    if (historyIndex < history.length - 1) {
-      const nextIdx = historyIndex + 1;
+    if (historyIndexRef.current < historyRef.current.length - 1) {
+      const nextIdx = historyIndexRef.current + 1;
+      const nextUrl = historyRef.current[nextIdx];
+      historyIndexRef.current = nextIdx;
+      currentUrlRef.current = nextUrl;
+      setNavTitleOverride(null);
       setHistoryIndex(nextIdx);
-      setCurrentUrl(history[nextIdx]);
+      setCurrentUrl(nextUrl);
+      if (nextUrl) {
+        onNavigateUrl?.(nextUrl);
+      }
     }
   };
 
-  const activeUrl = data?.url || currentUrl || url;
+  const activeUrl = currentUrl || data?.url || url;
 
   const handleCopyUrl = () => {
     if (activeUrl) {
@@ -978,7 +1054,9 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
     return filterNodes(data.navigation);
   }, [data?.navigation, treeSearchQuery]);
 
-  if (!url) {
+  const effectiveTargetUrl = currentUrl || url;
+
+  if (!effectiveTargetUrl) {
     return (
       <div className="h-full flex flex-col items-center justify-center p-6 text-center text-onedark-muted select-none">
         <div className="w-12 h-12 rounded-2xl bg-onedark-surface/60 border border-onedark-borderSubtle flex items-center justify-center mb-3 text-onedark-accent/70 shadow-sm">
@@ -992,13 +1070,13 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
     );
   }
 
-  const isGitHub = data?.type === 'github' || Boolean(url && url.includes('github.com'));
-  const isArXiv = data?.type === 'arxiv' || Boolean(data?.arxiv_id) || Boolean(currentUrl && /arxiv\.org/i.test(currentUrl)) || Boolean(url && /arxiv\.org/i.test(url));
-  const isPdf = data?.type === 'pdf' || 
-    Boolean(data?.pdf_url) || 
-    Boolean(initialTitle && /\.pdf($|\?)/i.test(initialTitle)) || 
-    Boolean(currentUrl && /\.pdf($|\?)/i.test(currentUrl)) || 
-    Boolean(url && /\.pdf($|\?)/i.test(url));
+  const isDataForCurrentUrl = Boolean(data && (!currentUrl || data.url === currentUrl));
+  const isGitHub = (isDataForCurrentUrl && data?.type === 'github') || Boolean(effectiveTargetUrl.includes('github.com'));
+  const isArXiv = (isDataForCurrentUrl && (data?.type === 'arxiv' || Boolean(data?.arxiv_id))) || Boolean(/arxiv\.org/i.test(effectiveTargetUrl));
+  const isPdf = (isDataForCurrentUrl && (data?.type === 'pdf' || Boolean(data?.pdf_url))) ||
+    Boolean(!navTitleOverride && initialTitle && currentUrl === url && /\.pdf($|\?)/i.test(initialTitle)) ||
+    Boolean(/\.pdf($|\?)/i.test(effectiveTargetUrl));
+  const displayToolbarTitle = (isDataForCurrentUrl && data?.title) || navTitleOverride || (currentUrl === url ? initialTitle : null) || effectiveTargetUrl;
 
   return (
     <div className="flex flex-col h-full bg-onedark-darker overflow-hidden text-onedark-fg">
@@ -1047,9 +1125,9 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
           )}
           <span 
             className="text-xs font-semibold text-onedark-fgBright truncate font-mono"
-            title={data?.title || initialTitle || url}
+            title={displayToolbarTitle}
           >
-            {data?.title || initialTitle || url}
+            {displayToolbarTitle}
           </span>
         </div>
 
@@ -1072,7 +1150,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
           )}
 
           {/* Document Outline Left Sidebar Toggle */}
-          {headings.length > 0 && !isPdf && (
+          {headings.length > 0 && !isPdf && viewMode === 'reader' && (
             <button
               onClick={() => setIsOutlineOpen(!isOutlineOpen)}
               className={`flex items-center space-x-1.5 px-2.5 py-1 rounded text-xs transition-all border cursor-pointer ${
@@ -1564,7 +1642,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
       {/* Main Content Area with Optional Collapsible Site Tree & Outline Sidebar */}
       <div className="flex-1 flex overflow-hidden relative">
         {/* Collapsible Document Outline Left Sidebar */}
-        {isOutlineOpen && headings.length > 0 && (
+        {isOutlineOpen && headings.length > 0 && viewMode === 'reader' && (
           <aside className="w-64 sm:w-72 border-r border-onedark-borderSubtle bg-onedark-bg/95 flex flex-col flex-shrink-0 z-10 select-none transition-all shadow-md sm:shadow-none">
             {/* Outline Header */}
             <div className="p-2.5 px-3 border-b border-onedark-borderSubtle flex items-center justify-between bg-onedark-surface/20">
@@ -1782,8 +1860,8 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
         )}
 
         {/* Reader / Webview Viewport */}
-        <div ref={contentScrollRef} className={`flex-1 ${(isArXiv || isPdf) && pdfViewMode !== 'summary' ? 'overflow-hidden flex flex-col p-4' : 'overflow-y-auto p-4'} select-text`}>
-          {isLoading && (
+        <div ref={contentScrollRef} className={`flex-1 ${((isArXiv || isPdf) && pdfViewMode !== 'summary') || viewMode === 'webview' ? 'overflow-hidden flex flex-col p-4' : 'overflow-y-auto p-4'} select-text`}>
+          {isLoading && viewMode === 'reader' && (
             <div className="space-y-4 select-none">
               <div className="flex items-center justify-between p-3.5 rounded-xl border border-onedark-accent/30 bg-onedark-accent/5 shadow-xs">
                 <div className="flex items-center space-x-3">
@@ -1798,7 +1876,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
                       </span>
                     </div>
                     <p className="text-[11px] text-onedark-muted truncate max-w-lg">
-                      {url || 'Parsing markdown and document outline hierarchy...'}
+                      {effectiveTargetUrl || 'Parsing markdown and document outline hierarchy...'}
                     </p>
                   </div>
                 </div>
@@ -1843,22 +1921,34 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
             </div>
           )}
 
-          {error && !isLoading && (
+          {error && !isLoading && viewMode === 'reader' && (
             <div className="p-4 rounded-xl border border-onedark-red/30 bg-onedark-red/10 text-xs text-onedark-fg space-y-2">
               <div className="flex items-center space-x-2 text-onedark-red font-semibold">
                 <AlertCircle className="w-4 h-4" />
                 <span>Failed to preview document</span>
               </div>
               <p className="text-onedark-muted leading-relaxed">{error}</p>
-              <a
-                href={url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center space-x-1 text-onedark-accent hover:underline font-medium pt-1"
-              >
-                <span>Open directly in external browser tab</span>
-                <ExternalLink className="w-3 h-3" />
-              </a>
+              <div className="flex flex-wrap items-center gap-3 pt-1">
+                {!isPlanDoc && !isArXiv && !isPdf && (
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('webview')}
+                    className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-onedark-accent/15 hover:bg-onedark-accent/25 border border-onedark-accent/30 text-onedark-accent font-semibold cursor-pointer transition-colors"
+                  >
+                    <Globe className="w-3 h-3" />
+                    <span>Open in Embedded Webview</span>
+                  </button>
+                )}
+                <a
+                  href={effectiveTargetUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center space-x-1 text-onedark-accent hover:underline font-medium"
+                >
+                  <span>Open directly in external browser tab</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
+              </div>
             </div>
           )}
 
@@ -1932,15 +2022,15 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
             )
           )}
 
-          {!isLoading && !error && viewMode === 'webview' && (
-            <div className="h-full flex flex-col -m-4">
-              <div className="px-3 py-1.5 bg-onedark-surface/80 border-b border-onedark-borderSubtle text-[11px] text-onedark-muted flex items-center justify-between">
-                <div className="flex items-center space-x-2.5">
-                  <span className="font-medium text-onedark-fg/80">Embedded webview</span>
+          {viewMode === 'webview' && (
+            <div className="flex-1 h-full flex flex-col -m-4 overflow-hidden">
+              <div className="px-3 py-1.5 bg-onedark-surface/80 border-b border-onedark-borderSubtle text-[11px] text-onedark-muted flex items-center justify-between flex-shrink-0">
+                <div className="flex items-center space-x-2.5 min-w-0">
+                  <span className="font-medium text-onedark-fg/80 shrink-0">Embedded webview</span>
                   <button
                     type="button"
                     onClick={() => setIsShieldActive(!isShieldActive)}
-                    className={`flex items-center space-x-1 px-2 py-0.5 rounded text-[10.5px] font-medium transition-colors cursor-pointer ${
+                    className={`flex items-center space-x-1 px-2 py-0.5 rounded text-[10.5px] font-medium transition-colors cursor-pointer shrink-0 ${
                       isShieldActive
                         ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
                         : 'bg-onedark-darker text-onedark-muted hover:text-onedark-fg border border-onedark-borderSubtle'
@@ -1950,13 +2040,20 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
                     {isShieldActive ? <ShieldCheck className="w-3 h-3 text-emerald-400" /> : <ShieldAlert className="w-3 h-3 text-amber-400" />}
                     <span>{isShieldActive ? 'Shield: Active' : 'Shield: Off'}</span>
                   </button>
-                  <span className="text-[10px] text-onedark-muted/70 hidden sm:inline">
-                    {isShieldActive ? '(Blocks newsletter popups & cookie banners)' : '(Raw unshielded)'}
-                  </span>
+                  {isWebviewLoading ? (
+                    <span className="flex items-center space-x-1.5 text-[10.5px] text-onedark-accent font-mono truncate">
+                      <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                      <span className="truncate">Loading page...</span>
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-onedark-muted/70 hidden sm:inline truncate">
+                      {isShieldActive ? '(Blocks newsletter popups & cookie banners)' : '(Raw unshielded)'}
+                    </span>
+                  )}
                 </div>
-                <div className="flex items-center space-x-3">
+                <div className="flex items-center space-x-3 shrink-0">
                   <a
-                    href={currentUrl || url || '#'}
+                    href={effectiveTargetUrl || '#'}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center space-x-1 text-onedark-muted hover:text-onedark-fg transition-colors"
@@ -1976,9 +2073,11 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
               <iframe
                 key={effectiveWebviewUrl}
                 src={effectiveWebviewUrl}
-                title={data?.title || 'Web Preview'}
-                className="flex-1 w-full border-none bg-white"
-                sandbox="allow-same-origin allow-scripts allow-forms"
+                title={displayToolbarTitle || 'Web Preview'}
+                onLoad={() => setIsWebviewLoading(false)}
+                onError={() => setIsWebviewLoading(false)}
+                className="flex-1 w-full h-full border-none bg-white"
+                sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
               />
             </div>
           )}

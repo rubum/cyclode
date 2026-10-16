@@ -29,6 +29,7 @@ interface AuxiliaryPaneProps {
   onSelectFile?: (filePath: string, line?: number) => void;
   onClearSelectedFilePath?: () => void;
   onClearPreview?: () => void;
+  onNavigatePreview?: (url: string, title?: string) => void;
   onAskAboutRepo?: (repoName: string) => void;
   onCloneToSession?: (repoUrl: string, repoName: string) => void;
   onAskAboutComment?: (prompt: string) => void;
@@ -59,6 +60,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
   onSelectFile,
   onClearSelectedFilePath,
   onClearPreview,
+  onNavigatePreview,
   onAskAboutRepo,
   onCloneToSession,
   onAskAboutComment,
@@ -373,6 +375,7 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
                   url={previewTarget?.url || null}
                   initialTitle={previewTarget?.title}
                   onClear={onClearPreview}
+                  onNavigateUrl={onNavigatePreview}
                   onAskAboutRepo={onAskAboutRepo}
                   onCloneToSession={onCloneToSession}
                   onAskAgent={onAskAboutComment}

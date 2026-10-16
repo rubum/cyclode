@@ -560,6 +560,9 @@ async def test_proxy_webview_stream_shield():
             body = res.text
             # Base tag injected
             assert '<base href="https://example.com/test-article">' in body
+            # Navigation bridge injected
+            assert 'id="cyclode-webview-nav-bridge"' in body
+            assert "CYCLODE_WEBVIEW_NAVIGATE" in body
             # Annoying script stripped
             assert "api.optinmonster.com" not in body
             assert "Intrusive Script Blocked" in body
@@ -574,7 +577,16 @@ async def test_proxy_webview_stream_shield():
             assert res_no_shield.status_code == 200
             body_no_shield = res_no_shield.text
             assert '<base href="https://example.com/test-article">' in body_no_shield
+            assert 'id="cyclode-webview-nav-bridge"' in body_no_shield
             assert 'id="cyclode-popup-shield"' not in body_no_shield
+
+            # 3. Upstream HTTP 403 renders styled HTML fallback instead of raw JSON error
+            mock_resp.status_code = 403
+            res_blocked = await ac.get("/api/reader/proxy/webview?url=https://example.com/blocked-page&shield=true")
+            assert res_blocked.status_code == 200
+            assert "Unable to load page in embedded webview" in res_blocked.text
+            assert "CYCLODE_WEBVIEW_SWITCH_READER" in res_blocked.text
+
 
 
 

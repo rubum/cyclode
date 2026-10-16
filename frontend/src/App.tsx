@@ -1587,15 +1587,29 @@ const MainApp: React.FC = () => {
       handleOpenPlanDocument(planTaskId || activeTaskId);
       return;
     }
-    if (activeTaskId) {
-      setSessionPreviews((prev) => ({
-        ...prev,
-        [activeTaskId]: { url, title },
-      }));
-    }
+    const sessionKey = activeTaskId || 'draft';
+    setSessionPreviews((prev) => ({
+      ...prev,
+      [sessionKey]: { url, title },
+    }));
     if (currentPreset === 'fullscreen') {
       handleSetPreset('split');
     }
+  };
+
+  const handleNavigatePreview = (url: string, title?: string) => {
+    const sessionKey = activeTaskId || 'draft';
+    setSessionPreviews((prev) => {
+      const existing = prev[sessionKey];
+      const resolvedTitle = title || (existing?.url === url ? existing?.title : undefined);
+      if (existing?.url === url && existing?.title === resolvedTitle) {
+        return prev;
+      }
+      return {
+        ...prev,
+        [sessionKey]: { url, title: resolvedTitle },
+      };
+    });
   };
 
   const handleOpenPlanDocument = (taskId?: string, plan?: any) => {
@@ -1671,6 +1685,7 @@ const MainApp: React.FC = () => {
               setSessionFileLines((prev) => ({ ...prev, [sessionKey]: null }));
             }}
             onClearPreview={handleClearPreview}
+            onNavigatePreview={handleNavigatePreview}
             onAskAboutRepo={(repoName) => {
               setActiveView('chat');
               handleSendMessage(`Can you analyze the architecture and features of the ${repoName} repository?`);
