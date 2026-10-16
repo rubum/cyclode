@@ -73,6 +73,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState<string>('');
   const [sessionSearchQuery, setSessionSearchQuery] = useState<string>('');
+  const [hoveredSession, setHoveredSession] = useState<{ taskId: string; top: number; left: number } | null>(null);
 
   const filteredTasks = useMemo(() => {
     const primaryTasks = tasks.filter((t) => !t.is_subsession);
@@ -203,7 +204,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="w-6 h-px bg-onedark-borderSubtle my-0.5 flex-shrink-0" />
 
         {/* Sessions Rail (Scrollable) */}
-        <div className="flex-1 w-full overflow-y-auto overflow-x-hidden flex flex-col items-center space-y-1.5 py-1 px-1 custom-scrollbar min-h-0">
+        <div
+          onScroll={() => setHoveredSession(null)}
+          className="flex-1 w-full overflow-y-auto overflow-x-hidden flex flex-col items-center space-y-1.5 py-1 px-1 custom-scrollbar min-h-0"
+        >
           {filteredTasks.length === 0 ? (
             isLoadingTasks ? (
               <div className="w-9 h-9 rounded-xl flex items-center justify-center text-onedark-muted/60" title="Loading sessions...">
@@ -221,8 +225,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
               return (
                 <div key={task.id} className="relative group flex items-center justify-center flex-shrink-0">
                   <button
+                    onMouseEnter={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const clampedTop = Math.min(Math.max(rect.top + rect.height / 2, 72), window.innerHeight - 72);
+                      setHoveredSession({
+                        taskId: task.id,
+                        top: clampedTop,
+                        left: rect.right + 12,
+                      });
+                    }}
+                    onMouseLeave={() => {
+                      setHoveredSession((prev) => (prev?.taskId === task.id ? null : prev));
+                    }}
                     onClick={() => {
                       if (isBeingDeleted || isClearingAll) return;
+                      setHoveredSession(null);
                       onSelectTask(task.id);
                       setActiveView('chat');
                     }}
@@ -239,41 +256,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     {/* Status Dot */}
                     <span className={`absolute bottom-1 right-1 w-1.5 h-1.5 rounded-full ring-2 ring-onedark-darker ${getStatusDot(task.status)}`} />
                   </button>
-
-                  {/* Rich Floating Hover Card Tooltip */}
-                  <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 w-64 p-3 bg-onedark-darker/95 backdrop-blur-md rounded-xl border border-onedark-borderSubtle shadow-2xl pointer-events-none opacity-0 group-hover:opacity-100 transition-all duration-150 z-50 flex flex-col space-y-2">
-                    <div className="flex items-start justify-between space-x-2">
-                      <span className="text-xs font-semibold text-onedark-fgBright line-clamp-2 leading-snug">
-                        {task.title || 'Untitled Session'}
-                      </span>
-                      <span className={`inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[9px] font-mono flex-shrink-0 ${getStatusColor(task.status)}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${getStatusDot(task.status)}`} />
-                        <span>{formatStatus(task.status)}</span>
-                      </span>
-                    </div>
-
-                    {task.created_at && (
-                      <div className="flex items-center space-x-1.5 text-[10.5px] text-onedark-muted font-sans">
-                        <Clock className="w-3 h-3 text-onedark-muted/70 flex-shrink-0" />
-                        <span title={formatFullDateTime(task.created_at)}>
-                          Created {formatRelativeTime(task.created_at)}
-                        </span>
-                      </div>
-                    )}
-
-                    <div className="flex items-center flex-wrap gap-1 text-[10px]">
-                      {task.persona && (
-                        <span className="px-1.5 py-0.5 rounded bg-onedark-surface text-onedark-muted font-mono">
-                          {task.persona}
-                        </span>
-                      )}
-                      {task.repo_name && (
-                        <span className="px-1.5 py-0.5 rounded bg-onedark-accent/10 text-onedark-accent font-mono truncate max-w-[140px]">
-                          {task.repo_name}
-                        </span>
-                      )}
-                    </div>
-                  </div>
                 </div>
               );
             })
@@ -369,6 +351,55 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           )}
         </div>
+
+        {/* Fixed Floating Hover Card for Collapsed Sessions (outside overflow-y-auto rail) */}
+        {hoveredSession && (() => {
+          const hoveredTask = filteredTasks.find((t) => t.id === hoveredSession.taskId);
+          if (!hoveredTask) return null;
+          return (
+            <div
+              style={{
+                position: 'fixed',
+                top: `${hoveredSession.top}px`,
+                left: `${hoveredSession.left}px`,
+                transform: 'translateY(-50%)',
+              }}
+              className="w-64 p-3 bg-onedark-darker/95 backdrop-blur-md rounded-xl border border-onedark-borderSubtle shadow-2xl pointer-events-none z-[100] flex flex-col space-y-2 animate-popover-enter"
+            >
+              <div className="flex items-start justify-between space-x-2">
+                <span className="text-xs font-semibold text-onedark-fgBright line-clamp-2 leading-snug">
+                  {hoveredTask.title || 'Untitled Session'}
+                </span>
+                <span className={`inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[9px] font-mono flex-shrink-0 ${getStatusColor(hoveredTask.status)}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${getStatusDot(hoveredTask.status)}`} />
+                  <span>{formatStatus(hoveredTask.status)}</span>
+                </span>
+              </div>
+
+              {hoveredTask.created_at && (
+                <div className="flex items-center space-x-1.5 text-[10.5px] text-onedark-muted font-sans">
+                  <Clock className="w-3 h-3 text-onedark-muted/70 flex-shrink-0" />
+                  <span title={formatFullDateTime(hoveredTask.created_at)}>
+                    Created {formatRelativeTime(hoveredTask.created_at)}
+                  </span>
+                </div>
+              )}
+
+              <div className="flex items-center flex-wrap gap-1 text-[10px]">
+                {hoveredTask.persona && (
+                  <span className="px-1.5 py-0.5 rounded bg-onedark-surface text-onedark-muted font-mono">
+                    {hoveredTask.persona}
+                  </span>
+                )}
+                {hoveredTask.repo_name && (
+                  <span className="px-1.5 py-0.5 rounded bg-onedark-accent/10 text-onedark-accent font-mono truncate max-w-[140px]">
+                    {hoveredTask.repo_name}
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })()}
       </div>
     );
   }
