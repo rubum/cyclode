@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Copy,
   Check,
@@ -286,10 +287,11 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ code, className 
   const calculateFitZoom = useCallback(() => {
     if (!modalCanvasRef.current || !svgDims) return 1.0;
     const rect = modalCanvasRef.current.getBoundingClientRect();
-    const padding = 72;
+    if (rect.width <= 0 || rect.height <= 0) return 1.0;
+    const padding = 64;
     const scaleX = (rect.width - padding) / svgDims.width;
     const scaleY = (rect.height - padding) / svgDims.height;
-    const fit = Math.min(Math.max(Math.min(scaleX, scaleY), 0.2), 2.0);
+    const fit = Math.min(Math.max(Math.min(scaleX, scaleY), 0.15), 2.0);
     return Number(fit.toFixed(2));
   }, [svgDims]);
 
@@ -304,14 +306,13 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ code, className 
     setPan({ x: 0, y: 0 });
   }, []);
 
-  // When modal opens, initialize zoom scale and center pan
+  // When modal opens, initialize zoom scale to fit the full diagram and center pan
   useEffect(() => {
     if (isModalOpen) {
       setPan({ x: 0, y: 0 });
       const rafId = requestAnimationFrame(() => {
         const fit = calculateFitZoom();
-        // If diagram fits comfortably (>= 70%), use fit; otherwise default to 1.0 for immediate readability
-        setZoom(fit >= 0.7 ? fit : 1.0);
+        setZoom(fit);
       });
       return () => cancelAnimationFrame(rafId);
     }
@@ -329,7 +330,7 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ code, className 
       const factor = Math.exp(delta * 0.002);
 
       setZoom((prevZoom) => {
-        const newZoom = Math.min(Math.max(0.2, Number((prevZoom * factor).toFixed(3))), 5.0);
+        const newZoom = Math.min(Math.max(0.15, Number((prevZoom * factor).toFixed(3))), 5.0);
         if (newZoom === prevZoom) return prevZoom;
 
         // Position of cursor relative to canvas center
@@ -384,12 +385,13 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ code, className 
     }
   };
 
-  // Double click toggles between 100% and fit
+  // Double click toggles between fit-to-screen and 100%
   const handleDoubleClick = () => {
-    if (Math.abs(zoom - 1.0) > 0.08) {
-      handleResetZoom();
-    } else {
+    const fit = calculateFitZoom();
+    if (Math.abs(zoom - fit) > 0.05) {
       handleFitView();
+    } else {
+      handleResetZoom();
     }
   };
 
@@ -405,7 +407,7 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ code, className 
         setZoom((z) => Math.min(5.0, Number((z + 0.25).toFixed(2))));
       } else if (e.key === '-' || e.key === '_') {
         e.preventDefault();
-        setZoom((z) => Math.max(0.2, Number((z - 0.25).toFixed(2))));
+        setZoom((z) => Math.max(0.15, Number((z - 0.25).toFixed(2))));
       } else if (e.key === '0') {
         e.preventDefault();
         handleResetZoom();
@@ -623,111 +625,122 @@ export const MermaidDiagram: React.FC<MermaidDiagramProps> = ({ code, className 
         </div>
       </div>
 
-      {/* Expanded Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-modal-enter">
-          <div className="relative w-full max-w-6xl h-[85vh] flex flex-col bg-onedark-darker border border-onedark-border rounded-2xl overflow-hidden shadow-2xl">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between px-5 py-3 border-b border-onedark-borderSubtle bg-onedark-surface/40 select-none flex-wrap gap-2">
-              <div className="flex items-center space-x-2">
-                <Sparkles className="w-4 h-4 text-onedark-accent" />
-                <span className="font-semibold text-xs text-onedark-fgBright">Workflow Diagram Inspection</span>
-                <span className="text-[10px] text-onedark-muted font-mono hidden sm:inline px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-borderSubtle">
-                  Interactive Canvas
-                </span>
-              </div>
-              <div className="flex items-center space-x-2">
-                {/* Zoom HUD Controls */}
-                <div className="flex items-center bg-onedark-darker/90 border border-onedark-border rounded-lg p-0.5 shadow-xs">
+      {/* Expanded Modal rendered via Portal to escape CSS transform/contain stacking contexts */}
+      {isModalOpen &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/75 backdrop-blur-xs animate-modal-enter"
+            onClick={() => setIsModalOpen(false)}
+          >
+            <div
+              className="relative w-full max-w-6xl h-[85vh] flex flex-col bg-onedark-darker border border-onedark-border rounded-2xl overflow-hidden shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between px-5 py-3 border-b border-onedark-borderSubtle bg-onedark-surface/40 select-none flex-wrap gap-2">
+                <div className="flex items-center space-x-2">
+                  <Sparkles className="w-4 h-4 text-onedark-accent" />
+                  <span className="font-semibold text-xs text-onedark-fgBright">Workflow Diagram Inspection</span>
+                  <span className="text-[10px] text-onedark-muted font-mono hidden sm:inline px-1.5 py-0.5 rounded bg-onedark-surface border border-onedark-borderSubtle">
+                    Interactive Canvas
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  {/* Zoom HUD Controls */}
+                  <div className="flex items-center bg-onedark-darker/90 border border-onedark-border rounded-lg p-0.5 shadow-xs">
+                    <button
+                      type="button"
+                      onClick={() => setZoom((z) => Math.max(0.15, Number((z - 0.25).toFixed(2))))}
+                      className="p-1 rounded text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface transition-colors cursor-pointer"
+                      title="Zoom Out (-)"
+                    >
+                      <ZoomOut className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleResetZoom}
+                      className="px-2 py-0.5 text-[11px] font-mono font-medium text-onedark-fgBright hover:text-onedark-accent transition-colors cursor-pointer min-w-[50px] text-center"
+                      title="Reset to 100% (0)"
+                    >
+                      {Math.round(zoom * 100)}%
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setZoom((z) => Math.min(5.0, Number((z + 0.25).toFixed(2))))}
+                      className="p-1 rounded text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface transition-colors cursor-pointer"
+                      title="Zoom In (+)"
+                    >
+                      <ZoomIn className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleFitView}
+                      className="p-1 rounded text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface transition-colors cursor-pointer ml-0.5 border-l border-onedark-borderSubtle/60"
+                      title="Fit to Screen"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+
                   <button
                     type="button"
-                    onClick={() => setZoom((z) => Math.max(0.2, Number((z - 0.25).toFixed(2))))}
-                    className="p-1 rounded text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface transition-colors cursor-pointer"
-                    title="Zoom Out (-)"
+                    onClick={handleDownloadSvg}
+                    className="px-2.5 py-1 text-xs rounded-lg bg-onedark-surface hover:bg-onedark-surface/80 text-onedark-fg font-medium transition-colors cursor-pointer flex items-center space-x-1.5 border border-onedark-borderSubtle shadow-xs"
                   >
-                    <ZoomOut className="w-3.5 h-3.5" />
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download SVG</span>
                   </button>
                   <button
                     type="button"
-                    onClick={handleResetZoom}
-                    className="px-2 py-0.5 text-[11px] font-mono font-medium text-onedark-fgBright hover:text-onedark-accent transition-colors cursor-pointer min-w-[50px] text-center"
-                    title="Reset to 100% (0)"
+                    onClick={() => setIsModalOpen(false)}
+                    className="p-1.5 rounded-lg hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright transition-colors cursor-pointer"
+                    title="Close (Esc)"
                   >
-                    {Math.round(zoom * 100)}%
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setZoom((z) => Math.min(5.0, Number((z + 0.25).toFixed(2))))}
-                    className="p-1 rounded text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface transition-colors cursor-pointer"
-                    title="Zoom In (+)"
-                  >
-                    <ZoomIn className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleFitView}
-                    className="p-1 rounded text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface transition-colors cursor-pointer ml-0.5 border-l border-onedark-borderSubtle/60"
-                    title="Fit to Screen"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
+                    <Minimize2 className="w-4 h-4" />
                   </button>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={handleDownloadSvg}
-                  className="px-2.5 py-1 text-xs rounded-lg bg-onedark-surface hover:bg-onedark-surface/80 text-onedark-fg font-medium transition-colors cursor-pointer flex items-center space-x-1.5 border border-onedark-borderSubtle shadow-xs"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Download SVG</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="p-1.5 rounded-lg hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright transition-colors cursor-pointer"
-                  title="Close (Esc)"
-                >
-                  <Minimize2 className="w-4 h-4" />
-                </button>
               </div>
-            </div>
 
-            {/* Interactive Canvas */}
-            <div
-              ref={modalCanvasRef}
-              className={`flex-1 relative overflow-hidden flex items-center justify-center select-none bg-onedark-bg/40 ${
-                isDragging ? 'cursor-grabbing' : 'cursor-grab'
-              }`}
-              onPointerDown={handlePointerDown}
-              onPointerMove={handlePointerMove}
-              onPointerUp={handlePointerUp}
-              onPointerCancel={handlePointerUp}
-              onDoubleClick={handleDoubleClick}
-            >
+              {/* Interactive Canvas */}
               <div
-                style={{
-                  transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
-                  transformOrigin: 'center center',
-                  transition: isDragging ? 'none' : 'transform 0.12s cubic-bezier(0.16, 1, 0.3, 1)',
-                  width: svgDims ? `${svgDims.width}px` : 'auto',
-                  height: svgDims ? `${svgDims.height}px` : 'auto',
-                }}
-                className="flex items-center justify-center pointer-events-none [&>svg]:w-full [&>svg]:h-full [&>svg]:max-w-none [&>svg]:pointer-events-auto"
-                dangerouslySetInnerHTML={{ __html: svgHtml }}
-              />
+                ref={modalCanvasRef}
+                className={`flex-1 relative overflow-hidden flex items-center justify-center select-none bg-onedark-bg/40 ${
+                  isDragging ? 'cursor-grabbing' : 'cursor-grab'
+                }`}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
+                onPointerCancel={handlePointerUp}
+                onDoubleClick={handleDoubleClick}
+              >
+                <div
+                  style={{
+                    transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
+                    transformOrigin: 'center center',
+                    transition: isDragging ? 'none' : 'transform 0.12s cubic-bezier(0.16, 1, 0.3, 1)',
+                    width: svgDims ? `${svgDims.width}px` : 'auto',
+                    height: svgDims ? `${svgDims.height}px` : 'auto',
+                  }}
+                  className="flex items-center justify-center pointer-events-none [&>svg]:!w-full [&>svg]:!h-full [&>svg]:!max-w-none [&>svg]:pointer-events-auto"
+                  dangerouslySetInnerHTML={{ __html: svgHtml }}
+                />
 
-              {/* Navigation Hint Pill */}
-              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-onedark-darker/90 backdrop-blur-md border border-onedark-borderSubtle/80 text-[10px] font-mono text-onedark-muted pointer-events-none flex items-center space-x-2 select-none shadow-md">
-                <span>Drag to pan</span>
-                <span className="opacity-40">·</span>
-                <span>Scroll to zoom</span>
-                <span className="opacity-40">·</span>
-                <span>Double-click to toggle fit</span>
+                {/* Navigation Hint Pill */}
+                <div className="absolute bottom-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full bg-onedark-darker/90 backdrop-blur-md border border-onedark-borderSubtle/80 text-[10px] font-mono text-onedark-muted pointer-events-none flex items-center space-x-2 select-none shadow-md">
+                  <span>Drag to pan</span>
+                  <span className="opacity-40">·</span>
+                  <span>Scroll to zoom</span>
+                  <span className="opacity-40">·</span>
+                  <span>Double-click to toggle fit</span>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </>
   );
 };

@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
   ResponsiveContainer,
   BarChart,
@@ -587,38 +588,47 @@ const ChatChartBlockInner: React.FC<ChatChartBlockProps> = ({
       </div>
 
       {/* Expanded Fullscreen Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs animate-modal-enter">
-          <div className="relative w-full max-w-5xl h-[80vh] flex flex-col bg-onedark-darker border border-onedark-border rounded-2xl overflow-hidden shadow-2xl">
-            <div className="flex items-center justify-between px-5 py-3 border-b border-onedark-borderSubtle bg-onedark-surface/40 select-none">
-              <div className="flex items-center space-x-2">
-                <BarChart3 className="w-4 h-4 text-onedark-accent" />
-                <span className="font-semibold text-xs text-onedark-fgBright">
-                  {spec.title || 'Data Visualization Inspection'}
-                </span>
+      {isModalOpen &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/75 backdrop-blur-xs animate-modal-enter"
+            onClick={() => setIsModalOpen(false)}
+          >
+            <div
+              className="relative w-full max-w-5xl h-[80vh] flex flex-col bg-onedark-darker border border-onedark-border rounded-2xl overflow-hidden shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-5 py-3 border-b border-onedark-borderSubtle bg-onedark-surface/40 select-none">
+                <div className="flex items-center space-x-2">
+                  <BarChart3 className="w-4 h-4 text-onedark-accent" />
+                  <span className="font-semibold text-xs text-onedark-fgBright">
+                    {spec.title || 'Data Visualization Inspection'}
+                  </span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={handleDownloadCsv}
+                    className="px-2.5 py-1 text-xs rounded-lg bg-onedark-surface hover:bg-onedark-surface/80 text-onedark-fg font-medium transition-colors cursor-pointer flex items-center space-x-1.5"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download CSV</span>
+                  </button>
+                  <button
+                    onClick={() => setIsModalOpen(false)}
+                    className="p-1.5 rounded-lg hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright transition-colors cursor-pointer"
+                  >
+                    <Minimize2 className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={handleDownloadCsv}
-                  className="px-2.5 py-1 text-xs rounded-lg bg-onedark-surface hover:bg-onedark-surface/80 text-onedark-fg font-medium transition-colors cursor-pointer flex items-center space-x-1.5"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  <span>Download CSV</span>
-                </button>
-                <button
-                  onClick={() => setIsModalOpen(false)}
-                  className="p-1.5 rounded-lg hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright transition-colors cursor-pointer"
-                >
-                  <Minimize2 className="w-4 h-4" />
-                </button>
+              <div className="flex-1 p-6 overflow-auto flex items-center justify-center">
+                {renderChartGraphic('100%')}
               </div>
             </div>
-            <div className="flex-1 p-6 overflow-auto flex items-center justify-center">
-              {renderChartGraphic('100%')}
-            </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </>
   );
 };
