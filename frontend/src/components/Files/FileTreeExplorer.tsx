@@ -503,16 +503,21 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
     return list;
   }, [searchResults, selectedFile]);
 
-  const expandAllSearchFiles = () => {
-    setCollapsedSearchFiles({});
-  };
+  const isAnySearchFileExpanded = useMemo(
+    () => displayedGroups.some((g) => !collapsedSearchFiles[g.filePath]),
+    [displayedGroups, collapsedSearchFiles]
+  );
 
-  const collapseAllSearchFiles = () => {
-    const collapsed: Record<string, boolean> = {};
-    displayedGroups.forEach((g) => {
-      collapsed[g.filePath] = true;
-    });
-    setCollapsedSearchFiles(collapsed);
+  const toggleAllSearchFiles = () => {
+    if (isAnySearchFileExpanded) {
+      const collapsed: Record<string, boolean> = {};
+      displayedGroups.forEach((g) => {
+        collapsed[g.filePath] = true;
+      });
+      setCollapsedSearchFiles(collapsed);
+    } else {
+      setCollapsedSearchFiles({});
+    }
   };
 
   const scrollToSearchFile = (filePath: string) => {
@@ -1058,20 +1063,20 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
 
         {/* Scope Filters (All / This File / Workspace) */}
         {searchMode !== 'files' && searchResults && totalMatchesCount > 0 && (
-          <div className="flex flex-wrap items-center gap-1 bg-onedark-darker/80 p-0.5 rounded-lg border border-onedark-borderSubtle/80">
+          <div className="flex items-center gap-0.5 bg-onedark-darker/90 p-0.5 rounded-lg border border-onedark-borderSubtle">
             <button
               type="button"
               onClick={() => setScopeFilter('all')}
-              className={`flex-1 min-w-fit whitespace-nowrap inline-flex items-center justify-center gap-1 px-2 py-1 rounded-md text-[10.5px] font-medium transition-all cursor-pointer ${
+              className={`flex-1 min-w-0 whitespace-nowrap inline-flex items-center justify-center gap-1 px-1.5 py-1 rounded-md text-[10px] font-medium transition-all cursor-pointer ${
                 scopeFilter === 'all'
-                  ? 'bg-onedark-accent/15 text-onedark-accent font-semibold border border-onedark-accent/35 shadow-xs'
-                  : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/50 border border-transparent'
+                  ? 'bg-onedark-surface text-onedark-accent font-semibold shadow-xs'
+                  : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
               }`}
               title={`Show all matches (${totalMatchesCount})`}
             >
               <span>All</span>
               <span
-                className={`px-1 py-0.2 rounded text-[9.5px] font-mono leading-none ${
+                className={`px-1 py-0.2 rounded text-[9px] font-mono leading-none ${
                   scopeFilter === 'all'
                     ? 'bg-onedark-accent/20 text-onedark-accent font-bold'
                     : 'bg-onedark-surface/70 text-onedark-muted'
@@ -1084,17 +1089,17 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
               <button
                 type="button"
                 onClick={() => setScopeFilter('current')}
-                className={`flex-1 min-w-fit whitespace-nowrap inline-flex items-center justify-center gap-1 px-2 py-1 rounded-md text-[10.5px] font-medium transition-all cursor-pointer ${
+                className={`flex-1 min-w-0 whitespace-nowrap inline-flex items-center justify-center gap-1 px-1.5 py-1 rounded-md text-[10px] font-medium transition-all cursor-pointer ${
                   scopeFilter === 'current'
-                    ? 'bg-onedark-purple/15 text-onedark-purple font-semibold border border-onedark-purple/35 shadow-xs'
-                    : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/50 border border-transparent'
+                    ? 'bg-onedark-surface text-onedark-purple font-semibold shadow-xs'
+                    : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
                 }`}
                 title={`Only matches in the active file (${currentFileMatchCount})`}
               >
                 <Target className="w-2.5 h-2.5 flex-shrink-0" />
-                <span>This File</span>
+                <span>{workspaceMatchCount > 0 ? 'File' : 'This File'}</span>
                 <span
-                  className={`px-1 py-0.2 rounded text-[9.5px] font-mono leading-none ${
+                  className={`px-1 py-0.2 rounded text-[9px] font-mono leading-none ${
                     scopeFilter === 'current'
                       ? 'bg-onedark-purple/20 text-onedark-purple font-bold'
                       : 'bg-onedark-surface/70 text-onedark-muted'
@@ -1108,16 +1113,16 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
               <button
                 type="button"
                 onClick={() => setScopeFilter('workspace')}
-                className={`flex-1 min-w-fit whitespace-nowrap inline-flex items-center justify-center gap-1 px-2 py-1 rounded-md text-[10.5px] font-medium transition-all cursor-pointer ${
+                className={`flex-1 min-w-0 whitespace-nowrap inline-flex items-center justify-center gap-1 px-1.5 py-1 rounded-md text-[10px] font-medium transition-all cursor-pointer ${
                   scopeFilter === 'workspace'
-                    ? 'bg-onedark-blue/15 text-onedark-blue font-semibold border border-onedark-blue/35 shadow-xs'
-                    : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/50 border border-transparent'
+                    ? 'bg-onedark-surface text-onedark-blue font-semibold shadow-xs'
+                    : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/40'
                 }`}
                 title={`Matches across other workspace files (${workspaceMatchCount})`}
               >
                 <span>Workspace</span>
                 <span
-                  className={`px-1 py-0.2 rounded text-[9.5px] font-mono leading-none ${
+                  className={`px-1 py-0.2 rounded text-[9px] font-mono leading-none ${
                     scopeFilter === 'workspace'
                       ? 'bg-onedark-blue/20 text-onedark-blue font-bold'
                       : 'bg-onedark-surface/70 text-onedark-muted'
@@ -1200,39 +1205,37 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
           /* Grouped Search Results */
           <div className="space-y-2">
             {/* Search Results Summary & Actions Bar */}
-            <div className="px-1 text-[10.5px] text-onedark-muted flex items-center justify-between">
-              <div className="flex items-center space-x-1.5">
-                <span>
-                  {totalMatchesCount} match{totalMatchesCount === 1 ? '' : 'es'} in{' '}
-                  {searchResults?.total_files_matched || displayedGroups.length} file{((searchResults?.total_files_matched || displayedGroups.length) === 1 ? '' : 's')}
+            <div className="px-1 py-0.5 text-[10.5px] text-onedark-muted flex items-center justify-between gap-1.5">
+              <div className="flex items-center gap-1.5 min-w-0 whitespace-nowrap overflow-hidden">
+                <span className="truncate">
+                  <span className="font-semibold text-onedark-fgBright font-mono">{totalMatchesCount}</span>{' '}
+                  match{totalMatchesCount === 1 ? '' : 'es'} in{' '}
+                  <span className="font-semibold text-onedark-fgBright font-mono">
+                    {searchResults?.total_files_matched || displayedGroups.length}
+                  </span>{' '}
+                  file{(searchResults?.total_files_matched || displayedGroups.length) === 1 ? '' : 's'}
                 </span>
                 {searchResults?.capped && (
-                  <span className="text-onedark-yellow font-semibold text-[10px] px-1 py-0.2 rounded bg-onedark-yellow/10 border border-onedark-yellow/30">
+                  <span className="text-onedark-yellow font-semibold text-[9.5px] px-1 py-0.2 rounded bg-onedark-yellow/10 border border-onedark-yellow/30 flex-shrink-0">
                     Capped
                   </span>
                 )}
               </div>
 
               {displayedGroups.length > 1 && (
-                <div className="flex items-center space-x-1 text-[10px]">
-                  <button
-                    type="button"
-                    onClick={expandAllSearchFiles}
-                    className="px-1.5 py-0.5 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg cursor-pointer transition-colors"
-                    title="Expand all file matches"
-                  >
-                    Expand all
-                  </button>
-                  <span className="text-onedark-borderSubtle">·</span>
-                  <button
-                    type="button"
-                    onClick={collapseAllSearchFiles}
-                    className="px-1.5 py-0.5 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg cursor-pointer transition-colors"
-                    title="Collapse all file matches"
-                  >
-                    Collapse all
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={toggleAllSearchFiles}
+                  className="p-1 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright transition-colors cursor-pointer border border-transparent hover:border-onedark-borderSubtle flex-shrink-0"
+                  title={isAnySearchFileExpanded ? 'Collapse all file matches' : 'Expand all file matches'}
+                  aria-label={isAnySearchFileExpanded ? 'Collapse all file matches' : 'Expand all file matches'}
+                >
+                  {isAnySearchFileExpanded ? (
+                    <FoldVertical className="w-3.5 h-3.5" />
+                  ) : (
+                    <UnfoldVertical className="w-3.5 h-3.5" />
+                  )}
+                </button>
               )}
             </div>
 
@@ -1300,10 +1303,10 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
                       </span>
                     </div>
 
-                    <div className="flex items-center space-x-1.5 flex-shrink-0">
+                    <div className="flex items-center space-x-1.5 flex-shrink-0 whitespace-nowrap">
                       {isCurrent && (
                         <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-bold bg-onedark-purple/20 text-onedark-purple border border-onedark-purple/30">
-                          CURRENT FILE
+                          ACTIVE
                         </span>
                       )}
                       <span className="px-1.5 py-0.2 rounded-full bg-onedark-darker text-[10px] text-onedark-muted font-mono">
