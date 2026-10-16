@@ -289,20 +289,35 @@ export function useTaskStore(): TaskStoreState {
               };
             }
 
-            const localMessages = prev.messages || [];
-            const serverMessages: TaskMessage[] = sortByCreatedAt(data.messages || []);
+            const localMessages: any[] = prev.messages || [];
+            const rawServerMessages: TaskMessage[] = sortByCreatedAt(data.messages || []);
 
-            const isMatch = (localMsg: TaskMessage, serverMsg: TaskMessage) => {
+            const isMatch = (localMsg: any, serverMsg: any) => {
               if (serverMsg.id === localMsg.id) return true;
+              if (localMsg.stream_id && (serverMsg.id === localMsg.stream_id || serverMsg.stream_id === localMsg.stream_id)) {
+                return true;
+              }
               if (
                 serverMsg.sender === localMsg.sender &&
+                serverMsg.content &&
+                localMsg.content &&
                 serverMsg.content.trim() === localMsg.content.trim() &&
                 serverMsg.content.trim().length > 0
               ) {
                 return true;
               }
+              if (
+                serverMsg.thought &&
+                localMsg.thought &&
+                serverMsg.thought.trim() === localMsg.thought.trim() &&
+                serverMsg.thought.trim().length > 0
+              ) {
+                return true;
+              }
               // Deduplicate stop/cancellation messages even if formatted slightly differently
               if (
+                localMsg.content &&
+                serverMsg.content &&
                 localMsg.content.includes("Task stopped") &&
                 serverMsg.content.includes("Task stopped")
               ) {
@@ -311,15 +326,65 @@ export function useTaskStore(): TaskStoreState {
               return false;
             };
 
+            const matchedLocalMsgIndices = new Set<number>();
+            const serverMessages: TaskMessage[] = rawServerMessages.map((sm: any) => {
+              const matchIdx = localMessages.findIndex(
+                (lm, idx) => !matchedLocalMsgIndices.has(idx) && isMatch(lm, sm)
+              );
+              if (matchIdx !== -1) {
+                matchedLocalMsgIndices.add(matchIdx);
+                const matchedLocal = localMessages[matchIdx];
+                return {
+                  ...sm,
+                  stream_id: matchedLocal.stream_id || matchedLocal.id,
+                  thought: sm.thought || matchedLocal.thought,
+                };
+              }
+              return sm;
+            });
+
             const inFlightMessages = localMessages.filter(
-              (m) => m.isStreaming || (m.isOptimistic && !serverMessages.some((sm) => isMatch(m, sm)))
+              (m, idx) =>
+                !matchedLocalMsgIndices.has(idx) &&
+                (m.isStreaming || m.isOptimistic || (isCurrentlyRunning && Boolean(m.thought)))
             );
 
-            const serverLogs = sortByCreatedAt(data.logs || []);
-            const runningLogs = isCurrentlyRunning
-              ? (prev.logs || []).filter((l: any) => l.isRunning && !serverLogs.some((sl: any) => sl.id === l.id))
+            const rawServerLogs = sortByCreatedAt(data.logs || []);
+            const prevLogs: any[] = prev.logs || [];
+            const matchedLocalIndices = new Set<number>();
+
+            const serverLogs = rawServerLogs.map((sl: any) => {
+              let matchIdx = prevLogs.findIndex(
+                (pl, idx) =>
+                  !matchedLocalIndices.has(idx) &&
+                  (pl.id === sl.id || (pl.call_id && (pl.call_id === sl.id || pl.call_id === sl.call_id)))
+              );
+              if (matchIdx === -1) {
+                const slInputStr = JSON.stringify(sl.tool_input || {});
+                matchIdx = prevLogs.findIndex(
+                  (pl, idx) =>
+                    !matchedLocalIndices.has(idx) &&
+                    pl.tool_name === sl.tool_name &&
+                    JSON.stringify(pl.tool_input || {}) === slInputStr
+                );
+              }
+              if (matchIdx !== -1) {
+                matchedLocalIndices.add(matchIdx);
+                const matchedLocal = prevLogs[matchIdx];
+                return {
+                  ...sl,
+                  call_id: matchedLocal.call_id || matchedLocal.id,
+                  isRunning: false,
+                };
+              }
+              return { ...sl, isRunning: false };
+            });
+
+            const unmatchedLocalLogs = isCurrentlyRunning
+              ? prevLogs.filter((_: any, idx: number) => !matchedLocalIndices.has(idx))
               : [];
-            const rawMergedLogs = runningLogs.length > 0 ? [...serverLogs, ...runningLogs] : serverLogs;
+            const rawMergedLogs =
+              unmatchedLocalLogs.length > 0 ? [...serverLogs, ...unmatchedLocalLogs] : serverLogs;
             const mergedLogs = sortByCreatedAt(
               isCurrentlyRunning
                 ? rawMergedLogs

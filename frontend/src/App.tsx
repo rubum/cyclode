@@ -243,22 +243,26 @@ const MainApp: React.FC = () => {
         setActiveTaskDetails((prev) => {
           if (!prev) return prev;
           const messages = [...(prev.messages || [])];
-          const existingIdx = messages.findIndex((m) => m.id === data.stream_id);
+          const existingIdx = messages.findIndex(
+            (m: any) => m.id === data.stream_id || (m.stream_id && m.stream_id === data.stream_id)
+          );
           if (existingIdx >= 0) {
             messages[existingIdx] = {
               ...messages[existingIdx],
+              stream_id: data.stream_id,
               isStreaming: true,
-            };
+            } as any;
           } else {
             messages.push({
               id: data.stream_id,
+              stream_id: data.stream_id,
               task_id: data.task_id,
               sender: data.sender || 'agent',
               content: '',
               thought: data.stream_type === 'thought' ? '' : undefined,
               isStreaming: true,
               created_at: data.timestamp || new Date().toISOString(),
-            });
+            } as any);
           }
           return { ...prev, status: 'RUNNING', messages };
         });
@@ -275,24 +279,28 @@ const MainApp: React.FC = () => {
         let messages = [...(prev.messages || [])];
         for (const data of chunks) {
           if (activeTaskId !== data.task_id) continue;
-          const existingIdx = messages.findIndex((m) => m.id === data.stream_id);
+          const existingIdx = messages.findIndex(
+            (m: any) => m.id === data.stream_id || (m.stream_id && m.stream_id === data.stream_id)
+          );
           if (existingIdx >= 0) {
             messages[existingIdx] = {
               ...messages[existingIdx],
+              stream_id: (messages[existingIdx] as any).stream_id || data.stream_id,
               content: data.stream_type === 'message' ? data.accumulated : (messages[existingIdx].content || ''),
               thought: data.stream_type === 'thought' ? data.accumulated : messages[existingIdx].thought,
               isStreaming: true,
-            };
+            } as any;
           } else {
             messages.push({
               id: data.stream_id,
+              stream_id: data.stream_id,
               task_id: data.task_id,
               sender: 'agent',
               content: data.stream_type === 'message' ? data.accumulated : '',
               thought: data.stream_type === 'thought' ? data.accumulated : undefined,
               isStreaming: true,
               created_at: new Date().toISOString(),
-            });
+            } as any);
           }
         }
         return { ...prev, messages };
@@ -322,18 +330,22 @@ const MainApp: React.FC = () => {
         setActiveTaskDetails((prev) => {
           if (!prev) return prev;
           const messages = [...(prev.messages || [])];
-          const existingIdx = messages.findIndex((m) => m.id === data.stream_id);
+          const existingIdx = messages.findIndex(
+            (m: any) => m.id === data.stream_id || (m.stream_id && m.stream_id === data.stream_id)
+          );
           if (existingIdx >= 0) {
             messages[existingIdx] = {
               ...messages[existingIdx],
+              stream_id: (messages[existingIdx] as any).stream_id || data.stream_id,
               content: data.stream_type === 'message' ? data.final_content : (messages[existingIdx].content || ''),
               thought: data.stream_type === 'thought' ? data.final_content : messages[existingIdx].thought,
               tokens: data.tokens,
               isStreaming: false,
-            };
+            } as any;
           } else {
             messages.push({
               id: data.stream_id,
+              stream_id: data.stream_id,
               task_id: data.task_id,
               sender: 'agent',
               content: data.stream_type === 'message' ? data.final_content : '',
@@ -341,7 +353,7 @@ const MainApp: React.FC = () => {
               tokens: data.tokens,
               isStreaming: false,
               created_at: data.timestamp || new Date().toISOString(),
-            });
+            } as any);
           }
           return { ...prev, messages };
         });
@@ -356,32 +368,36 @@ const MainApp: React.FC = () => {
           
           // Reconcile with existing streamed thought or matching thought entry
           const thoughtIdx = messages.findIndex(
-            (m) =>
+            (m: any) =>
               (data.id && m.id === data.id) ||
-              (data.stream_id && m.id === data.stream_id) ||
+              (data.stream_id && (m.id === data.stream_id || m.stream_id === data.stream_id)) ||
               (m.thought && data.thought && m.thought.trim() === data.thought.trim()) ||
               (m.content && data.thought && m.content.trim() === data.thought.trim() && m.thought)
           );
 
           if (thoughtIdx >= 0) {
+            const prevMsg: any = messages[thoughtIdx];
             messages[thoughtIdx] = {
-              ...messages[thoughtIdx],
-              id: data.id || messages[thoughtIdx].id,
+              ...prevMsg,
+              id: data.id || prevMsg.id,
+              stream_id: prevMsg.stream_id || data.stream_id || prevMsg.id,
               thought: data.thought,
-              content: (messages[thoughtIdx].content && messages[thoughtIdx].content !== data.thought) ? messages[thoughtIdx].content : '',
-              tokens: data.tokens ?? messages[thoughtIdx].tokens,
+              content: (prevMsg.content && prevMsg.content !== data.thought) ? prevMsg.content : '',
+              tokens: data.tokens ?? prevMsg.tokens,
               isStreaming: false,
-              created_at: messages[thoughtIdx].created_at || data.timestamp || new Date().toISOString(),
-            };
+              created_at: prevMsg.created_at || data.timestamp || new Date().toISOString(),
+            } as any;
             return { ...prev, messages };
           }
 
+          const fallbackId = data.id || data.stream_id || `thought-${Date.now()}`;
           return {
             ...prev,
             messages: [
               ...messages,
               {
-                id: data.id || `thought-${Date.now()}`,
+                id: fallbackId,
+                stream_id: data.stream_id || fallbackId,
                 task_id: data.task_id,
                 sender: 'agent',
                 content: '',
@@ -389,7 +405,7 @@ const MainApp: React.FC = () => {
                 tokens: data.tokens,
                 isStreaming: false,
                 created_at: data.timestamp || new Date().toISOString(),
-              },
+              } as any,
             ],
           };
         });
@@ -417,7 +433,7 @@ const MainApp: React.FC = () => {
             duration_ms: 0,
             created_at: data.timestamp || new Date().toISOString(),
             isRunning: true,
-            call_id: data.call_id,
+            call_id: callId,
           };
           return {
             ...prev,
@@ -444,6 +460,7 @@ const MainApp: React.FC = () => {
               return {
                 ...l,
                 id: data.id || l.id,
+                call_id: l.call_id || data.call_id || l.id,
                 tool_output: data.tool_output,
                 exit_code: data.exit_code,
                 duration_ms: data.duration_ms,
@@ -456,6 +473,7 @@ const MainApp: React.FC = () => {
               return {
                 ...l,
                 id: data.id || l.id,
+                call_id: l.call_id || l.id,
                 tool_output: data.tool_output,
                 exit_code: data.exit_code,
                 duration_ms: data.duration_ms,
@@ -464,13 +482,36 @@ const MainApp: React.FC = () => {
             }
             return l;
           });
+
+          if (!matched) {
+            const fallbackId = data.id || data.call_id || `live-log-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+            logs.push({
+              id: fallbackId,
+              call_id: data.call_id || fallbackId,
+              task_id: data.task_id,
+              tool_name: data.tool_name,
+              tool_input: data.tool_input || {},
+              tool_output: data.tool_output || '',
+              exit_code: data.exit_code ?? 0,
+              duration_ms: data.duration_ms ?? 0,
+              created_at: data.timestamp || new Date().toISOString(),
+              isRunning: false,
+            } as any);
+          }
+
+          const stillRunning = [...logs].reverse().find((l: any) => l.isRunning);
           return {
             ...prev,
-            active_tool: null,
+            active_tool: stillRunning
+              ? {
+                  tool_name: stillRunning.tool_name,
+                  tool_input: stillRunning.tool_input || {},
+                  timestamp: stillRunning.created_at || new Date().toISOString(),
+                }
+              : null,
             logs,
           };
         });
-        fetchTaskDetails(data.task_id);
       }
     });
 

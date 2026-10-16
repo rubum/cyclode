@@ -613,7 +613,7 @@ interface ConversationTurn {
     created_at?: string;
     isOptimistic?: boolean;
   };
-  thoughts: { id: string; thought: string; created_at: string; tokens?: number; isStreaming?: boolean }[];
+  thoughts: { id: string; stream_id?: string; thought: string; created_at: string; tokens?: number; isStreaming?: boolean }[];
   logs: TaskLog[];
   agentMessages: TaskMessage[];
   plan?: TaskPlan | null;
@@ -646,6 +646,15 @@ const maskSecretsInText = (text?: string): string => {
     .replace(/(xoxp-[A-Za-z0-9-]{4})[A-Za-z0-9-]+/g, '$1••••••••')
     .replace(/(AIzaSy[A-Za-z0-9_-]{4})[A-Za-z0-9_-]+/g, '$1••••••••')
     .replace(/(appsignal_[A-Za-z0-9_-]{4})[A-Za-z0-9_-]+/g, '$1••••••••');
+};
+
+const getThoughtStepPreview = (text?: string): string => {
+  if (!text) return 'Reasoning...';
+  const firstNonEmptyLine = text
+    .split('\n')
+    .map((line) => line.replace(/^[-*#>+\s`]+/, '').replace(/\*\*/g, '').replace(/`/g, '').trim())
+    .find((line) => line.length > 0);
+  return firstNonEmptyLine || 'Reasoning...';
 };
 
 interface ReasoningProcessContainerProps {
@@ -1506,6 +1515,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const [selectedPersona, setSelectedPersona] = useState('General');
   const [selectedModel, setSelectedModel] = useState('auto');
   const [openThoughts, setOpenThoughts] = useState<Record<string, boolean>>({});
+  const [expandedThoughtIds, setExpandedThoughtIds] = useState<Record<string, boolean>>({});
   const [userToggledPlans, setUserToggledPlans] = useState<Record<string, boolean>>({});
   const [userToggledActivities, setUserToggledActivities] = useState<Record<string, boolean>>({});
   const [expandedLogIds, setExpandedLogIds] = useState<Record<string, boolean>>({});
@@ -1976,16 +1986,22 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
         // 1. Process thought if present
         if (m.thought && !isInternalNotice(m.thought)) {
+          const msgStreamId = (m as any).stream_id;
           const existingThoughtIdx = currentTurn.thoughts.findIndex(
-            (t) => t.id === m.id || (t.thought.trim() === m.thought.trim() && m.thought.trim().length > 0)
+            (t) =>
+              t.id === m.id ||
+              (msgStreamId && (t.id === msgStreamId || t.stream_id === msgStreamId)) ||
+              (t.thought.trim() === m.thought.trim() && m.thought.trim().length > 0)
           );
           if (existingThoughtIdx >= 0) {
+            const prevThought = currentTurn.thoughts[existingThoughtIdx];
             currentTurn.thoughts[existingThoughtIdx] = {
-              ...currentTurn.thoughts[existingThoughtIdx],
-              id: m.id.startsWith('thought-') ? currentTurn.thoughts[existingThoughtIdx].id : m.id,
+              ...prevThought,
+              id: m.id.startsWith('thought-') ? prevThought.id : m.id,
+              stream_id: prevThought.stream_id || msgStreamId || prevThought.id,
               thought: m.thought,
               created_at: m.created_at,
-              tokens: m.tokens ?? currentTurn.thoughts[existingThoughtIdx].tokens,
+              tokens: m.tokens ?? prevThought.tokens,
               isStreaming: m.isStreaming ?? false,
             };
           } else {
@@ -1993,6 +2009,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
             if (!lastThought || lastThought.thought.trim() !== m.thought.trim() || m.isStreaming) {
               currentTurn.thoughts.push({
                 id: m.id,
+                stream_id: msgStreamId || m.id,
                 thought: m.thought,
                 created_at: m.created_at,
                 tokens: m.tokens,
@@ -2104,17 +2121,6 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
     return result;
   }, [task]);
-
-  // Handle thought accordions: auto open latest if running, auto collapse when done
-  useEffect(() => {
-    if (!task) return;
-    if (isRunning && turns.length > 0) {
-      const latestTurnId = turns[turns.length - 1].id;
-      setOpenThoughts((prev) => ({ ...prev, [latestTurnId]: true }));
-    } else if (!isRunning) {
-      setOpenThoughts({});
-    }
-  }, [isRunning, task?.status, turns.length]);
 
   // Global Escape key listener to stop running task
   useEffect(() => {
@@ -3539,12 +3545,10 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
         <div className={`w-full ${contentMaxWidth} mx-auto space-y-6`}>
           {turns.map((turn, tIdx) => {
             const isTurnRunning = isRunning && turn.isLatest && (turn.agentMessages.length === 0 || (turn.agentMessages.length === 1 && !turn.agentMessages[0].content));
-            const isTurnOpen = openThoughts[turn.id] ?? (isRunning && turn.isLatest);
-            const isActOpen = userToggledActivities[turn.id] !== undefined 
-              ? userToggledActivities[turn.id] 
-              : (isTurnRunning && turn.isLatest);
+            const isTurnOpen = Boolean(openThoughts[turn.id]);
+            const isActOpen = Boolean(userToggledActivities[turn.id]);
             const hasThoughts = turn.thoughts.length > 0;
-            const hasLogs = turn.logs.length > 0 || (isTurnRunning && turn.isLatest && !!task?.active_tool);
+            const hasLogs = turn.logs.length > 0 || (isRunning && turn.isLatest && !!task?.active_tool);
             const hasPlan = !!turn.plan && turn.plan.steps && turn.plan.steps.length > 0;
             const isPlanOpen = userToggledPlans[turn.id] !== undefined 
               ? userToggledPlans[turn.id] 
@@ -4063,103 +4067,253 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   </div>
                 ) : null}
 
-                {/* 3. Reasoning Process Accordion */}
-                {hasThoughts && (
-                  <div className={`rounded-xl overflow-hidden shadow-xs transition-all duration-200 ${
-                    isRunning && turn.isLatest
-                      ? 'bg-onedark-darker/60 border border-white/[0.08]'
-                      : 'bg-onedark-darker/40 hover:bg-onedark-darker/60 border border-white/[0.04]'
-                  }`}>
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => setOpenThoughts((prev) => ({ ...prev, [turn.id]: !isTurnOpen }))}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          setOpenThoughts((prev) => ({ ...prev, [turn.id]: !isTurnOpen }));
-                        }
-                      }}
-                      className="w-full px-3.5 py-2.5 flex items-center justify-between text-xs text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/30 transition-colors cursor-pointer select-none btn-tactile"
-                    >
-                      <div className="flex items-center space-x-2">
-                        <Sparkles className="w-3.5 h-3.5 text-onedark-accent" />
-                        <span className="font-mono text-xs font-medium text-onedark-fg">
-                          Reasoning process
-                        </span>
-                        <span className="text-[11px] text-onedark-muted font-mono">
-                          ({turn.thoughts.length} step{turn.thoughts.length > 1 ? 's' : ''})
-                        </span>
+                {/* 3. Reasoning Process (History Header + Latest Step Expanded) */}
+                {hasThoughts && (() => {
+                  const totalThoughtSteps = turn.thoughts.length;
+                  const streamingThoughtIdx = isRunning
+                    ? turn.thoughts.map((t) => Boolean(t.isStreaming)).lastIndexOf(true)
+                    : -1;
+                  const isAnyThoughtStreaming = streamingThoughtIdx >= 0;
+
+                  return (
+                    <div className="rounded-xl bg-onedark-darker/40 hover:bg-onedark-darker/60 overflow-hidden shadow-xs transition-colors border border-white/[0.04] space-y-0">
+                      {/* Reasoning History Header */}
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setOpenThoughts((prev) => ({ ...prev, [turn.id]: !isTurnOpen }))}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setOpenThoughts((prev) => ({ ...prev, [turn.id]: !isTurnOpen }));
+                          }
+                        }}
+                        className={`w-full px-3.5 py-2.5 flex items-center justify-between text-xs transition-colors cursor-pointer select-none group/thdr ${
+                          isTurnOpen ? 'bg-onedark-surface/30' : 'hover:bg-onedark-surface/40'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-2.5 min-w-0 pr-2">
+                          <div className="w-5 h-5 rounded-md bg-onedark-surface text-onedark-accent flex items-center justify-center flex-shrink-0">
+                            <Sparkles className="w-3 h-3" />
+                          </div>
+                          <div className="flex items-center space-x-2 min-w-0">
+                            <span className="font-mono text-[11.5px] font-medium text-onedark-fgBright truncate">
+                              Reasoning process
+                            </span>
+                            <span className="text-[11px] text-onedark-muted font-mono">
+                              ({totalThoughtSteps} step{totalThoughtSteps > 1 ? 's' : ''})
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center space-x-2 flex-shrink-0">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const fullText = turn.thoughts.map((t) => t.thought).filter(Boolean).join('\n\n---\n\n');
+                              if (fullText) {
+                                handleCopyText(`thoughts-${turn.id}`, fullText);
+                              }
+                            }}
+                            className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded hover:bg-onedark-surface/80 hover:text-onedark-fg text-onedark-muted transition-colors cursor-pointer"
+                            title="Copy full reasoning text to clipboard"
+                          >
+                            {copiedId === `thoughts-${turn.id}` ? (
+                              <>
+                                <Check className="w-3 h-3 text-onedark-green" />
+                                <span className="text-[10px] text-onedark-green font-medium">Copied</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3 h-3" />
+                                <span className="text-[10px]">Copy</span>
+                              </>
+                            )}
+                          </button>
+                          <span className="flex items-center space-x-1 text-onedark-muted group-hover/thdr:text-onedark-fgBright text-[11px] font-mono transition-colors pl-1">
+                            <span>{isTurnOpen ? 'Hide' : 'Show'}</span>
+                            <ChevronDown
+                              className={`w-3.5 h-3.5 transition-transform duration-200 ${
+                                isTurnOpen ? 'rotate-180 text-onedark-accent' : 'text-onedark-muted group-hover/thdr:text-onedark-fgBright'
+                              }`}
+                            />
+                          </span>
+                        </div>
                       </div>
 
-                      <div className="flex items-center space-x-2">
-                        {isRunning && turn.isLatest ? (
-                          <span className="px-2 py-0.5 rounded-full bg-onedark-yellow/10 text-onedark-yellow text-[10.5px] font-mono flex items-center space-x-1.5 font-semibold">
-                            <span className="w-1.5 h-1.5 rounded-full bg-onedark-yellow animate-pulse" />
-                            <span>Thinking...</span>
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded-md bg-onedark-surface/60 text-onedark-muted text-[10.5px] font-mono">
-                            {isTurnOpen ? 'Hide' : 'Show details'}
-                          </span>
-                        )}
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const fullText = turn.thoughts.map((t) => t.thought).filter(Boolean).join('\n\n---\n\n');
-                            if (fullText) {
-                              handleCopyText(`thoughts-${turn.id}`, fullText);
-                            }
-                          }}
-                          className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded hover:bg-onedark-surface/80 hover:text-onedark-fg text-onedark-muted transition-colors cursor-pointer"
-                          title="Copy full reasoning text to clipboard"
-                        >
-                          {copiedId === `thoughts-${turn.id}` ? (
-                            <>
-                              <Check className="w-3 h-3 text-onedark-green" />
-                              <span className="text-[10px] text-onedark-green font-medium">Copied</span>
-                            </>
-                          ) : (
-                            <>
-                              <Copy className="w-3 h-3" />
-                              <span className="text-[10px]">Copy</span>
-                            </>
-                          )}
-                        </button>
-                        {isTurnOpen ? (
-                          <ChevronDown className="w-4 h-4 text-onedark-muted" />
-                        ) : (
-                          <ChevronRight className="w-4 h-4 text-onedark-muted" />
-                        )}
-                      </div>
+                      {/* Collapsed State: Latest / Current Reasoning Step Expanded by default */}
+                      {!isTurnOpen && turn.thoughts.length > 0 && (() => {
+                        const targetIdx = isAnyThoughtStreaming ? streamingThoughtIdx : turn.thoughts.length - 1;
+                        const targetThought = turn.thoughts[targetIdx];
+                        if (!targetThought) return null;
+                        const isStepStreaming = Boolean(isRunning && targetThought.isStreaming);
+                        const peekKey = `peek-thought-${turn.id}`;
+                        const isExpanded = expandedThoughtIds[peekKey] !== undefined ? expandedThoughtIds[peekKey] : true;
+                        const stepPreview = getThoughtStepPreview(targetThought.thought);
+
+                        return (
+                          <div className="border-t border-white/[0.04] bg-onedark-darker/60">
+                            <div
+                              onClick={() => setExpandedThoughtIds((prev) => ({ ...prev, [peekKey]: !isExpanded }))}
+                              className={`px-3.5 py-2 flex items-center justify-between text-xs font-mono cursor-pointer select-none transition-colors ${
+                                isStepStreaming
+                                  ? 'bg-onedark-yellow/5 text-onedark-fgBright'
+                                  : isExpanded
+                                  ? 'bg-onedark-surface/30 text-onedark-fgBright'
+                                  : 'hover:bg-onedark-surface/30 text-onedark-fg'
+                              }`}
+                            >
+                              <div className="flex items-center space-x-2.5 min-w-0 pr-2">
+                                <div className={`p-1 rounded ${isStepStreaming ? 'bg-onedark-yellow/15' : 'bg-onedark-accent/10'} flex items-center justify-center flex-shrink-0`}>
+                                  {isStepStreaming ? (
+                                    <RefreshCw className="w-3 h-3 animate-spin text-onedark-yellow" />
+                                  ) : (
+                                    <Sparkles className="w-3 h-3 text-onedark-accent" />
+                                  )}
+                                </div>
+                                <div className="truncate flex items-center space-x-2 text-xs">
+                                  <span className={`font-semibold flex-shrink-0 ${isStepStreaming ? 'text-onedark-yellow' : 'text-onedark-accent'}`}>
+                                    Step {targetIdx + 1}
+                                  </span>
+                                  <span className="text-onedark-fg/80 font-sans truncate">
+                                    {stepPreview}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center space-x-2 flex-shrink-0 text-[10.5px] text-onedark-muted">
+                                {isStepStreaming ? (
+                                  <span className="px-1.5 py-0.5 rounded bg-onedark-yellow/15 text-onedark-yellow text-[10px] animate-pulse">
+                                    thinking...
+                                  </span>
+                                ) : targetThought.tokens ? (
+                                  <span className="font-mono text-onedark-muted/70">
+                                    {targetThought.tokens} tokens
+                                  </span>
+                                ) : null}
+                                <span className="text-onedark-muted/60">
+                                  {isExpanded ? (
+                                    <ChevronDown className="w-3.5 h-3.5" />
+                                  ) : (
+                                    <ChevronRight className="w-3.5 h-3.5" />
+                                  )}
+                                </span>
+                              </div>
+                            </div>
+
+                            {isExpanded && (
+                              <div className="px-4 py-2.5 border-t border-white/[0.04] bg-onedark-darker/80 max-h-72 overflow-y-auto [scrollbar-width:thin]">
+                                <MarkdownRenderer
+                                  content={targetThought.thought}
+                                  isStreaming={isStepStreaming}
+                                  onLinkClick={handleGlobalLinkClick}
+                                  className="text-[13px] leading-relaxed font-sans text-onedark-fg space-y-2 [&_p]:leading-relaxed [&_p]:text-onedark-fg/90 [&_strong]:text-onedark-fgBright [&_strong]:font-semibold [&_code]:font-mono [&_code]:text-[11.5px] [&_code]:bg-onedark-surface [&_code]:text-onedark-accent [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:border [&_code]:border-onedark-borderSubtle/60 [&_pre]:my-2 [&_ul]:my-1.5 [&_ol]:my-1.5 select-text"
+                                />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {/* Expanded State: All Reasoning Steps */}
+                      {isTurnOpen && (
+                        <div className="p-1.5 border-t border-white/[0.04] space-y-0.5 bg-onedark-darker/40">
+                          {turn.thoughts.map((m, idx) => {
+                            const thoughtKey = m.stream_id || m.id || `thought-${turn.id}-${idx}`;
+                            const isLatestStep = idx === turn.thoughts.length - 1;
+                            const isStepStreaming = Boolean(isRunning && m.isStreaming);
+                            const defaultExpanded = isAnyThoughtStreaming ? idx === streamingThoughtIdx : isLatestStep;
+                            const isExpanded = expandedThoughtIds[thoughtKey] !== undefined ? expandedThoughtIds[thoughtKey] : defaultExpanded;
+                            const stepPreview = getThoughtStepPreview(m.thought);
+
+                            return (
+                              <div key={thoughtKey} className="space-y-1">
+                                <div
+                                  onClick={() => setExpandedThoughtIds((prev) => ({ ...prev, [thoughtKey]: !isExpanded }))}
+                                  className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-mono border transition-colors cursor-pointer select-none group/tstep ${
+                                    isStepStreaming
+                                      ? 'bg-onedark-yellow/10 text-onedark-fgBright border-onedark-yellow/30 shadow-xs'
+                                      : isExpanded
+                                      ? 'bg-onedark-surface/40 border-onedark-borderSubtle text-onedark-fgBright'
+                                      : 'border-transparent hover:bg-onedark-surface/60 hover:border-onedark-borderSubtle hover:text-onedark-fgBright text-onedark-fg'
+                                  }`}
+                                >
+                                  <div className="flex items-center space-x-2.5 min-w-0 pr-2">
+                                    <div className={`p-1 rounded ${isStepStreaming ? 'bg-onedark-yellow/15' : 'bg-onedark-accent/10'} flex items-center justify-center flex-shrink-0`}>
+                                      {isStepStreaming ? (
+                                        <RefreshCw className="w-3 h-3 animate-spin text-onedark-yellow" />
+                                      ) : (
+                                        <Sparkles className="w-3 h-3 text-onedark-accent" />
+                                      )}
+                                    </div>
+                                    <div className="truncate flex items-center space-x-2 text-xs">
+                                      <span className={`font-semibold flex-shrink-0 ${isStepStreaming ? 'text-onedark-yellow' : 'text-onedark-accent'}`}>
+                                        Step {idx + 1}
+                                      </span>
+                                      <span className="text-onedark-fg/80 font-sans truncate">
+                                        {stepPreview}
+                                      </span>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex items-center space-x-2 flex-shrink-0 text-[10.5px] text-onedark-muted">
+                                    {isStepStreaming ? (
+                                      <span className="px-1.5 py-0.5 rounded bg-onedark-yellow/15 text-onedark-yellow text-[10px] animate-pulse">
+                                        thinking...
+                                      </span>
+                                    ) : m.tokens ? (
+                                      <span className="font-mono text-onedark-muted/70">
+                                        {m.tokens} tokens
+                                      </span>
+                                    ) : null}
+                                    <span className="text-onedark-muted/60 group-hover/tstep:text-onedark-fg transition-colors">
+                                      {isExpanded ? (
+                                        <ChevronDown className="w-3.5 h-3.5" />
+                                      ) : (
+                                        <ChevronRight className="w-3.5 h-3.5" />
+                                      )}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {isExpanded && (
+                                  <div className="pl-3 pr-1 pt-0.5 pb-1">
+                                    <div className="px-3.5 py-2.5 rounded-lg bg-onedark-darker/90 border border-white/[0.06] max-h-72 overflow-y-auto [scrollbar-width:thin]">
+                                      <MarkdownRenderer
+                                        content={m.thought}
+                                        isStreaming={isStepStreaming}
+                                        onLinkClick={handleGlobalLinkClick}
+                                        className="text-[13px] leading-relaxed font-sans text-onedark-fg space-y-2 [&_p]:leading-relaxed [&_p]:text-onedark-fg/90 [&_strong]:text-onedark-fgBright [&_strong]:font-semibold [&_code]:font-mono [&_code]:text-[11.5px] [&_code]:bg-onedark-surface [&_code]:text-onedark-accent [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:border [&_code]:border-onedark-borderSubtle/60 [&_pre]:my-2 [&_ul]:my-1.5 [&_ol]:my-1.5 select-text"
+                                      />
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-
-                    {isTurnOpen && (
-                      <ReasoningProcessContainer 
-                        thoughts={turn.thoughts} 
-                        isStreamingActive={Boolean(isTurnRunning && turn.isLatest && turn.thoughts.some((t) => t.isStreaming))}
-                        onLinkClick={handleGlobalLinkClick}
-                      />
-                    )}
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* 3. Turn Workspace Activity (Inline Action Stream) */}
                 {hasLogs && (() => {
-                  const totalDuration = turn.logs.reduce((acc, l) => acc + (l.duration_ms || 0), 0);
+                  const completedLogs = turn.logs.filter((l) => !l.isRunning);
+                  const completedCount = completedLogs.length;
+                  const totalDuration = completedLogs.reduce((acc, l) => acc + (l.duration_ms || 0), 0);
                   const formattedDuration = totalDuration < 1000 
                     ? `${totalDuration}ms` 
                     : `${(totalDuration / 1000).toFixed(1)}s`;
 
                   const editCount = turn.logs.filter((l) => l.tool_name === 'edit_file').length;
                   const runCount = turn.logs.filter((l) => l.tool_name === 'run_command').length;
-                  const readCount = turn.logs.filter((l) => ['read_file', 'grep_search', 'search_code', 'find_symbols', 'tgrep_ast', 'list_dir'].includes(l.tool_name)).length;
+                  const readCount = turn.logs.filter((l) => ['read_file', 'grep_search', 'search_code', 'search_files', 'find_symbols', 'tgrep_ast', 'list_dir'].includes(l.tool_name)).length;
                   const webCount = turn.logs.filter((l) => ['search_web', 'fetch_url'].includes(l.tool_name)).length;
                   const prCount = turn.logs.filter((l) => l.tool_name.includes('pull_request') || l.tool_name.includes('connect_repository')).length;
-                  const failedCount = turn.logs.filter((l) => l.exit_code !== 0 && !l.isRunning).length;
-                  const hasRunning = isRunning && (turn.logs.some((l) => l.isRunning) || (isTurnRunning && turn.isLatest && !!task?.active_tool));
-                  const totalActions = turn.logs.length + (task?.active_tool && !turn.logs.some(l => l.isRunning) ? 1 : 0);
+                  const failedCount = completedLogs.filter((l) => l.exit_code !== 0).length;
+                  const totalActions = turn.logs.length + (turn.isLatest && task?.active_tool && !turn.logs.some(l => l.isRunning) ? 1 : 0);
                   const breakdownParts: string[] = [];
                   if (runCount > 0) breakdownParts.push(`${runCount} run${runCount > 1 ? 's' : ''}`);
                   if (readCount > 0) breakdownParts.push(`${readCount} read${readCount > 1 ? 's' : ''}`);
@@ -4170,7 +4324,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
                   return (
                     <div className="rounded-xl bg-onedark-darker/40 hover:bg-onedark-darker/60 overflow-hidden shadow-xs transition-colors space-y-0">
-                      {/* Summary Header */}
+                      {/* Action History Header */}
                       <div
                         onClick={() => setUserToggledActivities((prev) => ({ ...prev, [turn.id]: !isActOpen }))}
                         className={`w-full px-3.5 py-2.5 flex items-center justify-between text-xs transition-colors cursor-pointer select-none group/hdr ${
@@ -4180,26 +4334,18 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                       >
                         <div className="flex items-center space-x-2.5 min-w-0 pr-2">
                           <div className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 transition-colors ${
-                            hasRunning
-                              ? 'bg-onedark-accent/20 text-onedark-accent animate-pulse'
-                              : failedCount > 0
+                            failedCount > 0
                               ? 'bg-onedark-red/15 text-onedark-red'
                               : 'bg-onedark-surface text-onedark-muted group-hover/hdr:text-onedark-fgBright'
                           }`}>
-                            {hasRunning ? (
-                              <RefreshCw className="w-3 h-3 animate-spin" />
-                            ) : (
-                              <Zap className="w-3 h-3" />
-                            )}
+                            <Zap className="w-3 h-3" />
                           </div>
 
                           <div className="flex items-center space-x-2 min-w-0">
                             <span className="font-mono text-[11.5px] font-medium text-onedark-fgBright truncate">
-                              {hasRunning ? (
-                                `Running ${totalActions} action${totalActions === 1 ? '' : 's'}...`
-                              ) : (
-                                `${totalActions} action${totalActions === 1 ? '' : 's'} completed in ${formattedDuration}`
-                              )}
+                              {completedCount > 0
+                                ? `${completedCount} action${completedCount === 1 ? '' : 's'} completed in ${formattedDuration}`
+                                : 'Workspace activity'}
                             </span>
 
                             {breakdownText && (
@@ -4212,18 +4358,10 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
                         <div className="flex items-center space-x-2 flex-shrink-0">
                           {/* Error count pill */}
-                          {failedCount > 0 && !hasRunning && (
+                          {failedCount > 0 && (
                             <span className="px-2 py-0.5 rounded-full bg-onedark-red/10 text-onedark-red text-[10.5px] font-mono flex items-center space-x-1 font-medium">
                               <AlertCircle className="w-2.5 h-2.5" />
                               <span>{failedCount} error{failedCount > 1 ? 's' : ''}</span>
-                            </span>
-                          )}
-
-                          {/* Running indicator pill */}
-                          {hasRunning && (
-                            <span className="px-2 py-0.5 rounded-full bg-onedark-accent/15 text-onedark-accent text-[10px] font-mono flex items-center space-x-1.5 animate-pulse">
-                              <span className="w-1.5 h-1.5 rounded-full bg-onedark-accent" />
-                              <span>Executing</span>
                             </span>
                           )}
 
@@ -4253,10 +4391,11 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                         </div>
                       </div>
 
-                      {/* Collapsed State: Latest Log is Expanded by default without Active/Latest prefixes */}
-                      {!isActOpen && (turn.logs.length > 0 || (isTurnRunning && turn.isLatest && !!task?.active_tool)) && (() => {
-                        const activeTaskTool = (isTurnRunning && turn.isLatest && task?.active_tool && !turn.logs.some((l) => l.isRunning)) ? task.active_tool : null;
-                        const targetLog = activeTaskTool ? null : turn.logs[turn.logs.length - 1];
+                      {/* Collapsed State: Latest / Current Log is Expanded by default */}
+                      {!isActOpen && (turn.logs.length > 0 || (isRunning && turn.isLatest && !!task?.active_tool)) && (() => {
+                        const runningLog = isRunning ? [...turn.logs].reverse().find((l) => l.isRunning) : undefined;
+                        const activeTaskTool = (isRunning && turn.isLatest && task?.active_tool && !runningLog) ? task.active_tool : null;
+                        const targetLog = runningLog || (activeTaskTool ? null : turn.logs[turn.logs.length - 1]);
                         if (!activeTaskTool && !targetLog) return null;
 
                         const toolName = activeTaskTool ? activeTaskTool.tool_name : targetLog!.tool_name;
@@ -4264,9 +4403,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                         const isLogRunning = isRunning && (activeTaskTool ? true : Boolean(targetLog!.isRunning));
                         const actionInfo = getToolActionInfo(toolName, toolInput, isLogRunning);
                         const ActionIcon = actionInfo.icon;
-                        const logKey = targetLog ? (targetLog.id || `log-${turn.id}-${turn.logs.length - 1}`) : `active-tool-${turn.id}`;
-                        const defaultExpanded = Boolean(isTurnRunning && turn.isLatest && isLogRunning);
-                        const isExpanded = expandedLogIds[logKey] !== undefined ? expandedLogIds[logKey] : defaultExpanded;
+                        const peekKey = `peek-latest-${turn.id}`;
+                        const isExpanded = expandedLogIds[peekKey] !== undefined ? expandedLogIds[peekKey] : true;
 
                         const displayLog: TaskLog = targetLog || {
                           id: `active-${task.id}`,
@@ -4281,9 +4419,9 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                         };
 
                         return (
-                          <div className="border-t border-white/[0.04] bg-onedark-darker/60 transition-all duration-150 ease-out">
+                          <div className="border-t border-white/[0.04] bg-onedark-darker/60">
                             <div
-                              onClick={() => setExpandedLogIds((prev) => ({ ...prev, [logKey]: !isExpanded }))}
+                              onClick={() => setExpandedLogIds((prev) => ({ ...prev, [peekKey]: !isExpanded }))}
                               className={`px-3.5 py-2 hover:bg-onedark-darker/80 transition-colors flex items-center justify-between text-xs font-mono cursor-pointer select-none group/peek min-h-[36px] ${
                                 isLogRunning
                                   ? 'bg-onedark-accent/10 text-onedark-fgBright'
@@ -4352,7 +4490,10 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                       })()}
 
                       {/* Inline Action Items Stream */}
-                      {isActOpen && (
+                      {isActOpen && (() => {
+                        const lastRunningIdx = isRunning ? turn.logs.map((l) => Boolean(l.isRunning)).lastIndexOf(true) : -1;
+                        const isStandaloneActiveToolRunning = Boolean(isRunning && turn.isLatest && task?.active_tool && lastRunningIdx === -1);
+                        return (
                         <div className="p-1.5 border-t border-white/[0.04] space-y-0.5 bg-onedark-darker/40">
                           {/* Categorized action chips summary bar in expanded view */}
                           {breakdownParts.length > 0 && (
@@ -4391,15 +4532,12 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                             </div>
                           )}
                           {turn.logs.map((log, idx) => {
-                            const logKey = log.id || `log-${turn.id}-${idx}`;
+                            const logKey = (log as any).call_id || log.id || `log-${turn.id}-${idx}`;
                             const isLatestLogInTurn = idx === turn.logs.length - 1;
                             const isActionRunning = isRunning && Boolean(log.isRunning);
-                            const isNextToolExecuting = Boolean(
-                              (task?.active_tool && !turn.logs.some((l) => l.isRunning)) || !isLatestLogInTurn
-                            );
-                            const defaultExpanded = Boolean(
-                              isTurnRunning && turn.isLatest && (isActionRunning || (isLatestLogInTurn && !isNextToolExecuting))
-                            );
+                            const defaultExpanded = lastRunningIdx >= 0
+                              ? idx === lastRunningIdx
+                              : (isLatestLogInTurn && !isStandaloneActiveToolRunning);
                             const isExpanded = expandedLogIds[logKey] !== undefined ? expandedLogIds[logKey] : defaultExpanded;
                             const actionInfo = getToolActionInfo(log.tool_name, log.tool_input, isActionRunning);
                             const ActionIcon = actionInfo.icon;
@@ -4478,34 +4616,64 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                           })}
 
                           {/* Active executing tool if present in task but not yet in logs */}
-                          {isTurnRunning && turn.isLatest && task?.active_tool && !turn.logs.some((l) => l.isRunning) && (() => {
+                          {isStandaloneActiveToolRunning && task?.active_tool && (() => {
                             const actionInfo = getToolActionInfo(task.active_tool.tool_name, task.active_tool.tool_input, true);
-                            const ActionIcon = actionInfo.icon;
+                            const standaloneKey = `active-tool-${turn.id}`;
+                            const isExpanded = expandedLogIds[standaloneKey] !== undefined ? expandedLogIds[standaloneKey] : true;
+                            const syntheticActiveLog = {
+                              id: standaloneKey,
+                              task_id: task.id,
+                              tool_name: task.active_tool.tool_name,
+                              tool_input: task.active_tool.tool_input,
+                              tool_output: '',
+                              exit_code: 0,
+                              duration_ms: 0,
+                              created_at: new Date().toISOString(),
+                              isRunning: true,
+                            } as TaskLog;
                             return (
-                              <div className="flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-mono bg-onedark-accent/10 text-onedark-fgBright shadow-xs select-none">
-                                <div className="flex items-center space-x-2.5 min-w-0 pr-2">
-                                  <div className={`p-1 rounded ${actionInfo.badgeBg} flex items-center justify-center flex-shrink-0`}>
-                                    <RefreshCw className="w-3 h-3 animate-spin text-onedark-accent" />
+                              <div className="space-y-1">
+                                <div
+                                  onClick={() => setExpandedLogIds((prev) => ({ ...prev, [standaloneKey]: !isExpanded }))}
+                                  className="flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-mono bg-onedark-accent/10 text-onedark-fgBright border border-onedark-accent/30 shadow-xs cursor-pointer select-none"
+                                >
+                                  <div className="flex items-center space-x-2.5 min-w-0 pr-2">
+                                    <div className={`p-1 rounded ${actionInfo.badgeBg} flex items-center justify-center flex-shrink-0`}>
+                                      <RefreshCw className="w-3 h-3 animate-spin text-onedark-accent" />
+                                    </div>
+                                    <div className="truncate flex items-center space-x-1.5 text-xs">
+                                      <span className={`font-semibold ${actionInfo.colorClass}`}>
+                                        {actionInfo.verb}
+                                      </span>
+                                      <span className="text-onedark-fgBright font-mono truncate">
+                                        {actionInfo.target}
+                                      </span>
+                                    </div>
                                   </div>
-                                  <div className="truncate flex items-center space-x-1.5 text-xs">
-                                    <span className={`font-semibold ${actionInfo.colorClass}`}>
-                                      {actionInfo.verb}
+                                  <div className="flex items-center space-x-2 flex-shrink-0 text-[10.5px]">
+                                    <span className="px-1.5 py-0.5 rounded bg-onedark-accent/20 text-onedark-accent animate-pulse">
+                                      running...
                                     </span>
-                                    <span className="text-onedark-fgBright font-mono truncate">
-                                      {actionInfo.target}
+                                    <span className="text-onedark-muted/60">
+                                      {isExpanded ? (
+                                        <ChevronDown className="w-3.5 h-3.5" />
+                                      ) : (
+                                        <ChevronRight className="w-3.5 h-3.5" />
+                                      )}
                                     </span>
                                   </div>
                                 </div>
-                                <div className="flex items-center space-x-2 flex-shrink-0 text-[10.5px]">
-                                  <span className="px-1.5 py-0.5 rounded bg-onedark-accent/20 text-onedark-accent animate-pulse">
-                                    running...
-                                  </span>
-                                </div>
+                                {isExpanded && (
+                                  <div className="pl-3 pr-1 pt-0.5 pb-1">
+                                    <FormattedLogView log={syntheticActiveLog} initiallyExpanded={true} isExpanded={true} hideHeader={true} />
+                                  </div>
+                                )}
                               </div>
                             );
                           })()}
                         </div>
-                      )}
+                        );
+                      })()}
                     </div>
                   );
                 })()}
