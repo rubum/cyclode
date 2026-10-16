@@ -542,6 +542,22 @@ html.light-theme .token.inserted {
   animation: activeTabGlow 2.5s var(--ease-in-out-smooth) infinite;
 }
 
+@keyframes reasoningSlideUp {
+  0% {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-reasoning-slide-up {
+  animation: reasoningSlideUp 0.26s var(--ease-out-expo) both;
+  will-change: transform, opacity;
+}
+
 /* Tactile Micro-Press Feedback */
 .btn-tactile {
   transition: transform 0.12s var(--ease-tactile), opacity 0.12s ease;

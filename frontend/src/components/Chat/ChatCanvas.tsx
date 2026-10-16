@@ -4149,76 +4149,79 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                         if (!targetThought) return null;
                         const isStepStreaming = Boolean(isRunning && targetThought.isStreaming);
                         const peekKey = `peek-thought-${turn.id}`;
+                        const stepAnimKey = targetThought.stream_id || targetThought.id || `thought-step-${turn.id}-${targetIdx}`;
                         const isExpanded = expandedThoughtIds[peekKey] !== undefined ? expandedThoughtIds[peekKey] : true;
                         const stepPreview = getThoughtStepPreview(targetThought.thought);
 
                         return (
-                          <div className="border-t border-white/[0.04] bg-onedark-darker/60">
-                            <div
-                              onClick={() => setExpandedThoughtIds((prev) => ({ ...prev, [peekKey]: !isExpanded }))}
-                              className={`px-3.5 py-2 flex items-center justify-between text-xs font-mono cursor-pointer select-none transition-colors ${
-                                isStepStreaming
-                                  ? 'bg-onedark-yellow/5 text-onedark-fgBright'
-                                  : isExpanded
-                                  ? 'bg-onedark-surface/30 text-onedark-fgBright'
-                                  : 'hover:bg-onedark-surface/30 text-onedark-fg'
-                              }`}
-                            >
-                              <div className="flex items-center space-x-2.5 min-w-0 pr-2">
-                                <div className={`p-1 rounded ${isStepStreaming ? 'bg-onedark-yellow/15' : 'bg-onedark-accent/10'} flex items-center justify-center flex-shrink-0`}>
+                          <div className="border-t border-white/[0.04] bg-onedark-darker/60 overflow-hidden">
+                            <div key={stepAnimKey} className="animate-reasoning-slide-up">
+                              <div
+                                onClick={() => setExpandedThoughtIds((prev) => ({ ...prev, [peekKey]: !isExpanded }))}
+                                className={`px-3.5 py-2 flex items-center justify-between text-xs font-mono cursor-pointer select-none transition-colors ${
+                                  isStepStreaming
+                                    ? 'bg-onedark-yellow/5 text-onedark-fgBright'
+                                    : isExpanded
+                                    ? 'bg-onedark-surface/30 text-onedark-fgBright'
+                                    : 'hover:bg-onedark-surface/30 text-onedark-fg'
+                                }`}
+                              >
+                                <div className="flex items-center space-x-2.5 min-w-0 pr-2">
+                                  <div className={`p-1 rounded ${isStepStreaming ? 'bg-onedark-yellow/15' : 'bg-onedark-accent/10'} flex items-center justify-center flex-shrink-0`}>
+                                    {isStepStreaming ? (
+                                      <RefreshCw className="w-3 h-3 animate-spin text-onedark-yellow" />
+                                    ) : (
+                                      <Sparkles className="w-3 h-3 text-onedark-accent" />
+                                    )}
+                                  </div>
+                                  <div className="truncate flex items-center space-x-2 text-xs">
+                                    <span className={`font-semibold flex-shrink-0 ${isStepStreaming ? 'text-onedark-yellow' : 'text-onedark-accent'}`}>
+                                      Step {targetIdx + 1}
+                                    </span>
+                                    <span className="text-onedark-fg/80 font-sans truncate">
+                                      {stepPreview}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center space-x-2 flex-shrink-0 text-[10.5px] text-onedark-muted">
                                   {isStepStreaming ? (
-                                    <RefreshCw className="w-3 h-3 animate-spin text-onedark-yellow" />
-                                  ) : (
-                                    <Sparkles className="w-3 h-3 text-onedark-accent" />
-                                  )}
-                                </div>
-                                <div className="truncate flex items-center space-x-2 text-xs">
-                                  <span className={`font-semibold flex-shrink-0 ${isStepStreaming ? 'text-onedark-yellow' : 'text-onedark-accent'}`}>
-                                    Step {targetIdx + 1}
-                                  </span>
-                                  <span className="text-onedark-fg/80 font-sans truncate">
-                                    {stepPreview}
+                                    <span className="px-1.5 py-0.5 rounded bg-onedark-yellow/15 text-onedark-yellow text-[10px] animate-pulse">
+                                      thinking...
+                                    </span>
+                                  ) : targetThought.tokens ? (
+                                    <span className="font-mono text-onedark-muted/70">
+                                      {targetThought.tokens} tokens
+                                    </span>
+                                  ) : null}
+                                  <span className="text-onedark-muted/60">
+                                    {isExpanded ? (
+                                      <ChevronDown className="w-3.5 h-3.5" />
+                                    ) : (
+                                      <ChevronRight className="w-3.5 h-3.5" />
+                                    )}
                                   </span>
                                 </div>
                               </div>
 
-                              <div className="flex items-center space-x-2 flex-shrink-0 text-[10.5px] text-onedark-muted">
-                                {isStepStreaming ? (
-                                  <span className="px-1.5 py-0.5 rounded bg-onedark-yellow/15 text-onedark-yellow text-[10px] animate-pulse">
-                                    thinking...
-                                  </span>
-                                ) : targetThought.tokens ? (
-                                  <span className="font-mono text-onedark-muted/70">
-                                    {targetThought.tokens} tokens
-                                  </span>
-                                ) : null}
-                                <span className="text-onedark-muted/60">
-                                  {isExpanded ? (
-                                    <ChevronDown className="w-3.5 h-3.5" />
-                                  ) : (
-                                    <ChevronRight className="w-3.5 h-3.5" />
-                                  )}
-                                </span>
-                              </div>
+                              {isExpanded && (
+                                <div className="px-4 py-2.5 border-t border-white/[0.04] bg-onedark-darker/80 max-h-72 overflow-y-auto [scrollbar-width:thin]">
+                                  <MarkdownRenderer
+                                    content={targetThought.thought}
+                                    isStreaming={isStepStreaming}
+                                    onLinkClick={handleGlobalLinkClick}
+                                    className="text-[13px] leading-relaxed font-sans text-onedark-fg space-y-2 [&_p]:leading-relaxed [&_p]:text-onedark-fg/90 [&_strong]:text-onedark-fgBright [&_strong]:font-semibold [&_code]:font-mono [&_code]:text-[11.5px] [&_code]:bg-onedark-surface [&_code]:text-onedark-accent [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:border [&_code]:border-onedark-borderSubtle/60 [&_pre]:my-2 [&_ul]:my-1.5 [&_ol]:my-1.5 select-text"
+                                  />
+                                </div>
+                              )}
                             </div>
-
-                            {isExpanded && (
-                              <div className="px-4 py-2.5 border-t border-white/[0.04] bg-onedark-darker/80 max-h-72 overflow-y-auto [scrollbar-width:thin]">
-                                <MarkdownRenderer
-                                  content={targetThought.thought}
-                                  isStreaming={isStepStreaming}
-                                  onLinkClick={handleGlobalLinkClick}
-                                  className="text-[13px] leading-relaxed font-sans text-onedark-fg space-y-2 [&_p]:leading-relaxed [&_p]:text-onedark-fg/90 [&_strong]:text-onedark-fgBright [&_strong]:font-semibold [&_code]:font-mono [&_code]:text-[11.5px] [&_code]:bg-onedark-surface [&_code]:text-onedark-accent [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:border [&_code]:border-onedark-borderSubtle/60 [&_pre]:my-2 [&_ul]:my-1.5 [&_ol]:my-1.5 select-text"
-                                />
-                              </div>
-                            )}
                           </div>
                         );
                       })()}
 
                       {/* Expanded State: All Reasoning Steps */}
                       {isTurnOpen && (
-                        <div className="p-1.5 border-t border-white/[0.04] space-y-0.5 bg-onedark-darker/40">
+                        <div className="p-1.5 border-t border-white/[0.04] space-y-0.5 bg-onedark-darker/40 overflow-hidden">
                           {turn.thoughts.map((m, idx) => {
                             const thoughtKey = m.stream_id || m.id || `thought-${turn.id}-${idx}`;
                             const isLatestStep = idx === turn.thoughts.length - 1;
@@ -4228,7 +4231,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                             const stepPreview = getThoughtStepPreview(m.thought);
 
                             return (
-                              <div key={thoughtKey} className="space-y-1">
+                              <div key={thoughtKey} className="space-y-1 animate-reasoning-slide-up">
                                 <div
                                   onClick={() => setExpandedThoughtIds((prev) => ({ ...prev, [thoughtKey]: !isExpanded }))}
                                   className={`flex items-center justify-between px-2.5 py-1.5 rounded-md text-xs font-mono border transition-colors cursor-pointer select-none group/tstep ${
