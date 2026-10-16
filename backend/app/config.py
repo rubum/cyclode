@@ -88,6 +88,7 @@ class Settings(BaseSettings):
     ANTIGRAVITY_ROUTING_MODE: str = Field(default_factory=lambda: str(_USER_CFG.get("routing_mode", "adaptive")))  # "adaptive" vs "manual"
     ANTIGRAVITY_MAJOR_MODEL: str = Field(default_factory=lambda: str(_USER_CFG.get("major_model", "gemini-3.8-flash")))
     ANTIGRAVITY_MINOR_MODEL: str = Field(default_factory=lambda: str(_USER_CFG.get("minor_model", "gemini-3.7-flash")))
+    ANTIGRAVITY_PLANNER_MODEL: str = Field(default_factory=lambda: str(_USER_CFG.get("planner_model", "deepseek-v4.1-flash")))
     GEMINI_DEFAULT_MODEL: str = Field(default_factory=lambda: str(_USER_CFG.get("gemini_model", "gemini-3.7-flash")))
     ANTHROPIC_DEFAULT_MODEL: str = Field(default_factory=lambda: str(_USER_CFG.get("anthropic_model", "claude-fable-5-1")))
     OPENAI_DEFAULT_MODEL: str = Field(default_factory=lambda: str(_USER_CFG.get("openai_model", "gpt-6-astra")))

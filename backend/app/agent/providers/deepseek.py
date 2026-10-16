@@ -336,6 +336,9 @@ class DeepSeekProvider(BaseLLMProvider):
 
         # Normalize model identifier
         clean_model = self._normalize_model_name(model_name)
+        if thinking_budget is not None and thinking_budget <= 0:
+            if "reasoner" in clean_model.lower() or "r1" in clean_model.lower():
+                clean_model = "deepseek-flash"
 
         payload: Dict[str, Any] = {
             "model": clean_model,
@@ -480,6 +483,7 @@ class DeepSeekProvider(BaseLLMProvider):
 
         candidate_models = list(dict.fromkeys([
             self._normalize_model_name(model_name),
+            "deepseek-flash",
             "deepseek-chat",
             "deepseek-reasoner"
         ]))

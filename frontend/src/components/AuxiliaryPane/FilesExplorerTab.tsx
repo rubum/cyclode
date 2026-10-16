@@ -294,6 +294,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
 
   const pollTimerRef = useRef<any>(null);
   const prevTaskIdRef = useRef<string | null>(null);
+  const fetchAbortRef = useRef<AbortController | null>(null);
 
   const [isSyncingRepo, setIsSyncingRepo] = useState(false);
 
@@ -302,10 +303,18 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
       setLoading(false);
       return;
     }
+    if (fetchAbortRef.current) {
+      fetchAbortRef.current.abort();
+    }
+    const controller = new AbortController();
+    fetchAbortRef.current = controller;
+
     if (!silent) setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/tasks/${task.id}/sandbox`);
+      const res = await fetch(`${API_BASE}/api/tasks/${task.id}/sandbox`, {
+        signal: controller.signal,
+      });
       if (!res.ok) {
         if (res.status === 404 && (task.status === 'INITIALIZING' || task.sandbox_status === 'PROVISIONING')) {
           const fallbackData: SandboxInfo = {
@@ -351,11 +360,12 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
         }
       }
     } catch (err: any) {
+      if (err?.name === 'AbortError') return;
       if (task.status !== 'INITIALIZING' && task.sandbox_status !== 'PROVISIONING') {
         setError(err.message || 'Error fetching sandbox explorer');
       }
     } finally {
-      if (!silent) setLoading(false);
+      if (!silent && fetchAbortRef.current === controller) setLoading(false);
     }
   };
 
@@ -469,8 +479,10 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
             }, 0);
           }
         }
-        // Fetch silently in background to refresh freshness
-        fetchFilesystem(true);
+        // Only re-fetch in background if task is actively running or provisioning
+        if (task.status === 'RUNNING' || task.status === 'INITIALIZING' || task.sandbox_status === 'PROVISIONING') {
+          fetchFilesystem(true);
+        }
       } else {
         if (cachedActive) {
           setSelectedFile(cachedActive.filePath);
@@ -482,8 +494,8 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
         setData(null);
         fetchFilesystem(false);
       }
-    } else {
-      // Same task: refresh tree silently if status changed
+    } else if (!sandboxCache.has(task.id) || task.status === 'RUNNING' || task.status === 'INITIALIZING' || task.sandbox_status === 'PROVISIONING') {
+      // Same task: refresh tree silently only if running/provisioning or uncached
       fetchFilesystem(true);
     }
 
@@ -498,6 +510,9 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
     return () => {
       if (pollTimerRef.current) {
         clearInterval(pollTimerRef.current);
+      }
+      if (fetchAbortRef.current) {
+        fetchAbortRef.current.abort();
       }
     };
   }, [task.id, task.sandbox_status, task.status, task.workspace_path]);

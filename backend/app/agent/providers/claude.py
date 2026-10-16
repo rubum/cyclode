@@ -258,8 +258,9 @@ class ClaudeProvider(BaseLLMProvider):
             payload["tools"] = claude_tools
 
         # Support extended thinking for modern reasoning models (Opus 5.5, Fable 5.1, Claude 3.7, Sonnet 5.5)
-        if ("opus" in clean_model or "fable" in clean_model or "claude-3-7" in clean_model or "sonnet-5-5" in clean_model) and (thinking_budget or settings.ANTIGRAVITY_ENABLE_THINKING):
-            budget = thinking_budget or 2048
+        enable_thinking = (thinking_budget > 0) if thinking_budget is not None else bool(settings.ANTIGRAVITY_ENABLE_THINKING)
+        if ("opus" in clean_model or "fable" in clean_model or "claude-3-7" in clean_model or "sonnet-5-5" in clean_model) and enable_thinking:
+            budget = thinking_budget if (thinking_budget and thinking_budget > 0) else 2048
             payload["thinking"] = {"type": "enabled", "budget_tokens": budget}
             # Anthropic requires temperature=1.0 when thinking is enabled
             payload["temperature"] = 1.0

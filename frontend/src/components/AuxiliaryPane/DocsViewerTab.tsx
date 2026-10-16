@@ -522,6 +522,8 @@ const PRCommitsSection: React.FC<PRCommitsSectionProps> = ({ commits }) => {
   );
 };
 
+const readerClientCache = new Map<string, ReaderResponse>();
+
 export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
   url,
   initialTitle,
@@ -533,10 +535,16 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
   repositories = [],
 }) => {
   const { subscribe } = useWebSocket();
-  const [data, setData] = useState<ReaderResponse | null>(null);
+  const [data, setData] = useState<ReaderResponse | null>(() => {
+    if (url && readerClientCache.has(url)) {
+      return readerClientCache.get(url) || null;
+    }
+    return null;
+  });
   const [currentUrl, setCurrentUrl] = useState<string | null>(url);
   const [history, setHistory] = useState<string[]>(url ? [url] : []);
   const [historyIndex, setHistoryIndex] = useState<number>(url ? 0 : -1);
+  const initialMountRef = useRef<boolean>(true);
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -597,6 +605,10 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
 
   // Sync with incoming url prop from parent (e.g. task switch or external link click)
   useEffect(() => {
+    if (initialMountRef.current) {
+      initialMountRef.current = false;
+      return;
+    }
     if (url) {
       if (history.length === 0 || history[historyIndex] !== url) {
         setHistory((prev) => {
@@ -612,8 +624,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
     }
   }, [url, initialTitle]);
 
-  const fetchDoc = async (targetUrl: string) => {
-    setIsLoading(true);
+  const fetchDoc = async (targetUrl: string, forceRefresh: boolean = false) => {
     setError(null);
     setPrTab('overview');
 
@@ -624,6 +635,31 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
         setIsLoading(false);
         return;
       }
+
+      // Fast path: render immediately from in-memory task.plan.markdown if valid
+      const localPlanMd = (task?.id === planTaskId ? task?.plan?.markdown : undefined) || '';
+      const isValidLocalPlan =
+        !forceRefresh &&
+        localPlanMd.trim().startsWith('#') &&
+        localPlanMd.trim().length >= 350 &&
+        !localPlanMd.includes('Inspect Full Plan in Web & Docs');
+
+      if (isValidLocalPlan) {
+        const sanitizedMd = localPlanMd.replace(/\[[👉\s]*Inspect Full Plan in Web & Docs\]\([^)]+\)/gi, '').trim();
+        const rawTitle = task?.title || initialTitle || 'Implementation Plan';
+        const displayTitle = rawTitle.startsWith('Plan:') ? rawTitle : `Plan: ${rawTitle.replace(/^#+\s*(?:Implementation Plan:\s*)?/, '')}`;
+        setData({
+          type: 'web',
+          url: targetUrl,
+          title: displayTitle,
+          description: task?.plan?.objective || 'Active Execution Plan',
+          content_markdown: sanitizedMd,
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      setIsLoading(true);
       try {
         const apiBase = import.meta.env.VITE_API_URL || '';
         const res = await fetch(`${apiBase}/api/tasks/${planTaskId}/plan`);
@@ -681,6 +717,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
     }
 
     if (targetUrl.startsWith('blob:')) {
+      setIsLoading(true);
       try {
         const docTitle = initialTitle || 'Uploaded Document';
         const cleanTitle = decodeURIComponent(docTitle);
@@ -701,14 +738,32 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
       return;
     }
 
+    if (!forceRefresh && readerClientCache.has(targetUrl)) {
+      const cached = readerClientCache.get(targetUrl)!;
+      setData(cached);
+      if (cached.type === 'arxiv') {
+        setPdfViewMode('split');
+      } else if (cached.type === 'pdf') {
+        setPdfViewMode('pdf');
+      }
+      if (cached.navigation && cached.navigation.length > 0) {
+        setIsSiteTreeOpen(true);
+      }
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
     try {
       const apiBase = import.meta.env.VITE_API_URL || '';
-      const res = await fetch(`${apiBase}/api/reader?url=${encodeURIComponent(targetUrl)}`);
+      const refreshParam = forceRefresh ? '&refresh=true' : '';
+      const res = await fetch(`${apiBase}/api/reader?url=${encodeURIComponent(targetUrl)}${refreshParam}`);
       if (!res.ok) {
         throw new Error(`Failed to load page (HTTP ${res.status})`);
       }
       const json: ReaderResponse = await res.json();
       setData(json);
+      readerClientCache.set(targetUrl, json);
 
       if (json.type === 'arxiv') {
         setPdfViewMode('split');
@@ -734,7 +789,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
     const unsub = subscribe('TASK_PLAN_UPDATED', (payload: any) => {
       const planTaskId = currentUrl.replace('plan://', '').split('/')[0] || task?.id;
       if (!payload?.task_id || payload.task_id === planTaskId) {
-        fetchDoc(currentUrl);
+        fetchDoc(currentUrl, true);
       }
     });
     return () => unsub();
@@ -1064,7 +1119,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
           )}
 
           <button
-            onClick={() => fetchDoc(currentUrl || url)}
+            onClick={() => fetchDoc(currentUrl || url, true)}
             className="p-1.5 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-colors"
             title="Refresh"
           >

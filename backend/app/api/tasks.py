@@ -136,8 +136,7 @@ async def list_tasks(
         .order_by(desc(TaskModel.created_at))
         .limit(limit)
         .options(
-            selectinload(TaskModel.prs),
-            selectinload(TaskModel.approvals)
+            selectinload(TaskModel.prs)
         )
     )
     if status:
@@ -158,6 +157,11 @@ async def list_tasks(
     
     serialized = []
     for t in tasks:
+        slim_plan = (
+            {k: v for k, v in t.plan.items() if k not in ("markdown", "evaluation")}
+            if isinstance(t.plan, dict)
+            else t.plan
+        )
         serialized.append({
             "id": t.id,
             "session_key": t.session_key,
@@ -177,8 +181,8 @@ async def list_tasks(
             "workspace_path": t.workspace_path,
             "git_branch": t.git_branch,
             "total_tokens": t.total_tokens,
-            "result_summary": t.result_summary,
-            "plan": t.plan,
+            "result_summary": (t.result_summary[:1000] if isinstance(t.result_summary, str) and len(t.result_summary) > 1000 else t.result_summary),
+            "plan": slim_plan,
             "created_at": t.created_at.isoformat() if t.created_at else None,
             "updated_at": t.updated_at.isoformat() if t.updated_at else None,
             "completed_at": t.completed_at.isoformat() if t.completed_at else None,
@@ -195,8 +199,6 @@ async def list_tasks(
                     "status": p.status,
                     "worktree_path": p.worktree_path,
                     "diff_stats": p.diff_stats or {},
-                    "review_summary": p.review_summary,
-                    "test_output": p.test_output,
                 }
                 for p in (t.prs or [])
             ]
@@ -237,7 +239,11 @@ async def create_task(req: CreateTaskRequest):
 
 
 @router.get("/{task_id}")
-async def get_task_details(task_id: str, db: AsyncSession = Depends(get_db)):
+async def get_task_details(
+    task_id: str,
+    log_limit: int = Query(250, description="Maximum number of recent logs to include"),
+    db: AsyncSession = Depends(get_db)
+):
     stmt = (
         select(TaskModel)
         .where(TaskModel.id == task_id)
@@ -254,6 +260,10 @@ async def get_task_details(task_id: str, db: AsyncSession = Depends(get_db)):
     task = result.scalars().first()
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
+
+    logs_list = list(task.logs or [])
+    if log_limit > 0 and len(logs_list) > log_limit:
+        logs_list = logs_list[-log_limit:]
 
     return {
         "id": task.id,
@@ -281,7 +291,7 @@ async def get_task_details(task_id: str, db: AsyncSession = Depends(get_db)):
         "completed_at": task.completed_at,
         "event": task.event,
         "messages": task.messages,
-        "logs": task.logs,
+        "logs": logs_list,
         "approvals": task.approvals,
         "diffs": task.diffs,
         "prs": task.prs
@@ -1005,6 +1015,9 @@ def _scan_sandbox_filesystem(
     }
 
 
+_SANDBOX_SCAN_CACHE: Dict[Tuple[str, int], Tuple[float, Dict[str, Any]]] = {}
+
+
 @router.get("/{task_id}/sandbox")
 async def get_task_sandbox_info(task_id: str, depth: int = 3, db: AsyncSession = Depends(get_db)):
     stmt = select(TaskModel).where(TaskModel.id == task_id)
@@ -1019,15 +1032,26 @@ async def get_task_sandbox_info(task_id: str, depth: int = 3, db: AsyncSession =
         if specific_sb.exists() and specific_sb.is_dir():
             ws_path = specific_sb
 
-    # Offload single-pass filesystem scanning to threadpool to avoid event loop starvation
-    scan = await asyncio.to_thread(
-        _scan_sandbox_filesystem,
-        ws_path,
-        depth,
-        task.git_branch,
-        task.repo_url,
-        task.commit_sha
-    )
+    now_ts = time.time()
+    cache_key = (f"{task_id}:{ws_path}", depth)
+    ttl_sec = 4.0 if task.status in ("RUNNING", "INITIALIZING") else 20.0
+    cached_scan = _SANDBOX_SCAN_CACHE.get(cache_key)
+    if cached_scan and (now_ts - cached_scan[0]) < ttl_sec:
+        scan = cached_scan[1]
+    else:
+        # Offload single-pass filesystem scanning to threadpool to avoid event loop starvation
+        scan = await asyncio.to_thread(
+            _scan_sandbox_filesystem,
+            ws_path,
+            depth,
+            task.git_branch,
+            task.repo_url,
+            task.commit_sha
+        )
+        if len(_SANDBOX_SCAN_CACHE) >= 120:
+            oldest_key = next(iter(_SANDBOX_SCAN_CACHE))
+            _SANDBOX_SCAN_CACHE.pop(oldest_key, None)
+        _SANDBOX_SCAN_CACHE[cache_key] = (now_ts, scan)
 
     exists = scan["exists"]
     total_files = scan["total_files"]

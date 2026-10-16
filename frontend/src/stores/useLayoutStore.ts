@@ -1,5 +1,6 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import { LayoutPreset, AuxTabType } from "../types";
+import { parseCurrentRoute } from "../utils/urlRouter";
 
 export type { AuxTabType };
 
@@ -27,7 +28,7 @@ export interface LayoutState {
 }
 
 export function useLayoutStore(): LayoutState {
-  const [activeView, setActiveView] = useState<ViewType>("chat");
+  const [activeView, setActiveView] = useState<ViewType>(() => parseCurrentRoute().view);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [currentPreset, setCurrentPresetState] = useState<LayoutPreset>(() => {
     try {

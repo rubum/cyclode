@@ -335,6 +335,9 @@ class OpenAIProvider(BaseLLMProvider):
 
         base_url = self.get_base_url()
         clean_model = self._normalize_model_name(model_name)
+        if thinking_budget is not None and thinking_budget <= 0:
+            if any(sub in clean_model.lower() for sub in ["o1", "o3", "reasoning"]):
+                clean_model = "gpt-4o"
         
         candidate_models = [clean_model]
         if "api.openai.com" in base_url:

@@ -14,6 +14,7 @@ import { RepositoriesView } from './components/Repositories/RepositoriesView';
 import { SandboxInspectorModal } from './components/Sandbox/SandboxInspectorModal';
 import { Task, TaskMessage, TaskLog, EventItem, PolicyMap, Integration, AutomationRule, SkillCatalogItem, WebhookEndpoint, RepositoryConfig, LayoutPreset } from './types';
 import { useLayoutStore, useTaskStore, useEventStore } from './stores';
+import { parseCurrentRoute, buildViewPath, syncBrowserUrl } from './utils/urlRouter';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -55,6 +56,7 @@ const MainApp: React.FC = () => {
     setIsClearingAll,
     deletingTaskId,
     setDeletingTaskId,
+    isLoadingTasks,
     isSessionLoading,
     setIsSessionLoading,
     fetchTasks,
@@ -114,13 +116,70 @@ const MainApp: React.FC = () => {
   const streamBufferRef = useRef<Map<string, any>>(new Map());
   const streamRafRef = useRef<number | null>(null);
 
+  // Sync browser URL when switching top-level views (e.g., /fleet, /automations, or back to /session/{id})
+  useEffect(() => {
+    const targetPath = buildViewPath(activeView, activeTaskIdRef.current);
+    syncBrowserUrl(targetPath);
+  }, [activeView, activeTaskIdRef]);
+
+  // Handle Browser Back / Forward navigation
+  useEffect(() => {
+    const handlePopState = () => {
+      const route = parseCurrentRoute();
+      setActiveView(route.view);
+      if (route.view === 'chat') {
+        if (route.sessionId) {
+          if (activeTaskIdRef.current !== route.sessionId) {
+            setActiveTaskId(route.sessionId, { skipUrl: true });
+          }
+        } else {
+          if (activeTaskIdRef.current !== null) {
+            setIsSessionLoading(false);
+            setActiveTaskId(null, { skipUrl: true });
+            setActiveTaskDetails(null);
+          }
+        }
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [setActiveView, setActiveTaskId, setActiveTaskDetails, setIsSessionLoading, activeTaskIdRef]);
+
+  // Keep document title synchronized with the active session or view
+  useEffect(() => {
+    const viewLabels: Record<string, string> = {
+      fleet: 'Agent Fleet',
+      events: 'Event Inbox',
+      automations: 'Automations & Rules',
+      policies: 'Approval Policies',
+      integrations: 'Integrations',
+      repositories: 'Repositories & Vault',
+      simulator: 'Webhook Simulator',
+    };
+    if (activeView !== 'chat' && viewLabels[activeView]) {
+      document.title = `${viewLabels[activeView]} — Cyclode`;
+      return;
+    }
+    const sessionTitle =
+      activeTaskDetails?.title ||
+      tasks.find((t) => t.id === activeTaskId)?.title;
+    if (activeTaskId && sessionTitle) {
+      document.title = `${sessionTitle} — Cyclode`;
+    } else {
+      document.title = 'Cyclode — Autonomous AI Engineering Workstation';
+    }
+  }, [activeView, activeTaskId, activeTaskDetails?.title, tasks]);
+
   useEffect(() => {
     fetchTasks();
-    fetchAutomations();
-    fetchEvents();
-    fetchPolicies();
-    fetchIntegrations();
-    fetchRepositories();
+    const timer = setTimeout(() => {
+      fetchAutomations();
+      fetchEvents();
+      fetchPolicies();
+      fetchIntegrations();
+      fetchRepositories();
+    }, 150);
+    return () => clearTimeout(timer);
   }, [fetchTasks, fetchAutomations, fetchEvents, fetchPolicies, fetchIntegrations, fetchRepositories]);
 
   useEffect(() => {
@@ -139,7 +198,7 @@ const MainApp: React.FC = () => {
       fetchTasks();
       // Only auto-focus newly created task if not a subsession AND (if no task is currently active or if user was waiting on a temp task)
       if (!data.is_subsession && (!activeTaskIdRef.current || activeTaskIdRef.current.startsWith('temp-'))) {
-        setActiveTaskId(data.id);
+        setActiveTaskId(data.id, { replaceUrl: true });
         activeTaskIdRef.current = data.id;
         setActiveView('chat');
         fetchTaskDetails(data.id);
@@ -575,19 +634,13 @@ const MainApp: React.FC = () => {
   }, [subscribe, activeTaskId, fetchTasks, fetchTaskDetails, fetchEvents]);
 
   const handleSelectTask = (taskId: string) => {
-    if (taskId === activeTaskId) return;
-    setIsSessionLoading(true);
+    if (taskId === activeTaskId) {
+      setActiveView('chat');
+      syncBrowserUrl(buildViewPath('chat', taskId));
+      return;
+    }
     setActiveTaskId(taskId);
     setActiveView('chat');
-    const existing = tasks.find((t) => t.id === taskId);
-    if (existing) {
-      setActiveTaskDetails({
-        ...existing,
-        messages: existing.messages || [],
-      });
-    } else {
-      setActiveTaskDetails(null);
-    }
   };
 
   const handleNewChat = () => {
@@ -719,7 +772,7 @@ const MainApp: React.FC = () => {
         if (createdId) {
           handleDraftChange(createdId, '');
           if (activeTaskIdRef.current === tempId) {
-            setActiveTaskId(createdId);
+            setActiveTaskId(createdId, { replaceUrl: true });
             activeTaskIdRef.current = createdId;
           }
           setTasks((prev) =>
@@ -1231,7 +1284,7 @@ const MainApp: React.FC = () => {
     }
 
     if (activeTaskId === taskId) {
-      setActiveTaskId(null);
+      setActiveTaskId(null, { replaceUrl: true });
       setActiveTaskDetails(null);
       setActiveView('chat');
       activeTaskIdRef.current = null;
@@ -1249,7 +1302,7 @@ const MainApp: React.FC = () => {
       if (!res.ok && res.status !== 404) {
         console.error('Failed to delete task:', res.status, res.statusText);
         setTasks(prevTasks);
-        setActiveTaskId(prevActiveId);
+        setActiveTaskId(prevActiveId, { replaceUrl: true });
         setActiveTaskDetails(prevActiveDetails);
         setActiveView(prevActiveView);
         activeTaskIdRef.current = prevActiveId;
@@ -1257,7 +1310,7 @@ const MainApp: React.FC = () => {
     } catch (err) {
       console.error('Error deleting task:', err);
       setTasks(prevTasks);
-      setActiveTaskId(prevActiveId);
+      setActiveTaskId(prevActiveId, { replaceUrl: true });
       setActiveTaskDetails(prevActiveDetails);
       setActiveView(prevActiveView);
       activeTaskIdRef.current = prevActiveId;
@@ -1274,7 +1327,7 @@ const MainApp: React.FC = () => {
 
     // Optimistically clear all local sessions immediately
     setTasks([]);
-    setActiveTaskId(null);
+    setActiveTaskId(null, { replaceUrl: true });
     setActiveTaskDetails(null);
     setActiveView('chat');
     activeTaskIdRef.current = null;
@@ -1557,6 +1610,7 @@ const MainApp: React.FC = () => {
             activeAgentsCount={tasks.filter((t) => t.status === 'RUNNING').length}
             onToggleSidebar={handleToggleSidebar}
             isCollapsed={isSidebarCollapsed}
+            isLoadingTasks={isLoadingTasks}
           />
         }
         center={renderCenterView()}

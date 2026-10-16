@@ -132,6 +132,9 @@ export const parseUserMessageAttachments = (
   taskId?: string
 ): ParsedUserAttachmentsResult => {
   if (!content) return { cleanedText: '', folders: [], attachments: [] };
+  if (!content.includes('[Uploaded ')) {
+    return { cleanedText: content, folders: [], attachments: [] };
+  }
 
   const folders: ParsedFolderAttachment[] = [];
   const attachments: ParsedAttachment[] = [];
@@ -972,6 +975,61 @@ export function extractQuickActions(rawContent: string): { cleanedContent: strin
   return { cleanedContent: cleaned, actions };
 }
 
+interface ProcessedAgentMessageData {
+  outTokens: number;
+  cleanedContent: string;
+  maskedContent: string;
+  quickActions: QuickActionItem[];
+  isFullPlanDoc: boolean;
+  planInfo: { title: string; overview: string; phases: string[] } | null;
+}
+
+const processedAgentMsgCache = new Map<string, ProcessedAgentMessageData>();
+
+function getProcessedAgentMessage(
+  msg: TaskMessage,
+  intentCategory?: string
+): ProcessedAgentMessageData {
+  const rawContent = msg.content || '';
+  const cacheKey = `${msg.id}:${rawContent.length}:${msg.tokens || 0}:${intentCategory || ''}`;
+  if (!msg.isStreaming) {
+    const cached = processedAgentMsgCache.get(cacheKey);
+    if (cached) return cached;
+  }
+
+  const outTokens = msg.tokens || estimateTokens(rawContent);
+  const { cleanedContent, actions: quickActions } = extractQuickActions(rawContent);
+  const maskedContent = maskSecretsInText(cleanedContent);
+  const isFullPlanDoc = Boolean(
+    rawContent &&
+      (rawContent.trim().startsWith('# Implementation Plan') ||
+        (rawContent.includes('# Implementation Plan') && rawContent.length > 250) ||
+        rawContent.includes('I have formulated an implementation plan') ||
+        rawContent.includes('Implementation Plan Formulated')) &&
+      (intentCategory === 'planning' || rawContent.includes('I have formulated an implementation plan'))
+  );
+  const planInfo = isFullPlanDoc ? extractPlanHighlightsFromMarkdown(rawContent) : null;
+
+  const result: ProcessedAgentMessageData = {
+    outTokens,
+    cleanedContent,
+    maskedContent,
+    quickActions,
+    isFullPlanDoc,
+    planInfo,
+  };
+
+  if (!msg.isStreaming) {
+    if (processedAgentMsgCache.size >= 400) {
+      const oldestKey = processedAgentMsgCache.keys().next().value;
+      if (oldestKey !== undefined) processedAgentMsgCache.delete(oldestKey);
+    }
+    processedAgentMsgCache.set(cacheKey, result);
+  }
+
+  return result;
+}
+
 interface QuickActionChipsProps {
   actions: QuickActionItem[];
   onSelectAction: (action: QuickActionItem) => void;
@@ -1492,10 +1550,16 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   }, [task?.id]);
 
   useEffect(() => {
-    checkPreviewStatus();
-    const interval = setInterval(checkPreviewStatus, 15000);
-    return () => clearInterval(interval);
-  }, [checkPreviewStatus]);
+    const initTimer = setTimeout(() => {
+      checkPreviewStatus();
+    }, 600);
+    const isTaskRunning = task?.status === 'RUNNING' || task?.status === 'INITIALIZING';
+    const interval = isTaskRunning ? setInterval(checkPreviewStatus, 15000) : null;
+    return () => {
+      clearTimeout(initTimer);
+      if (interval) clearInterval(interval);
+    };
+  }, [checkPreviewStatus, task?.status]);
 
   const handleGlobalLinkClick = useCallback((url: string, text: string) => {
     if (url.startsWith('plan://') || url === '#open-plan-doc' || url === 'action://open-plan-doc') {
@@ -1532,7 +1596,16 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const attachMenuEmptyRef = useRef<HTMLDivElement>(null);
   const attachMenuChatRef = useRef<HTMLDivElement>(null);
   const isAutoScrollEnabledRef = useRef<boolean>(true);
+  const showScrollBottomBtnRef = useRef<boolean>(false);
   const scrollRafRef = useRef<number | null>(null);
+  const userScrollRafRef = useRef<number | null>(null);
+
+  const updateShowScrollBottomBtn = useCallback((next: boolean) => {
+    if (showScrollBottomBtnRef.current !== next) {
+      showScrollBottomBtnRef.current = next;
+      setShowScrollBottomBtn(next);
+    }
+  }, []);
 
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [isDraggingInput, setIsDraggingInput] = useState<boolean>(false);
@@ -1840,8 +1913,16 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     if (!task) return [];
 
     const result: ConversationTurn[] = [];
-    const allMessages = task.messages || [];
-    const allLogs = task.logs || [];
+    const allMessages = [...(task.messages || [])].sort((a, b) => {
+      const tA = a.created_at ? new Date(a.created_at).getTime() : Number.MAX_SAFE_INTEGER;
+      const tB = b.created_at ? new Date(b.created_at).getTime() : Number.MAX_SAFE_INTEGER;
+      return tA - tB;
+    });
+    const allLogs = [...(task.logs || [])].sort((a, b) => {
+      const tA = a.created_at ? new Date(a.created_at).getTime() : Number.MAX_SAFE_INTEGER;
+      const tB = b.created_at ? new Date(b.created_at).getTime() : Number.MAX_SAFE_INTEGER;
+      return tA - tB;
+    });
 
     // Base initial prompt
     if (task.description) {
@@ -2054,80 +2135,75 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     const container = scrollContainerRef.current;
     if (!container) return;
     isAutoScrollEnabledRef.current = true;
-    setShowScrollBottomBtn(false);
+    updateShowScrollBottomBtn(false);
     if (smooth) {
       container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
     } else {
       container.scrollTop = container.scrollHeight;
     }
-  }, []);
+  }, [updateShowScrollBottomBtn]);
 
-  // Instant user gesture interrupt: If user scrolls up by even 1px, immediately disengage auto-scroll
-  const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
-    if (e.deltaY < 0) {
-      // Scrolling up - immediate release of auto-scroll grip
-      isAutoScrollEnabledRef.current = false;
-      setShowScrollBottomBtn(true);
-      if (scrollRafRef.current) {
-        cancelAnimationFrame(scrollRafRef.current);
-        scrollRafRef.current = null;
-      }
-    } else if (e.deltaY > 0) {
-      const container = scrollContainerRef.current;
-      if (container) {
-        const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-        if (distanceFromBottom <= 20) {
-          isAutoScrollEnabledRef.current = true;
-          setShowScrollBottomBtn(false);
-        }
-      }
-    }
-  }, []);
-
-  // Handle touch interactions for mobile / trackpad pinch
-  const handleTouchMove = useCallback(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-    const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
-    if (distanceFromBottom > 25) {
-      isAutoScrollEnabledRef.current = false;
-      setShowScrollBottomBtn(true);
-    } else {
-      isAutoScrollEnabledRef.current = true;
-      setShowScrollBottomBtn(false);
-    }
-  }, []);
-
-  // Handle user manual scroll: detect if user is near bottom
+  // Handle user manual scroll: coalesce layout reads once per animation frame
   const handleScroll = useCallback(() => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-    const { scrollTop, scrollHeight, clientHeight } = container;
-    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-    const isAtBottom = distanceFromBottom <= 40;
+    if (userScrollRafRef.current !== null) return;
+    userScrollRafRef.current = requestAnimationFrame(() => {
+      userScrollRafRef.current = null;
+      const container = scrollContainerRef.current;
+      if (!container) return;
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+      const isAtBottom = distanceFromBottom <= 40;
 
-    if (isAtBottom) {
-      isAutoScrollEnabledRef.current = true;
-      setShowScrollBottomBtn(false);
-    } else {
-      setShowScrollBottomBtn(true);
-    }
-  }, []);
+      if (isAtBottom) {
+        isAutoScrollEnabledRef.current = true;
+        updateShowScrollBottomBtn(false);
+      } else {
+        updateShowScrollBottomBtn(true);
+      }
+    });
+  }, [updateShowScrollBottomBtn]);
 
-  // Keep scroll aligned when input bar expands or window resizes while auto-scroll is active
+  // Attach native passive wheel & touchmove listeners so GPU compositor never blocks on JS
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
 
+    const onPassiveWheel = (e: WheelEvent) => {
+      if (e.deltaY < 0) {
+        isAutoScrollEnabledRef.current = false;
+        updateShowScrollBottomBtn(true);
+        if (scrollRafRef.current) {
+          cancelAnimationFrame(scrollRafRef.current);
+          scrollRafRef.current = null;
+        }
+      }
+    };
+
+    const onPassiveTouchMove = () => {
+      handleScroll();
+    };
+
+    container.addEventListener('wheel', onPassiveWheel, { passive: true });
+    container.addEventListener('touchmove', onPassiveTouchMove, { passive: true });
+
     const ro = new ResizeObserver(() => {
       if (isAutoScrollEnabledRef.current && isRunningRef.current) {
         container.scrollTop = container.scrollHeight - container.clientHeight;
-        setShowScrollBottomBtn(false);
+        updateShowScrollBottomBtn(false);
       }
     });
     ro.observe(container);
-    return () => ro.disconnect();
-  }, []);
+
+    return () => {
+      container.removeEventListener('wheel', onPassiveWheel);
+      container.removeEventListener('touchmove', onPassiveTouchMove);
+      ro.disconnect();
+      if (userScrollRafRef.current !== null) {
+        cancelAnimationFrame(userScrollRafRef.current);
+        userScrollRafRef.current = null;
+      }
+    };
+  }, [task?.id, handleScroll, updateShowScrollBottomBtn]);
 
   // Auto-scroll smoothly ONLY when user has not manually scrolled away
   useEffect(() => {
@@ -2163,10 +2239,10 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   useEffect(() => {
     if (task?.id) {
       isAutoScrollEnabledRef.current = true;
-      setShowScrollBottomBtn(false);
+      updateShowScrollBottomBtn(false);
       scrollToBottom(false);
     }
-  }, [task?.id, scrollToBottom]);
+  }, [task?.id, scrollToBottom, updateShowScrollBottomBtn]);
 
   const emptyStateTextareaRef = useRef<HTMLTextAreaElement>(null);
   const emptyStateBackdropRef = useRef<HTMLDivElement>(null);
@@ -2240,8 +2316,10 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   }, []);
 
   useEffect(() => {
-    fetchRepos();
-  }, [fetchRepos]);
+    if (!propRepositories || propRepositories.length === 0) {
+      fetchRepos();
+    }
+  }, [fetchRepos, propRepositories]);
 
   const effectiveRepos = useMemo(() => {
     const repos = (propRepositories && propRepositories.length > 0) ? propRepositories : localRepos;
@@ -3258,7 +3336,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   return (
     <div className="flex flex-col h-full bg-onedark-bg relative font-sans text-onedark-fg">
       {/* Sleek Workstation Title & Control Bar */}
-      <div className="h-10 px-3 bg-onedark-darker/95 backdrop-blur-sm flex items-center justify-between gap-2 z-10 select-none flex-shrink-0 min-w-0">
+      <div className="h-10 px-3 bg-onedark-darker flex items-center justify-between gap-2 z-10 select-none flex-shrink-0 min-w-0">
         {/* Left: Repo Breadcrumb, Task Title */}
         <div className="flex items-center space-x-2 min-w-0 flex-1 overflow-hidden">
           {task.repo_name && (
@@ -3456,9 +3534,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
       <div 
         ref={scrollContainerRef} 
         onScroll={handleScroll}
-        onWheel={handleWheel}
-        onTouchMove={handleTouchMove}
-        className="flex-1 overflow-y-auto px-4 py-6 relative [overflow-anchor:none]"
+        className="flex-1 overflow-y-auto px-4 py-6 relative [overflow-anchor:none] chat-scroll-viewport"
       >
         <div className={`w-full ${contentMaxWidth} mx-auto space-y-6`}>
           {turns.map((turn, tIdx) => {
@@ -3477,9 +3553,10 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
             const completedSteps = turn.plan?.steps?.filter((s) => s.status === 'completed').length || 0;
             const totalSteps = turn.plan?.steps?.length || 0;
             const evalStatus = turn.plan?.evaluation?.status || 'pending';
+            const shouldContainTurn = !turn.isLatest && editingMessageId !== turn.userMessage?.id;
 
             return (
-              <div key={turn.id || tIdx} className="space-y-4">
+              <div key={turn.id || tIdx} className={`space-y-4 ${shouldContainTurn ? 'chat-turn-contained' : ''}`}>
                 {/* 1. User Message Block (with Input Token Metric) */}
                 {turn.userMessage && (
                   <div className="flex justify-end group">
@@ -4454,19 +4531,15 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
 
                 {/* 5. Agent Messages (with Token Output Metric) */}
                 {turn.agentMessages.map((m) => {
-                  const outTokens = m.tokens || estimateTokens(m.content);
-                  const { cleanedContent, actions: quickActions } = extractQuickActions(m.content);
-                  const isFullPlanDoc = Boolean(
-                    m.content && 
-                    (m.content.trim().startsWith('# Implementation Plan') || 
-                     (m.content.includes('# Implementation Plan') && m.content.length > 250) ||
-                     m.content.includes('I have formulated an implementation plan') ||
-                     m.content.includes('Implementation Plan Formulated')
-                    ) &&
-                    (turn.plan?.intent_category === 'planning' || m.content.includes('I have formulated an implementation plan'))
-                  );
+                  const {
+                    outTokens,
+                    cleanedContent,
+                    maskedContent,
+                    quickActions,
+                    isFullPlanDoc,
+                    planInfo,
+                  } = getProcessedAgentMessage(m, turn.plan?.intent_category);
                   const isRawPlanExpanded = !!expandedRawPlanMsgIds[m.id];
-                  const planInfo = isFullPlanDoc ? extractPlanHighlightsFromMarkdown(m.content) : null;
 
                   const handleMessageLinkClick = (url: string, text: string) => {
                     if (url.startsWith('plan://') || url === '#open-plan-doc' || url === 'action://open-plan-doc') {
@@ -4586,7 +4659,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                                 {isRawPlanExpanded && (
                                   <div className="pt-2 pl-2 border-l-2 border-onedark-accent/30 text-xs">
                                     <MarkdownRenderer
-                                      content={maskSecretsInText(cleanedContent)}
+                                      content={maskedContent}
                                       isStreaming={m.isStreaming}
                                       onLinkClick={handleMessageLinkClick}
                                     />
@@ -4595,7 +4668,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                               </div>
                             ) : m.content ? (
                               <MarkdownRenderer
-                                content={maskSecretsInText(cleanedContent)}
+                                content={maskedContent}
                                 isStreaming={m.isStreaming}
                                 onLinkClick={handleMessageLinkClick}
                               />
@@ -4789,7 +4862,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
       </div>
 
       {/* Centralized Bottom Chat Input Bar */}
-      <div className="relative p-3 sm:p-4 bg-onedark-darker/90 border-t border-onedark-borderSubtle/60 backdrop-blur-md flex-shrink-0">
+      <div className="relative p-3 sm:p-4 bg-onedark-darker border-t border-onedark-borderSubtle/60 flex-shrink-0">
         {/* Floating Jump to Bottom Button - Anchored strictly ABOVE the input bar so it NEVER blocks or overlaps input */}
         {showScrollBottomBtn && (
           <div className={`w-full ${contentMaxWidth} mx-auto relative pointer-events-none`}>
@@ -4797,7 +4870,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               <button
                 type="button"
                 onClick={() => scrollToBottom(true)}
-                className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker shadow-xl shadow-black/40 text-xs font-bold cursor-pointer transition-all active:scale-95 border border-black/15 backdrop-blur-md group select-none"
+                className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-full bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker shadow-xl shadow-black/40 text-xs font-bold cursor-pointer transition-all active:scale-95 border border-black/15 group select-none"
                 title="Resume auto-scroll & jump to latest responses"
               >
                 {isRunning ? (
@@ -5061,7 +5134,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                       const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight;
                       if (distanceFromBottom <= 80) {
                         isAutoScrollEnabledRef.current = true;
-                        setShowScrollBottomBtn(false);
+                        updateShowScrollBottomBtn(false);
                       }
                     }
                   }}

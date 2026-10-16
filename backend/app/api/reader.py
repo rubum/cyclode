@@ -125,14 +125,14 @@ class StandardDocParser(HTMLParser):
             self.output.append(cleaned)
 
 
-def _clean_html_to_markdown(html_text: str, base_url: str = "") -> str:
+def _clean_html_to_markdown(html_text: str, base_url: str = "", _soup: Any = None) -> str:
     """
     Extracts readable article/main text and converts HTML into clean Markdown.
     Uses BeautifulSoup when installed, with StandardDocParser fallback.
     """
     try:
         from bs4 import BeautifulSoup, NavigableString, Tag, Comment
-        soup = BeautifulSoup(html_text, "html.parser")
+        soup = _soup if _soup is not None else BeautifulSoup(html_text, "html.parser")
 
         # Decompose non-content containers
         for tag in soup(["script", "style", "nav", "header", "footer", "aside", "noscript", "svg", "form", "iframe", "button"]):
@@ -276,17 +276,17 @@ def _clean_html_to_markdown(html_text: str, base_url: str = "") -> str:
     return clean[:20000] if clean else "Failed to parse page content."
 
 
-def _extract_site_navigation(html_text: str, base_url: str = "") -> list:
+def _extract_site_navigation(html_text: str, base_url: str = "", _soup: Any = None) -> list:
     """
     Extracts structured navigation tree (guides, chapters, pages) from
     documentation sidebars (e.g. Docusaurus, Astro Starlight, VitePress, MkDocs, GitBook).
     """
-    if not html_text:
+    if not html_text and _soup is None:
         return []
 
     try:
         from bs4 import BeautifulSoup
-        soup = BeautifulSoup(html_text, "html.parser")
+        soup = _soup if _soup is not None else BeautifulSoup(html_text, "html.parser")
 
         # Locate documentation sidebar container, excluding right-hand TOCs
         sidebar = None
@@ -373,6 +373,23 @@ def _extract_site_navigation(html_text: str, base_url: str = "") -> list:
     except Exception as e:
         logger.debug(f"Navigation extraction notice: {e}")
         return []
+
+
+def _parse_html_doc_sync(raw_text: str, base_url: str = "") -> tuple:
+    """
+    Single-pass HTML parser that constructs BeautifulSoup once to extract both
+    the site navigation tree and the cleaned article Markdown.
+    Designed to run via asyncio.to_thread so large HTML pages do not block the event loop.
+    """
+    soup = None
+    try:
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(raw_text, "html.parser")
+    except Exception:
+        pass
+    nav_tree = _extract_site_navigation(raw_text, base_url=base_url, _soup=soup)
+    md_body = _clean_html_to_markdown(raw_text, base_url=base_url, _soup=soup)
+    return nav_tree, md_body
 
 
 def _clean_github_markdown(markdown_text: str, owner: str, repo: str, default_branch: str = "main") -> str:
@@ -529,6 +546,7 @@ async def _fetch_github_repo_info(owner: str, repo: str) -> Dict[str, Any]:
     """
     Fetches GitHub repository information and README markdown with Vault token support.
     """
+    import asyncio
     token = await _get_github_auth_token(owner, repo)
 
     headers = {
@@ -540,28 +558,27 @@ async def _fetch_github_repo_info(owner: str, repo: str) -> Dict[str, Any]:
 
     repo_url = f"https://api.github.com/repos/{owner}/{repo}"
     readme_api_url = f"https://api.github.com/repos/{owner}/{repo}/readme"
+    readme_headers = dict(headers)
+    readme_headers["Accept"] = "application/vnd.github.raw+json"
 
     async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
         repo_data: Dict[str, Any] = {}
         readme_md: Optional[str] = None
 
-        # Fetch repo metadata
-        try:
-            r = await client.get(repo_url, headers=headers)
-            if r.status_code == 200:
-                repo_data = r.json()
-        except Exception as e:
-            logger.debug(f"GitHub API metadata notice: {e}")
+        r_meta, r_readme = await asyncio.gather(
+            client.get(repo_url, headers=headers),
+            client.get(readme_api_url, headers=readme_headers),
+            return_exceptions=True
+        )
 
-        # Fetch README via official GitHub API with raw accept header
-        try:
-            readme_headers = dict(headers)
-            readme_headers["Accept"] = "application/vnd.github.raw+json"
-            r = await client.get(readme_api_url, headers=readme_headers)
-            if r.status_code == 200 and r.text.strip():
-                readme_md = r.text
-        except Exception:
-            pass
+        if not isinstance(r_meta, Exception) and r_meta.status_code == 200:
+            try:
+                repo_data = r_meta.json()
+            except Exception as e:
+                logger.debug(f"GitHub API metadata notice: {e}")
+
+        if not isinstance(r_readme, Exception) and r_readme.status_code == 200 and r_readme.text.strip():
+            readme_md = r_readme.text
 
         # Fallback to public raw URLs if API didn't return
         if not readme_md:
@@ -641,8 +658,11 @@ def _parse_diff_to_files(diff_text: str) -> List[Dict[str, Any]]:
 
 async def _fetch_github_pr_info(owner: str, repo: str, pr_number: int) -> Dict[str, Any]:
     """
-    Fetches GitHub Pull Request metadata, description, files list, commits, and unified diff.
+    Fetches GitHub Pull Request metadata, description, files list, commits, and unified diff concurrently.
     """
+    import asyncio
+    from app.integrations.github_client import github_client
+
     token = await _get_github_auth_token(owner, repo)
     headers = {
         "User-Agent": "Cyclode-Workstation/1.0",
@@ -651,26 +671,32 @@ async def _fetch_github_pr_info(owner: str, repo: str, pr_number: int) -> Dict[s
     if token:
         headers["Authorization"] = f"token {token}"
 
+    diff_headers = dict(headers)
+    diff_headers["Accept"] = "application/vnd.github.v3.diff"
+
     pr_url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}"
     async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-        pr_data: Dict[str, Any] = {}
-        try:
-            r = await client.get(pr_url, headers=headers)
-            if r.status_code == 200:
-                pr_data = r.json()
-        except Exception as e:
-            logger.warning(f"Failed to fetch GitHub PR {owner}/{repo}#{pr_number}: {e}")
+        r_pr, r_diff, r_files, r_commits, comments_res, auth_user_res = await asyncio.gather(
+            client.get(pr_url, headers=headers),
+            client.get(pr_url, headers=diff_headers),
+            client.get(f"{pr_url}/files?per_page=100", headers=headers),
+            client.get(f"{pr_url}/commits?per_page=50", headers=headers),
+            github_client.list_pull_request_comments(owner, repo, pr_number, custom_token=token),
+            github_client.get_authenticated_user(custom_token=token),
+            return_exceptions=True
+        )
 
-        # Fetch unified diff
+        pr_data: Dict[str, Any] = {}
+        if not isinstance(r_pr, Exception) and r_pr.status_code == 200:
+            try:
+                pr_data = r_pr.json()
+            except Exception as e:
+                logger.warning(f"Failed to parse GitHub PR {owner}/{repo}#{pr_number}: {e}")
+
+        # Unified diff
         diff_text = ""
-        try:
-            diff_headers = dict(headers)
-            diff_headers["Accept"] = "application/vnd.github.v3.diff"
-            r_diff = await client.get(pr_url, headers=diff_headers)
-            if r_diff.status_code == 200:
-                diff_text = r_diff.text
-        except Exception as e:
-            logger.debug(f"Failed to fetch PR diff via GitHub API: {e}")
+        if not isinstance(r_diff, Exception) and r_diff.status_code == 200:
+            diff_text = r_diff.text
 
         if not diff_text:
             try:
@@ -683,11 +709,10 @@ async def _fetch_github_pr_info(owner: str, repo: str, pr_number: int) -> Dict[s
             except Exception:
                 pass
 
-        # Fetch PR modified files list
+        # PR modified files list
         files_list: List[Dict[str, Any]] = []
-        try:
-            r_files = await client.get(f"{pr_url}/files?per_page=100", headers=headers)
-            if r_files.status_code == 200:
+        if not isinstance(r_files, Exception) and r_files.status_code == 200:
+            try:
                 for f in r_files.json():
                     files_list.append({
                         "filename": f.get("filename", ""),
@@ -699,18 +724,17 @@ async def _fetch_github_pr_info(owner: str, repo: str, pr_number: int) -> Dict[s
                         "raw_url": f.get("raw_url", ""),
                         "blob_url": f.get("blob_url", "")
                     })
-        except Exception as e:
-            logger.debug(f"Failed to fetch PR files via API: {e}")
+            except Exception as e:
+                logger.debug(f"Failed to parse PR files via API: {e}")
 
         # Fallback parse diff_text if files_list is empty
         if not files_list and diff_text:
             files_list = _parse_diff_to_files(diff_text)
 
-        # Fetch PR commits list
+        # PR commits list
         commits_list: List[Dict[str, Any]] = []
-        try:
-            r_commits = await client.get(f"{pr_url}/commits?per_page=50", headers=headers)
-            if r_commits.status_code == 200:
+        if not isinstance(r_commits, Exception) and r_commits.status_code == 200:
+            try:
                 for c in r_commits.json():
                     commit_obj = c.get("commit", {})
                     author_obj = c.get("author") or {}
@@ -730,16 +754,10 @@ async def _fetch_github_pr_info(owner: str, repo: str, pr_number: int) -> Dict[s
                         "date": commit_obj.get("author", {}).get("date", ""),
                         "html_url": c.get("html_url", "")
                     })
-        except Exception as e:
-            logger.debug(f"Failed to fetch PR commits via API: {e}")
+            except Exception as e:
+                logger.debug(f"Failed to parse PR commits via API: {e}")
 
-        # Fetch PR comments (issue comments, review comments, reviews)
-        comments_list: List[Dict[str, Any]] = []
-        try:
-            from app.integrations.github_client import github_client
-            comments_list = await github_client.list_pull_request_comments(owner, repo, pr_number, custom_token=token)
-        except Exception as e:
-            logger.debug(f"Failed to fetch PR comments in reader: {e}")
+        comments_list: List[Dict[str, Any]] = comments_res if isinstance(comments_res, list) else []
 
         title = pr_data.get("title") or f"Pull Request #{pr_number}"
         user_login = pr_data.get("user", {}).get("login", "unknown")
@@ -768,21 +786,15 @@ async def _fetch_github_pr_info(owner: str, repo: str, pr_number: int) -> Dict[s
         # Determine viewer user and author relationship
         viewer_login = None
         viewer_is_author = False
-        try:
-            from app.integrations.github_client import github_client
-            auth_user = await github_client.get_authenticated_user(custom_token=token)
-            if auth_user:
-                viewer_login = auth_user.get("login")
-                if viewer_login and user_login:
-                    viewer_is_author = (viewer_login.lower() == user_login.lower())
-        except Exception:
-            pass
+        if isinstance(auth_user_res, dict) and auth_user_res:
+            viewer_login = auth_user_res.get("login")
+            if viewer_login and user_login:
+                viewer_is_author = (viewer_login.lower() == user_login.lower())
 
         # Fetch check-runs for head SHA or branch
         head_sha = pr_data.get("head", {}).get("sha", "") if isinstance(pr_data.get("head"), dict) else ""
         checks_data = {"total_count": 0, "conclusion": "unknown", "check_runs": []}
         try:
-            from app.integrations.github_client import github_client
             check_target = head_sha or head_ref
             if check_target:
                 checks_data = await github_client.get_check_runs(owner, repo, check_target, custom_token=token)
@@ -1285,12 +1297,40 @@ async def search_doc_pages(
         return {"query": clean_q, "domain": domain, "total_results": 0, "results": []}
 
 
+_READER_MEMORY_CACHE: Dict[str, Any] = {}
+_READER_CACHE_TTL_SEC = 600.0
+
+
+def _get_cached_reader_result(url: str) -> Optional[Dict[str, Any]]:
+    import time
+    entry = _READER_MEMORY_CACHE.get(url)
+    if not entry:
+        return None
+    ts, payload = entry
+    if time.monotonic() - ts > _READER_CACHE_TTL_SEC:
+        _READER_MEMORY_CACHE.pop(url, None)
+        return None
+    return payload
+
+
+def _set_cached_reader_result(url: str, payload: Dict[str, Any]) -> None:
+    import time
+    if len(_READER_MEMORY_CACHE) >= 256:
+        oldest_key = next(iter(_READER_MEMORY_CACHE))
+        _READER_MEMORY_CACHE.pop(oldest_key, None)
+    _READER_MEMORY_CACHE[url] = (time.monotonic(), payload)
+
+
 @router.get("")
-async def get_url_reader(url: str = Query(..., description="Target URL to read")):
+async def get_url_reader(
+    url: str = Query(..., description="Target URL to read"),
+    refresh: bool = Query(False, description="Force fresh network fetch bypassing cache")
+):
     """
     Returns clean, structured reader markdown and metadata for an external URL.
     Detects GitHub repositories to provide rich README and metadata views.
     """
+    import asyncio
     clean_url = url.strip()
     if clean_url.startswith("blob:"):
         return {
@@ -1303,6 +1343,11 @@ async def get_url_reader(url: str = Query(..., description="Target URL to read")
 
     if not clean_url.startswith(("http://", "https://")):
         clean_url = "https://" + clean_url
+
+    if not refresh:
+        mem_hit = _get_cached_reader_result(clean_url)
+        if mem_hit is not None:
+            return mem_hit
 
     parsed = urlparse(clean_url)
     hostname = (parsed.hostname or "").lower()
@@ -1340,6 +1385,7 @@ async def get_url_reader(url: str = Query(..., description="Target URL to read")
                     await session.commit()
             except Exception as e:
                 logger.debug(f"arXiv doc caching notice: {e}")
+            _set_cached_reader_result(clean_url, arxiv_info)
             return arxiv_info
         except Exception as e:
             logger.warning(f"Error resolving arXiv paper {arxiv_id}: {e}")
@@ -1418,6 +1464,8 @@ async def get_url_reader(url: str = Query(..., description="Target URL to read")
                         await session.commit()
                 except Exception as e:
                     logger.debug(f"Linear doc caching notice: {e}")
+                if "Unable to retrieve ticket" not in linear_info.get("content_markdown", ""):
+                    _set_cached_reader_result(clean_url, linear_info)
                 return linear_info
             except Exception as e:
                 logger.warning(f"Error resolving Linear ticket {issue_key}: {e}")
@@ -1457,6 +1505,7 @@ async def get_url_reader(url: str = Query(..., description="Target URL to read")
                             await session.commit()
                     except Exception as e:
                         logger.debug(f"GitHub PR doc caching notice: {e}")
+                    _set_cached_reader_result(clean_url, gh_info)
                     return gh_info
                 except Exception as e:
                     logger.warning(f"Error resolving GitHub PR {owner}/{repo}#{pr_number}: {e}")
@@ -1489,6 +1538,7 @@ async def get_url_reader(url: str = Query(..., description="Target URL to read")
                             await session.commit()
                     except Exception as e:
                         logger.debug(f"GitHub issue doc caching notice: {e}")
+                    _set_cached_reader_result(clean_url, gh_info)
                     return gh_info
                 except Exception as e:
                     logger.warning(f"Error resolving GitHub Issue {owner}/{repo}#{issue_number}: {e}")
@@ -1497,7 +1547,9 @@ async def get_url_reader(url: str = Query(..., description="Target URL to read")
             elif len(path_parts) >= 4 and path_parts[2].lower() in ("commit", "commits"):
                 commit_sha = path_parts[3]
                 try:
-                    return await _fetch_github_commit_info(owner, repo, commit_sha)
+                    commit_info = await _fetch_github_commit_info(owner, repo, commit_sha)
+                    _set_cached_reader_result(clean_url, commit_info)
+                    return commit_info
                 except Exception as e:
                     logger.warning(f"Error resolving GitHub Commit {owner}/{repo}@{commit_sha}: {e}")
 
@@ -1527,11 +1579,43 @@ async def get_url_reader(url: str = Query(..., description="Target URL to read")
                         await session.commit()
                 except Exception as e:
                     logger.debug(f"GitHub doc caching notice: {e}")
+                _set_cached_reader_result(clean_url, gh_info)
                 return gh_info
             except Exception as e:
                 logger.warning(f"Error resolving GitHub repo {owner}/{repo}: {e}")
 
-    # Standard Web Documentation Reader
+    # Standard Web Documentation Reader: check persistent DB cache first when not refreshing
+    page_id = hashlib.sha256(clean_url.encode("utf-8")).hexdigest()[:32]
+    if not refresh:
+        try:
+            async with async_session_factory() as session:
+                stmt = select(DocPageCacheModel).where(DocPageCacheModel.id == page_id)
+                res = await session.execute(stmt)
+                cached_doc = res.scalars().first()
+                if cached_doc and cached_doc.content_markdown:
+                    nav_tree = []
+                    page_desc = ""
+                    if cached_doc.headings_json:
+                        try:
+                            parsed_meta = json.loads(cached_doc.headings_json)
+                            if isinstance(parsed_meta, dict):
+                                nav_tree = parsed_meta.get("navigation", [])
+                                page_desc = parsed_meta.get("description", "")
+                        except Exception:
+                            pass
+                    db_hit_payload = {
+                        "type": "web",
+                        "url": clean_url,
+                        "title": cached_doc.title or hostname,
+                        "description": page_desc,
+                        "content_markdown": cached_doc.content_markdown,
+                        "navigation": nav_tree
+                    }
+                    _set_cached_reader_result(clean_url, db_hit_payload)
+                    return db_hit_payload
+        except Exception as e:
+            logger.debug(f"DB doc cache lookup notice: {e}")
+
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -1576,37 +1660,42 @@ async def get_url_reader(url: str = Query(..., description="Target URL to read")
             # If raw markdown or text
             if "text/markdown" in content_type or "text/plain" in content_type:
                 title = clean_url.split("/")[-1] or hostname
-                return {
+                plain_payload = {
                     "type": "web",
                     "url": clean_url,
                     "title": title,
                     "description": hostname,
                     "content_markdown": raw_text[:40000]
                 }
+                _set_cached_reader_result(clean_url, plain_payload)
+                return plain_payload
 
-            # Parse HTML
+            # Parse HTML title & meta description
             title_match = re.search(r"<title[^>]*>([^<]+)</title>", raw_text, re.IGNORECASE)
             page_title = title_match.group(1).strip() if title_match else hostname
 
-            # Extract meta description
             desc_match = re.search(r'<meta[^>]*name=["\']description["\'][^>]*content=["\']([^"\']+)["\']', raw_text, re.IGNORECASE)
             page_desc = desc_match.group(1).strip() if desc_match else ""
 
-            navigation_tree = _extract_site_navigation(raw_text, base_url=clean_url)
-            markdown_body = _clean_html_to_markdown(raw_text, base_url=clean_url)
+            # Single-pass BeautifulSoup parsing offloaded to worker thread
+            navigation_tree, markdown_body = await asyncio.to_thread(_parse_html_doc_sync, raw_text, clean_url)
 
             if markdown_body.strip().startswith("#"):
                 final_content = markdown_body.strip()
             else:
                 final_content = f"# {page_title}\n\n{markdown_body}".strip()
 
-            # Cache page content for full-text search
+            # Cache page content for full-text search and fast read-through
             try:
-                page_id = hashlib.sha256(clean_url.encode("utf-8")).hexdigest()[:32]
                 headings_list = [
                     {"title": m.group(2).strip(), "level": len(m.group(1))}
                     for m in re.finditer(r"^(#{1,4})\s+(.+)$", final_content, re.MULTILINE)
                 ]
+                meta_json = json.dumps({
+                    "headings": headings_list,
+                    "navigation": navigation_tree,
+                    "description": page_desc
+                })
                 async with async_session_factory() as session:
                     stmt = select(DocPageCacheModel).where(DocPageCacheModel.id == page_id)
                     res = await session.execute(stmt)
@@ -1614,7 +1703,7 @@ async def get_url_reader(url: str = Query(..., description="Target URL to read")
                     if existing:
                         existing.title = page_title
                         existing.content_markdown = final_content
-                        existing.headings_json = json.dumps(headings_list)
+                        existing.headings_json = meta_json
                         existing.domain = hostname
                     else:
                         new_page = DocPageCacheModel(
@@ -1623,14 +1712,14 @@ async def get_url_reader(url: str = Query(..., description="Target URL to read")
                             domain=hostname,
                             title=page_title,
                             content_markdown=final_content,
-                            headings_json=json.dumps(headings_list)
+                            headings_json=meta_json
                         )
                         session.add(new_page)
                     await session.commit()
             except Exception as e:
                 logger.debug(f"Doc caching notice: {e}")
 
-            return {
+            web_payload = {
                 "type": "web",
                 "url": clean_url,
                 "title": page_title,
@@ -1638,6 +1727,8 @@ async def get_url_reader(url: str = Query(..., description="Target URL to read")
                 "content_markdown": final_content,
                 "navigation": navigation_tree
             }
+            _set_cached_reader_result(clean_url, web_payload)
+            return web_payload
     except httpx.TimeoutException:
         return {
             "type": "web",
