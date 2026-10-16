@@ -14,6 +14,7 @@ import { RepositoriesView } from './components/Repositories/RepositoriesView';
 import { SandboxInspectorModal } from './components/Sandbox/SandboxInspectorModal';
 import { Task, TaskMessage, TaskLog, EventItem, PolicyMap, Integration, AutomationRule, SkillCatalogItem, WebhookEndpoint, RepositoryConfig, LayoutPreset } from './types';
 import { useLayoutStore, useTaskStore, useEventStore } from './stores';
+import { parseCurrentRoute, buildViewPath, syncBrowserUrl } from './utils/urlRouter';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -55,6 +56,7 @@ const MainApp: React.FC = () => {
     setIsClearingAll,
     deletingTaskId,
     setDeletingTaskId,
+    isLoadingTasks,
     isSessionLoading,
     setIsSessionLoading,
     fetchTasks,
@@ -114,13 +116,70 @@ const MainApp: React.FC = () => {
   const streamBufferRef = useRef<Map<string, any>>(new Map());
   const streamRafRef = useRef<number | null>(null);
 
+  // Sync browser URL when switching top-level views (e.g., /fleet, /automations, or back to /session/{id})
+  useEffect(() => {
+    const targetPath = buildViewPath(activeView, activeTaskIdRef.current);
+    syncBrowserUrl(targetPath);
+  }, [activeView, activeTaskIdRef]);
+
+  // Handle Browser Back / Forward navigation
+  useEffect(() => {
+    const handlePopState = () => {
+      const route = parseCurrentRoute();
+      setActiveView(route.view);
+      if (route.view === 'chat') {
+        if (route.sessionId) {
+          if (activeTaskIdRef.current !== route.sessionId) {
+            setActiveTaskId(route.sessionId, { skipUrl: true });
+          }
+        } else {
+          if (activeTaskIdRef.current !== null) {
+            setIsSessionLoading(false);
+            setActiveTaskId(null, { skipUrl: true });
+            setActiveTaskDetails(null);
+          }
+        }
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [setActiveView, setActiveTaskId, setActiveTaskDetails, setIsSessionLoading, activeTaskIdRef]);
+
+  // Keep document title synchronized with the active session or view
+  useEffect(() => {
+    const viewLabels: Record<string, string> = {
+      fleet: 'Agent Fleet',
+      events: 'Event Inbox',
+      automations: 'Automations & Rules',
+      policies: 'Approval Policies',
+      integrations: 'Integrations',
+      repositories: 'Repositories & Vault',
+      simulator: 'Webhook Simulator',
+    };
+    if (activeView !== 'chat' && viewLabels[activeView]) {
+      document.title = `${viewLabels[activeView]} — Cyclode`;
+      return;
+    }
+    const sessionTitle =
+      activeTaskDetails?.title ||
+      tasks.find((t) => t.id === activeTaskId)?.title;
+    if (activeTaskId && sessionTitle) {
+      document.title = `${sessionTitle} — Cyclode`;
+    } else {
+      document.title = 'Cyclode — Autonomous AI Engineering Workstation';
+    }
+  }, [activeView, activeTaskId, activeTaskDetails?.title, tasks]);
+
   useEffect(() => {
     fetchTasks();
-    fetchAutomations();
-    fetchEvents();
-    fetchPolicies();
-    fetchIntegrations();
-    fetchRepositories();
+    const timer = setTimeout(() => {
+      fetchAutomations();
+      fetchEvents();
+      fetchPolicies();
+      fetchIntegrations();
+      fetchRepositories();
+    }, 150);
+    return () => clearTimeout(timer);
   }, [fetchTasks, fetchAutomations, fetchEvents, fetchPolicies, fetchIntegrations, fetchRepositories]);
 
   useEffect(() => {
@@ -139,7 +198,7 @@ const MainApp: React.FC = () => {
       fetchTasks();
       // Only auto-focus newly created task if not a subsession AND (if no task is currently active or if user was waiting on a temp task)
       if (!data.is_subsession && (!activeTaskIdRef.current || activeTaskIdRef.current.startsWith('temp-'))) {
-        setActiveTaskId(data.id);
+        setActiveTaskId(data.id, { replaceUrl: true });
         activeTaskIdRef.current = data.id;
         setActiveView('chat');
         fetchTaskDetails(data.id);
@@ -184,22 +243,26 @@ const MainApp: React.FC = () => {
         setActiveTaskDetails((prev) => {
           if (!prev) return prev;
           const messages = [...(prev.messages || [])];
-          const existingIdx = messages.findIndex((m) => m.id === data.stream_id);
+          const existingIdx = messages.findIndex(
+            (m: any) => m.id === data.stream_id || (m.stream_id && m.stream_id === data.stream_id)
+          );
           if (existingIdx >= 0) {
             messages[existingIdx] = {
               ...messages[existingIdx],
+              stream_id: data.stream_id,
               isStreaming: true,
-            };
+            } as any;
           } else {
             messages.push({
               id: data.stream_id,
+              stream_id: data.stream_id,
               task_id: data.task_id,
               sender: data.sender || 'agent',
               content: '',
               thought: data.stream_type === 'thought' ? '' : undefined,
               isStreaming: true,
               created_at: data.timestamp || new Date().toISOString(),
-            });
+            } as any);
           }
           return { ...prev, status: 'RUNNING', messages };
         });
@@ -216,24 +279,28 @@ const MainApp: React.FC = () => {
         let messages = [...(prev.messages || [])];
         for (const data of chunks) {
           if (activeTaskId !== data.task_id) continue;
-          const existingIdx = messages.findIndex((m) => m.id === data.stream_id);
+          const existingIdx = messages.findIndex(
+            (m: any) => m.id === data.stream_id || (m.stream_id && m.stream_id === data.stream_id)
+          );
           if (existingIdx >= 0) {
             messages[existingIdx] = {
               ...messages[existingIdx],
+              stream_id: (messages[existingIdx] as any).stream_id || data.stream_id,
               content: data.stream_type === 'message' ? data.accumulated : (messages[existingIdx].content || ''),
               thought: data.stream_type === 'thought' ? data.accumulated : messages[existingIdx].thought,
               isStreaming: true,
-            };
+            } as any;
           } else {
             messages.push({
               id: data.stream_id,
+              stream_id: data.stream_id,
               task_id: data.task_id,
               sender: 'agent',
               content: data.stream_type === 'message' ? data.accumulated : '',
               thought: data.stream_type === 'thought' ? data.accumulated : undefined,
               isStreaming: true,
               created_at: new Date().toISOString(),
-            });
+            } as any);
           }
         }
         return { ...prev, messages };
@@ -263,18 +330,22 @@ const MainApp: React.FC = () => {
         setActiveTaskDetails((prev) => {
           if (!prev) return prev;
           const messages = [...(prev.messages || [])];
-          const existingIdx = messages.findIndex((m) => m.id === data.stream_id);
+          const existingIdx = messages.findIndex(
+            (m: any) => m.id === data.stream_id || (m.stream_id && m.stream_id === data.stream_id)
+          );
           if (existingIdx >= 0) {
             messages[existingIdx] = {
               ...messages[existingIdx],
+              stream_id: (messages[existingIdx] as any).stream_id || data.stream_id,
               content: data.stream_type === 'message' ? data.final_content : (messages[existingIdx].content || ''),
               thought: data.stream_type === 'thought' ? data.final_content : messages[existingIdx].thought,
               tokens: data.tokens,
               isStreaming: false,
-            };
+            } as any;
           } else {
             messages.push({
               id: data.stream_id,
+              stream_id: data.stream_id,
               task_id: data.task_id,
               sender: 'agent',
               content: data.stream_type === 'message' ? data.final_content : '',
@@ -282,7 +353,7 @@ const MainApp: React.FC = () => {
               tokens: data.tokens,
               isStreaming: false,
               created_at: data.timestamp || new Date().toISOString(),
-            });
+            } as any);
           }
           return { ...prev, messages };
         });
@@ -297,32 +368,36 @@ const MainApp: React.FC = () => {
           
           // Reconcile with existing streamed thought or matching thought entry
           const thoughtIdx = messages.findIndex(
-            (m) =>
+            (m: any) =>
               (data.id && m.id === data.id) ||
-              (data.stream_id && m.id === data.stream_id) ||
+              (data.stream_id && (m.id === data.stream_id || m.stream_id === data.stream_id)) ||
               (m.thought && data.thought && m.thought.trim() === data.thought.trim()) ||
               (m.content && data.thought && m.content.trim() === data.thought.trim() && m.thought)
           );
 
           if (thoughtIdx >= 0) {
+            const prevMsg: any = messages[thoughtIdx];
             messages[thoughtIdx] = {
-              ...messages[thoughtIdx],
-              id: data.id || messages[thoughtIdx].id,
+              ...prevMsg,
+              id: data.id || prevMsg.id,
+              stream_id: prevMsg.stream_id || data.stream_id || prevMsg.id,
               thought: data.thought,
-              content: (messages[thoughtIdx].content && messages[thoughtIdx].content !== data.thought) ? messages[thoughtIdx].content : '',
-              tokens: data.tokens ?? messages[thoughtIdx].tokens,
+              content: (prevMsg.content && prevMsg.content !== data.thought) ? prevMsg.content : '',
+              tokens: data.tokens ?? prevMsg.tokens,
               isStreaming: false,
-              created_at: messages[thoughtIdx].created_at || data.timestamp || new Date().toISOString(),
-            };
+              created_at: prevMsg.created_at || data.timestamp || new Date().toISOString(),
+            } as any;
             return { ...prev, messages };
           }
 
+          const fallbackId = data.id || data.stream_id || `thought-${Date.now()}`;
           return {
             ...prev,
             messages: [
               ...messages,
               {
-                id: data.id || `thought-${Date.now()}`,
+                id: fallbackId,
+                stream_id: data.stream_id || fallbackId,
                 task_id: data.task_id,
                 sender: 'agent',
                 content: '',
@@ -330,7 +405,7 @@ const MainApp: React.FC = () => {
                 tokens: data.tokens,
                 isStreaming: false,
                 created_at: data.timestamp || new Date().toISOString(),
-              },
+              } as any,
             ],
           };
         });
@@ -358,7 +433,7 @@ const MainApp: React.FC = () => {
             duration_ms: 0,
             created_at: data.timestamp || new Date().toISOString(),
             isRunning: true,
-            call_id: data.call_id,
+            call_id: callId,
           };
           return {
             ...prev,
@@ -385,6 +460,7 @@ const MainApp: React.FC = () => {
               return {
                 ...l,
                 id: data.id || l.id,
+                call_id: l.call_id || data.call_id || l.id,
                 tool_output: data.tool_output,
                 exit_code: data.exit_code,
                 duration_ms: data.duration_ms,
@@ -397,6 +473,7 @@ const MainApp: React.FC = () => {
               return {
                 ...l,
                 id: data.id || l.id,
+                call_id: l.call_id || l.id,
                 tool_output: data.tool_output,
                 exit_code: data.exit_code,
                 duration_ms: data.duration_ms,
@@ -405,13 +482,36 @@ const MainApp: React.FC = () => {
             }
             return l;
           });
+
+          if (!matched) {
+            const fallbackId = data.id || data.call_id || `live-log-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+            logs.push({
+              id: fallbackId,
+              call_id: data.call_id || fallbackId,
+              task_id: data.task_id,
+              tool_name: data.tool_name,
+              tool_input: data.tool_input || {},
+              tool_output: data.tool_output || '',
+              exit_code: data.exit_code ?? 0,
+              duration_ms: data.duration_ms ?? 0,
+              created_at: data.timestamp || new Date().toISOString(),
+              isRunning: false,
+            } as any);
+          }
+
+          const stillRunning = [...logs].reverse().find((l: any) => l.isRunning);
           return {
             ...prev,
-            active_tool: null,
+            active_tool: stillRunning
+              ? {
+                  tool_name: stillRunning.tool_name,
+                  tool_input: stillRunning.tool_input || {},
+                  timestamp: stillRunning.created_at || new Date().toISOString(),
+                }
+              : null,
             logs,
           };
         });
-        fetchTaskDetails(data.task_id);
       }
     });
 
@@ -575,19 +675,13 @@ const MainApp: React.FC = () => {
   }, [subscribe, activeTaskId, fetchTasks, fetchTaskDetails, fetchEvents]);
 
   const handleSelectTask = (taskId: string) => {
-    if (taskId === activeTaskId) return;
-    setIsSessionLoading(true);
+    if (taskId === activeTaskId) {
+      setActiveView('chat');
+      syncBrowserUrl(buildViewPath('chat', taskId));
+      return;
+    }
     setActiveTaskId(taskId);
     setActiveView('chat');
-    const existing = tasks.find((t) => t.id === taskId);
-    if (existing) {
-      setActiveTaskDetails({
-        ...existing,
-        messages: existing.messages || [],
-      });
-    } else {
-      setActiveTaskDetails(null);
-    }
   };
 
   const handleNewChat = () => {
@@ -719,7 +813,7 @@ const MainApp: React.FC = () => {
         if (createdId) {
           handleDraftChange(createdId, '');
           if (activeTaskIdRef.current === tempId) {
-            setActiveTaskId(createdId);
+            setActiveTaskId(createdId, { replaceUrl: true });
             activeTaskIdRef.current = createdId;
           }
           setTasks((prev) =>
@@ -1231,7 +1325,7 @@ const MainApp: React.FC = () => {
     }
 
     if (activeTaskId === taskId) {
-      setActiveTaskId(null);
+      setActiveTaskId(null, { replaceUrl: true });
       setActiveTaskDetails(null);
       setActiveView('chat');
       activeTaskIdRef.current = null;
@@ -1249,7 +1343,7 @@ const MainApp: React.FC = () => {
       if (!res.ok && res.status !== 404) {
         console.error('Failed to delete task:', res.status, res.statusText);
         setTasks(prevTasks);
-        setActiveTaskId(prevActiveId);
+        setActiveTaskId(prevActiveId, { replaceUrl: true });
         setActiveTaskDetails(prevActiveDetails);
         setActiveView(prevActiveView);
         activeTaskIdRef.current = prevActiveId;
@@ -1257,7 +1351,7 @@ const MainApp: React.FC = () => {
     } catch (err) {
       console.error('Error deleting task:', err);
       setTasks(prevTasks);
-      setActiveTaskId(prevActiveId);
+      setActiveTaskId(prevActiveId, { replaceUrl: true });
       setActiveTaskDetails(prevActiveDetails);
       setActiveView(prevActiveView);
       activeTaskIdRef.current = prevActiveId;
@@ -1274,7 +1368,7 @@ const MainApp: React.FC = () => {
 
     // Optimistically clear all local sessions immediately
     setTasks([]);
-    setActiveTaskId(null);
+    setActiveTaskId(null, { replaceUrl: true });
     setActiveTaskDetails(null);
     setActiveView('chat');
     activeTaskIdRef.current = null;
@@ -1557,6 +1651,7 @@ const MainApp: React.FC = () => {
             activeAgentsCount={tasks.filter((t) => t.status === 'RUNNING').length}
             onToggleSidebar={handleToggleSidebar}
             isCollapsed={isSidebarCollapsed}
+            isLoadingTasks={isLoadingTasks}
           />
         }
         center={renderCenterView()}

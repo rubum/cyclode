@@ -29,10 +29,13 @@ interface IntelligenceTabProps {
 }
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
+const taskMemoriesCache = new Map<string, KnowledgeEntry[]>();
 
 export const IntelligenceTab: React.FC<IntelligenceTabProps> = ({ task }) => {
   const [activeSection, setActiveSection] = useState<'briefing' | 'citations' | 'memory' | 'audit'>('briefing');
-  const [memories, setMemories] = useState<KnowledgeEntry[]>([]);
+  const [memories, setMemories] = useState<KnowledgeEntry[]>(() =>
+    task?.id ? taskMemoriesCache.get(task.id) || [] : []
+  );
   const [isLoadingMemories, setIsLoadingMemories] = useState(false);
   const [isCompilingReport, setIsCompilingReport] = useState(false);
   const [report, setReport] = useState<SessionReport | null>(task?.report || null);
@@ -40,35 +43,48 @@ export const IntelligenceTab: React.FC<IntelligenceTabProps> = ({ task }) => {
   const [auditQuery, setAuditQuery] = useState('');
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
 
-  // Sync report when task updates
+  // Sync report when task or task.id updates
   useEffect(() => {
-    if (task?.report) {
-      setReport(task.report);
-    }
-  }, [task?.report]);
+    setReport(task?.report || null);
+  }, [task?.id, task?.report]);
 
-  // Fetch task memories
+  // Fetch task memories with client-side cache and AbortController
   useEffect(() => {
     if (!task?.id || task.id.startsWith('temp-')) {
       setMemories([]);
       return;
     }
+    const taskId = task.id;
+    const cached = taskMemoriesCache.get(taskId);
+    if (cached) {
+      setMemories(cached);
+      if (task.status !== 'RUNNING' && task.status !== 'INITIALIZING') {
+        return;
+      }
+    }
+
+    const controller = new AbortController();
     const fetchMemories = async () => {
-      setIsLoadingMemories(true);
+      if (!cached) setIsLoadingMemories(true);
       try {
-        const res = await fetch(`${API_BASE}/api/memories/task/${task.id}`);
+        const res = await fetch(`${API_BASE}/api/memories/task/${taskId}`, {
+          signal: controller.signal,
+        });
         if (res.ok) {
           const data = await res.json();
+          taskMemoriesCache.set(taskId, data);
           setMemories(data);
         }
-      } catch (err) {
+      } catch (err: any) {
+        if (err?.name === 'AbortError') return;
         console.error('Failed to fetch task memories:', err);
       } finally {
         setIsLoadingMemories(false);
       }
     };
     fetchMemories();
-  }, [task?.id]);
+    return () => controller.abort();
+  }, [task?.id, task?.status]);
 
   const handleCompileReport = async () => {
     if (!task?.id || task.id.startsWith('temp-')) return;

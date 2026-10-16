@@ -571,6 +571,19 @@ html.light-theme .token.inserted {
   overflow: hidden;
 }
 
+/* Fast-Scroll GPU Rasterization & Offscreen Turn Containment */
+.chat-scroll-viewport {
+  will-change: scroll-position;
+  transform: translateZ(0);
+  -webkit-overflow-scrolling: touch;
+}
+
+.chat-turn-contained {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 280px;
+  contain: layout style paint;
+}
+
 /* Motion Accessibility Guardrails */
 @media (prefers-reduced-motion: reduce) {
   *, ::before, ::after {
@@ -583,4 +596,5 @@ html.light-theme .token.inserted {
     transform: none !important;
   }
 }
+
 

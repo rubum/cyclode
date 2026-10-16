@@ -122,7 +122,7 @@ export const FormattedLogView: React.FC<FormattedLogViewProps> = ({
     let isFileContent = false;
     let isDirectoryList = false;
     let dirItems: Array<{ name: string; is_dir?: boolean; type?: string; size?: number | null }> = [];
-    let isCommandOutput = false;
+    let isCommandOutput = log.tool_name === 'run_command';
     let stdout = '';
     let stderr = '';
 
@@ -140,7 +140,9 @@ export const FormattedLogView: React.FC<FormattedLogViewProps> = ({
         formattedOutput = [stdout, stderr ? `stderr:\n${stderr}` : ''].filter(Boolean).join('\n');
       }
     } else {
-      if (log.tool_name === 'read_file') {
+      if (log.tool_name === 'run_command' && formattedOutput) {
+        stdout = formattedOutput;
+      } else if (log.tool_name === 'read_file') {
         isFileContent = true;
       } else if (log.tool_name === 'list_dir') {
         isDirectoryList = false;
@@ -317,7 +319,7 @@ export const FormattedLogView: React.FC<FormattedLogViewProps> = ({
 
       {/* Body / Content */}
       {isExpanded && (
-        <div className="bg-onedark-darker flex flex-col max-h-[520px]">
+        <div className={`bg-onedark-darker flex flex-col ${hideHeader ? 'min-h-[60px] max-h-[320px]' : 'max-h-[520px]'}`}>
           {/* Sub-tab Toolbar */}
           <div className="flex items-center justify-between px-3 py-1.5 bg-onedark-darker/90 text-[11px] font-mono flex-shrink-0 select-none border-b border-white/[0.04]">
             <div className="flex items-center space-x-1">
@@ -513,8 +515,18 @@ export const FormattedLogView: React.FC<FormattedLogViewProps> = ({
                   />
                 </div>
               ) : meta.isCommandOutput ? (
-                /* Terminal stdout & stderr */
+                /* Terminal command + stdout & stderr */
                 <div className="space-y-2">
+                  {meta.commandStr && (
+                    <div className={`flex items-start space-x-2 text-[11.5px] font-mono ${
+                      meta.stdout || meta.stderr ? 'pb-2 border-b border-white/[0.06]' : ''
+                    }`}>
+                      <span className="text-onedark-accent font-bold select-none shrink-0">$</span>
+                      <pre className="text-onedark-fgBright leading-relaxed whitespace-pre-wrap break-all font-mono text-[11.5px] flex-1">
+                        {meta.commandStr}
+                      </pre>
+                    </div>
+                  )}
                   {meta.stdout && (
                     <pre className="text-onedark-fgBright leading-relaxed whitespace-pre-wrap font-mono text-[11.5px]">
                       {meta.stdout}
@@ -532,14 +544,36 @@ export const FormattedLogView: React.FC<FormattedLogViewProps> = ({
                     </div>
                   )}
                   {!meta.stdout && !meta.stderr && (
-                    <span className="text-onedark-muted italic text-[11px]">(No terminal output)</span>
+                    log.isRunning ? (
+                      <div className="flex items-center space-x-2 text-onedark-muted text-[11px] pt-0.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-onedark-accent animate-pulse shrink-0" />
+                        <span>Running command...</span>
+                      </div>
+                    ) : !meta.commandStr ? (
+                      <span className="text-onedark-muted italic text-[11px]">(No terminal output)</span>
+                    ) : null
                   )}
                 </div>
               ) : (
                 /* General text log output */
-                <pre className="text-onedark-fg leading-relaxed whitespace-pre-wrap font-mono text-[11.5px]">
-                  {meta.formattedOutput || '(No output)'}
-                </pre>
+                meta.formattedOutput ? (
+                  <pre className="text-onedark-fg leading-relaxed whitespace-pre-wrap font-mono text-[11.5px]">
+                    {meta.formattedOutput}
+                  </pre>
+                ) : log.isRunning ? (
+                  <div className="flex items-start space-x-2 text-onedark-muted text-[11.5px] py-0.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-onedark-accent animate-pulse shrink-0 mt-1.5" />
+                    <pre className="whitespace-pre-wrap break-all font-mono text-onedark-fgBright text-[11.5px]">
+                      {meta.commandStr
+                        ? `$ ${meta.commandStr}`
+                        : meta.filePath || (meta.query ? `"${meta.query}"` : '') || meta.targetUrl || (log.tool_name === 'list_dir' ? meta.subpath : '') || `Running ${log.tool_name}...`}
+                    </pre>
+                  </div>
+                ) : (
+                  <pre className="text-onedark-fg leading-relaxed whitespace-pre-wrap font-mono text-[11.5px]">
+                    (No output)
+                  </pre>
+                )
               )
             )}
           </div>

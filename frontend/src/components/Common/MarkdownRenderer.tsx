@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useRef, useCallback } from 'react';
 import { Copy, Check, Info, AlertTriangle, AlertCircle, Sparkles, Flame, ChevronRight, ChevronDown, Compass, ArrowRight, Maximize2, Minimize2, ArrowLeftRight } from 'lucide-react';
 import katex from 'katex';
 import { highlightCode, resolveLanguage, escapeHtml } from '../../utils/syntaxHighlighter';
@@ -7,6 +7,8 @@ import { ErrorBoundary } from './ErrorBoundary';
 
 const MermaidDiagram = React.lazy(() => import('./MermaidDiagram'));
 
+const highlightCache = new Map<string, string>();
+const katexCache = new Map<string, string>();
 
 interface MarkdownRendererProps {
   content: string;
@@ -16,17 +18,37 @@ interface MarkdownRendererProps {
 }
 
 function getHighlightedHtml(code: string, lang: string): string {
-  return highlightCode(code, lang);
+  const key = `${lang}:${code}`;
+  const cached = highlightCache.get(key);
+  if (cached !== undefined) return cached;
+  const html = highlightCode(code, lang);
+  if (code.length <= 40000) {
+    if (highlightCache.size >= 500) {
+      const oldest = highlightCache.keys().next().value;
+      if (oldest !== undefined) highlightCache.delete(oldest);
+    }
+    highlightCache.set(key, html);
+  }
+  return html;
 }
 
 function renderKatex(latex: string, displayMode: boolean = false): string {
+  const key = `${displayMode ? 'D' : 'I'}:${latex}`;
+  const cached = katexCache.get(key);
+  if (cached !== undefined) return cached;
   try {
-    return katex.renderToString(latex, {
+    const html = katex.renderToString(latex, {
       displayMode,
       throwOnError: false,
       output: 'htmlAndMathml',
       strict: false,
     });
+    if (katexCache.size >= 500) {
+      const oldest = katexCache.keys().next().value;
+      if (oldest !== undefined) katexCache.delete(oldest);
+    }
+    katexCache.set(key, html);
+    return html;
   } catch (e) {
     return `<span class="katex-error font-mono text-onedark-yellow text-[12px]">${escapeHtml(latex)}</span>`;
   }
@@ -41,9 +63,16 @@ interface NestedListItem {
   childType?: 'ul' | 'ol';
 }
 
-export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, className = '', isStreaming = false, onLinkClick }) => {
+const MarkdownRendererInner: React.FC<MarkdownRendererProps> = ({ content, className = '', isStreaming = false, onLinkClick }) => {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
-  const inline = (text: string) => renderInline(text, onLinkClick);
+  const onLinkClickRef = useRef(onLinkClick);
+  onLinkClickRef.current = onLinkClick;
+
+  const stableLinkClick = useCallback((url: string, text: string) => {
+    onLinkClickRef.current?.(url, text);
+  }, []);
+
+  const inline = (text: string) => renderInline(text, onLinkClickRef.current ? stableLinkClick : undefined);
 
   const handleCopy = (text: string, index: number) => {
     navigator.clipboard.writeText(text);
@@ -113,27 +142,22 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
   };
 
   // Strip raw HTML comments and normalize unclosed code blocks during active streaming
-  const normalizedContent = (() => {
+  const parts = useMemo(() => {
     let text = content || '';
-    // Strip HTML comments (e.g. <!-- CURSOR_AGENT_PR_BODY_END -->, <!-- release notes by coderabbit.ai -->)
     text = text.replace(/<!--[\s\S]*?-->/g, '');
-
-    // Strip standalone tracking / light-mode image badge links (e.g. https://app.coderabbit.ai/...#gh-light-mode-only)
     text = text.replace(/^https?:\/\/[^\s\n]+#gh-(?:light|dark)-mode-only\s*$/gim, '');
-    // Strip legacy/raw tool invocation traces
     text = text.replace(/\[Executed Tool:[^\]]+\]/g, '');
     text = text.replace(/\[Tool Result for [^\]]+:\s*[\s\S]*?\]/g, '');
 
-    if (!isStreaming) return text;
-    const codeBlockCount = (text.match(/```/g) || []).length;
-    if (codeBlockCount % 2 !== 0) {
-      return text + '\n```';
+    if (isStreaming) {
+      const codeBlockCount = (text.match(/```/g) || []).length;
+      if (codeBlockCount % 2 !== 0) {
+        text = text + '\n```';
+      }
     }
-    return text;
-  })();
+    return text.split(/(```[\s\S]*?```|\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\])/g);
+  }, [content, isStreaming]);
 
-  // Split by code blocks and display math blocks ($$...$$ or \[...\])
-  const parts = normalizedContent.split(/(```[\s\S]*?```|\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\])/g);
   let cursorAttached = false;
   const renderCursor = () => {
     cursorAttached = true;
@@ -228,7 +252,7 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
           return (
             <div
               key={index}
-              className={`my-3 rounded-xl bg-onedark-darker/90 border border-onedark-borderSubtle overflow-hidden shadow-xs group/code text-left transition-all ${
+              className={`my-3 rounded-xl bg-onedark-darker/90 border border-onedark-borderSubtle overflow-hidden shadow-xs group/code text-left transition-colors [contain:content] ${
                 isFullWidth ? 'w-full !max-w-none' : 'w-full'
               }`}
             >
@@ -310,11 +334,12 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
                   isLongCode && !isFullHeight ? 'max-h-72 overflow-y-auto [scrollbar-width:thin]' : ''
                 }`}>
                   {codeLines.length > 2 && (
-                    <div className="select-none text-onedark-muted/40 text-right pr-3 border-r border-onedark-borderSubtle/40 font-mono text-[11.5px] flex-shrink-0">
-                      {codeLines.map((_, i) => (
-                        <div key={i}>{i + 1}</div>
-                      ))}
-                    </div>
+                    <pre
+                      aria-hidden="true"
+                      className="select-none text-onedark-muted/40 text-right pr-3 border-r border-onedark-borderSubtle/40 font-mono leading-relaxed flex-shrink-0 m-0"
+                    >
+                      {Array.from({ length: codeLines.length }, (_, i) => i + 1).join('\n')}
+                    </pre>
                   )}
                   <pre className={`text-onedark-fg font-mono ${codeLines.length > 2 ? 'pl-3' : ''} flex-1 overflow-x-auto m-0`}>
                     <code
@@ -554,6 +579,14 @@ export const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, cla
   );
 };
 
+export const MarkdownRenderer: React.FC<MarkdownRendererProps> = React.memo(
+  MarkdownRendererInner,
+  (prev, next) =>
+    prev.content === next.content &&
+    prev.isStreaming === next.isStreaming &&
+    prev.className === next.className
+);
+
 function getAlertStyle(type: string) {
   switch (type.toUpperCase()) {
     case 'TIP':
@@ -582,6 +615,8 @@ interface BlockItem {
   summary?: string;
 }
 
+const blocksCache = new Map<string, BlockItem[]>();
+
 function parseTask(content: string): { isTask: boolean; isTaskChecked: boolean; cleanContent: string } {
   if (content.startsWith('[ ] ')) {
     return { isTask: true, isTaskChecked: false, cleanContent: content.slice(4) };
@@ -593,6 +628,10 @@ function parseTask(content: string): { isTask: boolean; isTaskChecked: boolean; 
 }
 
 function parseBlocks(text: string): BlockItem[] {
+  if (!text) return [];
+  const cached = blocksCache.get(text);
+  if (cached !== undefined) return cached;
+
   const lines = text.split('\n');
   const blocks: BlockItem[] = [];
   let currentList: { type: 'ul' | 'ol'; items: NestedListItem[]; startNumber?: number } | null = null;
@@ -916,6 +955,13 @@ function parseBlocks(text: string): BlockItem[] {
   flushList();
   flushTable();
 
+  if (text.length <= 30000) {
+    if (blocksCache.size >= 600) {
+      const oldest = blocksCache.keys().next().value;
+      if (oldest !== undefined) blocksCache.delete(oldest);
+    }
+    blocksCache.set(text, blocks);
+  }
   return blocks;
 }
 

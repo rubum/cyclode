@@ -82,13 +82,14 @@ class AntigravityHarness:
     def resolve_effective_model(
         self,
         task_model_name: Optional[str] = None,
-        intent_category: Optional[str] = None
+        intent_category: Optional[str] = None,
+        requires_reasoning: Optional[bool] = None
     ) -> str:
         """
         Resolves the concrete execution model based on task requirements, routing mode,
-        and Task-Adaptive Major vs. Minor tier allocation.
+        reasoning necessity, and Task-Adaptive Major vs. Minor tier allocation.
         """
-        known_intents = {"planning", "qa_research", "app_building", "code_modification", "debugging", "review_audit", "devops", "greetings"}
+        known_intents = {"planning", "qa_research", "app_building", "code_modification", "debugging", "review_audit", "devops", "greetings", "parallel_swarm"}
         task_model = task_model_name
         intent = intent_category
 
@@ -97,11 +98,16 @@ class AntigravityHarness:
             task_model = None
 
         requested = (task_model or self.model_name or "").strip()
+        use_fast_tier = (requires_reasoning is False) or (intent in ["qa_research", "greetings"])
         
         # If user explicitly requested a specific model (and not auto/adaptive)
         if requested and requested.lower() not in ["auto", "adaptive", "task-adaptive"]:
             if any(requested.startswith(p) for p in ["gemini-1.", "gemini-2.", "google:gemini-1.", "google:gemini-2."]) or "1.5" in requested or "2.0" in requested or "2.5" in requested:
                 return "gemini-3.7-flash"
+            if requested.lower() in ["deepseek-v4.1-flash", "deepseek:deepseek-v4.1-flash"]:
+                return "deepseek-flash"
+            if requires_reasoning is False and requested.lower() in ["deepseek-reasoner", "deepseek-r1", "deepseek:deepseek-reasoner", "deepseek:deepseek-r1"]:
+                return "deepseek-flash"
             return requested
 
         # When auto/adaptive or no model is selected:
@@ -113,23 +119,55 @@ class AntigravityHarness:
 
         if not has_gemini:
             if has_deepseek:
-                return "deepseek-reasoner" if intent in ["app_building", "code_modification", "debugging"] else "deepseek-flash"
+                return "deepseek-flash" if use_fast_tier else ("deepseek-reasoner" if intent in ["app_building", "code_modification", "debugging"] else "deepseek-flash")
             elif has_claude:
-                return "claude-opus-5-5" if intent in ["app_building", "code_modification", "debugging"] else "claude-haiku-5-5"
+                return "claude-haiku-5-5" if use_fast_tier else ("claude-opus-5-5" if intent in ["app_building", "code_modification", "debugging"] else "claude-haiku-5-5")
             elif has_openai:
-                return "gpt-4o" if intent in ["app_building", "code_modification", "debugging"] else "gpt-4o-mini"
+                return "gpt-4o-mini" if use_fast_tier else ("gpt-4o" if intent in ["app_building", "code_modification", "debugging"] else "gpt-4o-mini")
 
         # If Task-Adaptive routing is active
         if getattr(settings, "ANTIGRAVITY_ROUTING_MODE", "adaptive") == "adaptive":
-            if intent in ["qa_research", "greetings"]:
+            if use_fast_tier:
                 minor = getattr(settings, "ANTIGRAVITY_MINOR_MODEL", "gemini-3.7-flash") or "gemini-3.7-flash"
+                if minor.lower() in ["deepseek-v4.1-flash", "deepseek:deepseek-v4.1-flash"]:
+                    return "deepseek-flash"
                 return "gemini-3.7-flash" if any(p in minor for p in ["1.5", "2.0", "2.5"]) else minor
-            elif intent in ["app_building", "code_modification", "debugging", "review_audit", "devops"] or (intent is None and (not requested or requested.lower() in ["auto", "adaptive"])):
+            elif intent in ["app_building", "code_modification", "debugging", "review_audit", "devops", "parallel_swarm"] or (intent is None and (not requested or requested.lower() in ["auto", "adaptive"])):
                 major = getattr(settings, "ANTIGRAVITY_MAJOR_MODEL", "gemini-3.8-flash") or "gemini-3.8-flash"
                 return "gemini-3.8-flash" if any(p in major for p in ["1.5", "2.0", "2.5"]) else major
 
         default_m = getattr(settings, "ANTIGRAVITY_MODEL", "gemini-3.7-flash") or "gemini-3.7-flash"
         return "gemini-3.7-flash" if any(p in default_m for p in ["1.5", "2.0", "2.5"]) else default_m
+
+    def resolve_planner_model(
+        self,
+        requested_model: Optional[str] = None,
+        api_key: Optional[str] = None
+    ) -> str:
+        """
+        Resolves the fast model used for intent extraction and compact plan synthesis.
+        Prioritizes deepseek-v4.1-flash (deepseek-flash) when DeepSeek is active or configured in adaptive mode,
+        avoiding slow reasoning models during pre-flight planning.
+        """
+        req = (requested_model or self.model_name or "").strip()
+        req_lower = req.lower()
+        planner_pref = getattr(settings, "ANTIGRAVITY_PLANNER_MODEL", "deepseek-v4.1-flash") or "deepseek-v4.1-flash"
+        if planner_pref.lower() in ["deepseek-v4.1-flash", "deepseek:deepseek-v4.1-flash"]:
+            planner_pref = "deepseek-flash"
+
+        if req_lower.startswith("deepseek"):
+            return planner_pref
+
+        if not req or req_lower in ["auto", "adaptive", "task-adaptive"]:
+            has_deepseek = bool(
+                settings.get_deepseek_api_key()
+                or integration_manager.get_custom_credential("deepseek", "api_key")
+            )
+            if has_deepseek:
+                return planner_pref
+            return self.resolve_effective_model(req, intent_category="qa_research", requires_reasoning=False)
+
+        return self.resolve_effective_model(req, intent_category="qa_research", requires_reasoning=False)
 
     async def _emit_streamed_thought(
         self,
@@ -150,18 +188,15 @@ class AntigravityHarness:
 
                 words = re.findall(r'\S+\s*|\s+', thought_text)
                 accumulated = ""
-                for word in words:
+                for idx, word in enumerate(words):
                     accumulated += word
                     if inspect.iscoroutinefunction(on_stream_chunk):
                         await on_stream_chunk("thought", s_id, word, accumulated)
                     else:
                         on_stream_chunk("thought", s_id, word, accumulated)
-                    delay = 0.018
-                    if word.endswith(('.', '!', '?', ':\n', ';\n', '\n\n')):
-                        delay = 0.035
-                    elif word.isspace():
-                        delay = 0.005
-                    await asyncio.sleep(delay)
+                    if idx < 20:
+                        delay = 0.002 if not word.isspace() else 0.0005
+                        await asyncio.sleep(delay)
 
                 if inspect.iscoroutinefunction(on_stream_end):
                     await on_stream_end("thought", s_id, thought_text)
@@ -210,18 +245,15 @@ class AntigravityHarness:
 
                 words = re.findall(r'\S+\s*|\s+', content)
                 accumulated = ""
-                for word in words:
+                for idx, word in enumerate(words):
                     accumulated += word
                     if inspect.iscoroutinefunction(on_stream_chunk):
                         await on_stream_chunk("message", s_id, word, accumulated)
                     else:
                         on_stream_chunk("message", s_id, word, accumulated)
-                    delay = 0.024
-                    if word.endswith(('.', '!', '?', ':\n', ';\n', '\n\n')):
-                        delay = 0.045
-                    elif word.isspace():
-                        delay = 0.006
-                    await asyncio.sleep(delay)
+                    if idx < 25:
+                        delay = 0.002 if not word.isspace() else 0.0005
+                        await asyncio.sleep(delay)
 
                 if inspect.iscoroutinefunction(on_stream_end):
                     await on_stream_end("message", s_id, content)
@@ -348,13 +380,16 @@ class AntigravityHarness:
             logger.debug(f"Emit plan callback notice: {e}")
 
     @staticmethod
-    def infer_task_intent(title: str, prompt: str, persona_name: str = "") -> str:
+    def infer_task_intent(title: str, prompt: str, persona_name: str = "", mode: Optional[str] = None) -> str:
         """
         Infers the structural intent category ('planning', 'qa_research', 'app_building',
         'code_modification', 'debugging', 'review_audit', 'devops') from task title,
         prompt text, and persona name.
-        Guarantees that coding, refactoring, and UI actions never falsely default to qa_research.
+        Guarantees that coding, refactoring, and UI actions never falsely default to qa_research,
+        while contextual follow-up questions (e.g. "what's a namespace") are not misclassified by stale session titles.
         """
+        if mode and str(mode).strip().lower() in ["plan", "planning"]:
+            return "planning"
         combined = f"{title or ''} {prompt or ''}".strip().lower()
         cleaned_prompt = (prompt or "").strip().lower()
         cleaned_title = (title or "").strip().lower()
@@ -393,14 +428,36 @@ class AntigravityHarness:
         ]
         is_discussion_or_advisory = any(k in cleaned_prompt for k in discussion_keywords) or any(k in cleaned_title for k in discussion_keywords)
 
-        is_qa_prefix = (
-            any(cleaned_prompt.startswith(prefix) for prefix in ["what is", "what are", "how does", "how do", "how to", "why is", "why does", "explain", "describe", "tell me about", "compare", "contrast", "overview of", "summarize", "does it", "should we", "should i", "can we", "is it", "would it"])
-            or any(cleaned_title.startswith(prefix) for prefix in ["what is", "what are", "how does", "how do", "how to", "why is", "why does", "explain", "describe", "tell me about", "compare", "contrast", "overview of", "summarize", "does it", "should we", "should i", "can we", "is it", "would it"])
+        qa_prefixes = [
+            "what is", "what are", "what's", "whats", "what does", "what do",
+            "how does", "how do", "how to", "how is", "how are", "how can",
+            "why is", "why does", "why do", "why are", "where is", "where are", "where's",
+            "who is", "when is", "which ", "explain", "describe", "tell me about",
+            "compare", "contrast", "overview of", "summarize", "define ",
+            "does it", "should we", "should i", "can we", "is it", "would it", "is there", "are there"
+        ]
+        prompt_is_qa_question = (
+            any(cleaned_prompt.startswith(prefix) for prefix in qa_prefixes)
+            or (cleaned_prompt.endswith("?") and len(cleaned_prompt.split()) <= 20)
+        )
+        title_is_qa_question = (
+            any(cleaned_title.startswith(prefix) for prefix in qa_prefixes)
             or "research" in cleaned_title.split()
         )
-        has_code_file = bool(re.search(r'\b[\w\-\./]+\.(py|html|css|jsx?|tsx?|json|sql|rs|go|c|cpp|h)\b|\bdockerfile\b', combined, re.IGNORECASE))
+        is_qa_prefix = prompt_is_qa_question or title_is_qa_question
+        code_file_regex = r'\b[\w\-\./]+\.(py|html|css|jsx?|tsx?|json|sql|rs|go|c|cpp|h)\b|\bdockerfile\b'
+        prompt_has_code_file = bool(re.search(code_file_regex, cleaned_prompt, re.IGNORECASE))
+        has_code_file = bool(re.search(code_file_regex, combined, re.IGNORECASE))
+        prompt_has_mutation_verb = any(
+            re.search(rf'\b{re.escape(v)}\b', cleaned_prompt)
+            for v in ["fix", "refactor", "implement", "update", "modify", "patch", "remediate", "edit", "write", "create", "build", "delete", "remove", "rename"]
+        )
 
-        if is_discussion_or_advisory or (is_qa_prefix and not has_code_file):
+        if (
+            is_discussion_or_advisory
+            or (prompt_is_qa_question and not prompt_has_code_file and not prompt_has_mutation_verb)
+            or (is_qa_prefix and not has_code_file)
+        ):
             return "qa_research"
 
         # 4. Parallel Swarm & Multi-Agent Delegation
@@ -449,6 +506,107 @@ class AntigravityHarness:
             return "code_modification"
 
         return "qa_research"
+
+    @staticmethod
+    def requires_reasoning_for_query(
+        title: str,
+        prompt: str,
+        intent_category: str = "",
+        history: Optional[List[Dict[str, Any]]] = None,
+    ) -> bool:
+        """
+        Determines whether a query requires extended chain-of-thought / reasoning models.
+        Returns False for greetings, direct conceptual Q&A (e.g. "what's a namespace"),
+        and lightweight explanations that do not require deep architectural or debugging synthesis.
+        """
+        cleaned_prompt = (prompt or title or "").strip().lower()
+        conversational_pings = {
+            "hey", "hello", "hi", "howdy", "greetings", "good morning",
+            "good afternoon", "good evening", "yo", "sup", "hey there", "hello there"
+        }
+        if cleaned_prompt in conversational_pings:
+            return False
+
+        intent = (intent_category or "").strip().lower()
+        if not intent:
+            intent = AntigravityHarness.infer_task_intent(title, prompt, "")
+
+        if intent == "qa_research":
+            deep_reasoning_cues = [
+                "architect", "trade-off", "tradeoff", "root cause", "race condition",
+                "deadlock", "prove", "derive", "why is it failing", "debug",
+                "security audit", "vulnerability", "step by step reasoning",
+                "think carefully", "deep dive", "time complexity proof"
+            ]
+            if any(cue in cleaned_prompt for cue in deep_reasoning_cues):
+                return True
+            return False
+
+        return True
+
+    @staticmethod
+    def is_fast_direct_query(
+        title: str,
+        prompt: str,
+        persona_name: str = "",
+        history: Optional[List[Dict[str, Any]]] = None,
+        intent_category: Optional[str] = None,
+        mode: Optional[str] = None,
+    ) -> bool:
+        """
+        Determines whether a query can bypass the pre-turn LLM plan synthesis round-trip
+        and execute directly in a single fast pass.
+        """
+        if mode and str(mode).strip().lower() in ["plan", "planning"]:
+            return False
+        cleaned_prompt = (prompt or "").strip().lower()
+        cleaned_title = (title or "").strip().lower()
+        conversational_pings = {
+            "hey", "hello", "hi", "howdy", "greetings", "good morning",
+            "good afternoon", "good evening", "yo", "sup", "hey there", "hello there"
+        }
+        if cleaned_prompt in conversational_pings or cleaned_title in conversational_pings:
+            return True
+
+        # Approval / continuation directives when an implementation plan already exists in history
+        approval_patterns = [
+            r"^(?:proceed|continue|go ahead|start|execute|implement|do it|run|approved?|ok|okay)\b",
+            r"\b(?:proceed with|go ahead with|continue with|start with|execute|implement)\s+(?:the\s+)?(?:execution\s+)?(?:plan|phase|steps?|implementation|milestone)\b",
+            r"\bapprove(?:d)?\s+(?:the\s+)?(?:plan|execution)\b",
+            r"\blooks good(?:,\s*proceed)?\b",
+        ]
+        is_approval = (
+            cleaned_prompt in {"proceed", "continue", "go ahead", "next", "yes", "approved", "ok", "okay", "do it"}
+            or cleaned_title in {"proceed", "continue", "go ahead", "next", "yes", "approved", "ok", "okay", "do it"}
+            or any(bool(re.search(pat, cleaned_prompt, re.IGNORECASE)) for pat in approval_patterns)
+            or any(bool(re.search(pat, cleaned_title, re.IGNORECASE)) for pat in approval_patterns)
+        )
+        if is_approval and history:
+            for m in reversed(history):
+                c = m.get("content") or ""
+                if ("# Implementation Plan" in c or "## Implementation Plan" in c or "Key Execution Phases" in c) and ("Phase 1" in c or "Step 1" in c):
+                    return True
+
+        known_intents = {"planning", "qa_research", "app_building", "code_modification", "debugging", "review_audit", "devops", "greetings", "parallel_swarm"}
+        if intent_category:
+            intent = intent_category
+        elif persona_name in known_intents:
+            intent = persona_name
+        else:
+            intent = AntigravityHarness.infer_task_intent(title, prompt, persona_name, mode=mode)
+        if intent != "qa_research":
+            return False
+
+        # Direct qa_research without target workspace code files, URLs, or PR inspections
+        code_file_regex = r'\b[\w\-\./]+\.(py|html|css|jsx?|tsx?|json|sql|rs|go|c|cpp|h)\b|\bdockerfile\b'
+        if re.search(code_file_regex, cleaned_prompt, re.IGNORECASE):
+            return False
+        if "http://" in cleaned_prompt or "https://" in cleaned_prompt:
+            return False
+        if re.search(r'\bpr\s*#?\d+\b|\bpull request\b', cleaned_prompt, re.IGNORECASE):
+            return False
+
+        return True
 
     def _create_initial_plan_placeholder(self, title: str, prompt: str, persona_name: str = "") -> Dict[str, Any]:
         """
@@ -708,15 +866,16 @@ class AntigravityHarness:
         prompt: str,
         persona_name: str,
         history: Optional[List[Dict[str, Any]]] = None,
-        workspace_path: Optional[Path] = None
+        workspace_path: Optional[Path] = None,
+        cached_workspace_files: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         Dynamically synthesizes a bespoke execution plan and classifies task intent
-        using structured JSON output from the selected provider (Gemini, Claude, or OpenAI)
+        using structured JSON output from the fast planner model (deepseek-v4.1-flash / provider flash)
         before tool loop execution. Surfaces authentic error diagnostics if dynamic formulation fails.
         """
         objective = title or prompt[:100]
-        effective_plan_model = self.resolve_effective_model(model_name)
+        effective_plan_model = self.resolve_planner_model(model_name, api_key=api_key)
         provider = get_provider_for_model(effective_plan_model)
         
         # Fast path: Check if conversational greeting or casual ping
@@ -726,6 +885,9 @@ class AntigravityHarness:
         if cleaned_prompt in conversational_pings or cleaned_title in conversational_pings:
             return {
                 "intent_category": "qa_research",
+                "response_style": "direct_concise",
+                "requires_plan": False,
+                "requires_reasoning": False,
                 "objective": "Acknowledge greeting and assist with software engineering tasks",
                 "steps": [
                     {"id": "step-1", "title": "Respond to user greeting and provide assistance", "status": "in_progress"}
@@ -802,6 +964,9 @@ class AntigravityHarness:
             inferred_intent = Harness.infer_task_intent(title, prompt, persona_name)
             exec_intent = "app_building" if (inferred_intent == "app_building" or persona_name == "AppBuilder") else "code_modification"
             adopted_plan["intent_category"] = exec_intent
+            adopted_plan["response_style"] = "action_execution"
+            adopted_plan["requires_plan"] = True
+            adopted_plan["requires_reasoning"] = True
 
             first_pending_found = False
             for s in adopted_plan.get("steps", []):
@@ -823,7 +988,13 @@ class AntigravityHarness:
 
         # Extract active workspace filesystem tree to ground planning against real files
         workspace_grounding = ""
-        if workspace_path and workspace_path.exists():
+        if cached_workspace_files:
+            workspace_grounding = (
+                "Active Workspace Files Ground Truth:\n"
+                + "\n".join(f"- {f}" for f in cached_workspace_files[:25])
+                + "\nCRITICAL PLANNING MANDATE: Ground all plan steps strictly against the REAL files above! If the workspace is a single-file application (e.g. index.html), plan modifications directly on index.html. NEVER invent non-existent React/modular directories (such as src/components/...) when the project is self-contained.\n\n"
+            )
+        elif workspace_path and workspace_path.exists():
             try:
                 ignored_dirs = {".git", "node_modules", "__pycache__", ".venv", ".pytest_cache", "dist", "build", ".antigravity", ".gemini"}
                 found_files = []
@@ -880,49 +1051,41 @@ class AntigravityHarness:
             }
 
         plan_prompt = (
-            f"You are the Cyclode Master Execution Planner. Formulate an in-depth, rigorous, actionable architectural implementation plan for the following task.\n\n"
+            f"You are the Cyclode Master Execution Planner. Formulate a fast, compact, actionable execution plan and classify intent, response_style, and reasoning need for the following task.\n\n"
             f"Task Title: {title}\n"
             f"Persona: {persona_name}\n"
             f"Prompt: {prompt}\n\n"
             f"{workspace_grounding}"
             f"{conversation_context}"
             f"Allowed intent_category values: ['planning', 'qa_research', 'app_building', 'code_modification', 'review_audit', 'debugging', 'devops', 'parallel_swarm']\n"
+            f"Allowed response_style values: ['direct_concise', 'analytical_briefing', 'action_execution', 'architectural_plan']\n"
             f"Guidelines:\n"
-            f"- If the prompt asks for a plan, roadmap, proposal, architecture proposal, or says 'what\\'s the plan', 'so what\\'s the plan', 'plan this', set intent_category='planning'.\n"
+            f"- STEP COUNT CAP (CRITICAL FOR SPEED): For all non-'planning' tasks, generate AT MOST 1 to 3 concise steps in 'steps' (1 step for qa_research or single-file edits; 2-3 steps for multi-file edits or app building). Only populate detailed 'phases' when intent_category='planning' (otherwise set 'phases' to []).\n"
+            f"- REASONING & PLAN GATING: Set 'requires_reasoning': false and 'requires_plan': false for conceptual questions, definitions (e.g. 'what\\'s a namespace'), simple explanations, or straightforward lookups. Set 'requires_reasoning': true only when deep architectural trade-offs, complex multi-file refactoring, debugging root causes, or security audits are needed.\n"
+            f"- If the prompt asks for a plan, roadmap, proposal, architecture proposal, or says 'what\\'s the plan', 'so what\\'s the plan', 'plan this', set intent_category='planning' and response_style='architectural_plan'.\n"
             f"- If the prompt involves comparing, benchmarking, researching, or analyzing multiple distinct entities (e.g. PRs, repositories, services, stocks, countries, libraries), discrete time slices, or orthogonal domains/facets in parallel, OR asks to parallelize, build with subagents, run a swarm, or construct multiple decoupled modules/services in parallel (e.g. 'Parallelize the build with subagents', 'Build data pipeline concurrently', 'parallelize'), set intent_category='parallel_swarm'. The milestones must decompose into an atomic concurrent build phase: 'Phase 1: Concurrent Swarm Build (Dispatch N specialized worker pods in parallel via `delegate_subtasks`)', followed by centralized integration and verification. NEVER fragment parallel subagent pods into separate sequential steps (such as 'Step 1: Dispatch pod 1', 'Step 2: Dispatch pod 2')! When more than 5 entities are requested (e.g. 10 items), chunk or bin-pack them across up to 5 pods (e.g. 5 pods analyzing 2 items each) to stay within concurrency bounds while ensuring 100% coverage.\n"
-            f"- If the prompt is asking a question, conceptual explanation, trade-off discussion, advisory feedback (e.g. 'Does it make sense...', 'Discuss that first', 'What do you think', 'Should we...', 'dont submit'), web research, or URL summarization, set intent_category='qa_research'. NEVER generate a multi-phase implementation plan for conversational or advisory questions!\n"
+            f"- If the prompt is asking a question, conceptual explanation, trade-off discussion, advisory feedback (e.g. 'Does it make sense...', 'Discuss that first', 'What do you think', 'Should we...', 'dont submit'), web research, or URL summarization, set intent_category='qa_research' and response_style='direct_concise' (or 'analytical_briefing' for multi-source research). NEVER generate a multi-phase implementation plan for conversational or advisory questions!\n"
             f"  CRITICAL FOR QA & RESEARCH INTENT: The plan milestones must represent research/reading steps (e.g. Step 1: Retrieve external intelligence / URL, Step 2: Synthesize comprehensive analytical briefing with hyperlinked citations directly in chat). 'file_touchpoints' MUST be an empty array []! NEVER propose creating workspace files (such as source.md, summary.md, notes.txt), NEVER propose git log audits, and NEVER propose bash unit testing for text research!\n"
             f"- For engineering/coding phases, provide descriptive title, 1-sentence objective, specific file touchpoints with bulleted action items under each file, and concrete verification criteria (e.g. exact pytest or build commands).\n"
-            f"- If the prompt asks to build an interactive web app, frontend, UI, dashboard, game, landing page, or calculator, set intent_category='app_building'.\n"
+            f"- If the prompt asks to build an interactive web app, frontend, UI, dashboard, game, landing page, or calculator, set intent_category='app_building' and response_style='action_execution'.\n"
             f"  CRITICAL FOR APP BUILDING: Formulate the implementation plan specifically for Cyclode's Instant Live Preview Sandbox! Target self-contained HTML/CSS/JS or Vite/React components (e.g. index.html with Tailwind CSS, responsive layout, theme tokens, interactive DOM sections, and verify_app_preview). Do NOT propose non-executable cloud deployment pipelines or multi-container server dependencies when creating client-side apps or landing pages!\n"
             f"  DOMAIN-GROUNDED MILESTONES: Extract concrete domain entities, structures, and operational mechanics from the prompt into milestone phases. Prohibit abstract placeholder checklists (e.g. NEVER emit generic steps like 'Initialize files', 'Integrate library', 'Add controls'). Decompose into domain-grounded deliverables: (1) Core Environment & Spatial Shell (floor grid, layout boundaries, lighting, container styling), (2) Domain Models, Entities & Asset Population (specific domain meshes, materials, textures, realistic data), (3) Navigation Controls & Interactive UI/HUD Overlays (camera navigation, user inputs, HUD panels, stats counters), and (4) Compilation & verify_app_preview validation.\n"
             f"- If the prompt asks to review PR, diff, or code audit, set intent_category='review_audit'.\n"
             f"- If the prompt asks to fix an error or debug code, set intent_category='debugging'.\n"
             f"- If the prompt asks to configure Docker, CI/CD, or deployment, set intent_category='devops'.\n"
-            f"- Otherwise, set intent_category='code_modification'.\n"
+            f"- Otherwise, set intent_category='code_modification' and response_style='action_execution'.\n"
             f"- ABSOLUTE STRUCTURAL INTEGRITY RULE: NEVER propose deleting, removing, or 'deduplicating' root codebase directories (such as 'app/', 'src/', 'tests/', 'backend/', 'frontend/'). Repositories often maintain dual-tree structures for container or packaging reasons. Always propose resolving path/import errors via configuration (pyproject.toml, pytest settings, PYTHONPATH), NEVER via mass directory deletion!\n\n"
             f"Respond ONLY with a valid JSON object matching this schema:\n"
             f"{{\n"
             f'  "intent_category": "planning | qa_research | app_building | code_modification | review_audit | debugging | devops | parallel_swarm",\n'
+            f'  "response_style": "direct_concise | analytical_briefing | action_execution | architectural_plan",\n'
+            f'  "requires_plan": true,\n'
+            f'  "requires_reasoning": false,\n'
             f'  "title": "Implementation Plan: [Crisp Descriptive Title]",\n'
-            f'  "overview": "1-2 sentence executive summary outlining the phased remediation or development strategy",\n'
-            f'  "phases": [\n'
-            f'    {{\n'
-            f'      "phase_number": 1,\n'
-            f'      "title": "Phase 1: [Specific Milestone Title]",\n'
-            f'      "objective": "Clear 1-sentence objective",\n'
-            f'      "file_touchpoints": [\n'
-            f'        "path/to/file.py: Specific change details or action item"\n'
-            f'      ],\n'
-            f'      "verification_criteria": [\n'
-            f'        "Concrete verification command and condition (e.g. pytest tests/test_tools.py passes)"\n'
-            f'      ]\n'
-            f'    }}\n'
-            f'  ],\n'
+            f'  "overview": "1-2 sentence executive summary outlining the strategy",\n'
+            f'  "phases": [],\n'
             f'  "steps": [\n'
-            f'    {{"id": "step-1", "title": "Specific step description", "status": "pending"}},\n'
-            f'    {{"id": "step-2", "title": "Specific step description", "status": "pending"}},\n'
-            f'    {{"id": "step-3", "title": "Specific step description", "status": "pending"}}\n'
+            f'    {{"id": "step-1", "title": "Specific step description", "status": "pending"}}\n'
             f'  ]\n'
             f"}}"
         )
@@ -942,9 +1105,23 @@ class AntigravityHarness:
             elif intent_cat not in ["planning", "qa_research", "app_building", "code_modification", "review_audit", "debugging", "devops", "parallel_swarm"]:
                 intent_cat = inferred_intent
 
+            default_style = (
+                "architectural_plan"
+                if intent_cat == "planning"
+                else ("direct_concise" if intent_cat == "qa_research" else "action_execution")
+            )
+            response_style = parsed.get("response_style") if parsed.get("response_style") in {"direct_concise", "analytical_briefing", "action_execution", "architectural_plan"} else default_style
+            requires_plan = bool(parsed.get("requires_plan", intent_cat != "qa_research"))
+            requires_reasoning = bool(
+                parsed.get(
+                    "requires_reasoning",
+                    Harness.requires_reasoning_for_query(title, prompt, intent_cat, history),
+                )
+            )
+
             obj = parsed.get("objective") or objective
             raw_phases = parsed.get("phases", [])
-            phases = Harness.sanitize_plan_phases(raw_phases)
+            phases = Harness.sanitize_plan_phases(raw_phases, intent_category=intent_cat)
             if intent_cat == "qa_research":
                 for p in phases:
                     p["file_touchpoints"] = []
@@ -957,6 +1134,11 @@ class AntigravityHarness:
                     for i, p in enumerate(phases)
                 ]
 
+            if intent_cat != "planning":
+                if isinstance(raw_steps, list) and len(raw_steps) > 3:
+                    raw_steps = raw_steps[:3]
+                phases = []
+
             if isinstance(raw_steps, list) and len(raw_steps) >= 1:
                 steps = []
                 for idx, s in enumerate(raw_steps):
@@ -966,6 +1148,9 @@ class AntigravityHarness:
                     steps.append({"id": s_id, "title": s_title, "status": s_status})
                 plan_dict = {
                     "intent_category": intent_cat,
+                    "response_style": response_style,
+                    "requires_plan": requires_plan,
+                    "requires_reasoning": requires_reasoning,
                     "title": plan_title,
                     "objective": obj,
                     "overview": overview,
@@ -1035,7 +1220,13 @@ class AntigravityHarness:
         # 1. Pre-process secrets into Vault and mask them
         sanitized_prompt, extracted_creds = await VaultInterceptor.process_prompt(raw_prompt)
 
-        effective_model = self.resolve_effective_model(self.model_name)
+        initial_intent = self.infer_task_intent(title, sanitized_prompt, persona_name)
+        initial_reasoning = self.requires_reasoning_for_query(title, sanitized_prompt, initial_intent, history)
+        effective_model = self.resolve_effective_model(
+            self.model_name,
+            intent_category=initial_intent,
+            requires_reasoning=initial_reasoning,
+        )
         provider = get_provider_for_model(effective_model)
         provider_id = provider.provider_id
         provider_label = "DeepSeek AI" if provider_id == "deepseek" else ("Anthropic Claude" if provider_id == "anthropic" else ("OpenAI / Codex" if provider_id == "openai" else "Google Gemini"))
@@ -1130,7 +1321,13 @@ class AntigravityHarness:
             role_definition=role_definition,
         )
 
-        effective_model = self.resolve_effective_model(self.model_name)
+        initial_intent = self.infer_task_intent(title, prompt, persona_name)
+        initial_reasoning = self.requires_reasoning_for_query(title, prompt, initial_intent, history)
+        effective_model = self.resolve_effective_model(
+            self.model_name,
+            intent_category=initial_intent,
+            requires_reasoning=initial_reasoning,
+        )
         provider = get_provider_for_model(effective_model)
         if provider.provider_id == "deepseek":
             model_candidates = [effective_model, "deepseek-flash", "deepseek-chat", "deepseek-reasoner"]
@@ -1160,7 +1357,7 @@ class AntigravityHarness:
             and not (history and len(history) > 1)
             and any(
                 (prompt or "").lower().strip().startswith(prefix)
-                for prefix in ["what is", "what are", "how does", "how do", "how to", "why is", "why does", "explain", "describe", "tell me about", "compare", "contrast"]
+                for prefix in ["what is", "what are", "what's", "whats", "how does", "how do", "how to", "why is", "why does", "explain", "describe", "tell me about", "compare", "contrast"]
             )
         )
         if is_potential_qa:
@@ -1244,6 +1441,27 @@ class AntigravityHarness:
                 except Exception as cb_err:
                     logger.warning(f"Failed to notify on_approval_required for staged action {act_type}: {cb_err}")
 
+        # Single deduplicated workspace scan (reused by both Working Memory and _generate_dynamic_plan)
+        active_files: List[str] = []
+        cached_workspace_files_with_sizes: List[str] = []
+        if workspace_path and workspace_path.exists():
+            try:
+                ignored_dirs = {".git", "node_modules", "__pycache__", ".venv", ".pytest_cache", "dist", "build", ".antigravity", ".gemini"}
+                for p in sorted(workspace_path.rglob("*")):
+                    if any(part in ignored_dirs for part in p.parts):
+                        continue
+                    if p.is_file():
+                        rel = p.relative_to(workspace_path)
+                        rel_posix = rel.as_posix()
+                        if len(active_files) < 15:
+                            active_files.append(rel_posix)
+                        if len(rel.parts) <= 3 and len(cached_workspace_files_with_sizes) < 25:
+                            sz_kb = max(1, p.stat().st_size // 1024)
+                            cached_workspace_files_with_sizes.append(f"{rel} ({sz_kb}KB)")
+                    if len(active_files) >= 15 and len(cached_workspace_files_with_sizes) >= 25:
+                        break
+            except Exception as e:
+                logger.debug(f"Workspace file scan notice: {e}")
 
         # 1. Initialize and stream First-Class Execution Plan Lifecycle
         current_plan = self._generate_initial_plan(title, prompt, persona_name)
@@ -1268,31 +1486,22 @@ class AntigravityHarness:
 
             # Working Memory: If active files exist in workspace, inject situational awareness
             if workspace_path and workspace_path.exists():
-                try:
-                    ignored_dirs = {".git", "node_modules", "__pycache__", ".venv", ".pytest_cache", "dist", "build"}
-                    active_files = [
-                        p.relative_to(workspace_path).as_posix()
-                        for p in sorted(workspace_path.rglob("*"))
-                        if p.is_file() and not any(part in ignored_dirs for part in p.parts)
-                    ][:15]
-                    if active_files:
-                        contents.append({
-                            "role": "user",
-                            "parts": [{"text": f"[System Working Memory]: Active workspace files on disk: {', '.join(active_files)}. Ground all inspections and tool calls in these real files."}]
-                        })
-                        contents.append({
-                            "role": "model",
-                            "parts": [{"text": "Understood. I have verified the active workspace files on disk and will ground my actions in the actual files."}]
-                        })
-                except Exception as e:
-                    logger.debug(f"Working memory injection notice: {e}")
+                if active_files:
+                    contents.append({
+                        "role": "user",
+                        "parts": [{"text": f"[System Working Memory]: Active workspace files on disk: {', '.join(active_files)}. Ground all inspections and tool calls in these real files."}]
+                    })
+                    contents.append({
+                        "role": "model",
+                        "parts": [{"text": "Understood. I have verified the active workspace files on disk and will ground my actions in the actual files."}]
+                    })
 
                 try:
                     from app.agent.engine.memory import retrieve_relevant_heuristics, format_working_memory_block
                     heuristics = await retrieve_relevant_heuristics(
                         repo_id=None,
                         prompt=prompt,
-                        target_files=active_files if 'active_files' in locals() else None,
+                        target_files=active_files if active_files else None,
                         limit=3
                     )
                     mem_block = format_working_memory_block(heuristics)
@@ -1367,20 +1576,53 @@ class AntigravityHarness:
 
         client_timeout = httpx.Timeout(120.0, connect=15.0, read=120.0)
         async with httpx.AsyncClient(timeout=client_timeout) as client:
-            # Formulate dynamic execution plan using fast structured provider call
-            primary_model = unique_models[0] if unique_models else self.model_name
-            dynamic_plan = await self._generate_dynamic_plan(
-                client=client,
-                api_key=api_key,
-                model_name=primary_model,
-                title=title,
-                prompt=prompt,
-                persona_name=persona_name,
-                history=history,
-                workspace_path=workspace_path
+            fast_direct = self.is_fast_direct_query(title, prompt, persona_name, history)
+            if fast_direct and initial_intent == "qa_research":
+                # Fast-path bypass: skip pre-turn LLM plan synthesis for direct conceptual/contextual Q&A
+                current_plan = {
+                    "intent_category": "qa_research",
+                    "response_style": "direct_concise" if len((prompt or "").split()) <= 15 else "analytical_briefing",
+                    "requires_plan": False,
+                    "requires_reasoning": initial_reasoning,
+                    "title": title or (prompt or "")[:80],
+                    "objective": title or (prompt or "")[:100],
+                    "steps": [
+                        {"id": "step-1", "title": f"Synthesize direct response for: {(prompt or title)[:80]}", "status": "in_progress"}
+                    ],
+                    "evaluation": {
+                        "status": "pending",
+                        "summary": "Direct fast-path synthesis in progress."
+                    }
+                }
+                current_plan["markdown"] = generate_plan_markdown(current_plan, title, prompt)
+            else:
+                # Formulate dynamic execution plan using fast structured planner call (deepseek-v4.1-flash / provider flash)
+                primary_model = unique_models[0] if unique_models else self.model_name
+                plan_req_model = self.model_name if (self.model_name or "").lower().strip() in {"adaptive", "auto", ""} else primary_model
+                dynamic_plan = await self._generate_dynamic_plan(
+                    client=client,
+                    api_key=api_key,
+                    model_name=plan_req_model,
+                    title=title,
+                    prompt=prompt,
+                    persona_name=persona_name,
+                    history=history,
+                    workspace_path=workspace_path,
+                    cached_workspace_files=cached_workspace_files_with_sizes,
+                )
+                current_plan = dynamic_plan
+                await self._emit_plan(current_plan, on_plan)
+
+            plan_intent_cat = current_plan.get("intent_category", initial_intent) if current_plan else initial_intent
+            need_reasoning = bool(
+                current_plan.get(
+                    "requires_reasoning",
+                    self.requires_reasoning_for_query(title, prompt, plan_intent_cat, history),
+                )
             )
-            current_plan = dynamic_plan
-            await self._emit_plan(current_plan, on_plan)
+            if not need_reasoning and provider.provider_id == "deepseek" and unique_models:
+                if "deepseek-reasoner" in unique_models[0] or "r1" in unique_models[0]:
+                    unique_models = ["deepseek-flash"] + [m for m in unique_models if m != "deepseek-flash"]
 
             # If parallel swarm intent, inject immediate dispatch directive for the orchestrator
             if current_plan and current_plan.get("intent_category") == "parallel_swarm":
@@ -1414,13 +1656,21 @@ class AntigravityHarness:
                 max_guardrail_corrections = 8
                 model_succeeded = False
                 final_agent_text = ""
+                last_snapshot_mut_count = -1
 
                 try:
                     while turn < max_turns:
                         turn += 1
                         collector.start_turn(turn_index=turn, user_prompt=prompt if turn == 1 else None)
-                        if workspace_path and workspace_path.exists():
-                            create_turn_snapshot(workspace_path, turn)
+                        # Lazy turn snapshots: skip git subprocess overhead on qa_research/planning or turns without file mutations
+                        if (
+                            workspace_path
+                            and workspace_path.exists()
+                            and plan_intent_cat not in {"qa_research", "planning"}
+                            and (turn == 1 or mutating_tool_count > last_snapshot_mut_count)
+                        ):
+                            last_snapshot_mut_count = mutating_tool_count
+                            await run_io_blocking(create_turn_snapshot, workspace_path, turn)
 
                         # Drain in-flight user steering messages if any were queued while agent was executing
                         if steering_queue and not steering_queue.empty():
@@ -1546,6 +1796,7 @@ class AntigravityHarness:
 
                         # Tier 2: Intent-Driven Tool Schema Pruning & Plan Mode Directive
                         intent_cat = current_plan.get("intent_category", "qa_research")
+                        response_style = current_plan.get("response_style", "")
                         effective_system_instruction = system_instruction
                         active_tools_def = filter_declarations_for_intent(
                             tools_def,
@@ -1574,6 +1825,13 @@ class AntigravityHarness:
                                 + "       - [Exact pytest commands, build checks, and runtime behavior expected]\n\n"
                                 + "     ### Phase 2: [Next Milestone Title] ...\n\n"
                                 + "   - Conclude by stating that the complete interactive specification is published in 'Web & Docs', and invite the user to review it and reply 'Proceed' when ready to execute."
+                            )
+                        elif intent_cat == "qa_research" and response_style == "direct_concise":
+                            effective_system_instruction = (
+                                system_instruction
+                                + "\n\n4. DIRECT CONCISE RESPONSE MANDATE:\n"
+                                + "   - Answer the user's question directly, clearly, and concisely using existing conversation context.\n"
+                                + "   - Do NOT create an implementation plan or invoke unnecessary workspace tools when the answer is conceptual or already in context."
                             )
                         elif intent_cat != "qa_research":
 
@@ -1671,7 +1929,8 @@ class AntigravityHarness:
                                     f"New estimated tokens: {current_est_tokens} / {context_ceiling}"
                                 )
 
-                        # Execute turn with active provider
+                        # Execute turn with active provider (suppressing extended thinking when reasoning is not required)
+                        effective_thinking_budget = 0 if not need_reasoning else None
                         provider_resp = None
                         for retry_idx in range(2):
                             try:
@@ -1680,6 +1939,7 @@ class AntigravityHarness:
                                     tools=active_tools_def,
                                     system_instruction=effective_system_instruction,
                                     model_name=active_model,
+                                    thinking_budget=effective_thinking_budget,
                                     client=client
                                 )
                                 break
@@ -2058,10 +2318,21 @@ class AntigravityHarness:
                                 continue
 
                             # Multi-Step Plan Milestone Completion Guardrail
-                            # If the plan has multiple milestones and intermediate steps remain pending during an implementation task,
-                            # prompt the model to proceed to the next milestone rather than terminating early.
+                            # If the model has already performed valid workspace mutations with exit_code=0, no dangling intent,
+                            # and no preview issues, subsume remaining pending milestones rather than forcing extra LLM turns.
                             pending_plan_steps = [s for s in current_plan.get("steps", []) if s.get("status") == "pending"]
                             if (
+                                pending_plan_steps
+                                and mutating_tool_count >= 1
+                                and last_tool_exit_code in (None, 0)
+                                and not is_dangling_intent
+                                and (not is_app_task or not needs_preview_correction)
+                            ):
+                                for s in current_plan.get("steps", []):
+                                    if s.get("status") != "failed":
+                                        s["status"] = "completed"
+                                pending_plan_steps = []
+                            elif (
                                 (is_app_task or intent_category in ["app_building", "code_modification"])
                                 and len(current_plan.get("steps", [])) >= 3
                                 and len(pending_plan_steps) >= 2
@@ -2352,8 +2623,8 @@ class AntigravityHarness:
                                             query=prompt or title,
                                             plan=current_plan,
                                             response_text=final_agent_text,
-                                            api_key=api_key,
-                                            client=client,
+                                            api_key=api_key if getattr(active_provider, "provider_id", "") in {"google", "gemini", "openai"} else "",
+                                            client=client if getattr(active_provider, "provider_id", "") in {"google", "gemini", "openai"} else None,
                                             intent="qa_research"
                                         )
                                 except Exception as cache_store_err:
@@ -2380,11 +2651,85 @@ class AntigravityHarness:
                         })
 
 
+                        CONCURRENT_SAFE_TOOLS = {
+                            "list_dir", "read_file", "get_file_outline",
+                            "grep_search", "search_code", "find_symbols",
+                            "tgrep_ast", "search_web", "fetch_url",
+                            "get_pull_request_details", "get_pull_request_checks",
+                            "get_pull_request_diff", "list_pull_requests",
+                        }
+                        precomputed_tool_results: Dict[int, Tuple[Dict[str, Any], int]] = {}
+
+                        async def _exec_concurrent_tool(c_name: str, c_args: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
+                            t0 = asyncio.get_event_loop().time()
+                            if c_name == "list_dir":
+                                sp = c_args.get("subpath") or c_args.get("path") or c_args.get("directory") or c_args.get("dir") or "."
+                                res_d = await run_io_blocking(WorkspaceTools.list_dir, workspace_path, sp)
+                            elif c_name == "read_file":
+                                fp = c_args.get("file_path") or c_args.get("path") or c_args.get("filePath") or c_args.get("target_file") or c_args.get("filename") or c_args.get("file") or ""
+                                sl = c_args.get("start_line") or c_args.get("startLine")
+                                el = c_args.get("end_line") or c_args.get("endLine")
+                                res_d = await run_io_blocking(WorkspaceTools.read_file, workspace_path, fp, start_line=sl, end_line=el)
+                            elif c_name == "get_file_outline":
+                                fp = c_args.get("file_path") or c_args.get("path") or c_args.get("filePath") or c_args.get("target_file") or c_args.get("filename") or c_args.get("file") or ""
+                                res_d = await run_io_blocking(WorkspaceTools.get_file_outline, workspace_path, fp)
+                            elif c_name in ["grep_search", "search_code"]:
+                                q = c_args.get("query", "")
+                                ir = c_args.get("is_regex", False)
+                                fpat = c_args.get("file_pattern")
+                                res_d = await run_io_blocking(WorkspaceTools.search_code, workspace_path, q, is_regex=ir, file_pattern=fpat)
+                            elif c_name == "find_symbols":
+                                npat = c_args.get("name_pattern", "")
+                                stype = c_args.get("symbol_type")
+                                fpat = c_args.get("file_pattern")
+                                res_d = await run_io_blocking(WorkspaceTools.find_symbols, workspace_path, name_pattern=npat, symbol_type=stype, file_pattern=fpat)
+                            elif c_name == "tgrep_ast":
+                                pat = c_args.get("pattern", "")
+                                res_d = await run_io_blocking(WorkspaceTools.tgrep_ast, workspace_path, pat)
+                            elif c_name == "search_web":
+                                res_d = await WorkspaceTools.search_web(c_args.get("query", ""))
+                            elif c_name == "fetch_url":
+                                res_d = await WorkspaceTools.fetch_url(c_args.get("url", ""))
+                            elif c_name == "get_pull_request_details":
+                                res_d = await WorkspaceTools.get_pull_request_details(c_args.get("repository", ""), int(c_args.get("pr_number", 1)))
+                            elif c_name == "get_pull_request_checks":
+                                res_d = await WorkspaceTools.get_pull_request_checks(c_args.get("repository", ""), int(c_args.get("pr_number", 1)))
+                            elif c_name == "get_pull_request_diff":
+                                res_d = await WorkspaceTools.get_pull_request_diff(c_args.get("repository", ""), int(c_args.get("pr_number", 1)))
+                            elif c_name == "list_pull_requests":
+                                res_d = await WorkspaceTools.list_pull_requests(
+                                    c_args.get("repository", ""),
+                                    state=c_args.get("state", "open"),
+                                    author=c_args.get("author"),
+                                    limit=int(c_args.get("limit", 10)),
+                                )
+                            else:
+                                res_d = {}
+                            dur = int((asyncio.get_event_loop().time() - t0) * 1000)
+                            return res_d, dur
+
                         response_parts = []
-                        for call in function_calls:
+                        for idx, call in enumerate(function_calls):
                             fn_name = call.get("name")
                             args = call.get("args", {})
                             call_id = call.get("id") or f"call_{fn_name}_{uuid.uuid4().hex[:8]}"
+
+                            if idx not in precomputed_tool_results and fn_name in CONCURRENT_SAFE_TOOLS:
+                                run_end = idx
+                                while run_end < len(function_calls) and function_calls[run_end].get("name") in CONCURRENT_SAFE_TOOLS:
+                                    run_end += 1
+                                if run_end - idx >= 2:
+                                    batch_results = await asyncio.gather(
+                                        *[
+                                            _exec_concurrent_tool(
+                                                function_calls[j].get("name", ""),
+                                                function_calls[j].get("args", {})
+                                            )
+                                            for j in range(idx, run_end)
+                                        ]
+                                    )
+                                    for offset, res_pair in enumerate(batch_results):
+                                        precomputed_tool_results[idx + offset] = res_pair
 
                             # Monotonic Dynamic Plan Step Transitions
                             plan_steps = current_plan.get("steps", [])
@@ -2428,6 +2773,7 @@ class AntigravityHarness:
                                             await res
 
                             start_time = asyncio.get_event_loop().time()
+                            precomputed_elapsed_ms: Optional[int] = None
                             tool_result: Dict[str, Any] = {}
                             exit_code = 0
                             out_str = ""
@@ -2435,7 +2781,10 @@ class AntigravityHarness:
 
                             if fn_name == "list_dir":
                                 subpath = args.get("subpath") or args.get("path") or args.get("directory") or args.get("dir") or "."
-                                tool_result = await run_io_blocking(WorkspaceTools.list_dir, workspace_path, subpath)
+                                if idx in precomputed_tool_results:
+                                    tool_result, precomputed_elapsed_ms = precomputed_tool_results.pop(idx)
+                                else:
+                                    tool_result = await run_io_blocking(WorkspaceTools.list_dir, workspace_path, subpath)
                                 items = tool_result.get("items", [])
                                 if items:
                                     out_str = "\n".join(
@@ -2449,20 +2798,25 @@ class AntigravityHarness:
                                 file_path = args.get("file_path") or args.get("path") or args.get("filePath") or args.get("target_file") or args.get("filename") or args.get("file") or ""
                                 start_line = args.get("start_line") or args.get("startLine")
                                 end_line = args.get("end_line") or args.get("endLine")
-                                tool_result = await run_io_blocking(WorkspaceTools.read_file, workspace_path, file_path, start_line=start_line, end_line=end_line)
+                                if idx in precomputed_tool_results:
+                                    tool_result, precomputed_elapsed_ms = precomputed_tool_results.pop(idx)
+                                else:
+                                    tool_result = await run_io_blocking(WorkspaceTools.read_file, workspace_path, file_path, start_line=start_line, end_line=end_line)
                                 if "content" in tool_result:
                                     out_str = tool_result["content"]
                                 else:
                                     out_str = tool_result.get("error", "Error reading file")
                             elif fn_name == "get_file_outline":
                                 file_path = args.get("file_path") or args.get("path") or args.get("filePath") or args.get("target_file") or args.get("filename") or args.get("file") or ""
-                                tool_result = await run_io_blocking(WorkspaceTools.get_file_outline, workspace_path, file_path)
+                                if idx in precomputed_tool_results:
+                                    tool_result, precomputed_elapsed_ms = precomputed_tool_results.pop(idx)
+                                else:
+                                    tool_result = await run_io_blocking(WorkspaceTools.get_file_outline, workspace_path, file_path)
                                 if "outline" in tool_result:
                                     out_str = tool_result["outline"]
                                 else:
                                     out_str = tool_result.get("error", "Error extracting file outline")
                             elif fn_name == "replace_file_content":
-                                mutating_tool_count += 1
                                 file_path = args.get("file_path") or args.get("path") or args.get("filePath") or args.get("target_file") or args.get("filename") or args.get("file") or ""
                                 target_content = args.get("target_content") if args.get("target_content") is not None else (args.get("target") if args.get("target") is not None else (args.get("search") if args.get("search") is not None else (args.get("old_content") if args.get("old_content") is not None else (args.get("oldContent") or ""))))
                                 replacement_content = args.get("replacement_content") if args.get("replacement_content") is not None else (args.get("replacement") if args.get("replacement") is not None else (args.get("replace") if args.get("replace") is not None else (args.get("new_content") if args.get("new_content") is not None else (args.get("newContent") or ""))))
@@ -2474,16 +2828,13 @@ class AntigravityHarness:
                                     replacement_content=replacement_content,
                                     allow_multiple=allow_multiple
                                 )
-                                diffs = worktree_manager.get_git_diff(workspace_path)
-                                if diffs:
-                                    await on_diff_updated(diffs)
                                 if "error" in tool_result:
                                     exit_code = 1
                                     out_str = f"Error replacing content: {tool_result['error']}"
                                 else:
                                     mutating_tool_count += 1
                                     guardrail_corrections = max(0, guardrail_corrections - 1)
-                                    diffs = worktree_manager.get_git_diff(workspace_path)
+                                    diffs = await run_io_blocking(worktree_manager.get_git_diff, workspace_path)
                                     if diffs:
                                         await on_diff_updated(diffs)
                                     out_str = f"Successfully replaced target content in '{file_path}' ({tool_result.get('replacements_count', 1)} replacement(s))."
@@ -2499,7 +2850,7 @@ class AntigravityHarness:
                                 else:
                                     mutating_tool_count += 1
                                     guardrail_corrections = max(0, guardrail_corrections - 1)
-                                    diffs = worktree_manager.get_git_diff(workspace_path)
+                                    diffs = await run_io_blocking(worktree_manager.get_git_diff, workspace_path)
                                     if diffs:
                                         await on_diff_updated(diffs)
                                     f_count = tool_result.get("modified_files_count", 0)
@@ -2518,7 +2869,7 @@ class AntigravityHarness:
                                 else:
                                     mutating_tool_count += 1
                                     guardrail_corrections = max(0, guardrail_corrections - 1)
-                                    diffs = worktree_manager.get_git_diff(workspace_path)
+                                    diffs = await run_io_blocking(worktree_manager.get_git_diff, workspace_path)
                                     if diffs:
                                         await on_diff_updated(diffs)
                                     m_files = ", ".join(tool_result.get("modified_files", []))
@@ -2546,7 +2897,7 @@ class AntigravityHarness:
                                     else:
                                         mutating_tool_count += 1
                                         guardrail_corrections = max(0, guardrail_corrections - 1)
-                                        diffs = worktree_manager.get_git_diff(workspace_path)
+                                        diffs = await run_io_blocking(worktree_manager.get_git_diff, workspace_path)
                                         if diffs:
                                             await on_diff_updated(diffs)
                                         status_action = "appended to" if append_mode else "updated"
@@ -2576,7 +2927,7 @@ class AntigravityHarness:
                                             elif f_path and "content" in edit:
                                                 WorkspaceTools.edit_file(workspace_path, f_path, edit["content"])
                                                 mutating_tool_count += 1
-                                        diffs = worktree_manager.get_git_diff(workspace_path)
+                                        diffs = await run_io_blocking(worktree_manager.get_git_diff, workspace_path)
                                         if diffs:
                                             await on_diff_updated(diffs)
                                         out_str += f"Successfully applied winning hypothesis '{winner}' to active workspace.\n"
@@ -2589,7 +2940,7 @@ class AntigravityHarness:
                             elif fn_name == "run_command":
                                 cmd = args.get("command", "")
                                 cwd_arg = args.get("cwd")
-                                tool_result = WorkspaceTools.run_command(workspace_path, cmd, cwd=cwd_arg)
+                                tool_result = await run_io_blocking(WorkspaceTools.run_command, workspace_path, cmd, cwd=cwd_arg)
                                 exit_code = tool_result.get("exit_code", 0)
                                 stdout = tool_result.get("stdout", "")
                                 stderr = tool_result.get("stderr", "")
@@ -2637,10 +2988,13 @@ class AntigravityHarness:
                                 query = args.get("query", "")
                                 is_regex = args.get("is_regex", False)
                                 file_pattern = args.get("file_pattern")
-                                tool_result = await run_io_blocking(
-                                    WorkspaceTools.search_code,
-                                    workspace_path, query, is_regex=is_regex, file_pattern=file_pattern
-                                )
+                                if idx in precomputed_tool_results:
+                                    tool_result, precomputed_elapsed_ms = precomputed_tool_results.pop(idx)
+                                else:
+                                    tool_result = await run_io_blocking(
+                                        WorkspaceTools.search_code,
+                                        workspace_path, query, is_regex=is_regex, file_pattern=file_pattern
+                                    )
                                 matches = tool_result.get("matches", [])
                                 if matches:
                                     out_str = f"Found {len(matches)} match(es):\n" + "\n".join(
@@ -2653,10 +3007,13 @@ class AntigravityHarness:
                                 name_pattern = args.get("name_pattern", "")
                                 symbol_type = args.get("symbol_type")
                                 file_pattern = args.get("file_pattern")
-                                tool_result = await run_io_blocking(
-                                    WorkspaceTools.find_symbols,
-                                    workspace_path, name_pattern=name_pattern, symbol_type=symbol_type, file_pattern=file_pattern
-                                )
+                                if idx in precomputed_tool_results:
+                                    tool_result, precomputed_elapsed_ms = precomputed_tool_results.pop(idx)
+                                else:
+                                    tool_result = await run_io_blocking(
+                                        WorkspaceTools.find_symbols,
+                                        workspace_path, name_pattern=name_pattern, symbol_type=symbol_type, file_pattern=file_pattern
+                                    )
                                 symbols = tool_result.get("symbols", [])
                                 if symbols:
                                     out_str = f"Found {len(symbols)} symbol(s):\n" + "\n".join(
@@ -2667,7 +3024,10 @@ class AntigravityHarness:
                                     out_str = f"No symbols found matching '{name_pattern}'."
                             elif fn_name == "tgrep_ast":
                                 pattern = args.get("pattern", "")
-                                tool_result = await run_io_blocking(WorkspaceTools.tgrep_ast, workspace_path, pattern)
+                                if idx in precomputed_tool_results:
+                                    tool_result, precomputed_elapsed_ms = precomputed_tool_results.pop(idx)
+                                else:
+                                    tool_result = await run_io_blocking(WorkspaceTools.tgrep_ast, workspace_path, pattern)
                                 matches = tool_result.get("matches", [])
                                 if matches:
                                     out_str = f"AST pattern '{pattern}' matched {len(matches)} node(s):\n" + "\n".join(
@@ -2678,7 +3038,10 @@ class AntigravityHarness:
                                     out_str = f"No AST structures matched pattern '{pattern}'."
                             elif fn_name == "search_web":
                                 query = args.get("query", "")
-                                tool_result = await WorkspaceTools.search_web(query)
+                                if idx in precomputed_tool_results:
+                                    tool_result, precomputed_elapsed_ms = precomputed_tool_results.pop(idx)
+                                else:
+                                    tool_result = await WorkspaceTools.search_web(query)
                                 items = tool_result.get("results", [])
                                 if items:
                                     out_str = "\n".join(
@@ -2691,33 +3054,48 @@ class AntigravityHarness:
                                     out_str = f"No results found for '{query}'"
                             elif fn_name == "fetch_url":
                                 target_url = args.get("url", "")
-                                tool_result = await WorkspaceTools.fetch_url(target_url)
+                                if idx in precomputed_tool_results:
+                                    tool_result, precomputed_elapsed_ms = precomputed_tool_results.pop(idx)
+                                else:
+                                    tool_result = await WorkspaceTools.fetch_url(target_url)
                                 out_str = tool_result.get("content", tool_result.get("error", "Error fetching URL"))
                             elif fn_name == "get_pull_request_details":
                                 repo_arg = args.get("repository", "")
                                 pr_num = int(args.get("pr_number", 1))
-                                tool_result = await WorkspaceTools.get_pull_request_details(repo_arg, pr_num)
+                                if idx in precomputed_tool_results:
+                                    tool_result, precomputed_elapsed_ms = precomputed_tool_results.pop(idx)
+                                else:
+                                    tool_result = await WorkspaceTools.get_pull_request_details(repo_arg, pr_num)
                                 out_str = json.dumps(tool_result, indent=2)
                                 if isinstance(tool_result, dict) and ("number" in tool_result or "pr_number" in tool_result):
                                     asyncio.create_task(self._upsert_task_prs(task_id, [tool_result]))
                             elif fn_name == "get_pull_request_checks":
                                 repo_arg = args.get("repository", "")
                                 pr_num = int(args.get("pr_number", 1))
-                                tool_result = await WorkspaceTools.get_pull_request_checks(repo_arg, pr_num)
+                                if idx in precomputed_tool_results:
+                                    tool_result, precomputed_elapsed_ms = precomputed_tool_results.pop(idx)
+                                else:
+                                    tool_result = await WorkspaceTools.get_pull_request_checks(repo_arg, pr_num)
                                 out_str = json.dumps(tool_result, indent=2)
                             elif fn_name == "get_pull_request_diff":
                                 repo_arg = args.get("repository", "")
                                 pr_num = int(args.get("pr_number", 1))
-                                tool_result = await WorkspaceTools.get_pull_request_diff(repo_arg, pr_num)
+                                if idx in precomputed_tool_results:
+                                    tool_result, precomputed_elapsed_ms = precomputed_tool_results.pop(idx)
+                                else:
+                                    tool_result = await WorkspaceTools.get_pull_request_diff(repo_arg, pr_num)
                                 out_str = tool_result.get("diff", "")
                             elif fn_name == "list_pull_requests":
                                 repo_arg = args.get("repository", "")
                                 state_arg = args.get("state", "open")
                                 author_arg = args.get("author")
                                 limit_arg = int(args.get("limit", 10))
-                                tool_result = await WorkspaceTools.list_pull_requests(
-                                    repo_arg, state=state_arg, author=author_arg, limit=limit_arg
-                                )
+                                if idx in precomputed_tool_results:
+                                    tool_result, precomputed_elapsed_ms = precomputed_tool_results.pop(idx)
+                                else:
+                                    tool_result = await WorkspaceTools.list_pull_requests(
+                                        repo_arg, state=state_arg, author=author_arg, limit=limit_arg
+                                    )
                                 out_str = json.dumps(tool_result, indent=2)
                                 if isinstance(tool_result, dict) and "pull_requests" in tool_result:
                                     f_ctx = {
@@ -3128,7 +3506,7 @@ class AntigravityHarness:
                                 if isinstance(tool_result, dict):
                                     tool_result["_warning"] = "Model generation reached token ceiling (finish_reason=length)."
 
-                            elapsed_ms = int((asyncio.get_event_loop().time() - start_time) * 1000)
+                            elapsed_ms = precomputed_elapsed_ms if precomputed_elapsed_ms is not None else int((asyncio.get_event_loop().time() - start_time) * 1000)
                             collector.record_tool_invocation(
                                 tool_name=fn_name,
                                 input_args=args,

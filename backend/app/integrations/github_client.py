@@ -843,15 +843,28 @@ class GitHubClient:
                 }
             ]
 
+        import asyncio
         items: List[Dict[str, Any]] = []
         async with httpx.AsyncClient(timeout=15.0, follow_redirects=True) as client:
-            # 1. PR Conversation comments
-            try:
-                r_issue = await client.get(
+            r_issue, r_review_comments, r_reviews = await asyncio.gather(
+                client.get(
                     f"{self.api_base}/repos/{owner}/{repo}/issues/{pr_number}/comments?per_page=100",
                     headers=headers
-                )
-                if r_issue.status_code == 200:
+                ),
+                client.get(
+                    f"{self.api_base}/repos/{owner}/{repo}/pulls/{pr_number}/comments?per_page=100",
+                    headers=headers
+                ),
+                client.get(
+                    f"{self.api_base}/repos/{owner}/{repo}/pulls/{pr_number}/reviews?per_page=50",
+                    headers=headers
+                ),
+                return_exceptions=True
+            )
+
+            # 1. PR Conversation comments
+            try:
+                if not isinstance(r_issue, Exception) and r_issue.status_code == 200:
                     for c in r_issue.json():
                         u = c.get("user") or {}
                         reactions = c.get("reactions") or {}
@@ -881,11 +894,7 @@ class GitHubClient:
 
             # 2. Diff code review comments
             try:
-                r_review_comments = await client.get(
-                    f"{self.api_base}/repos/{owner}/{repo}/pulls/{pr_number}/comments?per_page=100",
-                    headers=headers
-                )
-                if r_review_comments.status_code == 200:
+                if not isinstance(r_review_comments, Exception) and r_review_comments.status_code == 200:
                     for rc in r_review_comments.json():
                         u = rc.get("user") or {}
                         reactions = rc.get("reactions") or {}
@@ -919,11 +928,7 @@ class GitHubClient:
 
             # 3. Formal review submissions
             try:
-                r_reviews = await client.get(
-                    f"{self.api_base}/repos/{owner}/{repo}/pulls/{pr_number}/reviews?per_page=50",
-                    headers=headers
-                )
-                if r_reviews.status_code == 200:
+                if not isinstance(r_reviews, Exception) and r_reviews.status_code == 200:
                     for r in r_reviews.json():
                         u = r.get("user") or {}
                         body = (r.get("body") or "").strip()

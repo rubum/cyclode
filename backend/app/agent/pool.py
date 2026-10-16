@@ -453,10 +453,16 @@ class AgentTaskPool:
             })
 
             # Ensure workspace git repo and take baseline snapshot for this conversation turn
-            from app.agent.harness import ensure_workspace_git_repo, create_turn_snapshot
-            ensure_workspace_git_repo(workspace_path, branch=task_branch)
-            conv_turn_idx = len(history or []) // 2 + 1
-            create_turn_snapshot(workspace_path, f"conv_turn_{conv_turn_idx}")
+            from app.agent.harness import AntigravityHarness, ensure_workspace_git_repo, create_turn_snapshot, run_io_blocking
+            inferred_worker_intent = AntigravityHarness.infer_task_intent(title, description, persona)
+            if not AntigravityHarness.is_fast_direct_query(title, description, inferred_worker_intent, history=history):
+                await run_io_blocking(ensure_workspace_git_repo, workspace_path, branch=task_branch)
+                conv_turn_idx = len(history or []) // 2 + 1
+                await run_io_blocking(create_turn_snapshot, workspace_path, f"conv_turn_{conv_turn_idx}")
+            elif (workspace_path / ".git").exists():
+                pass
+            else:
+                await run_io_blocking(ensure_workspace_git_repo, workspace_path, branch=task_branch)
 
             active_plan: Optional[Dict[str, Any]] = None
 
@@ -1677,6 +1683,10 @@ class AgentTaskPool:
             persona = task.persona
             workspace_path = Path(task.workspace_path or str(worktree_manager.get_task_workspace_path(task_id)))
 
+            # Flush any buffered agent messages/logs from the preceding turn before recording the new user message
+            from app.db.write_buffer import write_buffer
+            await write_buffer.flush()
+
             # 2. Record user message in DB
             u_tokens = estimate_tokens(message_text)
             user_msg = TaskMessageModel(
@@ -1697,6 +1707,9 @@ class AgentTaskPool:
                 .values(**update_vals)
             )
             await session.commit()
+            await session.refresh(user_msg)
+            user_msg_id = user_msg.id
+            user_msg_ts = user_msg.created_at.isoformat() if user_msg.created_at else datetime.now(timezone.utc).isoformat()
 
             # 3. Retrieve full conversation history for multi-turn context
             stmt_msgs = select(TaskMessageModel).where(TaskMessageModel.task_id == task_id).order_by(TaskMessageModel.created_at)
@@ -1709,11 +1722,12 @@ class AgentTaskPool:
 
         # Broadcast user message
         await ws_manager.broadcast("CHAT_MESSAGE", {
+            "id": user_msg_id,
             "task_id": task_id,
             "sender": "user",
             "content": message_text,
             "tokens": u_tokens,
-            "timestamp": datetime.now(timezone.utc).isoformat()
+            "timestamp": user_msg_ts
         })
 
         # Check if the agent worker is currently actively executing a turn

@@ -149,9 +149,12 @@ export const ThemeColorPicker: React.FC<ThemeColorPickerProps> = ({
   const [currentAccent, setCurrentAccent] = useState('#E5C07B');
   const [currentFolder, setCurrentFolder] = useState('#E5C07B');
   const [customHex, setCustomHex] = useState('#E5C07B');
-  const [calculatedPlacement, setCalculatedPlacement] = useState<{ vertical: 'top' | 'bottom'; horizontal: 'left' | 'right' }>({
+  const [calculatedPlacement, setCalculatedPlacement] = useState<{
+    vertical: 'top' | 'bottom';
+    horizontalOffset: number | null;
+  }>({
     vertical: direction === 'up' ? 'top' : 'bottom',
-    horizontal: align === 'left' ? 'left' : 'right'
+    horizontalOffset: null,
   });
   const popoverRef = useRef<HTMLDivElement>(null);
 
@@ -164,33 +167,50 @@ export const ThemeColorPicker: React.FC<ThemeColorPickerProps> = ({
     setCustomHex(initialColors.accent);
   }, []);
 
-  // Compute smart popover position on open
-  useEffect(() => {
-    if (isOpen && popoverRef.current) {
-      const rect = popoverRef.current.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - rect.bottom;
-      const spaceAbove = rect.top;
+  const computePlacement = () => {
+    if (!popoverRef.current) return;
+    const rect = popoverRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
 
-      let vertical: 'top' | 'bottom' = 'bottom';
-      if (direction === 'up') {
-        vertical = 'top';
-      } else if (direction === 'down') {
-        vertical = 'bottom';
-      } else {
-        vertical = spaceBelow < 380 && spaceAbove > spaceBelow ? 'top' : 'bottom';
-      }
-
-      let horizontal: 'left' | 'right' = 'right';
-      if (align === 'left') {
-        horizontal = 'left';
-      } else if (align === 'right') {
-        horizontal = 'right';
-      } else {
-        horizontal = 'right';
-      }
-
-      setCalculatedPlacement({ vertical, horizontal });
+    let vertical: 'top' | 'bottom' = 'bottom';
+    if (direction === 'up') {
+      vertical = 'top';
+    } else if (direction === 'down') {
+      vertical = 'bottom';
+    } else {
+      vertical = spaceBelow < 380 && spaceAbove > spaceBelow ? 'top' : 'bottom';
     }
+
+    const POPOVER_WIDTH = 218;
+    const VIEWPORT_MARGIN = 10;
+
+    let idealLeft: number;
+    if (align === 'left') {
+      idealLeft = rect.left;
+    } else if (align === 'right') {
+      idealLeft = rect.right - POPOVER_WIDTH;
+    } else {
+      // 'auto': prefer right-aligned if it fits on the left, otherwise left-aligned
+      idealLeft =
+        rect.right - POPOVER_WIDTH >= VIEWPORT_MARGIN
+          ? rect.right - POPOVER_WIDTH
+          : rect.left;
+    }
+
+    const maxLeft = Math.max(VIEWPORT_MARGIN, window.innerWidth - POPOVER_WIDTH - VIEWPORT_MARGIN);
+    const clampedLeft = Math.min(Math.max(VIEWPORT_MARGIN, idealLeft), maxLeft);
+    const horizontalOffset = Math.round(clampedLeft - rect.left);
+
+    setCalculatedPlacement({ vertical, horizontalOffset });
+  };
+
+  // Compute smart popover position on open and window resize
+  useEffect(() => {
+    if (!isOpen) return;
+    computePlacement();
+    window.addEventListener('resize', computePlacement);
+    return () => window.removeEventListener('resize', computePlacement);
   }, [isOpen, direction, align]);
 
   // Close when clicking outside
@@ -231,18 +251,34 @@ export const ThemeColorPicker: React.FC<ThemeColorPickerProps> = ({
     selectPreset(THEME_PRESETS[0]);
   };
 
+  const toggleOpen = () => {
+    if (!isOpen) {
+      computePlacement();
+    }
+    setIsOpen(!isOpen);
+  };
+
   const placementClasses = compact
     ? 'left-full ml-3 bottom-0'
     : `${calculatedPlacement.vertical === 'top' ? 'bottom-full mb-2' : 'top-full mt-2'} ${
-        calculatedPlacement.horizontal === 'left' ? 'left-0' : 'right-0'
+        calculatedPlacement.horizontalOffset === null
+          ? align === 'left'
+            ? 'left-0'
+            : 'right-0'
+          : ''
       }`;
+
+  const placementStyle: React.CSSProperties | undefined =
+    !compact && calculatedPlacement.horizontalOffset !== null
+      ? { left: `${calculatedPlacement.horizontalOffset}px` }
+      : undefined;
 
   return (
     <div className="relative inline-block" ref={popoverRef}>
       {compact ? (
         <button
           type="button"
-          onClick={() => setIsOpen(!isOpen)}
+          onClick={toggleOpen}
           className={`w-8 h-8 rounded-xl flex items-center justify-center transition-all shadow-xs active:scale-95 cursor-pointer relative group ${
             isOpen
               ? 'bg-onedark-surface text-onedark-fgBright border border-onedark-accent/60 shadow-xs'
@@ -263,7 +299,7 @@ export const ThemeColorPicker: React.FC<ThemeColorPickerProps> = ({
       ) : (
         <button
           type="button"
-          onClick={() => setIsOpen(!isOpen)}
+          onClick={toggleOpen}
           className="px-2 py-1 rounded-md border border-onedark-border bg-onedark-surface hover:bg-onedark-darker text-onedark-fg text-xs font-mono flex items-center space-x-1.5 transition-all shadow-xs active:scale-95 cursor-pointer"
           title="Change Appearance & Theme Color"
         >
@@ -282,7 +318,10 @@ export const ThemeColorPicker: React.FC<ThemeColorPickerProps> = ({
       )}
 
       {isOpen && (
-        <div className={`absolute ${placementClasses} w-[218px] bg-onedark-bg border border-onedark-border rounded-xl shadow-2xl p-3 z-50 animate-scaleIn font-sans max-h-[85vh] overflow-y-auto`}>
+        <div
+          style={placementStyle}
+          className={`absolute ${placementClasses} w-[218px] bg-onedark-bg border border-onedark-border rounded-xl shadow-2xl p-3 z-50 animate-scaleIn font-sans max-h-[85vh] overflow-y-auto`}
+        >
           <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-onedark-borderSubtle">
             <div className="flex items-center space-x-1.5 text-xs font-semibold text-onedark-fgBright">
               <Sparkles className="w-3.5 h-3.5 text-onedark-accent" />

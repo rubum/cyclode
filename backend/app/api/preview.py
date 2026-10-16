@@ -633,20 +633,52 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
         except ValueError:
             continue
 
-    # Fallback search for any html file with intelligent ranking
+    # Single-pass workspace traversal for HTML entry points, source mtime, JSX/TSX detection, and asset counts
     all_html_files: List[Tuple[int, str, Path]] = []
+    max_src_mtime = 0.0
+    has_jsx_tsx = False
+    assets_count = 0
+    has_unlinked_assets = False
+
+    walk_ignored = {".git", "node_modules", "venv", "__pycache__", ".pytest_cache", ".next"}
+    src_mtime_ignored_dirs = {"dist", "build"}
+    src_mtime_exts = {".jsx", ".tsx", ".js", ".ts", ".mjs", ".css", ".html", ".htm", ".json", ".vue", ".svelte", ".dart", ".swift", ".kt", ".kts"}
+    asset_extensions = {".html", ".htm", ".css", ".js", ".mjs", ".jsx", ".ts", ".tsx", ".svg", ".png", ".jpg", ".jpeg", ".json", ".wasm"}
+    lockfiles = {"package-lock.json", "yarn.lock", "pnpm-lock.yaml", "pubspec.lock"}
+
+    scanned_files = 0
     for root, dirs, files in os.walk(ws_path):
-        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "venv", "__pycache__", ".git")]
+        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in walk_ignored]
+        rel_root = ""
+        try:
+            rel_root = str(Path(root).relative_to(ws_path))
+        except ValueError:
+            pass
+        in_dist_or_build = any(part in src_mtime_ignored_dirs for part in Path(rel_root).parts) if rel_root and rel_root != "." else False
+
         for f in files:
-            if f.lower().endswith((".html", ".htm")):
-                full_p = Path(root) / f
+            if f.startswith("."):
+                continue
+            scanned_files += 1
+            f_lower = f.lower()
+            ext = Path(f_lower).suffix
+
+            if ext in asset_extensions:
+                assets_count += 1
+            if f_lower.endswith((".jsx", ".tsx")):
+                has_jsx_tsx = True
+            if f_lower.endswith((".js", ".mjs", ".css")):
+                has_unlinked_assets = True
+
+            full_p = Path(root) / f
+            if f_lower.endswith((".html", ".htm")):
                 try:
                     rel = str(full_p.relative_to(ws_path))
                     if rel not in available_entry_points:
                         available_entry_points.append(rel)
                     is_dist = "/dist/" in rel or rel.startswith("dist/") or "/build/" in rel or rel.startswith("build/")
-                    is_index = f.lower() == "index.html"
-                    is_main = f.lower() == "main.html"
+                    is_index = f_lower == "index.html"
+                    is_main = f_lower == "main.html"
                     depth = len(Path(rel).parts)
                     if is_dist and is_index:
                         score = 1
@@ -660,7 +692,18 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
                         score = 10 + depth
                     all_html_files.append((score, rel, full_p))
                 except ValueError:
-                    continue
+                    pass
+
+            if not in_dist_or_build and ext in src_mtime_exts and f not in lockfiles:
+                try:
+                    m = full_p.stat().st_mtime
+                    if m > max_src_mtime:
+                        max_src_mtime = m
+                except Exception:
+                    pass
+
+        if scanned_files >= 3000:
+            break
 
     if not primary_entry and all_html_files:
         all_html_files.sort(key=lambda x: (x[0], len(x[1]), x[1]))
@@ -701,38 +744,11 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
             dist_mtime = p.stat().st_mtime
             break
 
-    # Scan for latest modification timestamp across source files
-    max_src_mtime = 0.0
-    ignored_subdirs = {".git", "node_modules", "dist", "build", ".next", "venv", "__pycache__", ".pytest_cache"}
-    for root, dirs, files in os.walk(ws_path):
-        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ignored_subdirs]
-        for f in files:
-            if f.startswith("."):
-                continue
-            ext = Path(f).suffix.lower()
-            if ext in {".jsx", ".tsx", ".js", ".ts", ".mjs", ".css", ".html", ".htm", ".json", ".vue", ".svelte", ".dart", ".swift", ".kt", ".kts"}:
-                fp = Path(root) / f
-                try:
-                    if f in ("package-lock.json", "yarn.lock", "pnpm-lock.yaml", "pubspec.lock"):
-                        continue
-                    m = fp.stat().st_mtime
-                    if m > max_src_mtime:
-                        max_src_mtime = m
-                except Exception:
-                    pass
-
     is_stale = False
     if dist_mtime and max_src_mtime > 0 and (max_src_mtime > dist_mtime + 1.0):
         is_stale = True
 
     build_timestamp = int(dist_mtime * 1000) if dist_mtime else (int(max_src_mtime * 1000) if max_src_mtime > 0 else None)
-    
-    has_jsx_tsx = False
-    for root, dirs, files in os.walk(ws_path):
-        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "venv", "__pycache__", ".git")]
-        if any(f.endswith((".jsx", ".tsx")) for f in files):
-            has_jsx_tsx = True
-            break
 
     framework = "Static Web"
     if has_flutter:
@@ -745,14 +761,6 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
         framework = "React (Vite)" if has_vite else "React / Single Page App"
     elif (ws_path / "requirements.txt").exists() or (ws_path / "pyproject.toml").exists():
         framework = "Python Backend API"
-
-    asset_extensions = {".html", ".htm", ".css", ".js", ".mjs", ".jsx", ".ts", ".tsx", ".svg", ".png", ".jpg", ".jpeg", ".json", ".wasm"}
-    assets_count = 0
-    for root, dirs, files in os.walk(ws_path):
-        dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "venv", "__pycache__", ".git")]
-        for f in files:
-            if Path(f).suffix.lower() in asset_extensions:
-                assets_count += 1
 
     issues: List[str] = []
     recommendation = "Preview is verified and ready to render."
@@ -773,14 +781,6 @@ def verify_workspace_preview(ws_path: Optional[Path], task_id: str = "") -> Dict
                 "issues": ["Frontend source code found (React/Vite) but no built index.html or dist bundle exists."],
                 "recommendation": "Execute 'npm run build' (or 'cd client && npm run build') to compile production dist/index.html bundle."
             }
-
-        # Check if unlinked standalone CSS/JS assets exist
-        has_unlinked_assets = False
-        for root, dirs, files in os.walk(ws_path):
-            dirs[:] = [d for d in dirs if not d.startswith(".") and d not in ("node_modules", "venv", "__pycache__", ".git")]
-            if any(f.endswith((".js", ".mjs", ".css")) for f in files):
-                has_unlinked_assets = True
-                break
 
         if has_unlinked_assets:
             return {
@@ -1391,8 +1391,9 @@ async def inspect_preview(task_id: str, db: AsyncSession = Depends(get_db)):
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
 
+    import asyncio
     ws_path = _get_workspace_path(task)
-    verification = verify_workspace_preview(ws_path, task_id)
+    verification = await asyncio.to_thread(verify_workspace_preview, ws_path, task_id)
 
     if not ws_path or not verification.get("has_preview"):
         pkg_json_file = (ws_path / "package.json") if ws_path else None

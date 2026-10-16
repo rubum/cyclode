@@ -98,10 +98,30 @@ class TaskModel(Base):
     completed_at: Mapped[Optional[datetime]] = mapped_column(UTCDateTime, nullable=True)
 
     event: Mapped[Optional["EventModel"]] = relationship("EventModel", back_populates="tasks")
-    messages: Mapped[List["TaskMessageModel"]] = relationship("TaskMessageModel", back_populates="task", cascade="all, delete-orphan")
-    logs: Mapped[List["TaskLogModel"]] = relationship("TaskLogModel", back_populates="task", cascade="all, delete-orphan")
-    approvals: Mapped[List["TaskApprovalModel"]] = relationship("TaskApprovalModel", back_populates="task", cascade="all, delete-orphan")
-    diffs: Mapped[List["TaskDiffModel"]] = relationship("TaskDiffModel", back_populates="task", cascade="all, delete-orphan")
+    messages: Mapped[List["TaskMessageModel"]] = relationship(
+        "TaskMessageModel",
+        back_populates="task",
+        cascade="all, delete-orphan",
+        order_by="TaskMessageModel.created_at.asc()",
+    )
+    logs: Mapped[List["TaskLogModel"]] = relationship(
+        "TaskLogModel",
+        back_populates="task",
+        cascade="all, delete-orphan",
+        order_by="TaskLogModel.created_at.asc()",
+    )
+    approvals: Mapped[List["TaskApprovalModel"]] = relationship(
+        "TaskApprovalModel",
+        back_populates="task",
+        cascade="all, delete-orphan",
+        order_by="TaskApprovalModel.created_at.asc()",
+    )
+    diffs: Mapped[List["TaskDiffModel"]] = relationship(
+        "TaskDiffModel",
+        back_populates="task",
+        cascade="all, delete-orphan",
+        order_by="TaskDiffModel.created_at.asc()",
+    )
     prs: Mapped[List["TaskPRModel"]] = relationship("TaskPRModel", back_populates="task", cascade="all, delete-orphan")
     
     subsessions: Mapped[List["TaskModel"]] = relationship(
