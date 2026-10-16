@@ -1058,41 +1058,73 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
 
         {/* Scope Filters (All / This File / Workspace) */}
         {searchMode !== 'files' && searchResults && totalMatchesCount > 0 && (
-          <div className="flex items-center space-x-1 pt-0.5">
+          <div className="flex flex-wrap items-center gap-1 bg-onedark-darker/80 p-0.5 rounded-lg border border-onedark-borderSubtle/80">
             <button
+              type="button"
               onClick={() => setScopeFilter('all')}
-              className={`px-2 py-0.5 rounded-full text-[10px] font-mono transition-all cursor-pointer ${
+              className={`flex-1 min-w-fit whitespace-nowrap inline-flex items-center justify-center gap-1 px-2 py-1 rounded-md text-[10.5px] font-medium transition-all cursor-pointer ${
                 scopeFilter === 'all'
-                  ? 'bg-onedark-accent/20 text-onedark-accent font-semibold border border-onedark-accent/40 shadow-xs'
-                  : 'text-onedark-muted hover:text-onedark-fg bg-onedark-surface/40 hover:bg-onedark-surface border border-transparent'
+                  ? 'bg-onedark-accent/15 text-onedark-accent font-semibold border border-onedark-accent/35 shadow-xs'
+                  : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/50 border border-transparent'
               }`}
+              title={`Show all matches (${totalMatchesCount})`}
             >
-              All ({totalMatchesCount})
+              <span>All</span>
+              <span
+                className={`px-1 py-0.2 rounded text-[9.5px] font-mono leading-none ${
+                  scopeFilter === 'all'
+                    ? 'bg-onedark-accent/20 text-onedark-accent font-bold'
+                    : 'bg-onedark-surface/70 text-onedark-muted'
+                }`}
+              >
+                {totalMatchesCount}
+              </span>
             </button>
             {currentFileGroup && currentFileMatchCount > 0 && (
               <button
+                type="button"
                 onClick={() => setScopeFilter('current')}
-                className={`px-2 py-0.5 rounded-full text-[10px] font-mono transition-all cursor-pointer flex items-center space-x-1 ${
+                className={`flex-1 min-w-fit whitespace-nowrap inline-flex items-center justify-center gap-1 px-2 py-1 rounded-md text-[10.5px] font-medium transition-all cursor-pointer ${
                   scopeFilter === 'current'
-                    ? 'bg-onedark-purple/20 text-onedark-purple font-semibold border border-onedark-purple/40 shadow-xs'
-                    : 'text-onedark-muted hover:text-onedark-fg bg-onedark-surface/40 hover:bg-onedark-surface border border-transparent'
+                    ? 'bg-onedark-purple/15 text-onedark-purple font-semibold border border-onedark-purple/35 shadow-xs'
+                    : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/50 border border-transparent'
                 }`}
-                title="Only matches in the active file"
+                title={`Only matches in the active file (${currentFileMatchCount})`}
               >
                 <Target className="w-2.5 h-2.5 flex-shrink-0" />
-                <span>This File ({currentFileMatchCount})</span>
+                <span>This File</span>
+                <span
+                  className={`px-1 py-0.2 rounded text-[9.5px] font-mono leading-none ${
+                    scopeFilter === 'current'
+                      ? 'bg-onedark-purple/20 text-onedark-purple font-bold'
+                      : 'bg-onedark-surface/70 text-onedark-muted'
+                  }`}
+                >
+                  {currentFileMatchCount}
+                </span>
               </button>
             )}
             {workspaceMatchCount > 0 && (
               <button
+                type="button"
                 onClick={() => setScopeFilter('workspace')}
-                className={`px-2 py-0.5 rounded-full text-[10px] font-mono transition-all cursor-pointer ${
+                className={`flex-1 min-w-fit whitespace-nowrap inline-flex items-center justify-center gap-1 px-2 py-1 rounded-md text-[10.5px] font-medium transition-all cursor-pointer ${
                   scopeFilter === 'workspace'
-                    ? 'bg-onedark-blue/20 text-onedark-blue font-semibold border border-onedark-blue/40 shadow-xs'
-                    : 'text-onedark-muted hover:text-onedark-fg bg-onedark-surface/40 hover:bg-onedark-surface border border-transparent'
+                    ? 'bg-onedark-blue/15 text-onedark-blue font-semibold border border-onedark-blue/35 shadow-xs'
+                    : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/50 border border-transparent'
                 }`}
+                title={`Matches across other workspace files (${workspaceMatchCount})`}
               >
-                Workspace ({workspaceMatchCount})
+                <span>Workspace</span>
+                <span
+                  className={`px-1 py-0.2 rounded text-[9.5px] font-mono leading-none ${
+                    scopeFilter === 'workspace'
+                      ? 'bg-onedark-blue/20 text-onedark-blue font-bold'
+                      : 'bg-onedark-surface/70 text-onedark-muted'
+                  }`}
+                >
+                  {workspaceMatchCount}
+                </span>
               </button>
             )}
           </div>
