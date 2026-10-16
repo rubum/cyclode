@@ -64,7 +64,44 @@ const fileExistsInTree = (nodes: FileNode[], targetPath: string): boolean => {
   return false;
 };
 
+const CODE_EXTENSIONS = new Set([
+  '.go', '.py', '.ts', '.tsx', '.rs', '.js', '.jsx', '.ex', '.exs',
+  '.java', '.kt', '.c', '.cpp', '.h', '.hpp', '.cs', '.rb', '.php', '.swift', '.scala', '.zig'
+]);
+
+const isCodeFileName = (name: string): boolean => {
+  const lower = name.toLowerCase();
+  const dotIdx = lower.lastIndexOf('.');
+  if (dotIdx === -1) return false;
+  return CODE_EXTENSIONS.has(lower.slice(dotIdx));
+};
+
+const isTestFileName = (name: string): boolean => {
+  const lower = name.toLowerCase();
+  return lower.includes('_test.') || lower.includes('.test.') || lower.includes('.spec.') || lower.startsWith('test_');
+};
+
 const findPreferredOrFirstFile = (nodes: FileNode[]): string | null => {
+  // 1. Prefer non-test source code files first
+  const findPrimaryCode = (items: FileNode[], allowTests: boolean): string | null => {
+    for (const item of items) {
+      if (!item.is_dir && isCodeFileName(item.name) && (allowTests || !isTestFileName(item.name))) {
+        return item.path;
+      }
+    }
+    for (const item of items) {
+      if (item.children) {
+        const found = findPrimaryCode(item.children, allowTests);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  const primaryCode = findPrimaryCode(nodes, false) || findPrimaryCode(nodes, true);
+  if (primaryCode) return primaryCode;
+
+  // 2. Fallback to common entrypoints/manifests or first file
   const findByName = (items: FileNode[], names: string[]): string | null => {
     for (const item of items) {
       if (!item.is_dir && names.includes(item.name.toLowerCase())) return item.path;
@@ -76,8 +113,8 @@ const findPreferredOrFirstFile = (nodes: FileNode[]): string | null => {
     return null;
   };
 
-  const readme = findByName(nodes, ['readme.md', 'readme', 'pyproject.toml', 'package.json', 'mix.exs', 'cargo.toml', 'go.mod']);
-  if (readme) return readme;
+  const manifest = findByName(nodes, ['pyproject.toml', 'package.json', 'mix.exs', 'cargo.toml', 'go.mod', 'readme.md', 'readme']);
+  if (manifest) return manifest;
 
   const findFirst = (items: FileNode[]): string | null => {
     for (const item of items) {
@@ -171,17 +208,6 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
     }
   }, [task?.id, onClearSelectedFilePath]);
 
-  useEffect(() => {
-    if (selectedFilePath !== undefined) {
-      setSelectedFile(selectedFilePath);
-      const lineVal = selectedLineNumber ?? null;
-      setTargetLine(lineVal);
-      setTargetSymbol(selectedSymbol ?? null);
-      if (task?.id && selectedFilePath) {
-        taskActiveFileCache.set(task.id, { filePath: selectedFilePath, line: lineVal });
-      }
-    }
-  }, [selectedFilePath, selectedLineNumber, selectedSymbol, fileNavigationTrigger, task?.id]);
   const [activeSnippetContext, setActiveSnippetContext] = useState<LineContext | null>(null);
   const [initialAgentPrompt, setInitialAgentPrompt] = useState<string | undefined>(undefined);
   const [isAgentPopoverOpen, setIsAgentPopoverOpen] = useState(false);
@@ -189,14 +215,30 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
   // External Search Trigger State for FileTreeExplorer
   const [externalSearch, setExternalSearch] = useState<ExternalSearchRequest | null>(null);
 
-  // File tree explorer sidebar collapse state
+  // File tree explorer sidebar collapse state — default to collapsed so CodeViewer focuses on the code file
   const [isTreeCollapsed, setIsTreeCollapsed] = useState<boolean>(() => {
     try {
-      return localStorage.getItem('cyclode_file_tree_collapsed') === 'true';
+      const stored = localStorage.getItem('cyclode_file_tree_collapsed');
+      return stored !== null ? stored === 'true' : true;
     } catch {
-      return false;
+      return true;
     }
   });
+
+  useEffect(() => {
+    if (selectedFilePath !== undefined) {
+      setSelectedFile(selectedFilePath);
+      const lineVal = selectedLineNumber ?? null;
+      setTargetLine(lineVal);
+      setTargetSymbol(selectedSymbol ?? null);
+      if (selectedFilePath && fileNavigationTrigger) {
+        setIsTreeCollapsed(true);
+      }
+      if (task?.id && selectedFilePath) {
+        taskActiveFileCache.set(task.id, { filePath: selectedFilePath, line: lineVal });
+      }
+    }
+  }, [selectedFilePath, selectedLineNumber, selectedSymbol, fileNavigationTrigger, task?.id]);
 
   const handleToggleTreeCollapsed = useCallback(() => {
     setIsTreeCollapsed((prev) => {

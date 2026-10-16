@@ -1573,18 +1573,20 @@ async def get_sandbox_folder_children(
 
 def _find_first_file_in_dir(dir_path: Path, ws_path: Path) -> Optional[Tuple[Path, str]]:
     """
-    Finds a preferred or first regular file inside a sandbox directory so clicking a
-    directory link (e.g. 'pkg/agentmem') in Chat opens a representative file in CodeViewer.
+    Finds a preferred or first regular code file inside a sandbox directory so clicking a
+    directory link (e.g. 'pkg/agentmem') in Chat opens a primary code file in CodeViewer.
     """
+    code_exts = {".go", ".py", ".ts", ".tsx", ".rs", ".js", ".jsx", ".ex", ".exs", ".java", ".kt", ".c", ".cpp", ".h", ".cs", ".rb", ".php"}
     preferred_names = {
-        "readme.md", "readme", "index.ts", "index.tsx", "index.js",
-        "mod.rs", "__init__.py", "main.go", "main.py", f"{dir_path.name}.go", f"{dir_path.name}.py", f"{dir_path.name}.ts"
+        "index.ts", "index.tsx", "index.js", "mod.rs", "__init__.py",
+        "main.go", "main.py", f"{dir_path.name}.go", f"{dir_path.name}.py", f"{dir_path.name}.ts", f"{dir_path.name}.rs"
     }
     try:
         entries = sorted(
             [p for p in dir_path.iterdir() if not p.name.startswith(".") and p.name not in {"node_modules", "__pycache__", "dist", "build"}],
             key=lambda x: (
                 x.is_dir(),
+                x.suffix.lower() not in code_exts,
                 "_test." in x.name.lower() or ".test." in x.name.lower() or ".spec." in x.name.lower() or x.name.lower().startswith("test_"),
                 x.name.lower()
             )

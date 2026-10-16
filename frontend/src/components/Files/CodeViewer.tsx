@@ -340,9 +340,17 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
     }
   };
 
+  const lastLoadedKeyRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!taskId || !filePath) {
       setData(null);
+      lastLoadedKeyRef.current = null;
+      return;
+    }
+
+    // If filePath was just updated to the canonical path of the already-loaded file, skip redundant refetch
+    if (data && lastLoadedKeyRef.current === `${taskId}:${filePath}`) {
       return;
     }
 
@@ -370,7 +378,9 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
         }
         const json: FileContentResponse = await res.json();
         if (isMounted) {
+          lastLoadedKeyRef.current = `${taskId}:${json.path || filePath}`;
           setData(json);
+          setLoading(false);
           if (json.path && json.path !== filePath) {
             onResolvedFilePath?.(json.path, json.matched_line ?? undefined);
           }
@@ -378,9 +388,6 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
       } catch (err: any) {
         if (isMounted) {
           setError(err.message || 'Error loading file');
-        }
-      } finally {
-        if (isMounted) {
           setLoading(false);
         }
       }
@@ -445,7 +452,7 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
 
   // Handle auto-scroll to targetLine or targetSymbol with virtual window calculation, or restore cached scroll
   useEffect(() => {
-    if (!data) return;
+    if (loading || !data) return;
 
     const fileBaseLine = data.start_line || 1;
     const clientSymbolLine = targetSymbol
@@ -486,21 +493,23 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
     if (resolvedLine) {
       setActiveHighlightLine(resolvedLine);
       const targetIdx = resolvedLine - fileBaseLine;
-      if (targetIdx >= 0 && scrollContainerRef.current) {
-        const effectiveViewport = viewportHeight || scrollContainerRef.current.clientHeight || 400;
-        const targetOffset = (targetIdx * ROW_HEIGHT) - (effectiveViewport / 2) + (ROW_HEIGHT / 2);
-        scrollContainerRef.current.scrollTo({
-          top: Math.max(0, targetOffset),
-          behavior: 'smooth'
-        });
-        setScrollTop(Math.max(0, targetOffset));
-      }
+      const scrollToTarget = () => {
+        if (targetIdx >= 0 && scrollContainerRef.current) {
+          const effectiveViewport = scrollContainerRef.current.clientHeight || viewportHeight || 400;
+          const targetOffset = Math.max(0, (targetIdx * ROW_HEIGHT) - (effectiveViewport / 2) + (ROW_HEIGHT / 2));
+          scrollContainerRef.current.scrollTop = targetOffset;
+          setScrollTop(targetOffset);
+        }
+      };
+      scrollToTarget();
+      const rafId = requestAnimationFrame(scrollToTarget);
 
       const fadeTimer = setTimeout(() => {
         setActiveHighlightLine(null);
       }, 4000);
 
       return () => {
+        cancelAnimationFrame(rafId);
         clearTimeout(fadeTimer);
       };
     } else if (taskId && filePath && fileScrollCache.has(`${taskId}:${filePath}`)) {
@@ -510,7 +519,7 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
       }
       setScrollTop(savedScroll);
     }
-  }, [targetLine, targetSymbol, navigationTrigger, data, rawLines, viewportHeight, taskId, filePath]);
+  }, [loading, targetLine, targetSymbol, navigationTrigger, data, rawLines, viewportHeight, taskId, filePath]);
 
   const handleCopy = () => {
     if (!data?.content) return;
