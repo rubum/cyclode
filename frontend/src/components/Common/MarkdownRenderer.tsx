@@ -1255,10 +1255,10 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
             }}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline mx-0.5 group align-baseline"
-            title={`Preview ${cleanPlainTitle} in sidebar (Cmd/Ctrl + click for new tab)`}
+            className="inline group align-baseline cursor-pointer"
+            title={`Open ${cleanPlainTitle} (Cmd/Ctrl + click for new tab)`}
           >
-            <code className="px-1.5 py-0.5 rounded-md bg-onedark-surface/80 border border-onedark-borderSubtle text-onedark-accent group-hover:text-onedark-accent/80 group-hover:bg-onedark-surface group-hover:border-onedark-accent/40 font-mono text-[13px] font-medium tracking-normal align-baseline select-text shadow-2xs underline underline-offset-2 decoration-onedark-accent/40 group-hover:decoration-onedark-accent transition-colors">
+            <code className="bg-transparent border-0 p-0 rounded-none shadow-none text-onedark-accent group-hover:text-onedark-accent/80 font-mono text-[13px] font-medium tracking-normal align-baseline select-text underline underline-offset-4 decoration-onedark-accent/50 group-hover:decoration-onedark-accent transition-colors">
               {codeContent}
             </code>
           </a>
@@ -1287,8 +1287,8 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
           }}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-onedark-accent underline underline-offset-2 hover:text-onedark-accent/80 transition-colors font-medium cursor-pointer inline"
-          title={`Preview ${cleanPlainTitle} in sidebar (Cmd/Ctrl + click for new tab)`}
+          className="text-onedark-accent underline underline-offset-4 decoration-onedark-accent/50 hover:decoration-onedark-accent hover:text-onedark-accent/80 transition-colors font-medium cursor-pointer inline [&_code]:bg-transparent [&_code]:border-0 [&_code]:p-0 [&_code]:rounded-none [&_code]:shadow-none [&_code]:text-onedark-accent [&_code]:underline [&_code]:underline-offset-4 [&_code]:decoration-onedark-accent/50 hover:[&_code]:decoration-onedark-accent"
+          title={`Open ${cleanPlainTitle} (Cmd/Ctrl + click for new tab)`}
         >
           {renderInline(rawLinkContent, onLinkClick)}
         </a>
@@ -1351,10 +1351,10 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
             }}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline mx-0.5 group align-baseline"
-            title={`Preview ${cleanPlainTitle} in sidebar (Cmd/Ctrl + click for new tab)`}
+            className="inline group align-baseline cursor-pointer"
+            title={`Open ${cleanPlainTitle} (Cmd/Ctrl + click for new tab)`}
           >
-            <code className="px-1.5 py-0.5 rounded-md bg-onedark-surface/80 border border-onedark-borderSubtle text-onedark-accent group-hover:text-onedark-accent/80 group-hover:bg-onedark-surface group-hover:border-onedark-accent/40 font-mono text-[13px] font-medium tracking-normal align-baseline select-text shadow-2xs underline underline-offset-2 decoration-onedark-accent/40 group-hover:decoration-onedark-accent transition-colors">
+            <code className="bg-transparent border-0 p-0 rounded-none shadow-none text-onedark-accent group-hover:text-onedark-accent/80 font-mono text-[13px] font-medium tracking-normal align-baseline select-text underline underline-offset-4 decoration-onedark-accent/50 group-hover:decoration-onedark-accent transition-colors">
               {codeContent}
             </code>
           </a>
@@ -1383,8 +1383,8 @@ function renderInline(rawText: string, onLinkClick?: (url: string, text: string)
           }}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-onedark-accent underline underline-offset-2 hover:text-onedark-accent/80 transition-colors font-medium cursor-pointer inline"
-          title={`Preview ${cleanPlainTitle} in sidebar (Cmd/Ctrl + click for new tab)`}
+          className="text-onedark-accent underline underline-offset-4 decoration-onedark-accent/50 hover:decoration-onedark-accent hover:text-onedark-accent/80 transition-colors font-medium cursor-pointer inline [&_code]:bg-transparent [&_code]:border-0 [&_code]:p-0 [&_code]:rounded-none [&_code]:shadow-none [&_code]:text-onedark-accent [&_code]:underline [&_code]:underline-offset-4 [&_code]:decoration-onedark-accent/50 hover:[&_code]:decoration-onedark-accent"
+          title={`Open ${cleanPlainTitle} (Cmd/Ctrl + click for new tab)`}
         >
           {renderInline(linkText, onLinkClick)}
         </a>

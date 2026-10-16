@@ -204,24 +204,53 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
     return initial;
   });
 
-  // Auto-expand ancestor directories of active selectedFile
-  useEffect(() => {
-    if (selectedFile) {
-      const parts = selectedFile.split('/');
-      if (parts.length > 1) {
-        const pathsToExpand: Record<string, boolean> = {};
-        let currentPath = '';
-        for (let i = 0; i < parts.length - 1; i++) {
-          currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
-          pathsToExpand[currentPath] = true;
-        }
-        setExpandedFolders((prev) => ({ ...prev, ...pathsToExpand }));
-      }
-    }
-  }, [selectedFile]);
-
   const [dynamicChildren, setDynamicChildren] = useState<Record<string, FileNode[]>>({});
   const [loadingFolders, setLoadingFolders] = useState<Record<string, boolean>>({});
+
+  // Auto-expand ancestor directories of active selectedFile and lazy-load deep folders if needed
+  useEffect(() => {
+    if (!selectedFile) return;
+    const parts = selectedFile.split('/');
+    if (parts.length <= 1) return;
+
+    const pathsToExpand: Record<string, boolean> = {};
+    const ancestorPaths: string[] = [];
+    let currentPath = '';
+    for (let i = 0; i < parts.length - 1; i++) {
+      currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
+      pathsToExpand[currentPath] = true;
+      ancestorPaths.push(currentPath);
+    }
+    setExpandedFolders((prev) => ({ ...prev, ...pathsToExpand }));
+
+    if (!taskId) return;
+    const findNode = (nodes: FileNode[], target: string): FileNode | null => {
+      for (const n of nodes) {
+        if (n.path === target) return n;
+        const children = (n.children && n.children.length > 0) ? n.children : dynamicChildren[n.path];
+        if (children) {
+          const found = findNode(children, target);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+
+    ancestorPaths.forEach((ancPath) => {
+      const node = findNode(tree, ancPath);
+      const hasStatic = Boolean(node?.children && node.children.length > 0);
+      if (!hasStatic && !dynamicChildren[ancPath]) {
+        fetch(`${API_BASE}/api/tasks/${taskId}/files/children?path=${encodeURIComponent(ancPath)}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((json) => {
+            if (json?.children) {
+              setDynamicChildren((prev) => (prev[ancPath] ? prev : { ...prev, [ancPath]: json.children }));
+            }
+          })
+          .catch(() => {});
+      }
+    });
+  }, [selectedFile, taskId, tree]);
 
   // Reset local search, expanded folders, and rename states if taskId changes
   const prevTaskIdRef = useRef(taskId);

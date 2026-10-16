@@ -646,7 +646,8 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
         setHistoryIndex(nextHist.length - 1);
         setCurrentUrl(url);
       } else {
-        // If re-triggered with the same URL, reload/re-evaluate
+        // If re-triggered with the same URL, update title override and reload/re-evaluate
+        setNavTitleOverride(initialTitle || null);
         fetchDoc(url);
       }
     }

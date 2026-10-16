@@ -22,6 +22,10 @@ interface FilesExplorerTabProps {
   task: Task;
   selectedFilePath?: string | null;
   selectedLineNumber?: number | null;
+  selectedSymbol?: string | null;
+  fileNavigationTrigger?: number;
+  fallbackPreviewUrl?: { url: string; title?: string } | null;
+  onFallbackToPreview?: (url: string, title?: string) => void;
   onSelectFile?: (filePath: string, line?: number) => void;
   onClearSelectedFilePath?: () => void;
   onViewCommitDiff?: (commitSha: string) => void;
@@ -111,6 +115,10 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
   task,
   selectedFilePath,
   selectedLineNumber,
+  selectedSymbol,
+  fileNavigationTrigger,
+  fallbackPreviewUrl,
+  onFallbackToPreview,
   onSelectFile,
   onClearSelectedFilePath,
   onViewCommitDiff,
@@ -124,6 +132,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
   const initialFileState = computeActiveFile(task?.id, selectedFilePath, selectedLineNumber);
   const [selectedFile, setSelectedFile] = useState<string | null>(initialFileState.file);
   const [targetLine, setTargetLine] = useState<number | null>(initialFileState.line);
+  const [targetSymbol, setTargetSymbol] = useState<string | null>(selectedSymbol ?? null);
 
   // Synchronously adapt state during render if task.id changes
   if (task?.id !== prevTaskId) {
@@ -132,6 +141,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
     const cachedSandbox = task?.id ? sandboxCache.get(task.id) || null : null;
     setSelectedFile(nextFileState.file);
     setTargetLine(nextFileState.line);
+    setTargetSymbol(selectedSymbol ?? null);
     setData(cachedSandbox);
     setLoading(!cachedSandbox);
     setError(null);
@@ -144,6 +154,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
     setSelectedFile(path);
     const lineVal = line ?? null;
     setTargetLine(lineVal);
+    setTargetSymbol(null);
     if (task?.id) {
       taskActiveFileCache.set(task.id, { filePath: path, line: lineVal });
     }
@@ -153,6 +164,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
   const handleCloseFile = useCallback(() => {
     setSelectedFile(null);
     setTargetLine(null);
+    setTargetSymbol(null);
     onClearSelectedFilePath?.();
     if (task?.id) {
       taskActiveFileCache.delete(task.id);
@@ -164,11 +176,12 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
       setSelectedFile(selectedFilePath);
       const lineVal = selectedLineNumber ?? null;
       setTargetLine(lineVal);
+      setTargetSymbol(selectedSymbol ?? null);
       if (task?.id && selectedFilePath) {
         taskActiveFileCache.set(task.id, { filePath: selectedFilePath, line: lineVal });
       }
     }
-  }, [selectedFilePath, selectedLineNumber, task?.id]);
+  }, [selectedFilePath, selectedLineNumber, selectedSymbol, fileNavigationTrigger, task?.id]);
   const [activeSnippetContext, setActiveSnippetContext] = useState<LineContext | null>(null);
   const [initialAgentPrompt, setInitialAgentPrompt] = useState<string | undefined>(undefined);
   const [isAgentPopoverOpen, setIsAgentPopoverOpen] = useState(false);
@@ -337,11 +350,11 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
 
       if (json.file_tree && Array.isArray(json.file_tree) && json.file_tree.length > 0) {
         const curFile = selectedFileRef.current;
-        if (curFile && fileExistsInTree(json.file_tree, curFile)) {
-          // Keep current file
+        if (curFile) {
+          // Preserve currently selected file (even if deeper than initial depth=3 scan or a directory path)
         } else {
           const cachedActive = task?.id ? taskActiveFileCache.get(task.id) : null;
-          if (cachedActive && fileExistsInTree(json.file_tree, cachedActive.filePath)) {
+          if (cachedActive && cachedActive.filePath) {
             setTargetLine(cachedActive.line);
             setSelectedFile(cachedActive.filePath);
           } else {
@@ -740,6 +753,18 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
           taskId={task.id}
           filePath={selectedFile}
           targetLine={targetLine}
+          targetSymbol={targetSymbol}
+          navigationTrigger={fileNavigationTrigger}
+          onResolvedFilePath={(resolvedPath, matchedLine) => {
+            setSelectedFile(resolvedPath);
+            if (matchedLine) {
+              setTargetLine(matchedLine);
+            }
+            if (task?.id) {
+              taskActiveFileCache.set(task.id, { filePath: resolvedPath, line: matchedLine ?? targetLine });
+            }
+            onSelectFile?.(resolvedPath, matchedLine ?? (targetLine || undefined));
+          }}
           onClose={handleCloseFile}
           canGoBack={canGoBack}
           canGoForward={canGoForward}

@@ -56,6 +56,9 @@ interface CodeViewerProps {
   taskId: string;
   filePath: string | null;
   targetLine?: number | null;
+  targetSymbol?: string | null;
+  navigationTrigger?: number;
+  onResolvedFilePath?: (resolvedPath: string, matchedLine?: number) => void;
   onFileNotFound?: () => boolean | void;
   onClose?: () => void;
   onAskAboutLine?: (context: LineContext, initialPrompt?: string) => void;
@@ -80,6 +83,7 @@ interface FileContentResponse {
   language: string;
   start_line?: number;
   end_line?: number;
+  matched_line?: number | null;
   is_truncated?: boolean;
   is_binary?: boolean;
   raw_url?: string;
@@ -92,10 +96,72 @@ const API_BASE = import.meta.env.VITE_API_URL || '';
 // Client-side scroll position cache across file switches and navigation tabs
 const fileScrollCache = new Map<string, number>();
 
+const escapeRegExp = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const findSymbolLineInCode = (lines: string[], symbolQuery?: string | null, baseLine = 1): number | null => {
+  if (!symbolQuery || !lines.length) return null;
+  let cleaned = symbolQuery.trim().replace(/^[`'"]+|[`'"]+$/g, '');
+  if (cleaned.endsWith('()')) {
+    cleaned = cleaned.slice(0, -2).trim();
+  }
+  if (!cleaned || cleaned.includes('/')) return null;
+
+  const candidates = [cleaned];
+  if (cleaned.includes('.') || cleaned.includes(':')) {
+    const parts = cleaned.split(/[.:]+/).filter(Boolean);
+    const tail = parts[parts.length - 1];
+    if (tail && !candidates.includes(tail)) {
+      candidates.push(tail);
+    }
+  }
+
+  for (const cand of candidates) {
+    if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(cand)) continue;
+    const esc = escapeRegExp(cand);
+    const defPatterns = [
+      new RegExp(`^\\s*func\\s+(?:\\([^)]+\\)\\s*)?${esc}\\b`),
+      new RegExp(`^\\s*(?:async\\s+)?def\\s+${esc}\\b`),
+      new RegExp(`^\\s*(?:export\\s+)?(?:default\\s+)?(?:abstract\\s+)?(?:class|interface|type|enum|struct|trait|fn|function)\\s+${esc}\\b`),
+      new RegExp(`^\\s*type\\s+${esc}\\b`),
+      new RegExp(`^\\s*(?:pub(?:\\([^)]*\\))?\\s+)?(?:async\\s+)?(?:fn|struct|enum|trait|type|mod|const|static)\\s+${esc}\\b`),
+      new RegExp(`^\\s*(?:export\\s+)?(?:const|let|var)\\s+${esc}\\s*=`),
+      new RegExp(`\\b${esc}\\s*[:=]\\s*(?:async\\s*)?(?:function\\b|\\([^)]*\\)\\s*=>)`),
+    ];
+
+    for (const pat of defPatterns) {
+      for (let i = 0; i < lines.length; i++) {
+        if (pat.test(lines[i])) return baseLine + i;
+      }
+    }
+
+    const wordPat = new RegExp(`\\b${esc}\\b`);
+    for (let i = 0; i < lines.length; i++) {
+      const trimmed = lines[i].trim();
+      if (trimmed.startsWith('//') || trimmed.startsWith('#') || trimmed.startsWith('*')) continue;
+      if (wordPat.test(lines[i])) return baseLine + i;
+    }
+
+    for (let i = 0; i < lines.length; i++) {
+      if (wordPat.test(lines[i])) return baseLine + i;
+    }
+  }
+
+  if (cleaned.length >= 3) {
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].includes(cleaned)) return baseLine + i;
+    }
+  }
+
+  return null;
+};
+
 export const CodeViewer: React.FC<CodeViewerProps> = ({ 
   taskId, 
   filePath, 
   targetLine,
+  targetSymbol,
+  navigationTrigger,
+  onResolvedFilePath,
   onFileNotFound,
   onClose,
   onAskAboutLine,
@@ -285,8 +351,11 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
       setLoading(true);
       setError(null);
       try {
+        const params = new URLSearchParams({ path: filePath });
+        if (targetSymbol) params.set('symbol', targetSymbol);
+        if (targetLine && targetLine > 0) params.set('target_line', String(targetLine));
         const res = await fetch(
-          `${API_BASE}/api/tasks/${taskId}/files/content?path=${encodeURIComponent(filePath)}`
+          `${API_BASE}/api/tasks/${taskId}/files/content?${params.toString()}`
         );
         if (!res.ok) {
           const errData = await res.json().catch(() => ({}));
@@ -299,9 +368,12 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
           }
           throw new Error(errMsg);
         }
-        const json = await res.json();
+        const json: FileContentResponse = await res.json();
         if (isMounted) {
           setData(json);
+          if (json.path && json.path !== filePath) {
+            onResolvedFilePath?.(json.path, json.matched_line ?? undefined);
+          }
         }
       } catch (err: any) {
         if (isMounted) {
@@ -366,20 +438,62 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
     }
   };
 
-  // Handle auto-scroll to targetLine with virtual window calculation, or restore cached scroll
+  const rawLines = useMemo(() => {
+    if (!data?.content) return [];
+    return data.content.split('\n');
+  }, [data]);
+
+  // Handle auto-scroll to targetLine or targetSymbol with virtual window calculation, or restore cached scroll
   useEffect(() => {
     if (!data) return;
 
-    if (targetLine) {
-      setActiveHighlightLine(targetLine);
-      const fileBaseLine = data.start_line || 1;
-      const targetIdx = targetLine - fileBaseLine;
+    const fileBaseLine = data.start_line || 1;
+    const clientSymbolLine = targetSymbol
+      ? findSymbolLineInCode(rawLines, targetSymbol, fileBaseLine)
+      : null;
+    const resolvedLine = targetLine || clientSymbolLine || data.matched_line || null;
+
+    // If the file is truncated and the requested symbol or line wasn't found in the loaded window, expand via API
+    if (
+      data.is_truncated &&
+      !loadingMore &&
+      taskId &&
+      filePath &&
+      ((targetSymbol && !clientSymbolLine && !data.matched_line) ||
+        (resolvedLine && resolvedLine > (data.end_line || data.lines)))
+    ) {
+      let cancelled = false;
+      setLoadingMore(true);
+      const params = new URLSearchParams({ path: filePath });
+      if (targetSymbol) params.set('symbol', targetSymbol);
+      if (targetLine && targetLine > 0) params.set('target_line', String(targetLine));
+      fetch(`${API_BASE}/api/tasks/${taskId}/files/content?${params.toString()}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((json) => {
+          if (!cancelled && json) {
+            setData(json);
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (!cancelled) setLoadingMore(false);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (resolvedLine) {
+      setActiveHighlightLine(resolvedLine);
+      const targetIdx = resolvedLine - fileBaseLine;
       if (targetIdx >= 0 && scrollContainerRef.current) {
-        const targetOffset = (targetIdx * ROW_HEIGHT) - (viewportHeight / 2) + (ROW_HEIGHT / 2);
+        const effectiveViewport = viewportHeight || scrollContainerRef.current.clientHeight || 400;
+        const targetOffset = (targetIdx * ROW_HEIGHT) - (effectiveViewport / 2) + (ROW_HEIGHT / 2);
         scrollContainerRef.current.scrollTo({
           top: Math.max(0, targetOffset),
           behavior: 'smooth'
         });
+        setScrollTop(Math.max(0, targetOffset));
       }
 
       const fadeTimer = setTimeout(() => {
@@ -396,7 +510,7 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
       }
       setScrollTop(savedScroll);
     }
-  }, [targetLine, data, viewportHeight, taskId, filePath]);
+  }, [targetLine, targetSymbol, navigationTrigger, data, rawLines, viewportHeight, taskId, filePath]);
 
   const handleCopy = () => {
     if (!data?.content) return;
@@ -416,11 +530,6 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
   const resolvedLang = useMemo(() => {
     if (!data) return 'text';
     return resolveLanguage(data.language, data.name);
-  }, [data]);
-
-  const rawLines = useMemo(() => {
-    if (!data?.content) return [];
-    return data.content.split('\n');
   }, [data]);
 
   const highlightedLines = useMemo(() => {

@@ -94,10 +94,17 @@ const MainApp: React.FC = () => {
     setSessionDraft(sessionKey, draft);
   }, [setSessionDraft]);
 
+  const [sessionFileSymbols, setSessionFileSymbols] = useState<Record<string, string | null>>({});
+  const [sessionFileTriggers, setSessionFileTriggers] = useState<Record<string, number>>({});
+  const [sessionFileFallbacks, setSessionFileFallbacks] = useState<Record<string, { url: string; title?: string } | null>>({});
+
   const currentTaskAuxTab = activeTaskId ? (sessionAuxTabs[activeTaskId] || activeAuxTab) : activeAuxTab;
   const activePreviewTarget = activeTaskId ? (sessionPreviews[activeTaskId] || null) : (sessionPreviews['draft'] || null);
   const selectedAuxFilePath = activeTaskId ? (sessionFiles[activeTaskId] || null) : (sessionFiles['draft'] || null);
   const selectedAuxFileLine = activeTaskId ? (sessionFileLines[activeTaskId] || null) : (sessionFileLines['draft'] || null);
+  const selectedAuxFileSymbol = activeTaskId ? (sessionFileSymbols[activeTaskId] || null) : (sessionFileSymbols['draft'] || null);
+  const selectedAuxFileTrigger = activeTaskId ? (sessionFileTriggers[activeTaskId] || 0) : (sessionFileTriggers['draft'] || 0);
+  const selectedAuxFileFallback = activeTaskId ? (sessionFileFallbacks[activeTaskId] || null) : (sessionFileFallbacks['draft'] || null);
 
   const handleAuxTabChange = useCallback((tab: AuxTabType) => {
     setActiveAuxTab(tab);
@@ -1581,20 +1588,121 @@ const MainApp: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleToggleSidebar, handleNewChat]);
 
+  const openUrlInDocsOrPrs = (url: string, title?: string) => {
+    const sessionKey = activeTaskId || 'draft';
+    setSessionPreviews((prev) => ({
+      ...prev,
+      [sessionKey]: { url, title },
+    }));
+    const currentTask = activeTaskDetails || activeTask;
+    const isTaskPr =
+      /github\.com\/[^/]+\/[^/]+\/pull\/\d+/i.test(url) &&
+      (!currentTask?.repo_name || url.toLowerCase().includes(currentTask.repo_name.toLowerCase()));
+    handleAuxTabChange(isTaskPr ? 'prs' : 'docs');
+    if (currentPreset === 'fullscreen') {
+      handleSetPreset('split');
+    }
+  };
+
   const handleOpenPreview = (url: string, title?: string) => {
     if (url.startsWith('plan://') || url === '#open-plan-doc' || url === 'action://open-plan-doc') {
       const planTaskId = url.startsWith('plan://') ? url.replace('plan://', '').split('/')[0] : activeTaskId;
       handleOpenPlanDocument(planTaskId || activeTaskId);
       return;
     }
+
     const sessionKey = activeTaskId || 'draft';
-    setSessionPreviews((prev) => ({
-      ...prev,
-      [sessionKey]: { url, title },
-    }));
-    if (currentPreset === 'fullscreen') {
-      handleSetPreset('split');
+    const currentTask = activeTaskDetails || activeTask;
+    const canUseSandboxFiles = Boolean(activeTaskId && currentTask);
+
+    const extractSymbolFromTitle = (rawTitle: string | undefined, targetPath: string): string | null => {
+      if (!rawTitle) return null;
+      const cleaned = rawTitle.trim().replace(/^[`'"]+|[`'"]+$/g, '');
+      if (!cleaned || cleaned === url || cleaned.includes(' ') || cleaned.includes('/')) return null;
+      const baseName = targetPath.split('/').pop() || targetPath;
+      if (cleaned.toLowerCase() === baseName.toLowerCase()) return null;
+      return cleaned;
+    };
+
+    // 1. Check for GitHub /blob/<ref>/<path> or /tree/<ref>/<path> links matching workspace repo
+    const ghMatch = url.match(/^https?:\/\/github\.com\/([^/]+\/[^/]+)\/(blob|tree)\/([^/#?]+)\/([^#?]+)(?:#L(\d+))?/i);
+    if (ghMatch && canUseSandboxFiles) {
+      const ghRepo = ghMatch[1].toLowerCase().replace(/\.git$/, '');
+      const subPath = decodeURIComponent(ghMatch[4]).replace(/^\/+/, '');
+      const hashLine = ghMatch[5] ? parseInt(ghMatch[5], 10) : null;
+      const taskRepo = (currentTask?.repo_name || '').toLowerCase().replace(/\.git$/, '');
+      const taskRepoUrl = (currentTask?.repo_url || '').toLowerCase();
+      const matchesTaskRepo = !taskRepo || taskRepo === ghRepo || taskRepoUrl.includes(ghRepo);
+
+      if (matchesTaskRepo && subPath) {
+        const symbol = hashLine ? null : extractSymbolFromTitle(title, subPath);
+        setSessionFiles((prev) => ({ ...prev, [sessionKey]: subPath }));
+        setSessionFileLines((prev) => ({ ...prev, [sessionKey]: hashLine }));
+        setSessionFileSymbols((prev) => ({ ...prev, [sessionKey]: symbol }));
+        setSessionFileTriggers((prev) => ({ ...prev, [sessionKey]: Date.now() }));
+        setSessionFileFallbacks((prev) => ({ ...prev, [sessionKey]: { url, title } }));
+        handleAuxTabChange('files');
+        if (currentPreset === 'fullscreen') {
+          handleSetPreset('split');
+        }
+        return;
+      }
     }
+
+    // 2. Check for file:// URIs or relative workspace paths
+    const isFileProtocol = url.startsWith('file://');
+    const isRelativeWorkspacePath =
+      !isFileProtocol &&
+      !/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(url) &&
+      !url.startsWith('#') &&
+      !url.startsWith('//');
+
+    if ((isFileProtocol || isRelativeWorkspacePath) && canUseSandboxFiles) {
+      let rawPath = isFileProtocol ? url.replace(/^file:\/\//i, '') : url;
+      let parsedLine: number | null = null;
+
+      const hashLineMatch = rawPath.match(/#L(\d+)/i);
+      if (hashLineMatch) {
+        parsedLine = parseInt(hashLineMatch[1], 10);
+      }
+      rawPath = rawPath.split('#')[0].split('?')[0];
+
+      const colonLineMatch = rawPath.match(/^(.*?):(\d+)(?::\d+)?$/);
+      if (colonLineMatch) {
+        rawPath = colonLineMatch[1];
+        if (!parsedLine) parsedLine = parseInt(colonLineMatch[2], 10);
+      }
+
+      try {
+        rawPath = decodeURIComponent(rawPath);
+      } catch {}
+
+      const wsPath = currentTask?.workspace_path?.replace(/\/+$/, '');
+      if (wsPath && rawPath.startsWith(wsPath + '/')) {
+        rawPath = rawPath.slice(wsPath.length + 1);
+      }
+      rawPath = rawPath
+        .replace(/^\/?(?:app\/)?workspaces\/sandbox-[^/]+\//, '')
+        .replace(/^\/?workspace\//, '')
+        .replace(/^\.?\//, '');
+
+      if (rawPath) {
+        const symbol = parsedLine ? null : extractSymbolFromTitle(title, rawPath);
+        setSessionFiles((prev) => ({ ...prev, [sessionKey]: rawPath }));
+        setSessionFileLines((prev) => ({ ...prev, [sessionKey]: parsedLine }));
+        setSessionFileSymbols((prev) => ({ ...prev, [sessionKey]: symbol }));
+        setSessionFileTriggers((prev) => ({ ...prev, [sessionKey]: Date.now() }));
+        setSessionFileFallbacks((prev) => ({ ...prev, [sessionKey]: null }));
+        handleAuxTabChange('files');
+        if (currentPreset === 'fullscreen') {
+          handleSetPreset('split');
+        }
+        return;
+      }
+    }
+
+    // 3. Otherwise open in Web & Docs (or PRs for task PR URLs)
+    openUrlInDocsOrPrs(url, title);
   };
 
   const handleNavigatePreview = (url: string, title?: string) => {
@@ -1678,11 +1786,21 @@ const MainApp: React.FC = () => {
             previewTarget={activePreviewTarget}
             selectedFilePath={selectedAuxFilePath}
             selectedLineNumber={selectedAuxFileLine}
+            selectedSymbol={selectedAuxFileSymbol}
+            fileNavigationTrigger={selectedAuxFileTrigger}
+            fallbackPreviewUrl={selectedAuxFileFallback}
+            onFallbackToPreview={(fallbackUrl, fallbackTitle) => {
+              const sessionKey = activeTaskId || 'draft';
+              setSessionFileFallbacks((prev) => ({ ...prev, [sessionKey]: null }));
+              openUrlInDocsOrPrs(fallbackUrl, fallbackTitle);
+            }}
             onSelectFile={handleAuxSelectFile}
             onClearSelectedFilePath={() => {
               const sessionKey = activeTaskId || 'draft';
               setSessionFiles((prev) => ({ ...prev, [sessionKey]: null }));
               setSessionFileLines((prev) => ({ ...prev, [sessionKey]: null }));
+              setSessionFileSymbols((prev) => ({ ...prev, [sessionKey]: null }));
+              setSessionFileFallbacks((prev) => ({ ...prev, [sessionKey]: null }));
             }}
             onClearPreview={handleClearPreview}
             onNavigatePreview={handleNavigatePreview}

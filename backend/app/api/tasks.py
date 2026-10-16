@@ -1571,12 +1571,107 @@ async def get_sandbox_folder_children(
         raise HTTPException(status_code=500, detail=f"Failed to read directory: {str(e)}")
 
 
+def _find_first_file_in_dir(dir_path: Path, ws_path: Path) -> Optional[Tuple[Path, str]]:
+    """
+    Finds a preferred or first regular file inside a sandbox directory so clicking a
+    directory link (e.g. 'pkg/agentmem') in Chat opens a representative file in CodeViewer.
+    """
+    preferred_names = {
+        "readme.md", "readme", "index.ts", "index.tsx", "index.js",
+        "mod.rs", "__init__.py", "main.go", "main.py", f"{dir_path.name}.go", f"{dir_path.name}.py", f"{dir_path.name}.ts"
+    }
+    try:
+        entries = sorted(
+            [p for p in dir_path.iterdir() if not p.name.startswith(".") and p.name not in {"node_modules", "__pycache__", "dist", "build"}],
+            key=lambda x: (
+                x.is_dir(),
+                "_test." in x.name.lower() or ".test." in x.name.lower() or ".spec." in x.name.lower() or x.name.lower().startswith("test_"),
+                x.name.lower()
+            )
+        )
+    except Exception:
+        return None
+
+    for p in entries:
+        if p.is_file() and p.name.lower() in preferred_names:
+            return p, str(p.relative_to(ws_path))
+    for p in entries:
+        if p.is_file():
+            return p, str(p.relative_to(ws_path))
+    for p in entries:
+        if p.is_dir():
+            found = _find_first_file_in_dir(p, ws_path)
+            if found:
+                return found
+    return None
+
+
+def _find_symbol_line_in_lines(lines: List[str], symbol_query: Optional[str]) -> Optional[int]:
+    """
+    Locates the 1-indexed line number for a symbol or code snippet in a file's lines.
+    Prioritizes declaration/definition lines (func, def, class, type, interface, struct, const),
+    falling back to whole-word identifier matches.
+    """
+    if not symbol_query or not lines:
+        return None
+    cleaned = symbol_query.strip().strip("`'\"")
+    if cleaned.endswith("()"):
+        cleaned = cleaned[:-2].strip()
+    if not cleaned or "/" in cleaned:
+        return None
+
+    candidates = [cleaned]
+    if "." in cleaned or ":" in cleaned:
+        tail = [p for p in re.split(r"[.:]+", cleaned) if p]
+        if tail and tail[-1] not in candidates:
+            candidates.append(tail[-1])
+
+    for cand in candidates:
+        if not re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", cand):
+            continue
+        esc = re.escape(cand)
+        def_patterns = [
+            re.compile(rf"^\s*func\s+(?:\([^)]+\)\s*)?{esc}\b"),
+            re.compile(rf"^\s*(?:async\s+)?def\s+{esc}\b"),
+            re.compile(rf"^\s*(?:export\s+)?(?:default\s+)?(?:abstract\s+)?(?:class|interface|type|enum|struct|trait|fn|function)\s+{esc}\b"),
+            re.compile(rf"^\s*type\s+{esc}\b"),
+            re.compile(rf"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(?:fn|struct|enum|trait|type|mod|const|static)\s+{esc}\b"),
+            re.compile(rf"^\s*(?:export\s+)?(?:const|let|var)\s+{esc}\s*="),
+            re.compile(rf"\b{esc}\s*[:=]\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>)"),
+        ]
+        for pat in def_patterns:
+            for idx, line in enumerate(lines):
+                if pat.search(line):
+                    return idx + 1
+
+        word_pat = re.compile(rf"\b{esc}\b")
+        for idx, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith("//") or stripped.startswith("#") or stripped.startswith("*"):
+                continue
+            if word_pat.search(line):
+                return idx + 1
+
+        for idx, line in enumerate(lines):
+            if word_pat.search(line):
+                return idx + 1
+
+    # Fallback: exact substring match if symbol_query was a short snippet
+    if len(cleaned) >= 3:
+        for idx, line in enumerate(lines):
+            if cleaned in line:
+                return idx + 1
+
+    return None
+
+
 def _resolve_sandbox_file(ws_path: Path, raw_path: str) -> Tuple[Path, str]:
     """
     Safely resolves a relative path within ws_path, with fallbacks for:
     1. Redundant workspace/sandbox directory prefixes (e.g. sandbox-id/...)
-    2. Attachments directory (.cyclode/attachments/...)
-    3. Stripping leading repository folder prefix (e.g. 'openmeter/collector/go.mod' -> 'collector/go.mod')
+    2. Directory paths (resolves to the primary/first file inside the directory)
+    3. Attachments directory (.cyclode/attachments/...)
+    4. Stripping leading repository folder prefix (e.g. 'openmeter/collector/go.mod' -> 'collector/go.mod')
     """
     clean_rel = unquote(raw_path).lstrip("/\\")
     if clean_rel.startswith(ws_path.name + "/"):
@@ -1593,6 +1688,11 @@ def _resolve_sandbox_file(ws_path: Path, raw_path: str) -> Tuple[Path, str]:
         target_file.relative_to(ws_path)
     except ValueError:
         raise HTTPException(status_code=403, detail="Access denied: Path outside sandbox workspace")
+
+    if target_file.exists() and target_file.is_dir():
+        dir_resolved = _find_first_file_in_dir(target_file, ws_path)
+        if dir_resolved:
+            return dir_resolved
 
     if not target_file.exists() or not target_file.is_file():
         # Fallback 1: check attachments
@@ -1613,11 +1713,42 @@ def _resolve_sandbox_file(ws_path: Path, raw_path: str) -> Tuple[Path, str]:
                 stripped_target = (ws_path / stripped_rel).resolve()
                 try:
                     stripped_target.relative_to(ws_path)
-                    if stripped_target.exists() and stripped_target.is_file():
-                        target_file = stripped_target
-                        clean_rel = stripped_rel
+                    if stripped_target.exists():
+                        if stripped_target.is_file():
+                            target_file = stripped_target
+                            clean_rel = stripped_rel
+                        elif stripped_target.is_dir():
+                            dir_resolved = _find_first_file_in_dir(stripped_target, ws_path)
+                            if dir_resolved:
+                                return dir_resolved
                 except ValueError:
                     pass
+
+        # Fallback 3: check inside top-level repository subdirectories (e.g. ws_path/cortexdb/pkg/...)
+        if not target_file.exists() or not target_file.is_file():
+            try:
+                subdirs = sorted(
+                    [
+                        d for d in ws_path.iterdir()
+                        if d.is_dir() and not d.name.startswith(".") and d.name not in {"node_modules", "__pycache__", "dist", "build"}
+                    ],
+                    key=lambda d: d.name.lower()
+                )
+                for subdir in subdirs:
+                    nested_target = (subdir / clean_rel).resolve()
+                    try:
+                        nested_target.relative_to(ws_path)
+                    except ValueError:
+                        continue
+                    if nested_target.exists():
+                        if nested_target.is_file():
+                            return nested_target, str(nested_target.relative_to(ws_path))
+                        elif nested_target.is_dir():
+                            dir_resolved = _find_first_file_in_dir(nested_target, ws_path)
+                            if dir_resolved:
+                                return dir_resolved
+            except Exception:
+                pass
 
     return target_file, clean_rel
 
@@ -1628,6 +1759,8 @@ async def get_sandbox_file_content(
     path: str,
     start_line: Optional[int] = Query(None, ge=1, description="1-indexed starting line"),
     end_line: Optional[int] = Query(None, ge=1, description="1-indexed ending line"),
+    symbol: Optional[str] = Query(None, description="Optional symbol name to resolve line number"),
+    target_line: Optional[int] = Query(None, ge=1, description="Optional target line to ensure window coverage"),
     max_bytes: int = Query(1048576, description="Max raw bytes safety cap (default 1MB)"),
     db: AsyncSession = Depends(get_db)
 ):
@@ -1647,11 +1780,82 @@ async def get_sandbox_file_content(
         if specific_sb.exists() and specific_sb.is_dir():
             ws_path = specific_sb
 
-    if not ws_path or not ws_path.exists() or not ws_path.is_dir():
-        raise HTTPException(status_code=404, detail="Sandbox workspace does not exist on disk")
+    target_file: Optional[Path] = None
+    clean_rel = unquote(path).lstrip("/\\")
+    if ws_path and ws_path.exists() and ws_path.is_dir():
+        target_file, clean_rel = _resolve_sandbox_file(ws_path, path)
 
-    target_file, clean_rel = _resolve_sandbox_file(ws_path, path)
-    if not target_file.exists() or not target_file.is_file():
+    if not target_file or not target_file.exists() or not target_file.is_file():
+        # If sandbox file is missing on disk, try fetching from the task's linked GitHub repo so Files (CodeViewer) still renders it natively
+        gh_slug = (task.repo_name or "").strip().rstrip("/")
+        if not gh_slug and task.repo_url and "github.com/" in task.repo_url:
+            m_slug = re.search(r"github\.com[:/]([^/]+/[^/.]+)", task.repo_url)
+            if m_slug:
+                gh_slug = m_slug.group(1)
+        if gh_slug and "/" in gh_slug:
+            import httpx
+            ref_candidates = [b for b in [task.target_branch, task.git_branch, "main", "master", "HEAD"] if b]
+            rel_query = unquote(path).lstrip("/\\")
+            remote_text: Optional[str] = None
+            resolved_remote_path = rel_query
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+                for ref_cand in dict.fromkeys(ref_candidates):
+                    raw_gh_url = f"https://raw.githubusercontent.com/{gh_slug}/{ref_cand}/{rel_query}"
+                    try:
+                        r_gh = await client.get(raw_gh_url)
+                        if r_gh.status_code == 200:
+                            remote_text = r_gh.text
+                            break
+                    except Exception:
+                        pass
+                if remote_text is None:
+                    # Check if rel_query is a directory via GitHub Contents API
+                    for ref_cand in dict.fromkeys(ref_candidates):
+                        dir_api_url = f"https://api.github.com/repos/{gh_slug}/contents/{rel_query}?ref={ref_cand}"
+                        try:
+                            r_dir = await client.get(dir_api_url, headers={"User-Agent": "Cyclode-Workstation/1.0"})
+                            if r_dir.status_code == 200 and isinstance(r_dir.json(), list):
+                                entries = r_dir.json()
+                                files_in_dir = [e for e in entries if e.get("type") == "file" and e.get("download_url")]
+                                if files_in_dir:
+                                    chosen = files_in_dir[0]
+                                    r_file = await client.get(chosen["download_url"])
+                                    if r_file.status_code == 200:
+                                        remote_text = r_file.text
+                                        resolved_remote_path = chosen.get("path") or f"{rel_query}/{chosen.get('name', '')}"
+                                        break
+                        except Exception:
+                            pass
+            if remote_text is not None:
+                remote_name = resolved_remote_path.split("/")[-1]
+                remote_ext = Path(remote_name).suffix.lower()
+                lang_map_remote = {
+                    ".py": "python", ".ts": "typescript", ".tsx": "typescript", ".js": "javascript",
+                    ".jsx": "javascript", ".go": "go", ".rs": "rust", ".ex": "elixir", ".exs": "elixir",
+                    ".sh": "bash", ".json": "json", ".toml": "toml", ".yaml": "yaml", ".yml": "yaml",
+                    ".md": "markdown", ".sql": "sql", ".css": "css", ".html": "html",
+                }
+                remote_lang = lang_map_remote.get(remote_ext, "plaintext")
+                all_remote_lines = remote_text.splitlines()
+                total_remote = len(all_remote_lines)
+                symbol_val = symbol if isinstance(symbol, str) else None
+                matched_remote_line = _find_symbol_line_in_lines(all_remote_lines, symbol_val) if symbol_val else None
+                return {
+                    "path": resolved_remote_path,
+                    "name": remote_name,
+                    "content": remote_text,
+                    "size": len(remote_text.encode("utf-8")),
+                    "lines": total_remote,
+                    "total_lines": total_remote,
+                    "language": remote_lang,
+                    "start_line": 1,
+                    "end_line": total_remote,
+                    "matched_line": matched_remote_line,
+                    "is_truncated": False,
+                    "is_binary": False,
+                    "raw_url": ""
+                }
+
         raise HTTPException(status_code=404, detail=f"File '{clean_rel}' not found")
 
     file_stat = target_file.stat()
@@ -1769,7 +1973,12 @@ async def get_sandbox_file_content(
 
     start_val = start_line if isinstance(start_line, int) else None
     end_val = end_line if isinstance(end_line, int) else None
+    symbol_val = symbol if isinstance(symbol, str) else None
+    target_line_val = target_line if isinstance(target_line, int) else None
     max_b = max_bytes if isinstance(max_bytes, int) else 1048576
+
+    matched_line = _find_symbol_line_in_lines(all_lines, symbol_val) if symbol_val else None
+    focus_line = target_line_val or matched_line
 
     # Structured formats (Jupyter notebooks, JSON, YAML, TOML) must not be arbitrarily line-sliced at 1000 lines
     # unless explicit line slicing was requested, to avoid destroying valid AST/JSON syntax.
@@ -1795,11 +2004,12 @@ async def get_sandbox_file_content(
         returned_start = 1
         returned_end = total_lines
     elif total_lines > DEFAULT_WINDOW or file_size > max_b:
-        slice_lines = all_lines[:DEFAULT_WINDOW]
+        window_end = min(total_lines, max(DEFAULT_WINDOW, (focus_line + 250) if focus_line else DEFAULT_WINDOW))
+        slice_lines = all_lines[:window_end]
         content = "\n".join(slice_lines)
-        is_truncated = True
+        is_truncated = window_end < total_lines
         returned_start = 1
-        returned_end = min(DEFAULT_WINDOW, total_lines)
+        returned_end = window_end
     else:
         content = raw_text
         returned_start = 1
@@ -1815,6 +2025,7 @@ async def get_sandbox_file_content(
         "language": language,
         "start_line": returned_start,
         "end_line": returned_end,
+        "matched_line": matched_line,
         "is_truncated": is_truncated,
         "is_binary": False,
         "raw_url": raw_url

@@ -26,6 +26,10 @@ interface AuxiliaryPaneProps {
   previewTarget?: { url: string; title?: string } | null;
   selectedFilePath?: string | null;
   selectedLineNumber?: number | null;
+  selectedSymbol?: string | null;
+  fileNavigationTrigger?: number;
+  fallbackPreviewUrl?: { url: string; title?: string } | null;
+  onFallbackToPreview?: (url: string, title?: string) => void;
   onSelectFile?: (filePath: string, line?: number) => void;
   onClearSelectedFilePath?: () => void;
   onClearPreview?: () => void;
@@ -57,6 +61,10 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
   previewTarget,
   selectedFilePath,
   selectedLineNumber,
+  selectedSymbol,
+  fileNavigationTrigger,
+  fallbackPreviewUrl,
+  onFallbackToPreview,
   onSelectFile,
   onClearSelectedFilePath,
   onClearPreview,
@@ -402,6 +410,10 @@ export const AuxiliaryPane: React.FC<AuxiliaryPaneProps> = ({
                   task={task} 
                   selectedFilePath={selectedFilePath} 
                   selectedLineNumber={selectedLineNumber}
+                  selectedSymbol={selectedSymbol}
+                  fileNavigationTrigger={fileNavigationTrigger}
+                  fallbackPreviewUrl={fallbackPreviewUrl}
+                  onFallbackToPreview={onFallbackToPreview}
                   onSelectFile={onSelectFile}
                   onClearSelectedFilePath={onClearSelectedFilePath}
                   onViewCommitDiff={(sha) => {

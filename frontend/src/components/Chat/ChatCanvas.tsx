@@ -747,7 +747,7 @@ const ReasoningProcessContainer: React.FC<ReasoningProcessContainerProps> = ({
               content={m.thought}
               isStreaming={Boolean(m.isStreaming)}
               onLinkClick={onLinkClick}
-              className="text-[13px] leading-relaxed font-sans text-onedark-fg space-y-2 [&_p]:leading-relaxed [&_p]:text-onedark-fg/90 [&_strong]:text-onedark-fgBright [&_strong]:font-semibold [&_code]:font-mono [&_code]:text-[11.5px] [&_code]:bg-onedark-surface [&_code]:text-onedark-accent [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:border [&_code]:border-onedark-borderSubtle/60 [&_pre]:my-2 [&_ul]:my-1.5 [&_ol]:my-1.5 select-text"
+              className="text-[13px] leading-relaxed font-sans text-onedark-fg space-y-2 [&_p]:leading-relaxed [&_p]:text-onedark-fg/90 [&_strong]:text-onedark-fgBright [&_strong]:font-semibold [&_code]:font-mono [&_code]:text-[11.5px] [&_code]:bg-onedark-surface [&_code]:text-onedark-accent [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:border [&_code]:border-onedark-borderSubtle/60 [&_a_code]:bg-transparent [&_a_code]:border-0 [&_a_code]:p-0 [&_a_code]:rounded-none [&_a_code]:shadow-none [&_pre]:my-2 [&_ul]:my-1.5 [&_ol]:my-1.5 select-text"
             />
           </div>
         ))}
@@ -4210,7 +4210,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                                     content={targetThought.thought}
                                     isStreaming={isStepStreaming}
                                     onLinkClick={handleGlobalLinkClick}
-                                    className="text-[13px] leading-relaxed font-sans text-onedark-fg space-y-2 [&_p]:leading-relaxed [&_p]:text-onedark-fg/90 [&_strong]:text-onedark-fgBright [&_strong]:font-semibold [&_code]:font-mono [&_code]:text-[11.5px] [&_code]:bg-onedark-surface [&_code]:text-onedark-accent [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:border [&_code]:border-onedark-borderSubtle/60 [&_pre]:my-2 [&_ul]:my-1.5 [&_ol]:my-1.5 select-text"
+                                    className="text-[13px] leading-relaxed font-sans text-onedark-fg space-y-2 [&_p]:leading-relaxed [&_p]:text-onedark-fg/90 [&_strong]:text-onedark-fgBright [&_strong]:font-semibold [&_code]:font-mono [&_code]:text-[11.5px] [&_code]:bg-onedark-surface [&_code]:text-onedark-accent [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:border [&_code]:border-onedark-borderSubtle/60 [&_a_code]:bg-transparent [&_a_code]:border-0 [&_a_code]:p-0 [&_a_code]:rounded-none [&_a_code]:shadow-none [&_pre]:my-2 [&_ul]:my-1.5 [&_ol]:my-1.5 select-text"
                                   />
                                 </div>
                               )}
@@ -4287,7 +4287,7 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                                         content={m.thought}
                                         isStreaming={isStepStreaming}
                                         onLinkClick={handleGlobalLinkClick}
-                                        className="text-[13px] leading-relaxed font-sans text-onedark-fg space-y-2 [&_p]:leading-relaxed [&_p]:text-onedark-fg/90 [&_strong]:text-onedark-fgBright [&_strong]:font-semibold [&_code]:font-mono [&_code]:text-[11.5px] [&_code]:bg-onedark-surface [&_code]:text-onedark-accent [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:border [&_code]:border-onedark-borderSubtle/60 [&_pre]:my-2 [&_ul]:my-1.5 [&_ol]:my-1.5 select-text"
+                                        className="text-[13px] leading-relaxed font-sans text-onedark-fg space-y-2 [&_p]:leading-relaxed [&_p]:text-onedark-fg/90 [&_strong]:text-onedark-fgBright [&_strong]:font-semibold [&_code]:font-mono [&_code]:text-[11.5px] [&_code]:bg-onedark-surface [&_code]:text-onedark-accent [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:border [&_code]:border-onedark-borderSubtle/60 [&_a_code]:bg-transparent [&_a_code]:border-0 [&_a_code]:p-0 [&_a_code]:rounded-none [&_a_code]:shadow-none [&_pre]:my-2 [&_ul]:my-1.5 [&_ol]:my-1.5 select-text"
                                       />
                                     </div>
                                   </div>
