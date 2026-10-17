@@ -1605,6 +1605,11 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const chatFolderInputRef = useRef<HTMLInputElement>(null);
   const attachMenuEmptyRef = useRef<HTMLDivElement>(null);
   const attachMenuChatRef = useRef<HTMLDivElement>(null);
+  const personaMenuEmptyRef = useRef<HTMLDivElement>(null);
+  const modelMenuEmptyRef = useRef<HTMLDivElement>(null);
+  const personaMenuChatRef = useRef<HTMLDivElement>(null);
+  const modelMenuChatRef = useRef<HTMLDivElement>(null);
+  const repoMenuChatRef = useRef<HTMLDivElement>(null);
   const isAutoScrollEnabledRef = useRef<boolean>(true);
   const showScrollBottomBtnRef = useRef<boolean>(false);
   const scrollRafRef = useRef<number | null>(null);
@@ -1621,6 +1626,11 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   const [isDraggingInput, setIsDraggingInput] = useState<boolean>(false);
   const [showAttachMenuEmpty, setShowAttachMenuEmpty] = useState<boolean>(false);
   const [showAttachMenuChat, setShowAttachMenuChat] = useState<boolean>(false);
+  const [showPersonaMenuEmpty, setShowPersonaMenuEmpty] = useState<boolean>(false);
+  const [showModelMenuEmpty, setShowModelMenuEmpty] = useState<boolean>(false);
+  const [showPersonaMenuChat, setShowPersonaMenuChat] = useState<boolean>(false);
+  const [showModelMenuChat, setShowModelMenuChat] = useState<boolean>(false);
+  const [showRepoMenuChat, setShowRepoMenuChat] = useState<boolean>(false);
   const [activeModalDoc, setActiveModalDoc] = useState<SniffedPastedDoc | null>(null);
   const [isDocModalOpen, setIsDocModalOpen] = useState<boolean>(false);
   const [isDocModalReadOnly, setIsDocModalReadOnly] = useState<boolean>(false);
@@ -1632,6 +1642,21 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
       }
       if (attachMenuChatRef.current && !attachMenuChatRef.current.contains(e.target as Node)) {
         setShowAttachMenuChat(false);
+      }
+      if (personaMenuEmptyRef.current && !personaMenuEmptyRef.current.contains(e.target as Node)) {
+        setShowPersonaMenuEmpty(false);
+      }
+      if (modelMenuEmptyRef.current && !modelMenuEmptyRef.current.contains(e.target as Node)) {
+        setShowModelMenuEmpty(false);
+      }
+      if (personaMenuChatRef.current && !personaMenuChatRef.current.contains(e.target as Node)) {
+        setShowPersonaMenuChat(false);
+      }
+      if (modelMenuChatRef.current && !modelMenuChatRef.current.contains(e.target as Node)) {
+        setShowModelMenuChat(false);
+      }
+      if (repoMenuChatRef.current && !repoMenuChatRef.current.contains(e.target as Node)) {
+        setShowRepoMenuChat(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -2770,23 +2795,63 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
   }, [effectiveRepos]);
 
   const personas = [
-    { id: 'General', label: 'General Assistant' },
-    { id: 'SoftwareEngineer', label: 'Software Engineer' },
-    { id: 'AppBuilder', label: 'App Builder' },
-    { id: 'CodeReviewer', label: 'Code Reviewer' },
-    { id: 'IssueResolver', label: 'Issue Resolver' },
-    { id: 'APMTriage', label: 'APM Triage' },
+    {
+      id: 'General',
+      label: 'General Assistant',
+      subtitle: 'Research, Q&A & general tasks',
+      icon: Sparkles,
+      color: 'text-onedark-yellow',
+    },
+    {
+      id: 'SoftwareEngineer',
+      label: 'Software Engineer',
+      subtitle: 'Architecture, code & tests',
+      icon: Code2,
+      color: 'text-onedark-accent',
+    },
+    {
+      id: 'AppBuilder',
+      label: 'App Builder',
+      subtitle: 'Full-stack UI & live preview',
+      icon: LayoutGrid,
+      color: 'text-onedark-green',
+    },
+    {
+      id: 'CodeReviewer',
+      label: 'Code Reviewer',
+      subtitle: 'PR audits, diffs & security',
+      icon: GitPullRequest,
+      color: 'text-onedark-folder',
+    },
+    {
+      id: 'IssueResolver',
+      label: 'Issue Resolver',
+      subtitle: 'Root-cause debugging & fixes',
+      icon: Bug,
+      color: 'text-onedark-red',
+    },
+    {
+      id: 'APMTriage',
+      label: 'APM Triage',
+      subtitle: 'Telemetry, logs & latency',
+      icon: Activity,
+      color: 'text-onedark-yellow',
+    },
   ];
 
   const modelOptions = [
     {
       group: 'Adaptive Orchestration',
+      icon: Zap,
+      color: 'text-onedark-yellow',
       models: [
-        { id: 'auto', label: 'Auto Tiering' },
+        { id: 'auto', label: 'Auto Tiering (Dynamic Complexity Routing)' },
       ],
     },
     {
       group: 'Google Gemini',
+      icon: Sparkles,
+      color: 'text-onedark-accent',
       models: [
         { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash (Agentic Workhorse)' },
         { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash (Sub-second Agentic)' },
@@ -2794,6 +2859,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     },
     {
       group: 'DeepSeek AI',
+      icon: Brain,
+      color: 'text-onedark-accent',
       models: [
         { id: 'deepseek-flash', label: 'DeepSeek-V4.1-Flash (552B MoE / 1M Context)' },
         { id: 'deepseek-v4-pro', label: 'DeepSeek-V4-Pro (High Capacity Frontier)' },
@@ -2803,6 +2870,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     },
     {
       group: 'Anthropic Claude',
+      icon: Bot,
+      color: 'text-onedark-yellow',
       models: [
         { id: 'claude-opus-5-5', label: 'Claude Opus 5.5 (Flagship Autonomous & Coding)' },
         { id: 'claude-fable-5-1', label: 'Claude Fable 5.1 (Mythos Frontier Long-Horizon)' },
@@ -2813,6 +2882,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
     },
     {
       group: 'OpenAI / Codex',
+      icon: Cpu,
+      color: 'text-onedark-green',
       models: [
         { id: 'gpt-6-astra', label: 'GPT-6 Astra (Flagship Autonomous)' },
         { id: 'gpt-6.1-sol', label: 'GPT-6.1 Sol (Complex Work)' },
@@ -2830,6 +2901,285 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
       ],
     },
   ];
+
+  const getShortModelLabel = (fullLabel: string) => {
+    return fullLabel.replace(/\s*\([^)]*\)\s*$/, '').trim();
+  };
+
+  const getModelSubtitle = (fullLabel: string) => {
+    const match = fullLabel.match(/\(([^)]*)\)\s*$/);
+    return match ? match[1].trim() : '';
+  };
+
+  const activePersonaObj = personas.find((p) => p.id === selectedPersona) || personas[0];
+  const activePersonaLabel = activePersonaObj.label;
+  const ActivePersonaIcon = activePersonaObj.icon;
+
+  const activeModelGroupObj =
+    modelOptions.find((g) => g.models.some((m) => m.id === selectedModel)) || modelOptions[0];
+  const ActiveModelIcon = activeModelGroupObj.icon;
+  const activeModelFullLabel =
+    modelOptions.flatMap((g) => g.models).find((m) => m.id === selectedModel)?.label || 'Auto Tiering';
+  const activeModelShortLabel = getShortModelLabel(activeModelFullLabel);
+
+  const renderPersonaSelector = (variant: 'empty' | 'chat') => {
+    const isOpen = variant === 'empty' ? showPersonaMenuEmpty : showPersonaMenuChat;
+    const setIsOpen = variant === 'empty' ? setShowPersonaMenuEmpty : setShowPersonaMenuChat;
+    const closeOtherMenus = () => {
+      if (variant === 'empty') {
+        setShowModelMenuEmpty(false);
+        setShowAttachMenuEmpty(false);
+      } else {
+        setShowModelMenuChat(false);
+        setShowAttachMenuChat(false);
+        setShowRepoMenuChat(false);
+      }
+    };
+    const menuRef = variant === 'empty' ? personaMenuEmptyRef : personaMenuChatRef;
+
+    return (
+      <div ref={menuRef} className="relative min-w-0 shrink">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            closeOtherMenus();
+            setIsOpen((v) => !v);
+          }}
+          className={`h-7 px-2.5 rounded-lg border text-[11.5px] font-mono font-medium transition-all flex items-center space-x-1.5 cursor-pointer active:scale-[0.98] group max-w-full ${
+            isOpen
+              ? 'bg-onedark-surface border-onedark-accent/60 text-onedark-fgBright shadow-xs'
+              : 'bg-onedark-darker/70 hover:bg-onedark-surface border-onedark-borderSubtle/80 hover:border-onedark-border text-onedark-fg hover:text-onedark-fgBright shadow-2xs'
+          }`}
+          title={`Persona: ${activePersonaLabel}`}
+        >
+          <ActivePersonaIcon className={`w-3.5 h-3.5 ${activePersonaObj.color} flex-shrink-0 group-hover:scale-110 transition-transform`} />
+          <span className="truncate max-w-[140px]">{activePersonaLabel}</span>
+          <ChevronDown
+            className={`w-3 h-3 text-onedark-muted group-hover:text-onedark-fg transition-transform duration-150 flex-shrink-0 ${
+              isOpen ? 'rotate-180 text-onedark-accent' : ''
+            }`}
+          />
+        </button>
+
+        {isOpen && (
+          <div className="absolute left-0 bottom-full mb-1.5 w-64 rounded-xl bg-onedark-darker border border-onedark-border shadow-2xl p-1.5 z-50 flex flex-col space-y-0.5 text-xs font-sans animate-in fade-in zoom-in-95 duration-100">
+            <div className="px-2.5 py-1 text-[10px] font-mono uppercase tracking-wider text-onedark-muted/80 select-none">
+              Agent Persona
+            </div>
+            {personas.map((p) => {
+              const isSelected = p.id === selectedPersona;
+              const ItemIcon = p.icon;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedPersona(p.id);
+                    setIsOpen(false);
+                  }}
+                  className={`w-full px-2.5 py-1.5 text-left rounded-lg flex items-center justify-between gap-2 cursor-pointer transition-colors group/item ${
+                    isSelected
+                      ? 'bg-onedark-accent/15 text-onedark-fgBright font-medium'
+                      : 'hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright'
+                  }`}
+                >
+                  <div className="flex items-center space-x-2.5 min-w-0">
+                    <div
+                      className={`w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0 border transition-colors ${
+                        isSelected
+                          ? 'bg-onedark-darker/90 border-onedark-borderSubtle'
+                          : 'bg-onedark-surface/50 border-onedark-borderSubtle/50 group-hover/item:bg-onedark-darker/80'
+                      }`}
+                    >
+                      <ItemIcon className={`w-3.5 h-3.5 ${p.color}`} />
+                    </div>
+                    <div className="flex flex-col min-w-0">
+                      <span className="truncate font-mono text-[11.5px] leading-tight">{p.label}</span>
+                      <span className="truncate text-[10px] text-onedark-muted leading-tight mt-0.5">{p.subtitle}</span>
+                    </div>
+                  </div>
+                  {isSelected && <Check className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderModelSelector = (variant: 'empty' | 'chat') => {
+    const isOpen = variant === 'empty' ? showModelMenuEmpty : showModelMenuChat;
+    const setIsOpen = variant === 'empty' ? setShowModelMenuEmpty : setShowModelMenuChat;
+    const closeOtherMenus = () => {
+      if (variant === 'empty') {
+        setShowPersonaMenuEmpty(false);
+        setShowAttachMenuEmpty(false);
+      } else {
+        setShowPersonaMenuChat(false);
+        setShowAttachMenuChat(false);
+        setShowRepoMenuChat(false);
+      }
+    };
+    const menuRef = variant === 'empty' ? modelMenuEmptyRef : modelMenuChatRef;
+
+    return (
+      <div ref={menuRef} className="relative min-w-0 shrink">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            closeOtherMenus();
+            setIsOpen((v) => !v);
+          }}
+          className={`h-7 px-2.5 rounded-lg border text-[11.5px] font-mono font-medium transition-all flex items-center space-x-1.5 cursor-pointer active:scale-[0.98] group max-w-full ${
+            isOpen
+              ? 'bg-onedark-surface border-onedark-accent/60 text-onedark-fgBright shadow-xs'
+              : 'bg-onedark-darker/70 hover:bg-onedark-surface border-onedark-borderSubtle/80 hover:border-onedark-border text-onedark-fg hover:text-onedark-fgBright shadow-2xs'
+          }`}
+          title={`Model: ${activeModelFullLabel}`}
+        >
+          <ActiveModelIcon className={`w-3.5 h-3.5 ${activeModelGroupObj.color} flex-shrink-0 group-hover:scale-110 transition-transform`} />
+          <span className="truncate max-w-[165px]">{activeModelShortLabel}</span>
+          <ChevronDown
+            className={`w-3 h-3 text-onedark-muted group-hover:text-onedark-fg transition-transform duration-150 flex-shrink-0 ${
+              isOpen ? 'rotate-180 text-onedark-accent' : ''
+            }`}
+          />
+        </button>
+
+        {isOpen && (
+          <div className="absolute left-0 bottom-full mb-1.5 w-72 max-h-80 overflow-y-auto rounded-xl bg-onedark-darker border border-onedark-border shadow-2xl p-1.5 z-50 flex flex-col space-y-1 text-xs font-sans animate-in fade-in zoom-in-95 duration-100">
+            {modelOptions.map((g, gIdx) => {
+              const GroupIcon = g.icon;
+              return (
+                <div key={g.group} className={gIdx > 0 ? 'pt-1 border-t border-onedark-borderSubtle/50' : ''}>
+                  <div className="px-2 py-1 text-[10px] font-mono uppercase tracking-wider text-onedark-muted/80 select-none flex items-center space-x-1.5">
+                    <GroupIcon className={`w-3 h-3 ${g.color} flex-shrink-0`} />
+                    <span>{g.group}</span>
+                  </div>
+                  <div className="flex flex-col space-y-0.5">
+                    {g.models.map((m) => {
+                      const isSelected = m.id === selectedModel;
+                      const shortName = getShortModelLabel(m.label);
+                      const subtitle = getModelSubtitle(m.label);
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedModel(m.id);
+                            setIsOpen(false);
+                          }}
+                          className={`w-full px-2.5 py-1.5 text-left rounded-lg flex items-center justify-between gap-2 cursor-pointer transition-colors ${
+                            isSelected
+                              ? 'bg-onedark-accent/15 text-onedark-fgBright font-medium'
+                              : 'hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright'
+                          }`}
+                        >
+                          <div className="flex items-center space-x-2 min-w-0">
+                            <GroupIcon className={`w-3.5 h-3.5 flex-shrink-0 ${isSelected ? g.color : 'text-onedark-muted'}`} />
+                            <div className="flex flex-col min-w-0">
+                              <span className="truncate font-mono text-[11.5px] leading-tight">{shortName}</span>
+                              {subtitle && (
+                                <span className="truncate text-[10px] text-onedark-muted leading-tight mt-0.5">{subtitle}</span>
+                              )}
+                            </div>
+                          </div>
+                          {isSelected && <Check className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderRepoSelector = () => {
+    if (effectiveRepos.length === 0) return null;
+    const mentionedRepos = effectiveRepos.filter((r) => {
+      const tag = `@${r.full_name || r.name}`;
+      return inputValue.includes(tag);
+    });
+    const firstMentioned = mentionedRepos[0];
+    const shortRepoLabel = firstMentioned
+      ? `@${(firstMentioned.full_name || firstMentioned.name).split('/').pop()}${mentionedRepos.length > 1 ? ` +${mentionedRepos.length - 1}` : ''}`
+      : '@repo';
+
+    return (
+      <div ref={repoMenuChatRef} className="relative min-w-0 shrink">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowPersonaMenuChat(false);
+            setShowModelMenuChat(false);
+            setShowAttachMenuChat(false);
+            setShowRepoMenuChat((v) => !v);
+          }}
+          className={`h-7 px-2.5 rounded-lg border text-[11.5px] font-mono font-medium transition-all flex items-center space-x-1.5 cursor-pointer active:scale-[0.98] group max-w-full ${
+            showRepoMenuChat || mentionedRepos.length > 0
+              ? 'bg-onedark-accent/15 border-onedark-accent/50 text-onedark-accent shadow-xs'
+              : 'bg-onedark-darker/70 hover:bg-onedark-surface border-onedark-borderSubtle/80 hover:border-onedark-border text-onedark-muted hover:text-onedark-fgBright shadow-2xs'
+          }`}
+          title="Reference a registered repository (@)"
+        >
+          <FolderGit2 className="w-3 h-3 text-onedark-folder flex-shrink-0 group-hover:scale-110 transition-transform" />
+          <span className="truncate max-w-[120px]">{shortRepoLabel}</span>
+          <ChevronDown
+            className={`w-3 h-3 text-onedark-muted group-hover:text-onedark-fg transition-transform duration-150 flex-shrink-0 ${
+              showRepoMenuChat ? 'rotate-180 text-onedark-accent' : ''
+            }`}
+          />
+        </button>
+
+        {showRepoMenuChat && (
+          <div className="absolute left-0 bottom-full mb-1.5 w-64 max-h-64 overflow-y-auto rounded-xl bg-onedark-darker border border-onedark-border shadow-2xl p-1.5 z-50 flex flex-col space-y-0.5 text-xs font-sans animate-in fade-in zoom-in-95 duration-100">
+            <div className="px-2 py-1 text-[10px] font-mono uppercase tracking-wider text-onedark-muted/80 select-none">
+              Reference Repository
+            </div>
+            {effectiveRepos.map((r) => {
+              const fullName = r.full_name || r.name;
+              const tag = `@${fullName}`;
+              const isIncluded = inputValue.includes(tag);
+              return (
+                <button
+                  key={r.id || fullName}
+                  type="button"
+                  onClick={() => {
+                    if (!isIncluded) {
+                      setInputValue((prev) => (prev ? `${prev.trim()} ${tag} ` : `${tag} `));
+                    } else {
+                      setInputValue((prev) => prev.replace(tag, '').replace(/\s{2,}/g, ' ').trim());
+                    }
+                    setShowRepoMenuChat(false);
+                    textareaRef.current?.focus();
+                  }}
+                  className={`w-full px-2.5 py-1.5 text-left rounded-lg flex items-center justify-between gap-2 cursor-pointer transition-colors ${
+                    isIncluded
+                      ? 'bg-onedark-accent/15 text-onedark-fgBright font-medium'
+                      : 'hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright'
+                  }`}
+                >
+                  <div className="flex items-center space-x-2 min-w-0">
+                    <FolderGit2 className="w-3.5 h-3.5 text-onedark-folder flex-shrink-0" />
+                    <span className="truncate font-mono text-[11.5px]">{tag}</span>
+                  </div>
+                  {isIncluded && <Check className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0" />}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const handleSelectTemplate = (item: any) => {
     if (item.action === 'connect_repo') {
@@ -3094,57 +3444,10 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
             </div>
 
             <div className="flex items-center justify-between pt-3 border-t border-onedark-borderSubtle/60 gap-2.5 flex-wrap sm:flex-nowrap">
-              {/* Persona Selector, Model Selector, Repo Pill & Attach Button */}
-              <div className="flex items-center space-x-2 min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden py-0.5">
-                {/* Persona Pill */}
-                <div className="relative flex items-center h-8 rounded-lg bg-onedark-darker hover:bg-onedark-surface border border-onedark-borderSubtle hover:border-onedark-border text-xs text-onedark-fgBright font-mono transition-all shadow-xs group flex-shrink-0 cursor-pointer">
-                  <div className="flex items-center space-x-1.5 pl-2.5 pr-2 pointer-events-none">
-                    <Sparkles className="w-3.5 h-3.5 text-onedark-yellow flex-shrink-0 group-hover:scale-110 transition-transform" />
-                    <span className="text-xs text-onedark-fgBright font-mono font-medium truncate max-w-[160px]">
-                      {personas.find((p) => p.id === selectedPersona)?.label || 'General Assistant'}
-                    </span>
-                    <ChevronDown className="w-3 h-3 text-onedark-muted group-hover:text-onedark-fgBright transition-colors flex-shrink-0" />
-                  </div>
-                  <select
-                    value={selectedPersona}
-                    onChange={(e) => setSelectedPersona(e.target.value)}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer text-xs"
-                    title="Select Persona"
-                  >
-                    {personas.map((p) => (
-                      <option key={p.id} value={p.id} className="bg-onedark-darker text-onedark-fgBright">
-                        {p.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Model Selector Pill */}
-                <div className="relative flex items-center h-8 rounded-lg bg-onedark-darker hover:bg-onedark-surface border border-onedark-borderSubtle hover:border-onedark-border text-xs text-onedark-fgBright font-mono transition-all shadow-xs group flex-shrink-0 cursor-pointer">
-                  <div className="flex items-center space-x-1.5 pl-2.5 pr-2 pointer-events-none">
-                    <Bot className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0 group-hover:scale-110 transition-transform" />
-                    <span className="text-xs text-onedark-fgBright font-mono font-medium truncate max-w-[150px]">
-                      {modelOptions.flatMap((g) => g.models).find((m) => m.id === selectedModel)?.label || 'Auto Tiering'}
-                    </span>
-                    <ChevronDown className="w-3 h-3 text-onedark-muted group-hover:text-onedark-fgBright transition-colors flex-shrink-0" />
-                  </div>
-                  <select
-                    value={selectedModel}
-                    onChange={(e) => setSelectedModel(e.target.value)}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer text-xs"
-                    title="Select Model Tier"
-                  >
-                    {modelOptions.map((g) => (
-                      <optgroup key={g.group} label={g.group} className="bg-onedark-darker text-onedark-muted font-bold">
-                        {g.models.map((m) => (
-                          <option key={m.id} value={m.id} className="bg-onedark-darker text-onedark-fgBright">
-                            {m.label}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </select>
-                </div>
+              {/* Persona Selector, Model Selector & Attach Button */}
+              <div className="flex items-center flex-wrap gap-2 min-w-0 flex-1 py-0.5">
+                {renderPersonaSelector('empty')}
+                {renderModelSelector('empty')}
 
                 {/* Hidden file & folder inputs for empty state attachments */}
                 <input
@@ -3180,19 +3483,21 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   <button
                     type="button"
                     onClick={() => chatFileInputRef.current?.click()}
-                    className="h-8 pl-2.5 pr-2 rounded-l-lg bg-onedark-darker hover:bg-onedark-surface border border-r-0 border-onedark-borderSubtle hover:border-onedark-border text-xs text-onedark-fgBright font-mono shadow-xs flex-shrink-0 transition-all flex items-center space-x-1.5 cursor-pointer active:scale-95 group"
+                    className="h-7 pl-2.5 pr-2 rounded-l-lg bg-onedark-darker/70 hover:bg-onedark-surface border border-r-0 border-onedark-borderSubtle/80 hover:border-onedark-border text-[11.5px] text-onedark-fg hover:text-onedark-fgBright font-mono font-medium shadow-2xs flex-shrink-0 transition-all flex items-center space-x-1.5 cursor-pointer active:scale-95 group"
                     title="Upload files to workspace"
                   >
-                    <Paperclip className="w-3.5 h-3.5 text-onedark-accent flex-shrink-0 group-hover:scale-110 transition-transform" />
+                    <Paperclip className="w-3 h-3 text-onedark-accent flex-shrink-0 group-hover:scale-110 transition-transform" />
                     <span>Attach</span>
                   </button>
                   <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
+                      setShowPersonaMenuEmpty(false);
+                      setShowModelMenuEmpty(false);
                       setShowAttachMenuEmpty((v) => !v);
                     }}
-                    className="h-8 px-1.5 rounded-r-lg bg-onedark-darker hover:bg-onedark-surface border border-onedark-borderSubtle hover:border-onedark-border text-xs text-onedark-muted hover:text-onedark-fgBright font-mono shadow-xs flex-shrink-0 transition-all flex items-center justify-center cursor-pointer active:scale-95 group"
+                    className="h-7 px-1.5 rounded-r-lg bg-onedark-darker/70 hover:bg-onedark-surface border border-onedark-borderSubtle/80 hover:border-onedark-border text-[11.5px] text-onedark-muted hover:text-onedark-fgBright font-mono shadow-2xs flex-shrink-0 transition-all flex items-center justify-center cursor-pointer active:scale-95 group"
                     title="Upload folder options"
                   >
                     <ChevronDown className={`w-3 h-3 text-onedark-muted group-hover:text-onedark-fgBright transition-transform duration-150 ${showAttachMenuEmpty ? 'rotate-180 text-onedark-accent' : ''}`} />
@@ -3849,218 +4154,388 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   </div>
                 )}
 
-                {/* 2. Execution Plan Accordion (Situated ABOVE Reasoning & Activity) */}
-                {hasPlan ? (
-                  <div className={`rounded-xl overflow-hidden shadow-xs transition-all duration-200 ${
-                    isTurnRunning && turn.isLatest 
-                      ? 'bg-onedark-darker/60 border border-white/[0.08]' 
-                      : 'bg-onedark-darker/40 hover:bg-onedark-darker/60 border border-white/[0.04]'
-                  }`}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setUserToggledPlans((prev) => ({ ...prev, [turn.id]: !isPlanOpen }));
-                      }}
-                      className="w-full px-3.5 py-2.5 flex items-center justify-between text-xs text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/30 transition-colors cursor-pointer select-none btn-tactile"
-                    >
-                      <div className="flex items-center space-x-2 min-w-0 pr-2">
-                        <ListOrdered className="w-3.5 h-3.5 text-onedark-accent shrink-0" />
-                        <span className="font-mono text-xs font-medium text-onedark-fg">
-                          Execution Plan
-                        </span>
-                        <span className="text-[11px] text-onedark-muted font-mono">
-                          ({completedSteps}/{totalSteps} steps)
-                        </span>
+                {/* 2. Plan / Approach Progress (Situated ABOVE Reasoning & Activity) */}
+                {hasPlan ? (() => {
+                  const steps = turn.plan?.steps || [];
+                  const checks = turn.plan?.evaluation?.checks || [];
+                  const passedChecks = checks.filter((c) => c.passed);
+                  const failedChecks = checks.filter((c) => !c.passed);
+                  const hasFailedStep = steps.some((s) => s.status === 'failed');
+                  const activeIdx = steps.findIndex((s) => s.status === 'in_progress');
+                  const currentStepNum = activeIdx >= 0 ? activeIdx + 1 : Math.min(completedSteps + 1, totalSteps);
+                  const hasOverview = Boolean(
+                    turn.plan?.overview &&
+                    turn.plan.overview !== turn.plan.title &&
+                    turn.plan.overview.length > 40
+                  );
 
-                        {evalStatus === 'accomplished' ? (
-                          <span className="px-1.5 py-0.5 rounded bg-onedark-green/10 text-onedark-green text-[10px] font-mono flex items-center space-x-1">
-                            <CheckCircle2 className="w-2.5 h-2.5" />
-                            <span>Accomplished</span>
-                          </span>
-                        ) : evalStatus === 'ready_for_review' ? (
-                          <span className="px-1.5 py-0.5 rounded bg-onedark-accent/10 text-onedark-accent text-[10px] font-mono flex items-center space-x-1">
-                            <Sparkles className="w-2.5 h-2.5" />
-                            <span>Ready for Review</span>
-                          </span>
-                        ) : (isTurnRunning && turn.isLatest) && (evalStatus === 'evaluating' || evalStatus === 'in_progress') ? (
-                          <span className="px-1.5 py-0.5 rounded bg-onedark-accent/10 text-onedark-accent text-[10px] font-mono flex items-center space-x-1">
-                            <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                            <span>Evaluating</span>
-                          </span>
-                        ) : evalStatus === 'needs_revision' ? (
-                          <span className="px-1.5 py-0.5 rounded bg-onedark-yellow/10 text-onedark-yellow text-[10px] font-mono flex items-center space-x-1 font-medium">
-                            <AlertCircle className="w-2.5 h-2.5" />
-                            <span>Revision</span>
-                          </span>
-                        ) : (
-                          <span className="px-1.5 py-0.5 rounded bg-onedark-surface/60 text-onedark-muted text-[10px] font-mono flex items-center space-x-1">
-                            <CheckCircle2 className="w-2.5 h-2.5 text-onedark-green" />
-                            <span>Delivered</span>
-                          </span>
-                        )}
-                      </div>
+                  const formatStepLabel = (rawTitle: string) => {
+                    if (!rawTitle) return { text: '', fileChips: [] as string[] };
+                    const fileChips: string[] = [];
+                    let cleaned = rawTitle.trim();
 
-                      <div className="flex items-center space-x-2 shrink-0">
-                        {evalStatus === 'ready_for_review' ? (
-                          <span className="px-2 py-0.5 rounded-full bg-onedark-accent/10 text-onedark-accent text-[10.5px] font-mono flex items-center space-x-1.5 font-semibold">
-                            <Sparkles className="w-2.5 h-2.5" />
-                            <span>Awaiting Review</span>
-                          </span>
-                        ) : isTurnRunning && turn.isLatest ? (
-                          <span className="px-2 py-0.5 rounded-full bg-onedark-yellow/10 text-onedark-yellow text-[10.5px] font-mono flex items-center space-x-1.5 font-semibold">
-                            <span className="w-1.5 h-1.5 rounded-full bg-onedark-yellow animate-pulse" />
-                            <span>Executing...</span>
-                          </span>
-                        ) : (
-                          <span className="px-2 py-0.5 rounded-md bg-onedark-surface/40 text-onedark-muted text-[10.5px] font-mono">
-                            {isPlanOpen ? 'Hide' : 'Show steps'}
-                          </span>
-                        )}
-                        {isPlanOpen ? (
-                          <ChevronDown className="w-4 h-4 text-onedark-muted" />
-                        ) : (
-                          <ChevronRight className="w-4 h-4 text-onedark-muted" />
-                        )}
-                      </div>
-                    </button>
+                    // Strip mechanical prefixes
+                    cleaned = cleaned.replace(/^Execute:\s*/i, '');
+                    cleaned = cleaned.replace(/^Step\s+\d+:\s*/i, '');
 
-                    {isPlanOpen && (
-                      <div className="p-3.5 border-t border-white/[0.04] space-y-3.5 text-xs bg-onedark-darker/40">
-                        {turn.plan?.overview &&
-                          turn.plan.overview !== turn.plan.title &&
-                          turn.plan.overview.length > 40 && (
-                            <div className="p-2.5 rounded-lg bg-onedark-surface/30 text-[11.5px] font-sans text-onedark-fg leading-relaxed">
-                              <span className="font-semibold font-mono text-[10px] uppercase tracking-wider block mb-1 text-onedark-muted">
-                                Overview
-                              </span>
-                              {turn.plan.overview}
-                            </div>
-                        )}
+                    // Extract complete [Uploaded ...] tags
+                    cleaned = cleaned.replace(
+                      /\[Uploaded\s+(?:Workspace\s+)?(?:File|Attachment|Folder):\s*([^\]\n]+?)\]/gi,
+                      (_, inner: string) => {
+                        const nameOnly = inner.replace(/\s*\([\d.]+\s*(?:B|KB|MB|GB|TB|bytes?)\)\s*$/i, '').trim();
+                        const base = nameOnly.split(/[/\\]/).pop() || nameOnly;
+                        if (base && !fileChips.includes(base)) fileChips.push(base);
+                        return '';
+                      }
+                    );
 
-                        {/* Connected Stepper Timeline */}
-                        <div className="relative pl-6 space-y-2.5 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-px before:bg-onedark-borderSubtle">
-                          {turn.plan?.steps?.map((step, sIdx) => {
-                            const isDone = step.status === 'completed';
-                            const isInProgress = step.status === 'in_progress';
-                            const isFailed = step.status === 'failed';
+                    // Handle truncated trailing [Uploaded ... tag (e.g. cut off at 80 chars)
+                    if (/\[Uploaded[^\]]*$/i.test(cleaned)) {
+                      const partialMatch = cleaned.match(/\[Uploaded\s+(?:Workspace\s+)?(?:File|Attachment|Folder)(?::\s*([^\]\n]*))?$/i);
+                      if (partialMatch && partialMatch[1]) {
+                        const partialName = partialMatch[1].replace(/\s*\([\d.]*.*$/, '').trim().split(/[/\\]/).pop();
+                        if (partialName && !fileChips.includes(partialName)) {
+                          fileChips.push(partialName);
+                        }
+                      }
+                      cleaned = cleaned.replace(/\s*\[Uploaded[^\]]*$/i, '').trim();
+                      if (fileChips.length === 0 && turn.userMessage?.content) {
+                        const parsed = parseUserMessageAttachments(turn.userMessage.content, task?.id);
+                        parsed.attachments.forEach((a) => {
+                          if (a.name && !fileChips.includes(a.name)) fileChips.push(a.name);
+                        });
+                        parsed.folders.forEach((f) => {
+                          if (f.name && !fileChips.includes(f.name)) fileChips.push(f.name);
+                        });
+                      }
+                    }
 
-                            return (
-                              <div
-                                key={step.id || sIdx}
-                                className={`relative flex items-start space-x-2.5 py-0.5 text-xs font-mono transition-colors ${
-                                  isInProgress
-                                    ? 'text-onedark-fgBright'
-                                    : isDone
-                                    ? 'text-onedark-fg'
-                                    : isFailed
-                                    ? 'text-onedark-red'
-                                    : 'text-onedark-muted'
-                                }`}
-                              >
-                                <div className={`absolute -left-6 top-0.5 p-0.5 rounded-full bg-onedark-darker shrink-0 z-10 transition-transform duration-200 ${
-                                  isDone ? 'animate-status-morph' : isInProgress ? 'scale-105' : ''
-                                }`}>
-                                  {isDone ? (
-                                    <CheckCircle2 className="w-3.5 h-3.5 text-onedark-green" />
-                                  ) : isInProgress ? (
-                                    <Loader2 className="w-3.5 h-3.5 text-onedark-accent animate-spin" />
-                                  ) : isFailed ? (
-                                    <AlertCircle className="w-3.5 h-3.5 text-onedark-red" />
-                                  ) : (
-                                    <Circle className="w-3.5 h-3.5 text-onedark-muted/40" />
-                                  )}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <div className={`leading-snug ${isInProgress ? 'font-medium text-onedark-fgBright' : isDone ? 'text-onedark-fg' : 'text-onedark-muted'}`}>
-                                    {step.title}
-                                  </div>
-                                  {step.details && (
-                                    <div className="text-[10.5px] text-onedark-muted mt-0.5 font-sans leading-normal">
-                                      {step.details}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })}
+                    // Clean trailing prepositions left dangling when "[Uploaded Workspace File]" was stripped
+                    if (fileChips.length > 0) {
+                      cleaned = cleaned.replace(/\b(?:in|from|on|for)\s+this\s*$/i, '').trim();
+                    }
+
+                    return { text: cleaned || rawTitle, fileChips };
+                  };
+
+                  const isSynthesizingPlaceholder =
+                    totalSteps === 1 &&
+                    /Synthesizing dynamic execution plan/i.test(steps[0]?.title || '');
+
+                  // Phase 1: Planning Placeholder
+                  if (isSynthesizingPlaceholder && isTurnRunning && turn.isLatest) {
+                    return (
+                      <div className="rounded-xl overflow-hidden shadow-xs bg-onedark-darker/60 border border-white/[0.08]">
+                        <div className="w-full px-3.5 py-2 flex items-center justify-between text-xs font-sans text-onedark-muted select-none">
+                          <div className="flex items-center space-x-2.5 min-w-0 pr-2">
+                            <Loader2 className="w-3.5 h-3.5 text-onedark-accent animate-spin shrink-0" />
+                            <span className="text-xs font-medium text-onedark-fg">
+                              Planning approach…
+                            </span>
+                          </div>
                         </div>
+                      </div>
+                    );
+                  }
 
-                        {turn.plan?.evaluation && turn.plan.evaluation.status !== 'pending' && (
-                          <div className={`p-2.5 rounded-lg text-xs font-mono space-y-1.5 ${
-                            turn.plan.evaluation.status === 'accomplished'
-                              ? 'bg-onedark-green/5 text-onedark-green'
-                              : turn.plan.evaluation.status === 'ready_for_review'
-                              ? 'bg-onedark-accent/5 text-onedark-accent'
-                              : turn.plan.evaluation.status === 'needs_revision'
-                              ? 'bg-onedark-yellow/5 text-onedark-yellow'
-                              : isTurnRunning && turn.isLatest
-                              ? 'bg-onedark-accent/5 text-onedark-accent'
-                              : 'bg-onedark-surface/40 text-onedark-fg'
-                          }`}>
-                            <div className="flex items-center space-x-2">
-                              {turn.plan.evaluation.status === 'accomplished' ? (
-                                <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-onedark-green" />
-                              ) : turn.plan.evaluation.status === 'ready_for_review' ? (
-                                <Sparkles className="w-3.5 h-3.5 shrink-0 text-onedark-accent" />
-                              ) : turn.plan.evaluation.status === 'needs_revision' ? (
-                                <AlertCircle className="w-3.5 h-3.5 shrink-0 text-onedark-yellow" />
-                              ) : isTurnRunning && turn.isLatest ? (
-                                <Loader2 className="w-3.5 h-3.5 shrink-0 text-onedark-accent animate-spin" />
-                              ) : (
-                                <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-onedark-green" />
-                              )}
-                              <span className="font-semibold font-mono text-[11px]">
-                                {turn.plan.evaluation.status === 'accomplished'
-                                  ? 'Plan Evaluation: Accomplished'
-                                  : turn.plan.evaluation.status === 'ready_for_review'
-                                  ? 'Plan Evaluation: Ready for Review'
-                                  : turn.plan.evaluation.status === 'needs_revision'
-                                  ? 'Plan Evaluation: Revision Required'
-                                  : isTurnRunning && turn.isLatest
-                                  ? 'Plan Evaluation: In Progress'
-                                  : 'Plan Evaluation: Concluded'}
-                              </span>
-                            </div>
-                            {turn.plan.evaluation.summary && (
-                              <p className="text-[11px] font-sans text-onedark-fg pl-5 leading-relaxed">
-                                {turn.plan.evaluation.summary}
-                              </p>
+                  const isSingleSimpleStep =
+                    totalSteps === 1 &&
+                    !isSynthesizingPlaceholder &&
+                    evalStatus !== 'needs_revision' &&
+                    evalStatus !== 'ready_for_review' &&
+                    !hasFailedStep &&
+                    failedChecks.length === 0 &&
+                    !hasOverview &&
+                    !steps[0]?.details;
+
+                  // Single-Step Compact Bar (No redundant 1/1 accordion or green evaluation box)
+                  if (isSingleSimpleStep) {
+                    const singleStep = steps[0];
+                    const isStepActive = (isTurnRunning && turn.isLatest) || singleStep.status === 'in_progress';
+                    const { text: cleanSingleText, fileChips: singleChips } = formatStepLabel(singleStep.title);
+
+                    return (
+                      <div className={`rounded-xl overflow-hidden shadow-xs transition-all duration-200 ${
+                        isStepActive
+                          ? 'bg-onedark-darker/60 border border-white/[0.08]'
+                          : 'bg-onedark-darker/40 border border-white/[0.04]'
+                      }`}>
+                        <div className="w-full px-3.5 py-2 flex items-center justify-between gap-3 text-xs font-sans select-none">
+                          <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+                            {isStepActive ? (
+                              <Loader2 className="w-3.5 h-3.5 text-onedark-accent animate-spin shrink-0" />
+                            ) : (
+                              <CheckCircle2 className="w-3.5 h-3.5 text-onedark-green/80 shrink-0" />
                             )}
-                            {turn.plan.evaluation.checks && turn.plan.evaluation.checks.length > 0 && (
-                              <div className="flex items-center space-x-1.5 pl-5 pt-0.5 flex-wrap gap-1">
-                                {turn.plan.evaluation.checks.map((chk, cIdx) => (
-                                  <span
-                                    key={cIdx}
-                                    className={`px-1.5 py-0.5 rounded text-[10px] font-mono flex items-center space-x-1 ${
-                                      chk.passed
-                                        ? 'bg-onedark-green/10 text-onedark-green'
-                                        : 'bg-onedark-red/10 text-onedark-red'
-                                    }`}
-                                  >
-                                    {chk.passed ? <Check className="w-2.5 h-2.5" /> : <AlertCircle className="w-2.5 h-2.5" />}
-                                    <span>{chk.name}</span>
-                                  </span>
-                                ))}
-                              </div>
+                            <span className={`truncate ${isStepActive ? 'text-onedark-fgBright font-medium' : 'text-onedark-fg'}`}>
+                              {cleanSingleText}
+                            </span>
+                            {singleChips.map((chip, cIdx) => (
+                              <span
+                                key={cIdx}
+                                className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded-md bg-onedark-surface/70 border border-white/[0.05] text-[11px] font-mono text-onedark-fg shrink-0 max-w-[180px]"
+                              >
+                                <FileText className="w-2.5 h-2.5 text-onedark-accent shrink-0" />
+                                <span className="truncate">{chip}</span>
+                              </span>
+                            ))}
+                          </div>
+
+                          <div className="flex items-center space-x-1.5 shrink-0">
+                            {isStepActive ? (
+                              <span className="text-[11px] text-onedark-muted font-sans">
+                                Working…
+                              </span>
+                            ) : (
+                              passedChecks.slice(0, 3).map((chk, cIdx) => (
+                                <span
+                                  key={cIdx}
+                                  className="px-2 py-0.5 rounded-md bg-onedark-surface/50 text-onedark-muted text-[10.5px] font-sans hidden sm:inline-flex items-center"
+                                >
+                                  {chk.name}
+                                </span>
+                              ))
                             )}
                           </div>
-                        )}
+                        </div>
                       </div>
-                    )}
-                  </div>
-                ) : (isTurnRunning && turn.isLatest) ? (
+                    );
+                  }
+
+                  // Multi-Step Plan / Review / Diagnostic Mode
+                  const isPlanActivelyRunning = isTurnRunning && turn.isLatest;
+                  const activeStepObj = activeIdx >= 0 ? steps[activeIdx] : null;
+                  const activeStepFormatted = activeStepObj ? formatStepLabel(activeStepObj.title) : null;
+                  const showDiagnosticBox =
+                    evalStatus === 'needs_revision' ||
+                    evalStatus === 'ready_for_review' ||
+                    failedChecks.length > 0;
+
+                  return (
+                    <div className={`rounded-xl overflow-hidden shadow-xs transition-all duration-200 ${
+                      isPlanActivelyRunning
+                        ? 'bg-onedark-darker/60 border border-white/[0.08]'
+                        : 'bg-onedark-darker/40 hover:bg-onedark-darker/60 border border-white/[0.04]'
+                    }`}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUserToggledPlans((prev) => ({ ...prev, [turn.id]: !isPlanOpen }));
+                        }}
+                        className="w-full px-3.5 py-2.5 flex items-center justify-between gap-3 text-xs font-sans text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/30 transition-colors cursor-pointer select-none btn-tactile"
+                      >
+                        <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+                          {isPlanActivelyRunning ? (
+                            <Loader2 className="w-3.5 h-3.5 text-onedark-accent animate-spin shrink-0" />
+                          ) : evalStatus === 'ready_for_review' ? (
+                            <Sparkles className="w-3.5 h-3.5 text-onedark-accent shrink-0" />
+                          ) : evalStatus === 'needs_revision' || hasFailedStep ? (
+                            <AlertCircle className="w-3.5 h-3.5 text-onedark-yellow shrink-0" />
+                          ) : (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-onedark-green/80 shrink-0" />
+                          )}
+
+                          <span className="text-xs font-medium text-onedark-fg shrink-0">
+                            {evalStatus === 'ready_for_review'
+                              ? 'Plan'
+                              : isPlanActivelyRunning
+                              ? 'Approach'
+                              : evalStatus === 'needs_revision' || hasFailedStep
+                              ? 'Plan'
+                              : `Completed ${totalSteps} steps`}
+                          </span>
+
+                          {isPlanActivelyRunning ? (
+                            <>
+                              <span className="text-[11px] text-onedark-muted font-mono shrink-0">
+                                Step {currentStepNum} of {totalSteps}
+                              </span>
+                              {!isPlanOpen && activeStepFormatted && (
+                                <span className="text-xs text-onedark-fgBright truncate pl-1 border-l border-white/[0.08]">
+                                  {activeStepFormatted.text}
+                                </span>
+                              )}
+                            </>
+                          ) : evalStatus === 'ready_for_review' ? (
+                            <span className="text-[11px] text-onedark-muted font-mono shrink-0">
+                              · {totalSteps} {totalSteps === 1 ? 'step' : 'steps'}
+                            </span>
+                          ) : evalStatus === 'needs_revision' || hasFailedStep ? (
+                            <span className="text-[11px] text-onedark-muted font-mono shrink-0">
+                              · {completedSteps}/{totalSteps} completed
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <div className="flex items-center space-x-2 shrink-0">
+                          {evalStatus === 'ready_for_review' ? (
+                            <span className="px-2 py-0.5 rounded-full bg-onedark-accent/10 text-onedark-accent text-[10.5px] font-sans font-medium flex items-center space-x-1">
+                              <span>Ready for review</span>
+                            </span>
+                          ) : evalStatus === 'needs_revision' || hasFailedStep ? (
+                            <span className="px-2 py-0.5 rounded-full bg-onedark-yellow/10 text-onedark-yellow text-[10.5px] font-sans font-medium flex items-center space-x-1">
+                              <span>Needs attention</span>
+                            </span>
+                          ) : isPlanActivelyRunning ? (
+                            <div className="flex items-center space-x-1" title={`Step ${currentStepNum} of ${totalSteps}`}>
+                              {steps.map((s, idx) => (
+                                <span
+                                  key={s.id || idx}
+                                  className={`h-1.5 rounded-full transition-all duration-300 ${
+                                    s.status === 'completed'
+                                      ? 'w-3 bg-onedark-green/80'
+                                      : s.status === 'in_progress'
+                                      ? 'w-4 bg-onedark-accent animate-pulse'
+                                      : 'w-2 bg-onedark-surface'
+                                  }`}
+                                />
+                              ))}
+                            </div>
+                          ) : (
+                            !isPlanOpen &&
+                            passedChecks.slice(0, 2).map((chk, cIdx) => (
+                              <span
+                                key={cIdx}
+                                className="px-2 py-0.5 rounded-md bg-onedark-surface/50 text-onedark-muted text-[10.5px] font-sans hidden sm:inline-flex items-center"
+                              >
+                                {chk.name}
+                              </span>
+                            ))
+                          )}
+
+                          {isPlanOpen ? (
+                            <ChevronDown className="w-4 h-4 text-onedark-muted" />
+                          ) : (
+                            <ChevronRight className="w-4 h-4 text-onedark-muted" />
+                          )}
+                        </div>
+                      </button>
+
+                      {isPlanOpen && (
+                        <div className="px-3.5 py-3 border-t border-white/[0.04] space-y-3 text-xs font-sans bg-onedark-darker/40">
+                          {hasOverview && (
+                            <div className="p-2.5 rounded-lg bg-onedark-surface/30 text-[11.5px] font-sans text-onedark-fg leading-relaxed">
+                              {turn.plan!.overview}
+                            </div>
+                          )}
+
+                          {/* Fixed-Step Timeline */}
+                          <div className="relative pl-6 space-y-2 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-px before:bg-onedark-borderSubtle">
+                            {steps.map((step, sIdx) => {
+                              const isDone = step.status === 'completed';
+                              const isInProgress = step.status === 'in_progress';
+                              const isFailed = step.status === 'failed';
+                              const { text: stepText, fileChips } = formatStepLabel(step.title);
+
+                              return (
+                                <div
+                                  key={step.id || sIdx}
+                                  className="relative flex items-start space-x-2 py-0.5 text-xs font-sans transition-colors"
+                                >
+                                  <div className={`absolute -left-6 top-0.5 p-0.5 rounded-full bg-onedark-darker shrink-0 z-10 transition-transform duration-200 ${
+                                    isDone ? 'animate-status-morph' : isInProgress ? 'scale-105' : ''
+                                  }`}>
+                                    {isDone ? (
+                                      <CheckCircle2 className="w-3.5 h-3.5 text-onedark-green/80" />
+                                    ) : isInProgress ? (
+                                      <Loader2 className="w-3.5 h-3.5 text-onedark-accent animate-spin" />
+                                    ) : isFailed ? (
+                                      <AlertCircle className="w-3.5 h-3.5 text-onedark-red" />
+                                    ) : (
+                                      <Circle className="w-3.5 h-3.5 text-onedark-muted/35" />
+                                    )}
+                                  </div>
+
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center flex-wrap gap-1.5 leading-snug">
+                                      <span className="font-mono text-[11px] text-onedark-muted/70 select-none">
+                                        {sIdx + 1}.
+                                      </span>
+                                      <span className={
+                                        isInProgress
+                                          ? 'font-medium text-onedark-fgBright'
+                                          : isFailed
+                                          ? 'text-onedark-red font-medium'
+                                          : isDone
+                                          ? 'text-onedark-muted'
+                                          : 'text-onedark-muted/60'
+                                      }>
+                                        {stepText}
+                                      </span>
+                                      {fileChips.map((chip, cIdx) => (
+                                        <span
+                                          key={cIdx}
+                                          className="inline-flex items-center space-x-1 px-1.5 py-0.5 rounded-md bg-onedark-surface/70 border border-white/[0.05] text-[10.5px] font-mono text-onedark-fg"
+                                        >
+                                          <FileText className="w-2.5 h-2.5 text-onedark-accent shrink-0" />
+                                          <span className="truncate max-w-[180px]">{chip}</span>
+                                        </span>
+                                      ))}
+                                    </div>
+                                    {step.details && (
+                                      <div className="text-[11px] text-onedark-muted mt-0.5 font-sans leading-normal pl-4">
+                                        {step.details}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Only show callout box when review or revision/error is needed */}
+                          {showDiagnosticBox && turn.plan?.evaluation && (
+                            <div className={`p-2.5 rounded-lg text-xs font-sans space-y-1.5 ${
+                              evalStatus === 'ready_for_review'
+                                ? 'bg-onedark-accent/5 text-onedark-accent border border-onedark-accent/15'
+                                : 'bg-onedark-yellow/5 text-onedark-yellow border border-onedark-yellow/15'
+                            }`}>
+                              {turn.plan.evaluation.summary && (
+                                <p className="text-[11.5px] text-onedark-fg leading-relaxed">
+                                  {turn.plan.evaluation.summary}
+                                </p>
+                              )}
+                              {failedChecks.length > 0 && (
+                                <div className="flex items-center flex-wrap gap-1.5 pt-0.5">
+                                  {failedChecks.map((chk, cIdx) => (
+                                    <span
+                                      key={cIdx}
+                                      className="px-2 py-0.5 rounded-md text-[10.5px] font-sans bg-onedark-red/10 text-onedark-red flex items-center space-x-1"
+                                    >
+                                      <AlertCircle className="w-2.5 h-2.5 shrink-0" />
+                                      <span>{chk.name}</span>
+                                    </span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          {/* Subtle capability tags footer when expanded and completed */}
+                          {!showDiagnosticBox && passedChecks.length > 0 && (
+                            <div className="pt-2 border-t border-white/[0.04] flex items-center flex-wrap gap-1.5">
+                              {passedChecks.map((chk, cIdx) => (
+                                <span
+                                  key={cIdx}
+                                  className="px-2 py-0.5 rounded-md bg-onedark-surface/40 text-onedark-muted text-[10.5px] font-sans inline-flex items-center space-x-1"
+                                >
+                                  <Check className="w-2.5 h-2.5 text-onedark-green/70" />
+                                  <span>{chk.name}</span>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })() : (isTurnRunning && turn.isLatest) ? (
                   <div className="rounded-xl overflow-hidden shadow-xs bg-onedark-darker/60 border border-white/[0.08]">
-                    <div className="w-full px-3.5 py-2.5 flex items-center justify-between text-xs text-onedark-muted select-none">
-                      <div className="flex items-center space-x-2 min-w-0 pr-2">
-                        <ListOrdered className="w-3.5 h-3.5 text-onedark-accent shrink-0 animate-pulse" />
-                        <span className="font-mono text-xs font-medium text-onedark-fg">
-                          Execution Plan
-                        </span>
-                      </div>
-                      <div className="flex items-center space-x-2 shrink-0">
-                        <span className="px-2 py-0.5 rounded-full bg-onedark-accent/10 text-onedark-accent text-[10.5px] font-mono flex items-center space-x-1.5 font-semibold">
-                          <Loader2 className="w-2.5 h-2.5 animate-spin" />
-                          <span>Synthesizing...</span>
+                    <div className="w-full px-3.5 py-2 flex items-center justify-between text-xs font-sans text-onedark-muted select-none">
+                      <div className="flex items-center space-x-2.5 min-w-0 pr-2">
+                        <Loader2 className="w-3.5 h-3.5 text-onedark-accent animate-spin shrink-0" />
+                        <span className="text-xs font-medium text-onedark-fg">
+                          Planning approach…
                         </span>
                       </div>
                     </div>
@@ -5057,135 +5532,9 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
         )}
 
         <div className={`w-full ${contentMaxWidth} mx-auto`}>
-          <form onSubmit={handleSubmit} className="flex flex-col space-y-2.5 relative z-20">
+          <form onSubmit={handleSubmit} className="flex flex-col relative z-20">
             {/* Repository Mention Autocomplete Menu */}
             {renderMentionMenu("bottom-full left-0 mb-2")}
-
-            {/* Active Task Selector Controls Bar: Persona & Model Pills */}
-            <div className="flex items-center justify-between gap-2 px-1 text-xs select-none">
-              <div className="flex items-center space-x-2 min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden py-0.5">
-                {/* Persona Selector Pill */}
-                <div className="relative flex items-center h-7 rounded-lg bg-onedark-surface/40 hover:bg-onedark-surface border border-onedark-borderSubtle/80 hover:border-onedark-border text-[11px] text-onedark-fg font-mono transition-all shadow-2xs group flex-shrink-0 cursor-pointer">
-                  <div className="flex items-center space-x-1.5 pl-2 pr-1.5 pointer-events-none">
-                    <Sparkles className="w-3 h-3 text-onedark-yellow flex-shrink-0 group-hover:scale-110 transition-transform" />
-                    <span className="text-[11px] text-onedark-fg font-mono truncate max-w-[130px]">
-                      {personas.find((p) => p.id === selectedPersona)?.label || 'General Assistant'}
-                    </span>
-                    <ChevronDown className="w-2.5 h-2.5 text-onedark-muted group-hover:text-onedark-fg transition-colors flex-shrink-0" />
-                  </div>
-                  <select
-                    value={selectedPersona}
-                    onChange={(e) => setSelectedPersona(e.target.value)}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer text-[11px]"
-                    title="Select Persona"
-                  >
-                    {personas.map((p) => (
-                      <option key={p.id} value={p.id} className="bg-onedark-darker text-onedark-fg">
-                        {p.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Model Selector Pill */}
-                <div className="relative flex items-center h-7 rounded-lg bg-onedark-surface/40 hover:bg-onedark-surface border border-onedark-borderSubtle/80 hover:border-onedark-border text-[11px] text-onedark-fg font-mono transition-all shadow-2xs group flex-shrink-0 cursor-pointer">
-                  <div className="flex items-center space-x-1.5 pl-2 pr-1.5 pointer-events-none">
-                    <Bot className="w-3 h-3 text-onedark-accent flex-shrink-0 group-hover:scale-110 transition-transform" />
-                    <span className="text-[11px] text-onedark-fg font-mono truncate max-w-[120px]">
-                      {modelOptions.flatMap((g) => g.models).find((m) => m.id === selectedModel)?.label || 'Auto Tiering'}
-                    </span>
-                    <ChevronDown className="w-2.5 h-2.5 text-onedark-muted group-hover:text-onedark-fg transition-colors flex-shrink-0" />
-                  </div>
-                  <select
-                    value={selectedModel}
-                    onChange={(e) => setSelectedModel(e.target.value)}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer text-[11px]"
-                    title="Select Model Tier"
-                  >
-                    {modelOptions.map((g) => (
-                      <optgroup key={g.group} label={g.group} className="bg-onedark-darker text-onedark-muted font-bold">
-                        {g.models.map((m) => (
-                          <option key={m.id} value={m.id} className="bg-onedark-darker text-onedark-fg">
-                            {m.label}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            {/* Attachment Pills Container */}
-            {attachments.length > 0 && (() => {
-              const { folders, standaloneFiles } = groupAttachmentsByFolder(attachments as any);
-              return (
-                <div className="flex items-center gap-1.5 overflow-x-auto py-1 px-1 flex-wrap border-b border-onedark-borderSubtle/50 pb-2">
-                  {folders.map((folder) => (
-                    <div
-                      key={`folder-${folder.rootFolder}`}
-                      className="flex items-center space-x-2 px-2.5 py-1 rounded-lg bg-onedark-surface/60 border border-onedark-yellow/30 text-[11px] font-mono text-onedark-fg shadow-2xs group"
-                    >
-                      <div className="p-0.5 rounded bg-onedark-yellow/15 flex items-center justify-center">
-                        <Folder className="w-3 h-3 text-onedark-yellow flex-shrink-0" />
-                      </div>
-                      <span className="truncate max-w-[150px] font-semibold text-onedark-fgBright">{folder.rootFolder}/</span>
-                      <span className="text-onedark-muted/80 text-[10px]">({folder.fileCount} files · {formatBytes(folder.totalSize)})</span>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveFolder(folder.rootFolder)}
-                        className="text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/80 rounded p-0.5 cursor-pointer transition-colors ml-0.5"
-                        title={`Remove ${folder.rootFolder}/ folder`}
-                      >
-                        <X className="w-2.5 h-2.5" />
-                      </button>
-                    </div>
-                  ))}
-                  {standaloneFiles.map((att) => {
-                    if (att.pastedDoc) {
-                      return (
-                        <PastedDocPill
-                          key={att.id}
-                          doc={att.pastedDoc}
-                          onOpenModal={(d) => handleOpenDocModal(d, false)}
-                          onUnwrapDoc={handleUnwrapPastedDoc}
-                          onRemoveDoc={handleRemoveAttachment}
-                        />
-                      );
-                    }
-                    const meta = getAttachmentIcon(att.name);
-                    const IconComp = meta.icon;
-                    return (
-                      <div
-                        key={att.id}
-                        className="flex items-center space-x-2 px-2.5 py-1 rounded-lg bg-onedark-surface/60 border border-onedark-borderSubtle/80 text-[11px] font-mono text-onedark-fg shadow-2xs group"
-                      >
-                        <div className={`p-0.5 rounded ${meta.bg} flex items-center justify-center`}>
-                          <IconComp className={`w-3 h-3 ${meta.color} flex-shrink-0`} />
-                        </div>
-                        <span className="truncate max-w-[150px] font-semibold text-onedark-fgBright">{att.name}</span>
-                        <span className="text-onedark-muted/80 text-[10px]">({formatBytes(att.size)})</span>
-                        {att.status === 'uploading' ? (
-                          <Loader2 className="w-3 h-3 animate-spin text-onedark-accent" />
-                        ) : att.status === 'error' ? (
-                          <span className="text-onedark-red font-bold text-[10px]" title={att.error}>!</span>
-                        ) : (
-                          <Check className="w-3 h-3 text-onedark-green" />
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveAttachment(att.id)}
-                          className="text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/80 rounded p-0.5 cursor-pointer transition-colors ml-0.5"
-                          title="Remove attachment"
-                        >
-                          <X className="w-2.5 h-2.5" />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })()}
 
             {/* Hidden file & folder inputs for chat attachments */}
             <input
@@ -5216,7 +5565,8 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
               }}
             />
 
-            <div 
+            {/* Unified Two-Tier Composer Card */}
+            <div
               onDragOver={(e) => {
                 e.preventDefault();
                 setIsDraggingInput(true);
@@ -5230,66 +5580,88 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                 setIsDraggingInput(false);
                 handleAttachDropped(e.dataTransfer);
               }}
-              className={`flex items-end space-x-2 bg-onedark-surface/40 hover:bg-onedark-surface/60 focus-within:bg-onedark-surface/80 border border-onedark-border/80 focus-within:border-onedark-accent/70 rounded-2xl px-3 py-2 focus-within:ring-2 focus-within:ring-onedark-accent/15 transition-all shadow-md min-h-[48px] relative ${
+              className={`flex flex-col bg-onedark-surface/35 hover:bg-onedark-surface/50 focus-within:bg-onedark-surface/70 border border-onedark-border/80 focus-within:border-onedark-accent/70 rounded-2xl focus-within:ring-2 focus-within:ring-onedark-accent/15 transition-all shadow-md relative ${
                 isDraggingInput ? 'ring-2 ring-onedark-accent border-onedark-accent bg-onedark-surface/60' : ''
               }`}
             >
-              {/* Paperclip attach button with folder option */}
-              <div ref={attachMenuChatRef} className="relative mb-0.5 flex-shrink-0 flex items-center bg-onedark-darker/60 rounded-lg border border-onedark-borderSubtle/60 hover:border-onedark-borderSubtle">
-                <button
-                  type="button"
-                  onClick={() => chatFileInputRef.current?.click()}
-                  className="h-8 px-2 text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/60 rounded-l-lg flex items-center justify-center transition-all cursor-pointer active:scale-95 group"
-                  title="Attach file(s) to workspace"
-                >
-                  <Paperclip className="w-4 h-4 text-onedark-muted group-hover:text-onedark-accent transition-colors" />
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowAttachMenuChat((v) => !v);
-                  }}
-                  className="h-8 px-1 text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/60 rounded-r-lg border-l border-onedark-borderSubtle/40 flex items-center justify-center transition-all cursor-pointer active:scale-95 group"
-                  title="Upload folder options"
-                >
-                  <ChevronDown className={`w-2.5 h-2.5 text-onedark-muted group-hover:text-onedark-fg transition-transform duration-150 ${showAttachMenuChat ? 'rotate-180 text-onedark-accent' : ''}`} />
-                </button>
-
-                {showAttachMenuChat && (
-                  <div 
-                    className="absolute left-0 bottom-full mb-1.5 w-44 rounded-xl bg-onedark-darker border border-onedark-border shadow-2xl p-1 z-50 flex flex-col space-y-0.5 text-xs font-sans animate-in fade-in zoom-in-95 duration-100"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowAttachMenuChat(false);
-                        chatFileInputRef.current?.click();
-                      }}
-                      className="w-full px-2.5 py-2 text-left rounded-lg hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright flex items-center space-x-2 cursor-pointer transition-colors"
-                    >
-                      <FileText className="w-3.5 h-3.5 text-onedark-accent" />
-                      <span>Upload Files</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleSelectFolder}
-                      className="w-full px-2.5 py-2 text-left rounded-lg hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright flex items-center space-x-2 cursor-pointer transition-colors"
-                    >
-                      <Folder className="w-3.5 h-3.5 text-onedark-yellow" />
-                      <span>Upload Folder</span>
-                    </button>
+              {/* 1. Optional Attachment Pills Strip Inside Card */}
+              {attachments.length > 0 && (() => {
+                const { folders, standaloneFiles } = groupAttachmentsByFolder(attachments as any);
+                return (
+                  <div className="flex items-center gap-1.5 px-3.5 pt-2.5 pb-2 flex-wrap border-b border-onedark-borderSubtle/50">
+                    {folders.map((folder) => (
+                      <div
+                        key={`folder-${folder.rootFolder}`}
+                        className="flex items-center space-x-2 px-2.5 py-1 rounded-lg bg-onedark-darker/70 border border-onedark-yellow/30 text-[11px] font-mono text-onedark-fg shadow-2xs group"
+                      >
+                        <div className="p-0.5 rounded bg-onedark-yellow/15 flex items-center justify-center">
+                          <Folder className="w-3 h-3 text-onedark-yellow flex-shrink-0" />
+                        </div>
+                        <span className="truncate max-w-[150px] font-semibold text-onedark-fgBright">{folder.rootFolder}/</span>
+                        <span className="text-onedark-muted/80 text-[10px]">({folder.fileCount} files · {formatBytes(folder.totalSize)})</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveFolder(folder.rootFolder)}
+                          className="text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/80 rounded p-0.5 cursor-pointer transition-colors ml-0.5"
+                          title={`Remove ${folder.rootFolder}/ folder`}
+                        >
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </div>
+                    ))}
+                    {standaloneFiles.map((att) => {
+                      if (att.pastedDoc) {
+                        return (
+                          <PastedDocPill
+                            key={att.id}
+                            doc={att.pastedDoc}
+                            onOpenModal={(d) => handleOpenDocModal(d, false)}
+                            onUnwrapDoc={handleUnwrapPastedDoc}
+                            onRemoveDoc={handleRemoveAttachment}
+                          />
+                        );
+                      }
+                      const meta = getAttachmentIcon(att.name);
+                      const IconComp = meta.icon;
+                      return (
+                        <div
+                          key={att.id}
+                          className="flex items-center space-x-2 px-2.5 py-1 rounded-lg bg-onedark-darker/70 border border-onedark-borderSubtle/80 text-[11px] font-mono text-onedark-fg shadow-2xs group"
+                        >
+                          <div className={`p-0.5 rounded ${meta.bg} flex items-center justify-center`}>
+                            <IconComp className={`w-3 h-3 ${meta.color} flex-shrink-0`} />
+                          </div>
+                          <span className="truncate max-w-[150px] font-semibold text-onedark-fgBright">{att.name}</span>
+                          <span className="text-onedark-muted/80 text-[10px]">({formatBytes(att.size)})</span>
+                          {att.status === 'uploading' ? (
+                            <Loader2 className="w-3 h-3 animate-spin text-onedark-accent" />
+                          ) : att.status === 'error' ? (
+                            <span className="text-onedark-red font-bold text-[10px]" title={att.error}>!</span>
+                          ) : (
+                            <Check className="w-3 h-3 text-onedark-green" />
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveAttachment(att.id)}
+                            className="text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface/80 rounded p-0.5 cursor-pointer transition-colors ml-0.5"
+                            title="Remove attachment"
+                          >
+                            <X className="w-2.5 h-2.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
-                )}
-              </div>
+                );
+              })()}
 
-              <div className="relative flex-1 min-h-[36px] max-h-[220px] flex items-center">
-                {/* Highlight backdrop overlay */}
+              {/* 2. Top Zone: Full-Width Unobstructed Text Input */}
+              <div className="relative w-full px-3.5 pt-2.5 pb-1 min-h-[40px] max-h-[220px] flex items-center">
                 {inputValue && (
                   <div
                     ref={chatBackdropRef}
                     aria-hidden="true"
-                    className="pointer-events-none absolute inset-0 w-full bg-transparent text-[15px] font-sans leading-relaxed py-1.5 whitespace-pre-wrap break-words overflow-y-auto select-none"
+                    className="pointer-events-none absolute inset-x-3.5 top-2.5 bottom-1 bg-transparent text-[15px] font-sans leading-relaxed py-1 whitespace-pre-wrap break-words overflow-y-auto select-none"
                   >
                     {renderHighlightedInputText(inputValue)}
                   </div>
@@ -5320,87 +5692,129 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                       chatBackdropRef.current.scrollLeft = e.currentTarget.scrollLeft;
                     }
                   }}
-                  placeholder={isRunning ? "Task is running... Type follow-up instructions or hit Stop..." : "Type instructions, or '@' to reference a registered repo (e.g. 'Get pending prs in @myproject')..."}
-                  className={`w-full bg-transparent text-[15px] placeholder-onedark-muted/60 focus:outline-none resize-none font-sans leading-relaxed py-1.5 min-h-[36px] max-h-[220px] overflow-y-auto caret-onedark-yellow ${
+                  placeholder={
+                    isRunning
+                      ? "Task is running... Type follow-up instructions or hit Stop..."
+                      : "Type instructions, or '@' to reference a repo..."
+                  }
+                  className={`w-full bg-transparent text-[15px] placeholder-onedark-muted/65 focus:outline-none resize-none font-sans leading-relaxed py-1 min-h-[32px] max-h-[200px] overflow-y-auto caret-onedark-yellow ${
                     inputValue ? 'text-transparent' : 'text-onedark-fgBright'
                   }`}
                 />
               </div>
-              {isRunning ? (
-                <button
-                  type="button"
-                  onClick={() => onStopTask && onStopTask()}
-                  className="h-8 px-3.5 rounded-lg bg-red-600 hover:bg-red-500 active:bg-red-700 text-white text-xs font-bold font-mono flex items-center space-x-1.5 transition-all shadow-md flex-shrink-0 ring-1 ring-red-500/30 animate-pulse cursor-pointer mb-0.5"
-                  title="Stop execution (Esc)"
-                >
-                  <Square className="w-3.5 h-3.5 fill-current" />
-                  <span>Stop</span>
-                </button>
-              ) : isSubmitting ? (
-                <button
-                  type="button"
-                  disabled
-                  className="h-8 w-8 rounded-lg bg-onedark-accent/80 text-onedark-accentFg flex items-center justify-center transition-all shadow-sm flex-shrink-0 cursor-wait mb-0.5 font-bold"
-                  title="Processing request..."
-                >
-                  <Loader2 className="w-4 h-4 animate-spin stroke-[2.5]" />
-                </button>
-              ) : (
-                <button
-                  type="submit"
-                  disabled={!inputValue.trim() && attachments.length === 0}
-                  className={`h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0 transition-all shadow-sm mb-0.5 ${
-                    !inputValue.trim() && attachments.length === 0
-                      ? 'bg-onedark-surface text-onedark-muted border border-onedark-borderSubtle cursor-not-allowed select-none'
-                      : 'bg-onedark-accent hover:brightness-110 active:scale-95 text-onedark-accentFg font-extrabold cursor-pointer shadow-md ring-1 ring-onedark-accent/40'
-                  }`}
-                  title="Send message (Enter ↵)"
-                >
-                  <Send className="w-4 h-4 stroke-[2.5]" />
-                </button>
-              )}
-            </div>
-            <div className="flex items-center justify-between px-1 text-[11px] text-onedark-muted font-mono select-none">
-              <div className="flex items-center space-x-3 min-w-0 flex-1">
-                <span className="flex-shrink-0">
-                  <kbd className="px-1.5 py-0.5 rounded bg-onedark-surface/60 text-onedark-fgBright text-[10px]">Enter ↵</kbd> to send · <kbd className="px-1.5 py-0.5 rounded bg-onedark-surface/60 text-onedark-fgBright text-[10px]">Shift + Enter</kbd> for newline
-                </span>
-                {effectiveRepos.length > 0 && (
-                  <div className="hidden sm:flex items-center space-x-1.5 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden py-0.5 min-w-0">
-                    {effectiveRepos.slice(0, 3).map((r) => {
-                      const tag = `@${r.full_name || r.name}`;
-                      const isIncluded = inputValue.includes(tag);
-                      return (
+
+              {/* 3. Bottom Action Toolbar Inside Card (Single Row) */}
+              <div className="flex items-center justify-between gap-2 px-3 pb-2.5 pt-1 select-none">
+                <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                  {/* Attach Split Pill */}
+                  <div
+                    ref={attachMenuChatRef}
+                    className="relative flex-shrink-0 flex items-center h-7 bg-onedark-darker/70 rounded-lg border border-onedark-borderSubtle/80 hover:border-onedark-border shadow-2xs transition-colors"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => chatFileInputRef.current?.click()}
+                      className="h-full px-2 text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface rounded-l-lg flex items-center justify-center transition-all cursor-pointer active:scale-95 group"
+                      title="Attach file(s) to workspace"
+                    >
+                      <Paperclip className="w-3.5 h-3.5 text-onedark-muted group-hover:text-onedark-accent transition-colors" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowPersonaMenuChat(false);
+                        setShowModelMenuChat(false);
+                        setShowRepoMenuChat(false);
+                        setShowAttachMenuChat((v) => !v);
+                      }}
+                      className="h-full px-1 text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface rounded-r-lg border-l border-onedark-borderSubtle/50 flex items-center justify-center transition-all cursor-pointer active:scale-95 group"
+                      title="Upload folder options"
+                    >
+                      <ChevronDown
+                        className={`w-2.5 h-2.5 text-onedark-muted group-hover:text-onedark-fg transition-transform duration-150 ${
+                          showAttachMenuChat ? 'rotate-180 text-onedark-accent' : ''
+                        }`}
+                      />
+                    </button>
+
+                    {showAttachMenuChat && (
+                      <div className="absolute left-0 bottom-full mb-1.5 w-44 rounded-xl bg-onedark-darker border border-onedark-border shadow-2xl p-1 z-50 flex flex-col space-y-0.5 text-xs font-sans animate-in fade-in zoom-in-95 duration-100">
                         <button
-                          key={r.id || r.full_name}
                           type="button"
                           onClick={() => {
-                            if (!isIncluded) {
-                              setInputValue((prev) => prev ? `${prev.trim()} ${tag} ` : `${tag} `);
-                            }
-                            textareaRef.current?.focus();
+                            setShowAttachMenuChat(false);
+                            chatFileInputRef.current?.click();
                           }}
-                          className={`px-1.5 py-0.5 rounded text-[10px] font-mono transition-all flex items-center space-x-1 cursor-pointer flex-shrink-0 max-w-[150px] ${
-                            isIncluded
-                              ? 'bg-onedark-accent/20 text-onedark-accent font-semibold'
-                              : 'bg-onedark-surface/60 hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright'
-                          }`}
-                          title={`Click to reference ${tag}`}
+                          className="w-full px-2.5 py-2 text-left rounded-lg hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright flex items-center space-x-2 cursor-pointer transition-colors"
                         >
-                          <FolderGit2 className="w-2.5 h-2.5 text-onedark-folder flex-shrink-0" />
-                          <span className="truncate">{tag}</span>
+                          <FileText className="w-3.5 h-3.5 text-onedark-accent" />
+                          <span>Upload Files</span>
                         </button>
-                      );
-                    })}
+                        <button
+                          type="button"
+                          onClick={handleSelectFolder}
+                          className="w-full px-2.5 py-2 text-left rounded-lg hover:bg-onedark-surface text-onedark-fg hover:text-onedark-fgBright flex items-center space-x-2 cursor-pointer transition-colors"
+                        >
+                          <Folder className="w-3.5 h-3.5 text-onedark-yellow" />
+                          <span>Upload Folder</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
-                )}
+
+                  {/* Persona, Model & Repo Selector Pills */}
+                  {renderPersonaSelector('chat')}
+                  {renderModelSelector('chat')}
+                  {renderRepoSelector()}
+                </div>
+
+                {/* Right Side: Send / Stop Action */}
+                <div className="flex items-center space-x-2 flex-shrink-0">
+                  {isRunning && (
+                    <span className="hidden sm:flex items-center space-x-1 text-[10.5px] font-mono text-onedark-yellow">
+                      <kbd className="px-1.5 py-0.5 rounded bg-onedark-darker/80 border border-onedark-borderSubtle/60 text-onedark-yellow text-[10px]">
+                        Esc
+                      </kbd>
+                      <span>to stop</span>
+                    </span>
+                  )}
+
+                  {isRunning ? (
+                    <button
+                      type="button"
+                      onClick={() => onStopTask && onStopTask()}
+                      className="h-7 px-3 rounded-lg bg-red-600 hover:bg-red-500 active:bg-red-700 text-white text-xs font-bold font-mono flex items-center space-x-1.5 transition-all shadow-md flex-shrink-0 ring-1 ring-red-500/30 animate-pulse cursor-pointer"
+                      title="Stop execution (Esc)"
+                    >
+                      <Square className="w-3 h-3 fill-current" />
+                      <span>Stop</span>
+                    </button>
+                  ) : isSubmitting ? (
+                    <button
+                      type="button"
+                      disabled
+                      className="h-7 w-7 rounded-lg bg-onedark-accent/80 text-onedark-accentFg flex items-center justify-center transition-all shadow-sm flex-shrink-0 cursor-wait font-bold"
+                      title="Processing request..."
+                    >
+                      <Loader2 className="w-3.5 h-3.5 animate-spin stroke-[2.5]" />
+                    </button>
+                  ) : (
+                    <button
+                      type="submit"
+                      disabled={!inputValue.trim() && attachments.length === 0}
+                      className={`h-7 w-7 rounded-lg flex items-center justify-center flex-shrink-0 transition-all shadow-2xs ${
+                        !inputValue.trim() && attachments.length === 0
+                          ? 'bg-onedark-darker/70 text-onedark-muted/60 border border-onedark-borderSubtle/80 cursor-not-allowed select-none'
+                          : 'bg-onedark-accent hover:brightness-110 active:scale-95 text-onedark-accentFg font-extrabold cursor-pointer shadow-md ring-1 ring-onedark-accent/40'
+                      }`}
+                      title="Send message (Enter ↵)"
+                    >
+                      <Send className="w-3.5 h-3.5 stroke-[2.5]" />
+                    </button>
+                  )}
+                </div>
               </div>
-              {isRunning && (
-                <span className="text-onedark-yellow flex items-center space-x-1 flex-shrink-0">
-                  <kbd className="px-1.5 py-0.5 rounded bg-onedark-surface/60 text-onedark-yellow text-[10px]">Esc</kbd>
-                  <span>to stop</span>
-                </span>
-              )}
             </div>
           </form>
         </div>

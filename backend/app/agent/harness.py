@@ -1645,15 +1645,27 @@ class AntigravityHarness:
                     if initial_intent == "qa_research"
                     else "action_execution"
                 )
+                raw_fast_label = re.sub(
+                    r"\[Uploaded\s+(?:Workspace\s+)?(?:File|Attachment|Folder):\s*([^\]\n]+?)\]",
+                    r"\1",
+                    (title or prompt or ""),
+                    flags=re.IGNORECASE,
+                )
+                raw_fast_label = re.sub(r"\[Uploaded[^\]]*$", "", raw_fast_label, flags=re.IGNORECASE).strip()
+                clean_step_label = (
+                    raw_fast_label[:77].rstrip() + "…"
+                    if len(raw_fast_label) > 80
+                    else (raw_fast_label or "Analyze request and synthesize response")
+                )
                 current_plan = {
                     "intent_category": initial_intent,
                     "response_style": default_style,
                     "requires_plan": False,
                     "requires_reasoning": initial_reasoning,
-                    "title": title or (prompt or "")[:80],
-                    "objective": title or (prompt or "")[:100],
+                    "title": clean_step_label,
+                    "objective": raw_fast_label[:100] or (title or prompt or "")[:100],
                     "steps": [
-                        {"id": "step-1", "title": f"Execute: {(title or prompt or '')[:80]}", "status": "in_progress"}
+                        {"id": "step-1", "title": clean_step_label, "status": "in_progress"}
                     ],
                     "evaluation": {
                         "status": "pending",
