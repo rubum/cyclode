@@ -325,5 +325,102 @@ async def test_task_stop_and_cancel_endpoints():
         assert cancel_res.json()["ok"] is True
 
 
+def test_subsession_inline_snippet_fast_direct_and_intent():
+    from app.agent.harness import AntigravityHarness
+
+    # 1. FileAgentPopover snippet with action verbs inside the selected code block
+    file_title = "Code Discussion: pool.py"
+    file_prompt = (
+        "**Regarding snippet in** `backend/app/agent/pool.py` (Lines 59–120):\n"
+        "```python\n"
+        "async def spawn_task(self, title: str, description: str):\n"
+        "    # create and update database records, refactor branch naming, implement retry\n"
+        "    session.add(task)\n"
+        "    await session.commit()\n"
+        "```\n\n"
+        "What does this function do?"
+    )
+
+    intent = AntigravityHarness.infer_task_intent(file_title, file_prompt, "PairProgrammer")
+    assert intent == "qa_research"
+    assert AntigravityHarness.requires_reasoning_for_query(file_title, file_prompt, intent) is False
+    assert AntigravityHarness.is_fast_direct_query(file_title, file_prompt, intent, is_subsession=True) is True
+    assert AntigravityHarness.is_fast_direct_query(file_title, file_prompt, intent, is_subsession=False) is True
+
+    # 2. Explain selection quick-action from CodeViewer / PRReviewAgentPopover
+    explain_title = "Code Review: org/repo #104 - Fix Memory Leak"
+    explain_prompt = (
+        "Please explain the following code snippet from `src/worker.ts` (Lines 10-25):\n\n"
+        "```typescript\n"
+        "export function buildWorkerPool() {\n"
+        "  // fix and refactor worker lifecycle\n"
+        "  return new WorkerPool();\n"
+        "}\n"
+        "```"
+    )
+    explain_intent = AntigravityHarness.infer_task_intent(explain_title, explain_prompt, "CodeReviewer")
+    assert explain_intent == "qa_research"
+    assert AntigravityHarness.requires_reasoning_for_query(explain_title, explain_prompt, explain_intent) is False
+    assert AntigravityHarness.is_fast_direct_query(explain_title, explain_prompt, explain_intent, is_subsession=True) is True
+
+    # 3. Action sub-session (e.g., TestRemediator or delegated subagent pod) skips pre-turn planning via is_subsession=True
+    remediate_title = "Fix Tests: PR #42 - feat: add telemetry unit tests"
+    remediate_prompt = "Run the test suite and fix the failing unit tests in prs/pr-42."
+    remediate_intent = AntigravityHarness.infer_task_intent(remediate_title, remediate_prompt, "TestRemediator")
+    assert remediate_intent in ("debugging", "code_modification")
+    assert AntigravityHarness.is_fast_direct_query(
+        remediate_title, remediate_prompt, remediate_intent, is_subsession=True
+    ) is True
 
 
+@pytest.mark.asyncio
+async def test_subsession_skips_ai_title_and_inherits_parent_workspace(tmp_path, monkeypatch):
+    title_calls = []
+
+    async def track_title(*args, **kwargs):
+        title_calls.append((args, kwargs))
+
+    monkeypatch.setattr(agent_pool, "_generate_and_update_title", track_title)
+
+    parent_ws = tmp_path / "parent-sandbox"
+    parent_ws.mkdir()
+
+    async with async_session_factory() as session:
+        parent_task = TaskModel(
+            title="Primary Session",
+            description="Main repo session",
+            persona="SoftwareEngineer",
+            model_name="deepseek-chat",
+            repo_name="org/fast-repo",
+            repo_url="https://github.com/org/fast-repo",
+            target_branch="main",
+            commit_sha="abc1234",
+            workspace_path=str(parent_ws),
+            is_subsession=False,
+        )
+        session.add(parent_task)
+        await session.commit()
+        await session.refresh(parent_task)
+        parent_id = parent_task.id
+
+    sub_id = await agent_pool.spawn_task(
+        title="Code Discussion: main.py",
+        description="Explain line 12",
+        persona="PairProgrammer",
+        is_subsession=True,
+        parent_task_id=parent_id,
+    )
+
+    # Sub-session must NOT trigger background _generate_and_update_title LLM call
+    assert len(title_calls) == 0
+
+    async with async_session_factory() as session:
+        sub_task = await session.get(TaskModel, sub_id)
+        assert sub_task is not None
+        assert sub_task.is_subsession is True
+        assert sub_task.model_name == "deepseek-chat"
+        assert sub_task.repo_name == "org/fast-repo"
+        assert sub_task.repo_url == "https://github.com/org/fast-repo"
+        assert sub_task.target_branch == "main"
+        assert sub_task.commit_sha == "abc1234"
+        assert sub_task.workspace_path == str(parent_ws)

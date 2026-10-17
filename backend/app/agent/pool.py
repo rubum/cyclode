@@ -77,6 +77,32 @@ class AgentTaskPool:
         Creates a new task in the database and dispatches it to an asynchronous worker
         with an isolated, ephemeral sandbox.
         """
+        # Determine model: prioritize explicit model_name (if not 'auto'/empty)
+        chosen_model = model_name if (model_name and model_name.strip() and model_name.strip() != "auto") else None
+
+        # If subsession or child task has a parent_task_id, inherit model, repo metadata, and existing workspace in one lookup
+        parent_workspace_path: Optional[str] = None
+        if parent_task_id:
+            try:
+                async with async_session_factory() as session:
+                    parent_task = await session.get(TaskModel, parent_task_id)
+                    if parent_task:
+                        if not chosen_model and parent_task.model_name and parent_task.model_name.strip() and parent_task.model_name.strip() != "auto":
+                            chosen_model = parent_task.model_name.strip()
+                            logger.info(f"Subsession automatically inherited parent task ({parent_task_id}) model: '{chosen_model}'")
+                        if not repo_url and parent_task.repo_url:
+                            repo_url = parent_task.repo_url
+                        if not repo_name and parent_task.repo_name:
+                            repo_name = parent_task.repo_name
+                        if not target_branch and parent_task.target_branch:
+                            target_branch = parent_task.target_branch
+                        if not commit_sha and parent_task.commit_sha:
+                            commit_sha = parent_task.commit_sha
+                        if is_subsession and parent_task.workspace_path and Path(parent_task.workspace_path).exists():
+                            parent_workspace_path = parent_task.workspace_path
+            except Exception as pe:
+                logger.debug(f"Parent task inheritance lookup note: {pe}")
+
         # Auto-extract repo URL from description or title if not explicitly passed
         if not repo_url:
             combined_text = f"{title} {description}"
@@ -86,8 +112,8 @@ class AgentTaskPool:
                 if not repo_name:
                     repo_name = repo_url.split("github.com/")[-1].replace(".git", "")
 
-        # Auto-resolve repository from database vault if an explicit repository handle or distinct name is referenced
-        if not repo_url:
+        # Auto-resolve repository from database vault if an explicit repository handle or distinct name is referenced (skip for subsessions)
+        if not repo_url and not is_subsession:
             try:
                 from app.db.session import ensure_default_repositories
                 await ensure_default_repositories()
@@ -138,7 +164,7 @@ class AgentTaskPool:
 
         # If interactive user session without an explicit custom title, generate clean heuristic title immediately
         initial_title = title
-        if not event_id and (not title or "http" in title or title == description[:70]):
+        if not event_id and not is_subsession and (not title or "http" in title or title == description[:70]):
             initial_title = generate_heuristic_title(description or title, repo_name)
 
         # Auto-route PR review & audit intent to CodeReviewer persona if persona is default or General
@@ -146,23 +172,6 @@ class AgentTaskPool:
         if persona in ["IssueResolver", "General", "default", ""] and re.search(review_intent_pattern, f"{initial_title} {description}", re.IGNORECASE):
             persona = "CodeReviewer"
             logger.info(f"Auto-routed task '{initial_title}' to specialized CodeReviewer persona based on PR review intent.")
-
-        # Determine model: prioritize explicit model_name (if not 'auto'/empty)
-        chosen_model = model_name if (model_name and model_name.strip() and model_name.strip() != "auto") else None
-
-        # If subsession or child task without an explicit model, inherit parent session's model
-        if not chosen_model and parent_task_id:
-            try:
-                async with async_session_factory() as session:
-                    parent_res = await session.execute(
-                        select(TaskModel.model_name).where(TaskModel.id == parent_task_id)
-                    )
-                    parent_model = parent_res.scalar_one_or_none()
-                    if parent_model and parent_model.strip() and parent_model.strip() != "auto":
-                        chosen_model = parent_model.strip()
-                        logger.info(f"Subsession automatically inherited parent task ({parent_task_id}) model: '{chosen_model}'")
-            except Exception as pe:
-                logger.debug(f"Parent model inheritance lookup note: {pe}")
 
         chosen_model = chosen_model or settings.ANTIGRAVITY_MODEL
         init_tokens = estimate_tokens(description or initial_title)
@@ -185,6 +194,7 @@ class AgentTaskPool:
                 commit_sha=commit_sha,
                 is_subsession=is_subsession,
                 parent_task_id=parent_task_id,
+                workspace_path=parent_workspace_path,
                 sandbox_status="PROVISIONING",
                 total_tokens=init_tokens,
                 git_branch=f"cyclode/task-{datetime.now().strftime('%Y%m%d%H%M%S')}"
@@ -211,8 +221,8 @@ class AgentTaskPool:
             "created_at": datetime.now(timezone.utc).isoformat()
         })
 
-        # For user-initiated tasks, spawn async AI title generator in background
-        if not event_id:
+        # For user-initiated primary tasks, spawn async AI title generator in background
+        if not event_id and not is_subsession:
             asyncio.create_task(
                 self._generate_and_update_title(
                     task_id=task_id,
@@ -393,47 +403,44 @@ class AgentTaskPool:
     ):
         sandbox_ctx = None
         try:
-            # 1. Provision Ephemeral Sandbox or attach parent subsession workspace
-            parent_task_rec = None
-            async with async_session_factory() as session:
-                t_check = await session.get(TaskModel, task_id)
-                if t_check and t_check.is_subsession and t_check.parent_task_id:
-                    parent_task_rec = await session.get(TaskModel, t_check.parent_task_id)
-
-            if parent_task_rec and parent_task_rec.workspace_path and Path(parent_task_rec.workspace_path).exists():
-                workspace_path = Path(parent_task_rec.workspace_path)
-                try:
-                    sandbox_ctx = await sandbox_manager.get_or_create(
-                        task_id=parent_task_rec.id,
-                        repo_name=repo_name or parent_task_rec.repo_name,
-                        repo_url=repo_url or parent_task_rec.repo_url,
-                        branch=parent_task_rec.target_branch,
-                        commit_sha=parent_task_rec.commit_sha
-                    )
-                except Exception as e:
-                    logger.warning(f"Subsession {task_id} attaching parent sandbox {parent_task_rec.id}: {e}")
-            else:
-                sandbox_ctx = await sandbox_manager.get_or_create(
-                    task_id=task_id,
-                    repo_name=repo_name,
-                    repo_url=repo_url,
-                    branch=target_branch,
-                    commit_sha=commit_sha
-                )
-                workspace_path = sandbox_ctx.workspace_path
+            # 1. Fetch task metadata and provision Ephemeral Sandbox or attach parent subsession workspace
             task_model_name = settings.ANTIGRAVITY_MODEL
-
             task_branch = None
             task_persona_instructions = None
             task_role_definition = None
+            is_subsession = False
+            reusable_ws_path: Optional[Path] = None
+            parent_task_rec = None
+
             async with async_session_factory() as session:
                 task_rec = await session.get(TaskModel, task_id)
                 if task_rec:
+                    is_subsession = bool(task_rec.is_subsession)
                     if task_rec.model_name:
                         task_model_name = task_rec.model_name
                     task_branch = task_rec.git_branch
                     task_persona_instructions = task_rec.persona_instructions
                     task_role_definition = task_rec.role_definition
+                    if is_subsession and task_rec.workspace_path and Path(task_rec.workspace_path).exists():
+                        reusable_ws_path = Path(task_rec.workspace_path)
+                    elif is_subsession and task_rec.parent_task_id:
+                        parent_task_rec = await session.get(TaskModel, task_rec.parent_task_id)
+                        if parent_task_rec and parent_task_rec.workspace_path and Path(parent_task_rec.workspace_path).exists():
+                            reusable_ws_path = Path(parent_task_rec.workspace_path)
+
+            if reusable_ws_path is not None:
+                workspace_path = reusable_ws_path
+            else:
+                sandbox_ctx = await sandbox_manager.get_or_create(
+                    task_id=task_id,
+                    repo_name=repo_name or (parent_task_rec.repo_name if parent_task_rec else None),
+                    repo_url=repo_url or (parent_task_rec.repo_url if parent_task_rec else None),
+                    branch=target_branch or (parent_task_rec.target_branch if parent_task_rec else None),
+                    commit_sha=commit_sha or (parent_task_rec.commit_sha if parent_task_rec else None)
+                )
+                workspace_path = sandbox_ctx.workspace_path
+
+            async with async_session_factory() as session:
                 await session.execute(
                     update(TaskModel)
                     .where(TaskModel.id == task_id)
@@ -455,7 +462,13 @@ class AgentTaskPool:
             # Ensure workspace git repo and take baseline snapshot for this conversation turn
             from app.agent.harness import AntigravityHarness, ensure_workspace_git_repo, create_turn_snapshot, run_io_blocking
             inferred_worker_intent = AntigravityHarness.infer_task_intent(title, description, persona)
-            if not AntigravityHarness.is_fast_direct_query(title, description, inferred_worker_intent, history=history):
+            if not AntigravityHarness.is_fast_direct_query(
+                title,
+                description,
+                inferred_worker_intent,
+                history=history,
+                is_subsession=is_subsession,
+            ):
                 await run_io_blocking(ensure_workspace_git_repo, workspace_path, branch=task_branch)
                 conv_turn_idx = len(history or []) // 2 + 1
                 await run_io_blocking(create_turn_snapshot, workspace_path, f"conv_turn_{conv_turn_idx}")
@@ -828,7 +841,8 @@ class AgentTaskPool:
                 on_plan=on_plan,
                 steering_queue=task_steering_q,
                 persona_instructions=task_persona_instructions,
-                role_definition=task_role_definition
+                role_definition=task_role_definition,
+                is_subsession=is_subsession
             )
 
             # Flush buffered writes before reading final state
@@ -1763,8 +1777,8 @@ class AgentTaskPool:
                 )
                 await session.commit()
 
-        # Auto-resolve from database vault if an explicit repository handle or distinct name is referenced
-        if not active_repo_url and not repo_match:
+        # Auto-resolve from database vault if an explicit repository handle or distinct name is referenced (skip for subsessions)
+        if not active_repo_url and not repo_match and not task.is_subsession:
             try:
                 from app.db.models import RepositoryConfigModel
                 GENERIC_REPO_STOPWORDS = {

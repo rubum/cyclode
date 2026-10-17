@@ -380,23 +380,64 @@ class AntigravityHarness:
             logger.debug(f"Emit plan callback notice: {e}")
 
     @staticmethod
+    def _strip_subsession_framing(title: str, prompt: str) -> Tuple[str, str, bool]:
+        """
+        Strips sub-session wrapper titles ('Code Discussion: ...', 'Code Review: ...')
+        and attached code snippet blocks ('**Regarding snippet/line in** ...') so intent
+        and fast-path routing evaluate the user's actual inquiry rather than the attached filename.
+        Returns (clean_title, clean_prompt, has_inline_snippet).
+        """
+        raw_title = (title or "").strip()
+        raw_prompt = (prompt or "").strip()
+        has_inline_snippet = False
+
+        if re.match(r"^(?:code\s+discussion|code\s+review)\s*:", raw_title, re.IGNORECASE):
+            raw_title = ""
+
+        while True:
+            snippet_match = re.match(
+                r"^\*\*Regarding (?:snippet|line) in\*\*\s*`[^`]+`(?:\s*\([^)]+\))?:\s*\n```[\s\S]*?```(?:\n\n|\n)?([\s\S]*)$",
+                raw_prompt,
+            )
+            if snippet_match:
+                has_inline_snippet = True
+                raw_prompt = (snippet_match.group(1) or "").strip()
+            else:
+                break
+
+        inline_explain_match = re.match(
+            r"^(Please\s+(?:explain|describe|analyze|inspect|refactor|modernize|generate)[^:\n]*?)\s+from\s+`[^`]+`(?:\s*\([^)]+\))?:\s*\n```[\s\S]*?```(?:\n\n|\n)?([\s\S]*)$",
+            raw_prompt,
+            re.IGNORECASE,
+        )
+        if inline_explain_match:
+            has_inline_snippet = True
+            head = (inline_explain_match.group(1) or "").strip()
+            tail = (inline_explain_match.group(2) or "").strip()
+            raw_prompt = f"{head}. {tail}".strip() if tail else head
+
+        return raw_title, raw_prompt, has_inline_snippet
+
+    @staticmethod
     def infer_task_intent(title: str, prompt: str, persona_name: str = "", mode: Optional[str] = None) -> str:
         """
         Infers the structural intent category ('planning', 'qa_research', 'app_building',
         'code_modification', 'debugging', 'review_audit', 'devops') from task title,
         prompt text, and persona name.
         Guarantees that coding, refactoring, and UI actions never falsely default to qa_research,
-        while contextual follow-up questions (e.g. "what's a namespace") are not misclassified by stale session titles.
+        while contextual follow-up questions (e.g. "what's a namespace") and inline snippet explanations
+        are not misclassified by stale session titles or snippet headers.
         """
         if mode and str(mode).strip().lower() in ["plan", "planning"]:
             return "planning"
-        combined = f"{title or ''} {prompt or ''}".strip().lower()
-        cleaned_prompt = (prompt or "").strip().lower()
-        cleaned_title = (title or "").strip().lower()
+        clean_title_raw, clean_prompt_raw, has_inline_snippet = AntigravityHarness._strip_subsession_framing(title, prompt)
+        combined = f"{clean_title_raw} {clean_prompt_raw}".strip().lower()
+        cleaned_prompt = clean_prompt_raw.lower()
+        cleaned_title = clean_title_raw.lower()
 
         # 1. Greetings fast path
         conversational_pings = {"hey", "hello", "hi", "howdy", "greetings", "good morning", "good afternoon", "good evening", "yo", "sup", "hey there", "hello there"}
-        if cleaned_prompt in conversational_pings or cleaned_title in conversational_pings:
+        if cleaned_prompt in conversational_pings or (cleaned_title in conversational_pings and not cleaned_prompt):
             return "qa_research"
 
         # 2. Planning phrases
@@ -434,6 +475,7 @@ class AntigravityHarness:
             "why is", "why does", "why do", "why are", "where is", "where are", "where's",
             "who is", "when is", "which ", "explain", "describe", "tell me about",
             "compare", "contrast", "overview of", "summarize", "define ",
+            "please explain", "please describe", "please summarize", "please inspect and analyze",
             "does it", "should we", "should i", "can we", "is it", "would it", "is there", "are there"
         ]
         prompt_is_qa_question = (
@@ -446,8 +488,8 @@ class AntigravityHarness:
         )
         is_qa_prefix = prompt_is_qa_question or title_is_qa_question
         code_file_regex = r'\b[\w\-\./]+\.(py|html|css|jsx?|tsx?|json|sql|rs|go|c|cpp|h)\b|\bdockerfile\b'
-        prompt_has_code_file = bool(re.search(code_file_regex, cleaned_prompt, re.IGNORECASE))
-        has_code_file = bool(re.search(code_file_regex, combined, re.IGNORECASE))
+        prompt_has_code_file = False if has_inline_snippet else bool(re.search(code_file_regex, cleaned_prompt, re.IGNORECASE))
+        has_code_file = False if has_inline_snippet else bool(re.search(code_file_regex, combined, re.IGNORECASE))
         prompt_has_mutation_verb = any(
             re.search(rf'\b{re.escape(v)}\b', cleaned_prompt)
             for v in ["fix", "refactor", "implement", "update", "modify", "patch", "remediate", "edit", "write", "create", "build", "delete", "remove", "rename"]
@@ -456,7 +498,7 @@ class AntigravityHarness:
         if (
             is_discussion_or_advisory
             or (prompt_is_qa_question and not prompt_has_code_file and not prompt_has_mutation_verb)
-            or (is_qa_prefix and not has_code_file)
+            or (is_qa_prefix and not has_code_file and not prompt_has_mutation_verb)
         ):
             return "qa_research"
 
@@ -519,7 +561,8 @@ class AntigravityHarness:
         Returns False for greetings, direct conceptual Q&A (e.g. "what's a namespace"),
         and lightweight explanations that do not require deep architectural or debugging synthesis.
         """
-        cleaned_prompt = (prompt or title or "").strip().lower()
+        clean_title_raw, clean_prompt_raw, _ = AntigravityHarness._strip_subsession_framing(title, prompt)
+        cleaned_prompt = (clean_prompt_raw or clean_title_raw or "").strip().lower()
         conversational_pings = {
             "hey", "hello", "hi", "howdy", "greetings", "good morning",
             "good afternoon", "good evening", "yo", "sup", "hey there", "hello there"
@@ -552,6 +595,7 @@ class AntigravityHarness:
         history: Optional[List[Dict[str, Any]]] = None,
         intent_category: Optional[str] = None,
         mode: Optional[str] = None,
+        is_subsession: bool = False,
     ) -> bool:
         """
         Determines whether a query can bypass the pre-turn LLM plan synthesis round-trip
@@ -559,13 +603,14 @@ class AntigravityHarness:
         """
         if mode and str(mode).strip().lower() in ["plan", "planning"]:
             return False
-        cleaned_prompt = (prompt or "").strip().lower()
-        cleaned_title = (title or "").strip().lower()
+        clean_title_raw, clean_prompt_raw, has_inline_snippet = AntigravityHarness._strip_subsession_framing(title, prompt)
+        cleaned_prompt = clean_prompt_raw.lower()
+        cleaned_title = clean_title_raw.lower()
         conversational_pings = {
             "hey", "hello", "hi", "howdy", "greetings", "good morning",
             "good afternoon", "good evening", "yo", "sup", "hey there", "hello there"
         }
-        if cleaned_prompt in conversational_pings or cleaned_title in conversational_pings:
+        if cleaned_prompt in conversational_pings or (cleaned_title in conversational_pings and not cleaned_prompt):
             return True
 
         # Approval / continuation directives when an implementation plan already exists in history
@@ -594,8 +639,15 @@ class AntigravityHarness:
             intent = persona_name
         else:
             intent = AntigravityHarness.infer_task_intent(title, prompt, persona_name, mode=mode)
+
+        if is_subsession and intent != "planning":
+            return True
+
         if intent != "qa_research":
             return False
+
+        if has_inline_snippet:
+            return True
 
         # Direct qa_research without target workspace code files, URLs, or PR inspections
         code_file_regex = r'\b[\w\-\./]+\.(py|html|css|jsx?|tsx?|json|sql|rs|go|c|cpp|h)\b|\bdockerfile\b'
@@ -1210,7 +1262,8 @@ class AntigravityHarness:
         on_plan: Optional[Callable[[Dict[str, Any]], Any]] = None,
         steering_queue: Optional[asyncio.Queue] = None,
         persona_instructions: Optional[str] = None,
-        role_definition: Optional[str] = None
+        role_definition: Optional[str] = None,
+        is_subsession: bool = False,
     ) -> Dict[str, Any]:
         """
         Executes an agent task directly via the LLM-First ReAct engine with native function calling.
@@ -1281,7 +1334,8 @@ class AntigravityHarness:
             on_plan=on_plan,
             steering_queue=steering_queue,
             persona_instructions=persona_instructions,
-            role_definition=role_definition
+            role_definition=role_definition,
+            is_subsession=is_subsession,
         )
 
     async def _execute_with_llm(
@@ -1306,7 +1360,8 @@ class AntigravityHarness:
         on_plan: Optional[Callable[[Dict[str, Any]], Any]] = None,
         steering_queue: Optional[asyncio.Queue] = None,
         persona_instructions: Optional[str] = None,
-        role_definition: Optional[str] = None
+        role_definition: Optional[str] = None,
+        is_subsession: bool = False,
     ) -> Dict[str, Any]:
         """
         Primary LLM-first ReAct engine: invokes model with comprehensive tool declarations.
@@ -1441,13 +1496,20 @@ class AntigravityHarness:
                 except Exception as cb_err:
                     logger.warning(f"Failed to notify on_approval_required for staged action {act_type}: {cb_err}")
 
-        # Single deduplicated workspace scan (reused by both Working Memory and _generate_dynamic_plan)
+        fast_direct = self.is_fast_direct_query(title, prompt, persona_name, history, is_subsession=is_subsession)
+        needs_workspace_scan = bool(history) or not (fast_direct and (initial_intent == "qa_research" or (is_subsession and initial_intent != "planning")))
+
+        # Bounded workspace scan (reused by both Working Memory and _generate_dynamic_plan without sorting entire repo)
         active_files: List[str] = []
         cached_workspace_files_with_sizes: List[str] = []
-        if workspace_path and workspace_path.exists():
+        if needs_workspace_scan and workspace_path and workspace_path.exists():
             try:
                 ignored_dirs = {".git", "node_modules", "__pycache__", ".venv", ".pytest_cache", "dist", "build", ".antigravity", ".gemini"}
-                for p in sorted(workspace_path.rglob("*")):
+                scanned_entries = 0
+                for p in workspace_path.rglob("*"):
+                    scanned_entries += 1
+                    if scanned_entries > 400:
+                        break
                     if any(part in ignored_dirs for part in p.parts):
                         continue
                     if p.is_file():
@@ -1576,18 +1638,22 @@ class AntigravityHarness:
 
         client_timeout = httpx.Timeout(120.0, connect=15.0, read=120.0)
         async with httpx.AsyncClient(timeout=client_timeout) as client:
-            fast_direct = self.is_fast_direct_query(title, prompt, persona_name, history)
-            if fast_direct and initial_intent == "qa_research":
-                # Fast-path bypass: skip pre-turn LLM plan synthesis for direct conceptual/contextual Q&A
+            if fast_direct and (initial_intent == "qa_research" or (is_subsession and initial_intent != "planning")):
+                # Fast-path bypass: skip pre-turn LLM plan synthesis for direct conceptual/contextual Q&A and focused sub-sessions
+                default_style = (
+                    ("direct_concise" if len((prompt or "").split()) <= 15 else "analytical_briefing")
+                    if initial_intent == "qa_research"
+                    else "action_execution"
+                )
                 current_plan = {
-                    "intent_category": "qa_research",
-                    "response_style": "direct_concise" if len((prompt or "").split()) <= 15 else "analytical_briefing",
+                    "intent_category": initial_intent,
+                    "response_style": default_style,
                     "requires_plan": False,
                     "requires_reasoning": initial_reasoning,
                     "title": title or (prompt or "")[:80],
                     "objective": title or (prompt or "")[:100],
                     "steps": [
-                        {"id": "step-1", "title": f"Synthesize direct response for: {(prompt or title)[:80]}", "status": "in_progress"}
+                        {"id": "step-1", "title": f"Execute: {(title or prompt or '')[:80]}", "status": "in_progress"}
                     ],
                     "evaluation": {
                         "status": "pending",

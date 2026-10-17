@@ -3683,26 +3683,28 @@ class WorkspaceTools:
                 "message": f"Successfully launched/resumed {len(dispatched_ids)} concurrent subagent pods in background."
             }
 
-        # Poll until completion or timeout
+        # Poll lightweight status columns until completion or timeout, then load full relations once
         start_time = time.time()
         final_results = []
         while time.time() - start_time < timeout:
             async with async_session_factory() as session:
-                stmt = select(TaskModel).where(TaskModel.id.in_(dispatched_ids)).options(
-                    selectinload(TaskModel.diffs),
-                    selectinload(TaskModel.logs),
-                    selectinload(TaskModel.messages)
+                status_stmt = select(TaskModel.id, TaskModel.status).where(TaskModel.id.in_(dispatched_ids))
+                status_res = await session.execute(status_stmt)
+                status_rows = status_res.all()
+
+                all_done = len(status_rows) == len(dispatched_ids) and all(
+                    row[1] not in ("RUNNING", "INITIALIZING", "QUEUED")
+                    for row in status_rows
                 )
-                res = await session.execute(stmt)
-                tasks_list = res.scalars().all()
 
-                all_done = True
-                for t in tasks_list:
-                    if t.status in ["RUNNING", "INITIALIZING", "QUEUED"]:
-                        all_done = False
-                        break
-
-                if all_done and len(tasks_list) == len(dispatched_ids):
+                if all_done:
+                    stmt = select(TaskModel).where(TaskModel.id.in_(dispatched_ids)).options(
+                        selectinload(TaskModel.diffs),
+                        selectinload(TaskModel.logs),
+                        selectinload(TaskModel.messages)
+                    )
+                    res = await session.execute(stmt)
+                    tasks_list = res.scalars().all()
                     for t in tasks_list:
                         last_agent_msg = ""
                         if t.messages:
@@ -3728,7 +3730,7 @@ class WorkspaceTools:
                         })
                     break
 
-            await asyncio.sleep(1.0)
+            await asyncio.sleep(0.25)
 
         # If timeout reached before all done
         if not final_results:
