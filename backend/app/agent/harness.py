@@ -1558,8 +1558,15 @@ class AntigravityHarness:
                         "parts": [{"text": "Understood. I have verified the active workspace files on disk and will ground my actions in the actual files."}]
                     })
 
-                try:
-                    from app.agent.engine.memory import retrieve_relevant_heuristics, format_working_memory_block
+        if workspace_path and workspace_path.exists():
+            try:
+                from app.agent.engine.memory import (
+                    plan_memory_query,
+                    retrieve_relevant_heuristics,
+                    format_working_memory_block,
+                )
+                mem_plan = plan_memory_query(prompt, target_files=active_files if active_files else None)
+                if mem_plan.get("should_recall"):
                     heuristics = await retrieve_relevant_heuristics(
                         repo_id=None,
                         prompt=prompt,
@@ -1576,8 +1583,8 @@ class AntigravityHarness:
                             "role": "model",
                             "parts": [{"text": "Understood. I will apply these verified lessons and repository heuristics throughout execution."}]
                         })
-                except Exception as e:
-                    logger.debug(f"Experiential memory injection notice: {e}")
+            except Exception as e:
+                logger.debug(f"Experiential memory injection notice: {e}")
 
         user_parts: List[Dict[str, Any]] = [{"text": prompt}]
         if workspace_path and workspace_path.exists():
@@ -2894,10 +2901,17 @@ class AntigravityHarness:
                                     tool_result, precomputed_elapsed_ms = precomputed_tool_results.pop(idx)
                                 else:
                                     tool_result = await run_io_blocking(WorkspaceTools.read_file, workspace_path, file_path, start_line=start_line, end_line=end_line)
-                                if "content" in tool_result:
+                                if isinstance(tool_result, dict) and "content" in tool_result:
+                                    try:
+                                        from app.agent.engine.memory import get_file_memory_hints
+                                        file_hints = await get_file_memory_hints(file_path, limit=2)
+                                        if file_hints:
+                                            tool_result["memory_hints"] = [h["insight"] for h in file_hints]
+                                    except Exception:
+                                        pass
                                     out_str = tool_result["content"]
                                 else:
-                                    out_str = tool_result.get("error", "Error reading file")
+                                    out_str = tool_result.get("error", "Error reading file") if isinstance(tool_result, dict) else "Error reading file"
                             elif fn_name == "get_file_outline":
                                 file_path = args.get("file_path") or args.get("path") or args.get("filePath") or args.get("target_file") or args.get("filename") or args.get("file") or ""
                                 if idx in precomputed_tool_results:
@@ -4283,7 +4297,23 @@ class AntigravityHarness:
                     await _flush_staged_approvals()
                     if not has_staged_approvals:
                         try:
-                            from app.agent.engine.memory import promote_task_memories
+                            from app.agent.engine.memory import extract_turn_heuristics, promote_task_memories
+                            all_turn_logs = [
+                                {
+                                    "tool_name": tc.tool_name,
+                                    "tool_input": tc.input_args,
+                                    "tool_output": tc.output_data or tc.error or "",
+                                    "exit_code": tc.exit_code,
+                                }
+                                for t_obj in collector.turns
+                                for tc in t_obj.tool_calls
+                            ]
+                            if len(all_turn_logs) >= 2:
+                                await extract_turn_heuristics(
+                                    task_id=task_id,
+                                    turn_index=len(collector.turns),
+                                    tool_logs=all_turn_logs,
+                                )
                             await promote_task_memories(task_id)
                         except Exception as e:
                             logger.debug(f"Error promoting task memories on completion: {e}")
@@ -4356,7 +4386,23 @@ class AntigravityHarness:
         await _flush_staged_approvals()
         if return_status == "COMPLETED" and not has_staged_approvals:
             try:
-                from app.agent.engine.memory import promote_task_memories
+                from app.agent.engine.memory import extract_turn_heuristics, promote_task_memories
+                all_turn_logs = [
+                    {
+                        "tool_name": tc.tool_name,
+                        "tool_input": tc.input_args,
+                        "tool_output": tc.output_data or tc.error or "",
+                        "exit_code": tc.exit_code,
+                    }
+                    for t_obj in collector.turns
+                    for tc in t_obj.tool_calls
+                ]
+                if len(all_turn_logs) >= 2:
+                    await extract_turn_heuristics(
+                        task_id=task_id,
+                        turn_index=len(collector.turns),
+                        tool_logs=all_turn_logs,
+                    )
                 await promote_task_memories(task_id)
             except Exception as e:
                 logger.debug(f"Error promoting task memories on fallback completion: {e}")

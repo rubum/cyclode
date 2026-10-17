@@ -167,8 +167,18 @@ def _migrate_db(connection):
         ke_info = connection.exec_driver_sql("PRAGMA table_info(knowledge_entries)").fetchall()
         if ke_info:
             ke_cols = [row[1] for row in ke_info]
-            if "usage_count" not in ke_cols:
-                connection.exec_driver_sql("ALTER TABLE knowledge_entries ADD COLUMN usage_count INTEGER DEFAULT 0")
+            new_ke_columns = [
+                ("usage_count", "INTEGER DEFAULT 0"),
+                ("slug", "VARCHAR(200)"),
+                ("superseded_by", "VARCHAR(36)"),
+                ("epistemic_grade", "VARCHAR(30) DEFAULT 'asserted'"),
+                ("entities", "JSON DEFAULT '[]'"),
+                ("relations", "JSON DEFAULT '[]'"),
+                ("embedding_json", "TEXT"),
+            ]
+            for col_name, col_type in new_ke_columns:
+                if col_name not in ke_cols:
+                    connection.exec_driver_sql(f"ALTER TABLE knowledge_entries ADD COLUMN {col_name} {col_type}")
 
     elif "postgres" in connection.dialect.name.lower():
         postgres_task_cols = [
@@ -208,6 +218,13 @@ def _migrate_db(connection):
             connection.exec_driver_sql("ALTER TABLE repository_configs ADD COLUMN IF NOT EXISTS is_listening BOOLEAN DEFAULT FALSE;")
             connection.exec_driver_sql("ALTER TABLE repository_configs ADD COLUMN IF NOT EXISTS subscribed_events TEXT DEFAULT 'pull_request.opened,issues.opened,check_run';")
             connection.exec_driver_sql("ALTER TABLE repository_configs ADD COLUMN IF NOT EXISTS default_persona VARCHAR(50) DEFAULT 'AUTONOMOUS_WORKER';")
+            connection.exec_driver_sql("ALTER TABLE knowledge_entries ADD COLUMN IF NOT EXISTS usage_count INTEGER DEFAULT 0;")
+            connection.exec_driver_sql("ALTER TABLE knowledge_entries ADD COLUMN IF NOT EXISTS slug VARCHAR(200);")
+            connection.exec_driver_sql("ALTER TABLE knowledge_entries ADD COLUMN IF NOT EXISTS superseded_by VARCHAR(36);")
+            connection.exec_driver_sql("ALTER TABLE knowledge_entries ADD COLUMN IF NOT EXISTS epistemic_grade VARCHAR(30) DEFAULT 'asserted';")
+            connection.exec_driver_sql("ALTER TABLE knowledge_entries ADD COLUMN IF NOT EXISTS entities JSON DEFAULT '[]';")
+            connection.exec_driver_sql("ALTER TABLE knowledge_entries ADD COLUMN IF NOT EXISTS relations JSON DEFAULT '[]';")
+            connection.exec_driver_sql("ALTER TABLE knowledge_entries ADD COLUMN IF NOT EXISTS embedding_json TEXT;")
 
             # Upgrade any legacy TIMESTAMP WITHOUT TIME ZONE columns to TIMESTAMPTZ
             naive_cols = connection.exec_driver_sql("""

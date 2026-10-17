@@ -602,6 +602,11 @@ export interface KnowledgeEntry {
   trigger_pattern: string;
   insight: string;
   context_files: string[];
+  slug?: string | null;
+  superseded_by?: string | null;
+  epistemic_grade?: 'verified' | 'self_consistent' | 'asserted' | 'held' | 'refused' | string;
+  entities?: string[];
+  relations?: Array<{ subject: string; predicate: string; object: string }>;
   status: 'PROVISIONAL' | 'PROMOTED' | 'INVALIDATED' | 'SUPERSEDED';
   utility_score: number;
   usage_count: number;

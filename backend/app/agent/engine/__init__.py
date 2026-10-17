@@ -39,7 +39,13 @@ from app.agent.engine.memory import (
     format_working_memory_block,
     vote_memory_heuristic,
     cascade_delete_task_memories,
+    plan_memory_query,
+    upsert_knowledge_entry,
+    get_file_memory_hints,
+    recall_context_pack,
+    build_knowledge_graph,
 )
+from app.agent.engine.cortex_bridge import CortexDBBridge
 
 __all__ = [
     "_get_isolated_git_env",
@@ -67,5 +73,12 @@ __all__ = [
     "format_working_memory_block",
     "vote_memory_heuristic",
     "cascade_delete_task_memories",
+    "plan_memory_query",
+    "upsert_knowledge_entry",
+    "get_file_memory_hints",
+    "recall_context_pack",
+    "build_knowledge_graph",
+    "CortexDBBridge",
 ]
+
 

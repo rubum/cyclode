@@ -318,7 +318,7 @@ export const IntelligenceTab: React.FC<IntelligenceTabProps> = ({ task }) => {
           </div>
         )}
 
-        {/* Sub-view 3: Experiential Memory */}
+        {/* Sub-view 3: Experiential Memory (CortexDB Knowledge Contract & Graph Facts) */}
         {activeSection === 'memory' && (
           <div className="space-y-2.5">
             {isLoadingMemories ? (
@@ -331,64 +331,106 @@ export const IntelligenceTab: React.FC<IntelligenceTabProps> = ({ task }) => {
                 <Brain className="w-6 h-6 mx-auto mb-2 opacity-40 text-onedark-accent" />
                 <div>No heuristics extracted from this session yet.</div>
                 <p className="text-[11px] opacity-75">
-                  Heuristics are automatically captured when tools recover from errors or verify key architectural rules.
+                  Heuristics and entity-relation graph facts are automatically captured when tools recover from errors or verify architectural rules.
                 </p>
               </div>
             ) : (
-              memories.map((m) => (
-                <div
-                  key={m.id}
-                  className="p-3.5 rounded-lg bg-onedark-surface/70 border border-onedark-borderSubtle space-y-2 text-xs shadow-xs"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-onedark-purple/15 text-onedark-purple border border-onedark-purple/30 font-semibold">
-                      {m.category.replace('_', ' ')}
-                    </span>
-                    <span
-                      className={`text-[10px] font-mono px-2 py-0.5 rounded font-semibold ${
-                        m.status === 'PROMOTED'
-                          ? 'bg-onedark-green/15 text-onedark-green border border-onedark-green/30'
-                          : 'bg-onedark-yellow/15 text-onedark-yellow border border-onedark-yellow/30'
-                      }`}
-                    >
-                      {m.status}
-                    </span>
-                  </div>
-
-                  <p className="text-xs text-onedark-fgBright leading-relaxed font-sans font-medium">{m.insight}</p>
-
-                  {m.context_files && m.context_files.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                      {m.context_files.map((cf, idx) => (
-                        <span key={idx} className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-onedark-darker text-onedark-muted border border-onedark-borderSubtle">
-                          {cf}
+              memories.map((m) => {
+                const grade = (m.epistemic_grade || 'asserted').toLowerCase();
+                return (
+                  <div
+                    key={m.id}
+                    className={`p-3.5 rounded-lg bg-onedark-surface/70 border border-onedark-borderSubtle space-y-2 text-xs shadow-xs ${
+                      m.status === 'SUPERSEDED' ? 'opacity-60' : ''
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1.5 flex-wrap">
+                      <div className="flex items-center space-x-1.5">
+                        <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-onedark-purple/15 text-onedark-purple border border-onedark-purple/30 font-semibold">
+                          {m.category.replace('_', ' ')}
                         </span>
-                      ))}
+                        <span
+                          className={`text-[10px] font-mono uppercase px-1.5 py-0.5 rounded font-semibold ${
+                            grade === 'verified'
+                              ? 'bg-onedark-green/15 text-onedark-green border border-onedark-green/30'
+                              : grade === 'self_consistent'
+                              ? 'bg-onedark-accent/15 text-onedark-accent border border-onedark-accent/30'
+                              : 'bg-onedark-darker text-onedark-muted border border-onedark-borderSubtle'
+                          }`}
+                          title="CortexDB Epistemic Contract Grade"
+                        >
+                          {grade.replace('_', '-')}
+                        </span>
+                      </div>
+                      <span
+                        className={`text-[10px] font-mono px-2 py-0.5 rounded font-semibold ${
+                          m.status === 'PROMOTED'
+                            ? 'bg-onedark-green/15 text-onedark-green border border-onedark-green/30'
+                            : m.status === 'SUPERSEDED'
+                            ? 'bg-onedark-darker text-onedark-muted border border-onedark-borderSubtle line-through'
+                            : 'bg-onedark-yellow/15 text-onedark-yellow border border-onedark-yellow/30'
+                        }`}
+                      >
+                        {m.status}
+                      </span>
                     </div>
-                  )}
 
-                  {/* Voting and reinforcement bar */}
-                  <div className="pt-2 border-t border-onedark-borderSubtle/60 flex items-center justify-between text-[11px] font-mono text-onedark-muted">
-                    <span className="font-medium">Utility Score: <strong className="text-onedark-fgBright">{m.utility_score}</strong></span>
-                    <div className="flex items-center space-x-1">
-                      <button
-                        onClick={() => handleVoteMemory(m.id, 0.5)}
-                        className="p-1 rounded hover:bg-onedark-green/20 text-onedark-muted hover:text-onedark-green transition-colors"
-                        title="Reinforce heuristic (+0.5 utility)"
-                      >
-                        <ThumbsUp className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleVoteMemory(m.id, -0.5)}
-                        className="p-1 rounded hover:bg-onedark-red/20 text-onedark-muted hover:text-onedark-red transition-colors"
-                        title="Penalize heuristic (-0.5 utility)"
-                      >
-                        <ThumbsDown className="w-3.5 h-3.5" />
-                      </button>
+                    <p className="text-xs text-onedark-fgBright leading-relaxed font-sans font-medium">{m.insight}</p>
+
+                    {/* Relational Graph Facts (Subject —predicate→ Object) */}
+                    {m.relations && m.relations.length > 0 && (
+                      <div className="flex flex-wrap gap-1 pt-0.5">
+                        {m.relations.slice(0, 4).map((rel, rIdx) => (
+                          <span
+                            key={rIdx}
+                            className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-onedark-accent/10 text-onedark-accent border border-onedark-accent/25"
+                          >
+                            {rel.subject} —{rel.predicate}→ {rel.object}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {m.context_files && m.context_files.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {m.context_files.map((cf, idx) => (
+                          <span key={idx} className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-onedark-darker text-onedark-muted border border-onedark-borderSubtle">
+                            {cf}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Voting and reinforcement bar */}
+                    <div className="pt-2 border-t border-onedark-borderSubtle/60 flex items-center justify-between text-[11px] font-mono text-onedark-muted">
+                      <div className="flex items-center space-x-2">
+                        <span className="font-medium">Utility: <strong className="text-onedark-fgBright">{m.utility_score}</strong></span>
+                        {m.slug && (
+                          <span className="text-[10px] text-onedark-muted/70 truncate max-w-[160px]" title={m.slug}>
+                            {m.slug}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center space-x-1">
+                        <button
+                          onClick={() => handleVoteMemory(m.id, 0.5)}
+                          className="p-1 rounded hover:bg-onedark-green/20 text-onedark-muted hover:text-onedark-green transition-colors"
+                          title="Reinforce heuristic (+0.5 utility & promote to VERIFIED)"
+                        >
+                          <ThumbsUp className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleVoteMemory(m.id, -0.5)}
+                          className="p-1 rounded hover:bg-onedark-red/20 text-onedark-muted hover:text-onedark-red transition-colors"
+                          title="Penalize heuristic (-0.5 utility)"
+                        >
+                          <ThumbsDown className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         )}

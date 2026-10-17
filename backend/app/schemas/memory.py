@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 
@@ -15,6 +15,11 @@ class KnowledgeEntrySchema(BaseModel):
     trigger_pattern: str
     insight: str
     context_files: List[str] = Field(default_factory=list)
+    slug: Optional[str] = None
+    superseded_by: Optional[str] = None
+    epistemic_grade: str = "asserted"
+    entities: List[str] = Field(default_factory=list)
+    relations: List[Dict[str, Any]] = Field(default_factory=list)
     status: str = "PROVISIONAL"
     utility_score: float = 1.0
     usage_count: int = 0
@@ -31,6 +36,10 @@ class CreateKnowledgeEntryRequest(BaseModel):
     trigger_pattern: str
     insight: str
     context_files: List[str] = Field(default_factory=list)
+    slug: Optional[str] = None
+    epistemic_grade: Optional[str] = None
+    entities: Optional[List[str]] = None
+    relations: Optional[List[Dict[str, Any]]] = None
     status: str = "PROVISIONAL"
 
 
@@ -41,3 +50,25 @@ class VoteMemoryRequest(BaseModel):
 class MemorySearchResult(BaseModel):
     entries: List[KnowledgeEntrySchema]
     total: int
+
+
+class MemoryRecallRequest(BaseModel):
+    query: str
+    repo_id: Optional[str] = None
+    target_files: Optional[List[str]] = None
+    limit: int = Field(default=5, ge=1, le=20)
+
+
+class MemoryRecallResponse(BaseModel):
+    plan: Dict[str, Any]
+    entries: List[Dict[str, Any]]
+    graph_facts: List[str]
+    context_pack: str
+    engine_tier: str
+
+
+class KnowledgeGraphResponse(BaseModel):
+    nodes: List[Dict[str, Any]]
+    edges: List[Dict[str, Any]]
+    contract_tally: Dict[str, int]
+    engine_tier: str

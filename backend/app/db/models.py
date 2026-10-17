@@ -318,6 +318,14 @@ class KnowledgeEntryModel(Base):
     trigger_pattern: Mapped[str] = mapped_column(Text, nullable=False)                         # Error string, keywords, or command pattern
     insight: Mapped[str] = mapped_column(Text, nullable=False)                                 # Condensed actionable rule/heuristic
     context_files: Mapped[List[str]] = mapped_column(JSON, default=list)                       # Files or subsystems associated with this rule
+
+    # CortexDB Knowledge Contract, Supersession & Graph Fields
+    slug: Mapped[Optional[str]] = mapped_column(String(200), nullable=True, index=True)        # Canonical topic key for idempotent upsert & supersession
+    superseded_by: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)            # ID of newer KnowledgeEntryModel that superseded this entry
+    epistemic_grade: Mapped[str] = mapped_column(String(30), default="asserted")               # verified, self_consistent, asserted, held, refused
+    entities: Mapped[List[str]] = mapped_column(JSON, default=list)                            # Canonical entity names linked to this memory
+    relations: Mapped[List[Dict[str, Any]]] = mapped_column(JSON, default=list)                # Inline triples: [{"subject": ..., "predicate": ..., "object": ...}]
+    embedding_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)                 # JSON-serialized vector for RRF hybrid retrieval
     
     status: Mapped[str] = mapped_column(String(20), default="PROVISIONAL", index=True)        # PROVISIONAL, PROMOTED, INVALIDATED, SUPERSEDED
     utility_score: Mapped[float] = mapped_column(Float, default=1.0)                          # Reinforced when helpful, penalized on failure
@@ -325,6 +333,7 @@ class KnowledgeEntryModel(Base):
     
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=get_utc_now)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=get_utc_now, onupdate=get_utc_now)
+
 
 
 
