@@ -365,7 +365,7 @@ export const PolicySettings: React.FC<PolicySettingsProps> = ({
                 disabled={isSaving || (!hasUnsavedChanges && !saveSuccess)}
                 className={`inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-bold transition-all shadow-sm cursor-pointer ${
                   hasUnsavedChanges
-                    ? 'bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker active:scale-95 shadow-amber-500/20'
+                    ? 'bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg active:scale-95 shadow-amber-500/20'
                     : 'bg-onedark-surface text-onedark-muted border border-onedark-borderSubtle opacity-60 cursor-not-allowed'
                 }`}
               >
@@ -412,14 +412,14 @@ export const PolicySettings: React.FC<PolicySettingsProps> = ({
                   onClick={() => setCategoryFilter(cat.id)}
                   className={`px-2.5 py-1 rounded-md text-xs font-mono font-semibold transition-all whitespace-nowrap cursor-pointer border flex items-center space-x-1.5 ${
                     categoryFilter === cat.id
-                      ? 'bg-onedark-accent text-onedark-darker border-onedark-accent shadow-xs font-bold'
+                      ? 'bg-onedark-accent text-onedark-accentFg border-onedark-accent shadow-xs font-bold'
                       : 'bg-onedark-surface text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-darker border-onedark-borderSubtle'
                   }`}
                 >
                   <span>{cat.label}</span>
                   <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
                     categoryFilter === cat.id
-                      ? 'bg-onedark-darker/25 text-onedark-darker font-bold'
+                      ? 'bg-black/20 text-onedark-accentFg font-bold'
                       : 'bg-onedark-darker text-onedark-muted'
                   }`}>
                     {cat.count}
@@ -769,7 +769,7 @@ export const PolicySettings: React.FC<PolicySettingsProps> = ({
               <div>
                 <button
                   onClick={() => { setSearchQuery(''); setCategoryFilter('all'); setStatusFilter('all'); }}
-                  className="px-4 py-2 rounded-lg bg-onedark-accent text-onedark-darker text-xs font-mono font-bold transition-all cursor-pointer shadow-xs"
+                  className="px-4 py-2 rounded-lg bg-onedark-accent text-onedark-accentFg text-xs font-mono font-bold transition-all cursor-pointer shadow-xs"
                 >
                   Reset All Filters
                 </button>
@@ -800,7 +800,7 @@ export const PolicySettings: React.FC<PolicySettingsProps> = ({
               <button
                 onClick={handleSave}
                 disabled={isSaving}
-                className="px-4 py-1.5 rounded-lg bg-onedark-accent text-onedark-darker text-xs font-mono font-bold hover:bg-onedark-accent/90 transition-all cursor-pointer shadow-xs active:scale-95 flex items-center space-x-1.5"
+                className="px-4 py-1.5 rounded-lg bg-onedark-accent text-onedark-accentFg text-xs font-mono font-bold hover:bg-onedark-accent/90 transition-all cursor-pointer shadow-xs active:scale-95 flex items-center space-x-1.5"
               >
                 {isSaving ? (
                   <span>Saving...</span>

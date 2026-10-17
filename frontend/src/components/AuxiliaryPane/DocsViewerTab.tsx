@@ -1141,7 +1141,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
               className={`flex items-center space-x-1 px-2 py-1 rounded text-xs transition-all border cursor-pointer ${
                 isSiteTreeOpen
                   ? 'bg-onedark-accent/20 border-onedark-accent/40 text-onedark-accent font-semibold'
-                  : 'bg-onedark-surface/60 border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fg'
+                  : 'bg-onedark-surface/80 border-onedark-border text-onedark-fg/80 hover:text-onedark-fgBright'
               }`}
               title="Toggle Documentation Sections & Full-Text Search"
             >
@@ -1157,7 +1157,7 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
               className={`flex items-center space-x-1.5 px-2.5 py-1 rounded text-xs transition-all border cursor-pointer ${
                 isOutlineOpen
                   ? 'bg-onedark-accent/20 border-onedark-accent/40 text-onedark-accent font-semibold shadow-xs'
-                  : 'bg-onedark-surface/60 border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fg hover:border-onedark-border'
+                  : 'bg-onedark-surface/80 border-onedark-border text-onedark-fg/80 hover:text-onedark-fgBright'
               }`}
               title={isOutlineOpen ? "Hide Document Outline" : "Show Document Outline (Left Sidebar)"}
             >
@@ -1171,13 +1171,13 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
 
           {/* Mode Switcher (Hide in Plan, arXiv, and PDF Modes) */}
           {!isPlanDoc && !isArXiv && !isPdf && (
-            <div className="flex items-center bg-onedark-surface/80 rounded border border-onedark-borderSubtle p-0.5 text-[11px] font-medium mr-0.5">
+            <div className="flex items-center bg-onedark-surface/80 rounded border border-onedark-border p-0.5 text-[11px] font-medium mr-0.5">
               <button
                 onClick={() => setViewMode('reader')}
                 className={`px-2 py-0.5 rounded transition-all ${
                   viewMode === 'reader'
-                    ? 'bg-onedark-accent text-gray-950 shadow-xs font-bold'
-                    : 'text-onedark-muted hover:text-onedark-fg'
+                    ? 'bg-onedark-accent text-onedark-accentFg shadow-xs font-bold'
+                    : 'text-onedark-fg/80 hover:text-onedark-fgBright'
                 }`}
                 title="Clean Reader Mode"
               >
@@ -1187,8 +1187,8 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
                 onClick={() => setViewMode('webview')}
                 className={`px-2 py-0.5 rounded transition-all ${
                   viewMode === 'webview'
-                    ? 'bg-onedark-accent text-gray-950 shadow-xs font-bold'
-                    : 'text-onedark-muted hover:text-onedark-fg'
+                    ? 'bg-onedark-accent text-onedark-accentFg shadow-xs font-bold'
+                    : 'text-onedark-fg/80 hover:text-onedark-fgBright'
                 }`}
                 title="Live Embedded Webview"
               >
@@ -1733,13 +1733,13 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
             <div className="p-2 border-b border-onedark-borderSubtle space-y-2">
               <div className="flex items-center justify-between">
                 {/* Search Mode Toggle */}
-                <div className="flex items-center bg-onedark-surface/80 rounded p-0.5 text-[10.5px] border border-onedark-borderSubtle">
+                <div className="flex items-center bg-onedark-surface/80 rounded p-0.5 text-[10.5px] border border-onedark-border">
                   <button
                     onClick={() => setSearchMode('tree')}
                     className={`px-2 py-0.5 rounded transition-all cursor-pointer ${
                       searchMode === 'tree'
-                        ? 'bg-onedark-accent text-gray-950 font-bold shadow-xs'
-                        : 'text-onedark-muted hover:text-onedark-fg'
+                        ? 'bg-onedark-accent text-onedark-accentFg font-bold shadow-xs'
+                        : 'text-onedark-fg/80 hover:text-onedark-fgBright'
                     }`}
                   >
                     Sections
@@ -1748,8 +1748,8 @@ export const DocsViewerTab: React.FC<DocsViewerTabProps> = ({
                     onClick={() => setSearchMode('full')}
                     className={`px-2 py-0.5 rounded transition-all cursor-pointer ${
                       searchMode === 'full'
-                        ? 'bg-onedark-accent text-gray-950 font-bold shadow-xs'
-                        : 'text-onedark-muted hover:text-onedark-fg'
+                        ? 'bg-onedark-accent text-onedark-accentFg font-bold shadow-xs'
+                        : 'text-onedark-fg/80 hover:text-onedark-fgBright'
                     }`}
                   >
                     Full Docs

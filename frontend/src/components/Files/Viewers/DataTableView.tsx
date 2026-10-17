@@ -409,7 +409,7 @@ export const DataTableView: React.FC<DataTableViewProps> = ({
               type="button"
               onClick={() => setViewMode('table')}
               className={`flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-mono cursor-pointer transition-colors ${
-                viewMode === 'table' ? 'bg-onedark-accent text-onedark-darker font-bold shadow-xs' : 'text-onedark-muted hover:text-onedark-fg'
+                viewMode === 'table' ? 'bg-onedark-accent text-onedark-accentFg font-bold shadow-xs' : 'text-onedark-muted hover:text-onedark-fg'
               }`}
             >
               <Table className="w-3 h-3" />
@@ -419,7 +419,7 @@ export const DataTableView: React.FC<DataTableViewProps> = ({
               type="button"
               onClick={() => setViewMode('chart')}
               className={`flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] font-mono cursor-pointer transition-colors ${
-                viewMode === 'chart' ? 'bg-onedark-accent text-onedark-darker font-bold shadow-xs' : 'text-onedark-muted hover:text-onedark-fg'
+                viewMode === 'chart' ? 'bg-onedark-accent text-onedark-accentFg font-bold shadow-xs' : 'text-onedark-muted hover:text-onedark-fg'
               }`}
             >
               <BarChart3 className="w-3 h-3" />
@@ -506,7 +506,7 @@ export const DataTableView: React.FC<DataTableViewProps> = ({
             type="button"
             onClick={handleExecuteSql}
             disabled={sqlRunning || !sqlQuery.trim()}
-            className="flex items-center space-x-1 px-3 py-1 rounded bg-onedark-purple hover:bg-onedark-purple/80 text-white font-semibold text-[11px] cursor-pointer disabled:opacity-40 transition-colors shadow-xs"
+            className="flex items-center space-x-1 px-3 py-1 rounded bg-onedark-purple hover:bg-onedark-purple/80 text-onedark-purpleFg font-semibold text-[11px] cursor-pointer disabled:opacity-40 transition-colors shadow-xs"
           >
             <Play className="w-3 h-3 fill-current" />
             <span>{sqlRunning ? 'Querying...' : 'Run SQL'}</span>

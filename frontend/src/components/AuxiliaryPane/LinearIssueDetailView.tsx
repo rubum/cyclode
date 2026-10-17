@@ -195,10 +195,10 @@ export const LinearIssueDetailView: React.FC<LinearIssueDetailViewProps> = ({
           {issue && onImplementWithAgent && (
             <button
               onClick={handleImplement}
-              className="flex items-center space-x-1.5 px-3 py-1 rounded-md bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker text-xs font-mono font-bold transition-all cursor-pointer shadow-xs active:scale-95"
+              className="flex items-center space-x-1.5 px-3 py-1 rounded-md bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg text-xs font-mono font-bold transition-all cursor-pointer shadow-xs active:scale-95"
               title="Dispatch task to active agent"
             >
-              <Sparkles className="w-3.5 h-3.5 fill-onedark-darker" />
+              <Sparkles className="w-3.5 h-3.5 fill-onedark-accentFg" />
               <span>⚡ Implement with Agent</span>
             </button>
           )}
@@ -283,7 +283,7 @@ export const LinearIssueDetailView: React.FC<LinearIssueDetailViewProps> = ({
 
               <button
                 onClick={fetchIssue}
-                className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker text-xs font-mono font-bold transition-all cursor-pointer shadow-xs active:scale-95"
+                className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg text-xs font-mono font-bold transition-all cursor-pointer shadow-xs active:scale-95"
               >
                 <RotateCw className="w-3.5 h-3.5" />
                 <span>Retry</span>
@@ -485,7 +485,7 @@ export const LinearIssueDetailView: React.FC<LinearIssueDetailViewProps> = ({
                   <button
                     type="submit"
                     disabled={submittingComment || !newComment.trim()}
-                    className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker text-xs font-mono font-bold transition-all disabled:opacity-40 cursor-pointer shadow-xs active:scale-95"
+                    className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg text-xs font-mono font-bold transition-all disabled:opacity-40 cursor-pointer shadow-xs active:scale-95"
                   >
                     {submittingComment ? (
                       <Loader2 className="w-3.5 h-3.5 animate-spin" />

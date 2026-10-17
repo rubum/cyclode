@@ -327,7 +327,7 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [loading, data?.path, viewMode]);
 
   const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const top = e.currentTarget.scrollTop;
@@ -345,12 +345,14 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
   useEffect(() => {
     if (!taskId || !filePath) {
       setData(null);
+      setScrollTop(0);
       lastLoadedKeyRef.current = null;
       return;
     }
 
     // If filePath was just updated to the canonical path of the already-loaded file, skip redundant refetch
     if (data && lastLoadedKeyRef.current === `${taskId}:${filePath}`) {
+      if (loading) setLoading(false);
       return;
     }
 
@@ -358,6 +360,9 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
     const fetchContent = async () => {
       setLoading(true);
       setError(null);
+      setScrollTop(0);
+      setActiveHighlightLine(null);
+      lastLoadedKeyRef.current = null;
       try {
         const params = new URLSearchParams({ path: filePath });
         if (targetSymbol) params.set('symbol', targetSymbol);
@@ -371,6 +376,7 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
           if (res.status === 404 && onFileNotFound) {
             const handled = onFileNotFound();
             if (handled !== false) {
+              if (isMounted) setLoading(false);
               return;
             }
           }
@@ -446,7 +452,7 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
   };
 
   const rawLines = useMemo(() => {
-    if (!data?.content) return [];
+    if (data?.content === undefined || data?.content === null) return [];
     return data.content.split('\n');
   }, [data]);
 
@@ -513,13 +519,20 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
         clearTimeout(fadeTimer);
       };
     } else if (taskId && filePath && fileScrollCache.has(`${taskId}:${filePath}`)) {
-      const savedScroll = fileScrollCache.get(`${taskId}:${filePath}`) || 0;
+      const effectiveViewport = scrollContainerRef.current?.clientHeight || viewportHeight || 400;
+      const maxOffset = Math.max(0, rawLines.length * ROW_HEIGHT - effectiveViewport);
+      const savedScroll = Math.min(maxOffset, Math.max(0, fileScrollCache.get(`${taskId}:${filePath}`) || 0));
       if (scrollContainerRef.current) {
         scrollContainerRef.current.scrollTop = savedScroll;
       }
       setScrollTop(savedScroll);
+    } else {
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.scrollTop = 0;
+      }
+      setScrollTop(0);
     }
-  }, [loading, targetLine, targetSymbol, navigationTrigger, data, rawLines, viewportHeight, taskId, filePath]);
+  }, [loading, targetLine, targetSymbol, navigationTrigger, data, rawLines, taskId, filePath]);
 
   const handleCopy = () => {
     if (!data?.content) return;
@@ -542,7 +555,8 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
   }, [data]);
 
   const highlightedLines = useMemo(() => {
-    if (!data?.content) return [];
+    if (data?.content === undefined || data?.content === null) return [];
+    if (data.content === '') return [''];
     // If file is very large (>500KB or >5000 lines), bypass heavy Prism grammar to prevent freezing UI thread
     if (data.size > 500 * 1024 || rawLines.length > 5000) {
       return rawLines.map(escapeHtml);
@@ -555,10 +569,14 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
     return highlightedLines.length;
   }, [highlightedLines]);
 
-  // Virtual window slice calculations
+  // Virtual window slice calculations (clamped so stale scrollTop can never produce an empty slice)
   const OVERSCAN = 25;
-  const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
-  const endIndex = Math.min(lineCount, Math.ceil((scrollTop + viewportHeight) / ROW_HEIGHT) + OVERSCAN);
+  const maxScrollTop = Math.max(0, lineCount * ROW_HEIGHT - viewportHeight);
+  const effectiveScrollTop = Math.max(0, Math.min(scrollTop, maxScrollTop));
+  const startIndex = lineCount > 0
+    ? Math.min(lineCount - 1, Math.max(0, Math.floor(effectiveScrollTop / ROW_HEIGHT) - OVERSCAN))
+    : 0;
+  const endIndex = Math.min(lineCount, Math.ceil((effectiveScrollTop + viewportHeight) / ROW_HEIGHT) + OVERSCAN);
   const topSpacerHeight = startIndex * ROW_HEIGHT;
   const bottomSpacerHeight = Math.max(0, (lineCount - endIndex) * ROW_HEIGHT);
   const visibleLines = highlightedLines.slice(startIndex, endIndex);
@@ -796,7 +814,7 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
     );
   }
 
-  if (loading) {
+  if (loading || (!data && !error)) {
     return (
       <div className="h-full flex flex-col items-center justify-center p-6 text-onedark-muted font-mono space-y-2">
         <RefreshCw className="w-5 h-5 animate-spin text-onedark-accent" />
@@ -1224,7 +1242,7 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
 
           <button
             onClick={() => handleSelectionAction()}
-            className="flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-semibold bg-onedark-accent text-onedark-bg hover:brightness-110 transition-all cursor-pointer shadow-xs"
+            className="flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-semibold bg-onedark-accent text-onedark-accentFg hover:brightness-110 transition-all cursor-pointer shadow-xs"
             title="Ask agent about this selection"
           >
             <Zap className="w-3 h-3" />
@@ -1451,7 +1469,7 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({
                                 e.stopPropagation();
                                 handleAskAboutGutterLine(lineNum);
                               }}
-                              className="opacity-0 group-hover/line:opacity-100 transition-opacity p-0.5 rounded bg-onedark-accent text-onedark-bg hover:brightness-110 shadow-xs cursor-pointer shrink-0"
+                              className="opacity-0 group-hover/line:opacity-100 transition-opacity p-0.5 rounded bg-onedark-accent text-onedark-accentFg hover:brightness-110 shadow-xs cursor-pointer shrink-0"
                               title={`Ask Cyclode Agent about line ${lineNum}`}
                             >
                               <MessageSquarePlus className="w-2.5 h-2.5" />

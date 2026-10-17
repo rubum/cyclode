@@ -694,7 +694,7 @@ export const DocxViewer: React.FC<DocxViewerProps> = ({
             <button
               onClick={handleSave}
               disabled={isSaving || !hasChanges}
-              className="px-2.5 py-1 rounded-md bg-onedark-accent hover:bg-onedark-accent/90 disabled:opacity-40 disabled:cursor-not-allowed text-onedark-darker font-bold text-[11px] flex items-center space-x-1 transition-all cursor-pointer shadow-xs"
+              className="px-2.5 py-1 rounded-md bg-onedark-accent hover:bg-onedark-accent/90 disabled:opacity-40 disabled:cursor-not-allowed text-onedark-accentFg font-bold text-[11px] flex items-center space-x-1 transition-all cursor-pointer shadow-xs"
               title="Save document (Cmd+S)"
             >
               {isSaving ? (

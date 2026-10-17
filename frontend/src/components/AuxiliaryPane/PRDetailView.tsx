@@ -900,7 +900,7 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
                       onClick={() => setIsRegex((prev) => !prev)}
                       className={`px-1 py-0.2 rounded font-mono text-[9.5px] font-bold transition-all cursor-pointer ${
                         isRegex
-                          ? 'bg-onedark-purple text-white shadow-xs'
+                          ? 'bg-onedark-purple text-onedark-purpleFg shadow-xs'
                           : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface'
                       }`}
                       title={
@@ -1419,7 +1419,7 @@ export const PRDiffSection: React.FC<PRDiffSectionProps> = ({
                                         e.stopPropagation();
                                         onLineComment(f.filename, activeLineNum, lineObj.text);
                                       }}
-                                      className="opacity-0 group-hover/line:opacity-100 transition-opacity p-0.5 rounded bg-onedark-accent text-gray-950 hover:brightness-105 hover:scale-110 shadow-xs cursor-pointer ml-1 font-bold"
+                                      className="opacity-0 group-hover/line:opacity-100 transition-opacity p-0.5 rounded bg-onedark-accent text-onedark-accentFg hover:brightness-105 hover:scale-110 shadow-xs cursor-pointer ml-1 font-bold"
                                       title={`Comment on line ${activeLineNum} with Reviewer Agent`}
                                     >
                                       <MessageSquarePlus className="w-3 h-3 stroke-[2.5]" />
@@ -2497,7 +2497,7 @@ export const PRCommentComposer: React.FC<PRCommentComposerProps> = ({
               onClick={() => setActiveTab('write')}
               className={`px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center space-x-1 ${
                 activeTab === 'write'
-                  ? 'bg-onedark-accent text-onedark-bg font-bold shadow-xs'
+                  ? 'bg-onedark-accent text-onedark-accentFg font-bold shadow-xs'
                   : 'text-onedark-muted hover:text-onedark-fg'
               }`}
             >
@@ -2509,7 +2509,7 @@ export const PRCommentComposer: React.FC<PRCommentComposerProps> = ({
               onClick={() => setActiveTab('preview')}
               className={`px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center space-x-1 ${
                 activeTab === 'preview'
-                  ? 'bg-onedark-accent text-onedark-bg font-bold shadow-xs'
+                  ? 'bg-onedark-accent text-onedark-accentFg font-bold shadow-xs'
                   : 'text-onedark-muted hover:text-onedark-fg'
               }`}
             >
@@ -2715,7 +2715,7 @@ export const PRCommentComposer: React.FC<PRCommentComposerProps> = ({
           <button
             onClick={handlePost}
             disabled={isPosting || !commentText.trim()}
-            className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-onedark-accent text-onedark-bg hover:brightness-110 active:scale-95 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-xs"
+            className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-onedark-accent text-onedark-accentFg hover:brightness-110 active:scale-95 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shadow-xs"
           >
             {isPosting ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -2821,12 +2821,12 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
               onClick={() => setFilter('ALL')}
               className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer flex items-center space-x-1.5 ${
                 filter === 'ALL'
-                  ? 'bg-onedark-accent text-onedark-bg font-semibold shadow-xs'
+                  ? 'bg-onedark-accent text-onedark-accentFg font-semibold shadow-xs'
                   : 'bg-onedark-surface text-onedark-muted hover:text-onedark-fg border border-onedark-borderSubtle'
               }`}
             >
               <span>All</span>
-              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${filter === 'ALL' ? 'bg-onedark-bg/30 text-onedark-bg font-bold' : 'bg-onedark-darker text-onedark-muted'}`}>
+              <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${filter === 'ALL' ? 'bg-black/20 text-onedark-accentFg font-bold' : 'bg-onedark-darker text-onedark-muted'}`}>
                 {comments.length}
               </span>
             </button>
@@ -2835,14 +2835,14 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
               onClick={() => setFilter('CONVERSATION')}
               className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer flex items-center space-x-1.5 ${
                 filter === 'CONVERSATION'
-                  ? 'bg-onedark-accent text-onedark-bg font-semibold shadow-xs'
+                  ? 'bg-onedark-accent text-onedark-accentFg font-semibold shadow-xs'
                   : 'bg-onedark-surface text-onedark-muted hover:text-onedark-fg border border-onedark-borderSubtle'
               }`}
             >
               <MessageSquare className="w-3 h-3" />
               <span>Conversation</span>
               {conversationCount > 0 && (
-                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${filter === 'CONVERSATION' ? 'bg-onedark-bg/30 text-onedark-bg font-bold' : 'bg-onedark-darker text-onedark-muted'}`}>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${filter === 'CONVERSATION' ? 'bg-black/20 text-onedark-accentFg font-bold' : 'bg-onedark-darker text-onedark-muted'}`}>
                   {conversationCount}
                 </span>
               )}
@@ -2852,14 +2852,14 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
               onClick={() => setFilter('CODE')}
               className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer flex items-center space-x-1.5 ${
                 filter === 'CODE'
-                  ? 'bg-onedark-accent text-onedark-bg font-semibold shadow-xs'
+                  ? 'bg-onedark-accent text-onedark-accentFg font-semibold shadow-xs'
                   : 'bg-onedark-surface text-onedark-muted hover:text-onedark-fg border border-onedark-borderSubtle'
               }`}
             >
-              <FileCode2 className="w-3 h-3 text-onedark-blue" />
+              <FileCode2 className={`w-3 h-3 ${filter === 'CODE' ? 'text-onedark-accentFg' : 'text-onedark-blue'}`} />
               <span>Code Review</span>
               {codeCount > 0 && (
-                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${filter === 'CODE' ? 'bg-onedark-bg/30 text-onedark-bg font-bold' : 'bg-onedark-darker text-onedark-muted'}`}>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${filter === 'CODE' ? 'bg-black/20 text-onedark-accentFg font-bold' : 'bg-onedark-darker text-onedark-muted'}`}>
                   {codeCount}
                 </span>
               )}
@@ -2869,14 +2869,14 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
               onClick={() => setFilter('REVIEWS')}
               className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer flex items-center space-x-1.5 ${
                 filter === 'REVIEWS'
-                  ? 'bg-onedark-accent text-onedark-bg font-semibold shadow-xs'
+                  ? 'bg-onedark-accent text-onedark-accentFg font-semibold shadow-xs'
                   : 'bg-onedark-surface text-onedark-muted hover:text-onedark-fg border border-onedark-borderSubtle'
               }`}
             >
-              <ShieldCheck className="w-3 h-3 text-onedark-green" />
+              <ShieldCheck className={`w-3 h-3 ${filter === 'REVIEWS' ? 'text-onedark-accentFg' : 'text-onedark-green'}`} />
               <span>Reviews</span>
               {reviewCount > 0 && (
-                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${filter === 'REVIEWS' ? 'bg-onedark-bg/30 text-onedark-bg font-bold' : 'bg-onedark-darker text-onedark-muted'}`}>
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${filter === 'REVIEWS' ? 'bg-black/20 text-onedark-accentFg font-bold' : 'bg-onedark-darker text-onedark-muted'}`}>
                   {reviewCount}
                 </span>
               )}
@@ -2968,7 +2968,7 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
               onClick={() => setIsRegex((prev) => !prev)}
               className={`px-1.5 py-0.5 rounded font-mono text-[10px] font-bold transition-all cursor-pointer ${
                 isRegex
-                  ? 'bg-onedark-purple text-white shadow-xs'
+                  ? 'bg-onedark-purple text-onedark-purpleFg shadow-xs'
                   : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface'
               }`}
               title={
@@ -3299,7 +3299,7 @@ export const PRCommentsSection: React.FC<PRCommentsSectionProps> = ({
                               <button
                                 type="button"
                                 onClick={() => onAskAboutComment(botMeta.aiPrompt!)}
-                                className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker font-bold text-[11px] shadow-xs active:scale-95 transition-all cursor-pointer"
+                                className="inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg font-bold text-[11px] shadow-xs active:scale-95 transition-all cursor-pointer"
                                 title="Execute prompt directly in Chat Workstation"
                               >
                                 <Zap className="w-3 h-3 fill-current" />
@@ -3574,12 +3574,12 @@ export const PRReviewDecisionModal: React.FC<PRReviewDecisionModalProps> = ({
             <button
               type="submit"
               disabled={isLoading}
-              className={`px-4 py-1.5 rounded-lg text-xs font-bold text-white shadow-xs transition-all flex items-center space-x-1.5 cursor-pointer disabled:opacity-50 ${
+              className={`px-4 py-1.5 rounded-lg text-xs font-bold shadow-xs transition-all flex items-center space-x-1.5 cursor-pointer disabled:opacity-50 ${
                 event === 'APPROVE'
-                  ? 'bg-onedark-green hover:bg-onedark-green/90'
+                  ? 'bg-onedark-green text-onedark-greenFg hover:bg-onedark-green/90'
                   : event === 'REQUEST_CHANGES'
-                  ? 'bg-onedark-red hover:bg-onedark-red/90'
-                  : 'bg-onedark-accent hover:bg-onedark-accentHover'
+                  ? 'bg-onedark-red text-onedark-redFg hover:bg-onedark-red/90'
+                  : 'bg-onedark-accent text-onedark-accentFg hover:bg-onedark-accent/90'
               }`}
             >
               {isLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
@@ -3762,7 +3762,7 @@ export const PRMergeModal: React.FC<PRMergeModalProps> = ({
             <button
               type="submit"
               disabled={isLoading}
-              className="px-4 py-1.5 rounded-lg bg-onedark-purple hover:bg-onedark-purple/90 text-white font-bold text-xs shadow-xs transition-all flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+              className="px-4 py-1.5 rounded-lg bg-onedark-purple hover:bg-onedark-purple/90 text-onedark-purpleFg font-bold text-xs shadow-xs transition-all flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
             >
               {isLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <GitMerge className="w-3.5 h-3.5" />}
               <span>{isLoading ? 'Merging...' : `Confirm ${method === 'squash' ? 'Squash & Merge' : method === 'rebase' ? 'Rebase & Merge' : 'Merge'}`}</span>
@@ -4686,7 +4686,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
               onClick={() => setViewMode('reader')}
               className={`px-2 py-0.5 rounded transition-all cursor-pointer whitespace-nowrap ${
                 viewMode === 'reader'
-                  ? 'bg-onedark-accent text-gray-950 shadow-xs font-bold'
+                  ? 'bg-onedark-accent text-onedark-accentFg shadow-xs font-bold'
                   : 'text-onedark-muted hover:text-onedark-fg'
               }`}
               title="Clean Reader Mode"
@@ -4697,7 +4697,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
               onClick={() => setViewMode('webview')}
               className={`px-2 py-0.5 rounded transition-all cursor-pointer whitespace-nowrap ${
                 viewMode === 'webview'
-                  ? 'bg-onedark-accent text-gray-950 shadow-xs font-bold'
+                  ? 'bg-onedark-accent text-onedark-accentFg shadow-xs font-bold'
                   : 'text-onedark-muted hover:text-onedark-fg'
               }`}
               title="Live Embedded Webview"
@@ -5383,7 +5383,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
                     onClick={() => setIsOutlineRegex((prev) => !prev)}
                     className={`px-1 py-0.2 rounded font-mono text-[9px] font-bold transition-all cursor-pointer ${
                       isOutlineRegex
-                        ? 'bg-onedark-purple text-white shadow-xs'
+                        ? 'bg-onedark-purple text-onedark-purpleFg shadow-xs'
                         : 'text-onedark-muted hover:text-onedark-fg'
                     }`}
                     title={
@@ -5835,13 +5835,13 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
                       type="button"
                       onClick={() => handleRunTests(customTestCommand)}
                       disabled={Boolean(actionLoading) || testStatus === 'running'}
-                      className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-white text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap shadow-xs active:scale-95"
+                      className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg text-xs font-semibold transition-all cursor-pointer disabled:opacity-50 whitespace-nowrap shadow-xs active:scale-95"
                       title="Execute test suite in isolated sandbox worktree"
                     >
                       {actionLoading === 'test' || testStatus === 'running' ? (
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
                       ) : (
-                        <Play className="w-3.5 h-3.5 fill-white" />
+                        <Play className="w-3.5 h-3.5 fill-current" />
                       )}
                       <span>{testStatus === 'running' ? 'Running...' : (localTestOutput || prRecord?.test_output) ? 'Re-Run Tests' : 'Run Tests'}</span>
                     </button>
@@ -5955,7 +5955,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
                             type="button"
                             onClick={() => handleLaunchTestingAgent(localTestOutput || prRecord?.test_output)}
                             disabled={Boolean(actionLoading)}
-                            className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-white font-semibold text-xs transition-all shadow-xs active:scale-95 cursor-pointer disabled:opacity-50"
+                            className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg font-semibold text-xs transition-all shadow-xs active:scale-95 cursor-pointer disabled:opacity-50"
                             title="Dispatches autonomous TestRemediator agent directly inside this PR worktree"
                           >
                             {actionLoading === 'remediate' ? (
@@ -5980,7 +5980,7 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
                           type="button"
                           onClick={() => handleLaunchTestingAgent()}
                           disabled={Boolean(actionLoading)}
-                          className="flex items-center space-x-1.5 px-4 py-2 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-white text-xs font-semibold shadow-md transition-all cursor-pointer disabled:opacity-50 active:scale-95"
+                          className="flex items-center space-x-1.5 px-4 py-2 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg text-xs font-semibold shadow-md transition-all cursor-pointer disabled:opacity-50 active:scale-95"
                         >
                           <Sparkles className="w-4 h-4" />
                           <span>Launch Remediation Agent</span>
@@ -6042,9 +6042,9 @@ export const PRDetailView: React.FC<PRDetailViewProps> = ({
                           type="button"
                           onClick={() => handleRunTests()}
                           disabled={Boolean(actionLoading)}
-                          className="flex items-center space-x-1.5 px-4 py-2 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-white text-xs font-semibold shadow-md transition-all cursor-pointer disabled:opacity-50 active:scale-95"
+                          className="flex items-center space-x-1.5 px-4 py-2 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg text-xs font-semibold shadow-md transition-all cursor-pointer disabled:opacity-50 active:scale-95"
                         >
-                          <Play className="w-4 h-4 fill-white" />
+                          <Play className="w-4 h-4 fill-current" />
                           <span>Run Test Suite Now</span>
                         </button>
                       </div>

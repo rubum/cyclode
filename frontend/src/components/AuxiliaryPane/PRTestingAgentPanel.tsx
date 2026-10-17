@@ -589,7 +589,7 @@ export const PRTestingAgentPanel: React.FC<PRTestingAgentPanelProps> = ({
             <button
               type="button"
               onClick={handleLaunchOrResume}
-              className="flex items-center space-x-1.5 px-3 py-1 rounded-md bg-onedark-accent hover:bg-onedark-accent/90 text-white text-[11px] font-semibold transition-all cursor-pointer shadow-xs active:scale-95"
+              className="flex items-center space-x-1.5 px-3 py-1 rounded-md bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg text-[11px] font-semibold transition-all cursor-pointer shadow-xs active:scale-95"
               title="Dispatch autonomous testing agent to diagnose and fix test failures"
             >
               <Sparkles className="w-3 h-3" />
@@ -659,7 +659,7 @@ export const PRTestingAgentPanel: React.FC<PRTestingAgentPanelProps> = ({
                   <button
                     type="button"
                     onClick={handleLaunchOrResume}
-                    className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer active:scale-95"
+                    className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg text-xs font-semibold shadow-xs transition-all cursor-pointer active:scale-95"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
                     <span>Start Autonomous Remediation</span>
@@ -955,7 +955,7 @@ export const PRTestingAgentPanel: React.FC<PRTestingAgentPanelProps> = ({
           <button
             type="submit"
             disabled={!inputPrompt.trim() || isSendingMessage}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-white text-xs font-semibold transition-all cursor-pointer disabled:opacity-40 active:scale-95 shadow-xs"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg text-xs font-semibold transition-all cursor-pointer disabled:opacity-40 active:scale-95 shadow-xs"
           >
             {isSendingMessage ? (
               <Loader2 className="w-3.5 h-3.5 animate-spin" />

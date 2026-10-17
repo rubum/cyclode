@@ -943,7 +943,7 @@ export const SandboxInspectorModal: React.FC<SandboxInspectorModalProps> = ({ ta
                       <button
                         onClick={handlePruneOrphans}
                         disabled={actionLoading === 'prune_orphans'}
-                        className="px-2.5 py-1 rounded bg-onedark-red/10 text-onedark-red hover:bg-onedark-red hover:text-white border border-onedark-red/30 transition-all text-[11px] font-mono flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                        className="px-2.5 py-1 rounded bg-onedark-red/10 text-onedark-red hover:bg-onedark-red hover:text-onedark-redFg border border-onedark-red/30 transition-all text-[11px] font-mono flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
                         title="Prune all stopped or orphaned cyclode-sb containers from Docker"
                       >
                         {actionLoading === 'prune_orphans' ? (

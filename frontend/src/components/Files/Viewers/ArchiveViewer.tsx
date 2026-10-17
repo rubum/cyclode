@@ -187,7 +187,7 @@ export const ArchiveViewer: React.FC<ArchiveViewerProps> = ({
           <a
             href={`${rawUrl}&download=true`}
             download={filePath.split('/').pop()}
-            className="px-3.5 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-bg text-xs font-semibold transition-colors"
+            className="px-3.5 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg text-xs font-semibold transition-colors"
           >
             Download Archive
           </a>

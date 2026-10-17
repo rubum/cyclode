@@ -443,7 +443,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
                 onClick={() => setScopeFilter('SESSION')}
                 className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer ${
                   scopeFilter === 'SESSION'
-                    ? 'bg-onedark-accent text-gray-950 font-bold'
+                    ? 'bg-onedark-accent text-onedark-accentFg font-bold'
                     : 'text-onedark-muted hover:text-onedark-fg'
                 }`}
               >
@@ -453,7 +453,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
                 onClick={() => setScopeFilter('ALL_REPO')}
                 className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors cursor-pointer ${
                   scopeFilter === 'ALL_REPO'
-                    ? 'bg-onedark-accent text-gray-950 font-bold'
+                    ? 'bg-onedark-accent text-onedark-accentFg font-bold'
                     : 'text-onedark-muted hover:text-onedark-fg'
                 }`}
               >
@@ -519,7 +519,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
                 onClick={() => setIsRegexFilter((prev) => !prev)}
                 className={`px-1 py-0.5 rounded font-mono text-[10px] font-bold transition-all cursor-pointer ${
                   isRegexFilter
-                    ? 'bg-onedark-purple text-white shadow-xs'
+                    ? 'bg-onedark-purple text-onedark-purpleFg shadow-xs'
                     : 'text-onedark-muted/70 hover:text-onedark-fg hover:bg-onedark-darker'
                 }`}
                 title={
@@ -542,7 +542,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
                 onClick={() => setStatusFilter(filterKey)}
                 className={`px-2 py-0.5 rounded font-mono transition-colors cursor-pointer border ${
                   statusFilter === filterKey
-                    ? 'bg-onedark-accent text-gray-950 font-bold shadow-xs border-onedark-accent'
+                    ? 'bg-onedark-accent text-onedark-accentFg font-bold shadow-xs border-onedark-accent'
                     : 'bg-onedark-surface/50 border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface'
                 }`}
               >
@@ -562,7 +562,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
               onClick={() => setAuthorFilter('ALL')}
               className={`px-2 py-0.5 rounded font-mono transition-colors flex-shrink-0 cursor-pointer border ${
                 authorFilter === 'ALL'
-                  ? 'bg-onedark-purple text-white font-semibold shadow-xs border-onedark-purple'
+                  ? 'bg-onedark-purple text-onedark-purpleFg font-semibold shadow-xs border-onedark-purple'
                   : 'bg-onedark-surface/60 border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface'
               }`}
             >
@@ -576,7 +576,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
                   onClick={() => setAuthorFilter(isSelected ? 'ALL' : author)}
                   className={`px-2 py-0.5 rounded font-mono transition-colors flex-shrink-0 flex items-center gap-1 cursor-pointer border ${
                     isSelected
-                      ? 'bg-onedark-purple text-white font-semibold shadow-xs border-onedark-purple'
+                      ? 'bg-onedark-purple text-onedark-purpleFg font-semibold shadow-xs border-onedark-purple'
                       : 'bg-onedark-surface/60 border-onedark-borderSubtle text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface'
                   }`}
                 >
@@ -624,7 +624,7 @@ export const PullRequestsTab: React.FC<PullRequestsTabProps> = ({
                 <button
                   onClick={() => syncRepoPRs()}
                   disabled={isSyncingRepo}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-onedark-accent hover:bg-onedark-accentHover text-white text-xs font-semibold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg text-xs font-semibold shadow-xs transition-colors cursor-pointer disabled:opacity-50"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${isSyncingRepo ? 'animate-spin' : ''}`} />
                   <span>{isSyncingRepo ? 'Importing PRs...' : `Import PRs from ${task.repo_name}`}</span>

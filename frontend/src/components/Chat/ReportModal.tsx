@@ -346,7 +346,7 @@ export const ReportModal: React.FC<ReportModalProps> = ({
               </p>
               <button
                 onClick={() => handleCompile(false)}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-onedark-accent hover:brightness-105 active:scale-[0.98] text-gray-950 font-extrabold text-sm shadow-md transition-all border border-onedark-accent/40 cursor-pointer"
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-onedark-accent hover:brightness-105 active:scale-[0.98] text-onedark-accentFg font-extrabold text-sm shadow-md transition-all border border-onedark-accent/40 cursor-pointer"
               >
                 <Sparkles className="w-4 h-4 stroke-[2.2]" />
                 <span>Compile Session Report Now</span>

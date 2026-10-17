@@ -282,7 +282,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 >
                   <Icon className={`w-4 h-4 ${isActive ? 'text-onedark-fgBright' : (item.iconClass || 'text-onedark-muted')}`} />
                   {typeof item.badge === 'number' && item.badge > 0 && (
-                    <span className="absolute -top-1 -right-1 px-1 min-w-[14px] h-3.5 rounded-full bg-onedark-accent text-gray-950 font-mono text-[9px] font-extrabold flex items-center justify-center leading-none">
+                    <span className="absolute -top-1 -right-1 px-1 min-w-[14px] h-3.5 rounded-full bg-onedark-accent text-onedark-accentFg font-mono text-[9px] font-extrabold flex items-center justify-center leading-none">
                       {item.badge}
                     </span>
                   )}

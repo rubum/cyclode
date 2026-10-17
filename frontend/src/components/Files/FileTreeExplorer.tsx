@@ -1057,7 +1057,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
                   onClick={() => setIsRegex(!isRegex)}
                   className={`px-1 py-0.2 rounded text-[10px] font-mono cursor-pointer transition-colors ${
                     isRegex
-                      ? 'bg-onedark-accent text-onedark-bg font-bold'
+                      ? 'bg-onedark-accent text-onedark-accentFg font-bold'
                       : 'text-onedark-muted hover:text-onedark-fg bg-onedark-surface'
                   }`}
                   title={isRegex ? 'Regex enabled' : 'Enable regex search'}
@@ -1068,7 +1068,7 @@ export const FileTreeExplorer: React.FC<FileTreeExplorerProps> = ({
                   onClick={() => setCaseSensitive(!caseSensitive)}
                   className={`px-1 py-0.2 rounded text-[10px] font-mono cursor-pointer transition-colors ${
                     caseSensitive
-                      ? 'bg-onedark-accent text-onedark-bg font-bold'
+                      ? 'bg-onedark-accent text-onedark-accentFg font-bold'
                       : 'text-onedark-muted hover:text-onedark-fg bg-onedark-surface'
                   }`}
                   title={caseSensitive ? 'Case sensitive' : 'Match case'}

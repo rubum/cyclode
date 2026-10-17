@@ -202,6 +202,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
     setSelectedFile(null);
     setTargetLine(null);
     setTargetSymbol(null);
+    setIsTreeCollapsed(false);
     onClearSelectedFilePath?.();
     if (task?.id) {
       taskActiveFileCache.delete(task.id);
@@ -215,13 +216,13 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
   // External Search Trigger State for FileTreeExplorer
   const [externalSearch, setExternalSearch] = useState<ExternalSearchRequest | null>(null);
 
-  // File tree explorer sidebar collapse state — default to collapsed so CodeViewer focuses on the code file
+  // File tree explorer sidebar collapse state — default to expanded unless explicitly collapsed by user
   const [isTreeCollapsed, setIsTreeCollapsed] = useState<boolean>(() => {
     try {
       const stored = localStorage.getItem('cyclode_file_tree_collapsed');
-      return stored !== null ? stored === 'true' : true;
+      return stored === 'true';
     } catch {
-      return true;
+      return false;
     }
   });
 
@@ -231,9 +232,6 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
       const lineVal = selectedLineNumber ?? null;
       setTargetLine(lineVal);
       setTargetSymbol(selectedSymbol ?? null);
-      if (selectedFilePath && fileNavigationTrigger) {
-        setIsTreeCollapsed(true);
-      }
       if (task?.id && selectedFilePath) {
         taskActiveFileCache.set(task.id, { filePath: selectedFilePath, line: lineVal });
       }
@@ -676,7 +674,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
                 type="button"
                 onClick={handleSyncRepo}
                 disabled={isSyncingRepo}
-                className="px-3 py-1.5 rounded-lg bg-onedark-accent text-white text-xs font-sans hover:bg-onedark-accent/90 transition-colors flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+                className="px-3 py-1.5 rounded-lg bg-onedark-accent text-onedark-accentFg text-xs font-sans hover:bg-onedark-accent/90 transition-colors flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
               >
                 {isSyncingRepo ? (
                   <>
@@ -815,6 +813,7 @@ export const FilesExplorerTab: React.FC<FilesExplorerTabProps> = ({
           previousFileTooltip={previousPoint?.filePath}
           nextFileTooltip={nextPoint?.filePath}
           onSearchSymbol={(symbol, mode) => {
+            setIsTreeCollapsed(false);
             setExternalSearch({
               query: symbol,
               mode: mode === 'grep' ? 'grep' : 'ast',

@@ -273,9 +273,9 @@ export const IntelligenceTab: React.FC<IntelligenceTabProps> = ({ task }) => {
                 </p>
                 <button
                   onClick={handleCompileReport}
-                  className="px-4 py-2 rounded-lg bg-onedark-accent hover:brightness-105 active:scale-[0.98] text-onedark-darker text-xs font-bold shadow-sm transition-all flex items-center space-x-1.5 border border-onedark-accent/40"
+                  className="px-4 py-2 rounded-lg bg-onedark-accent hover:brightness-105 active:scale-[0.98] text-onedark-accentFg text-xs font-bold shadow-sm transition-all flex items-center space-x-1.5 border border-onedark-accent/40"
                 >
-                  <Sparkles className="w-3.5 h-3.5 stroke-[2.2] text-onedark-darker" />
+                  <Sparkles className="w-3.5 h-3.5 stroke-[2.2] text-onedark-accentFg" />
                   <span>Compile Intelligence Report</span>
                 </button>
               </div>

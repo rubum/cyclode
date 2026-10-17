@@ -61,7 +61,7 @@ export const PRReviewApprovalCard: React.FC<PRReviewApprovalCardProps> = ({
       return {
         label: 'Post Line Comment to GitHub',
         tooltip: `Submit inline review comment on ${details.path || 'file'}:${details.line || 1} to GitHub`,
-        buttonClass: 'bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker shadow-md',
+        buttonClass: 'bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg shadow-md',
         Icon: Send,
         feedback: 'Line comment posted to GitHub',
       };
@@ -71,7 +71,7 @@ export const PRReviewApprovalCard: React.FC<PRReviewApprovalCardProps> = ({
         return {
           label: 'Request Changes & Post to GitHub',
           tooltip: 'Submit formal changes requested review to GitHub',
-          buttonClass: 'bg-onedark-red hover:bg-onedark-red/90 text-white shadow-md shadow-onedark-red/20',
+          buttonClass: 'bg-onedark-red hover:bg-onedark-red/90 text-onedark-redFg shadow-md shadow-onedark-red/20',
           Icon: AlertCircle,
           feedback: 'Changes requested and submitted to GitHub',
         };
@@ -79,7 +79,7 @@ export const PRReviewApprovalCard: React.FC<PRReviewApprovalCardProps> = ({
         return {
           label: 'Approve PR & Post to GitHub',
           tooltip: 'Submit formal approval review to GitHub',
-          buttonClass: 'bg-onedark-green hover:bg-onedark-green/90 text-onedark-darker shadow-md shadow-onedark-green/20',
+          buttonClass: 'bg-onedark-green hover:bg-onedark-green/90 text-onedark-greenFg shadow-md shadow-onedark-green/20',
           Icon: CheckCircle2,
           feedback: 'Approved and submitted to GitHub',
         };
@@ -88,7 +88,7 @@ export const PRReviewApprovalCard: React.FC<PRReviewApprovalCardProps> = ({
         return {
           label: 'Post Comment to GitHub',
           tooltip: 'Submit general review comments to GitHub',
-          buttonClass: 'bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker shadow-md shadow-onedark-accent/20',
+          buttonClass: 'bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg shadow-md shadow-onedark-accent/20',
           Icon: MessageSquare,
           feedback: 'Review comments submitted to GitHub',
         };
@@ -264,7 +264,7 @@ export const PRReviewApprovalCard: React.FC<PRReviewApprovalCardProps> = ({
               }`}
             >
               <div className={`w-4 h-4 rounded-full border flex items-center justify-center flex-shrink-0 ${
-                selectedEvent === 'COMMENT' ? 'border-onedark-accent bg-onedark-accent text-onedark-darker' : 'border-onedark-muted/40'
+                selectedEvent === 'COMMENT' ? 'border-onedark-accent bg-onedark-accent text-onedark-accentFg' : 'border-onedark-muted/40'
               }`}>
                 {selectedEvent === 'COMMENT' && <Check className="w-2.5 h-2.5 stroke-[3]" />}
               </div>
@@ -285,7 +285,7 @@ export const PRReviewApprovalCard: React.FC<PRReviewApprovalCardProps> = ({
               }`}
             >
               <div className={`w-4 h-4 rounded-full border flex items-center justify-center flex-shrink-0 ${
-                selectedEvent === 'APPROVE' ? 'border-onedark-green bg-onedark-green text-onedark-darker' : 'border-onedark-muted/40'
+                selectedEvent === 'APPROVE' ? 'border-onedark-green bg-onedark-green text-onedark-greenFg' : 'border-onedark-muted/40'
               }`}>
                 {selectedEvent === 'APPROVE' && <Check className="w-2.5 h-2.5 stroke-[3]" />}
               </div>
@@ -306,7 +306,7 @@ export const PRReviewApprovalCard: React.FC<PRReviewApprovalCardProps> = ({
               }`}
             >
               <div className={`w-4 h-4 rounded-full border flex items-center justify-center flex-shrink-0 ${
-                selectedEvent === 'REQUEST_CHANGES' ? 'border-onedark-red bg-onedark-red text-onedark-darker' : 'border-onedark-muted/40'
+                selectedEvent === 'REQUEST_CHANGES' ? 'border-onedark-red bg-onedark-red text-onedark-redFg' : 'border-onedark-muted/40'
               }`}>
                 {selectedEvent === 'REQUEST_CHANGES' && <Check className="w-2.5 h-2.5 stroke-[3]" />}
               </div>

@@ -778,7 +778,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                   onClick={() => setActiveTab(tab.id as any)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-mono font-semibold transition-all cursor-pointer whitespace-nowrap ${
                     activeTab === tab.id
-                      ? 'bg-onedark-accent text-onedark-darker shadow-sm'
+                      ? 'bg-onedark-accent text-onedark-accentFg shadow-sm'
                       : 'bg-onedark-darker text-onedark-muted hover:text-onedark-fgBright hover:bg-onedark-surface border border-onedark-borderSubtle'
                   }`}
                 >
@@ -823,7 +823,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                 <button
                   onClick={handleSaveModelSettings}
                   disabled={savingModelSettings || loadingModelSettings}
-                  className="px-4 py-2 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker text-xs font-mono font-bold flex items-center space-x-1.5 transition-all disabled:opacity-40 cursor-pointer shadow-xs active:scale-95"
+                  className="px-4 py-2 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg text-xs font-mono font-bold flex items-center space-x-1.5 transition-all disabled:opacity-40 cursor-pointer shadow-xs active:scale-95"
                 >
                   {savingModelSettings ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                   <span>Save Routing Config</span>
@@ -866,7 +866,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                     onClick={() => setRoutingMode('adaptive')}
                     className={`px-3 py-2 rounded-lg text-xs font-mono font-semibold transition-all border text-center cursor-pointer ${
                       routingMode === 'adaptive'
-                        ? 'bg-onedark-accent text-onedark-darker border-onedark-accent font-bold shadow-xs'
+                        ? 'bg-onedark-accent text-onedark-accentFg border-onedark-accent font-bold shadow-xs'
                         : 'bg-onedark-darker text-onedark-muted hover:text-onedark-fgBright border-onedark-border'
                     }`}
                   >
@@ -877,7 +877,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                     onClick={() => setRoutingMode('manual')}
                     className={`px-3 py-2 rounded-lg text-xs font-mono font-semibold transition-all border text-center cursor-pointer ${
                       routingMode === 'manual'
-                        ? 'bg-onedark-accent text-onedark-darker border-onedark-accent font-bold shadow-xs'
+                        ? 'bg-onedark-accent text-onedark-accentFg border-onedark-accent font-bold shadow-xs'
                         : 'bg-onedark-darker text-onedark-muted hover:text-onedark-fgBright border-onedark-border'
                     }`}
                   >
@@ -1157,7 +1157,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                             className={`px-3.5 py-1.5 rounded-lg text-xs font-mono font-semibold flex items-center space-x-1.5 transition-all cursor-pointer shrink-0 shadow-xs active:scale-95 ${
                               isConfigured
                                 ? 'bg-onedark-surface hover:bg-onedark-border text-onedark-fgBright border border-onedark-border'
-                                : 'bg-onedark-accent text-onedark-darker hover:bg-onedark-accent/90 border border-onedark-accent font-bold shadow-sm'
+                                : 'bg-onedark-accent text-onedark-accentFg hover:bg-onedark-accent/90 border border-onedark-accent font-bold shadow-sm'
                             }`}
                           >
                             <Settings className="w-3.5 h-3.5" />
@@ -1715,7 +1715,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                 {selectedIntegration.id === 'ingrations' ? (
                   <button
                     onClick={() => setSelectedIntegration(null)}
-                    className="px-4 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker text-xs font-mono font-bold transition-all cursor-pointer shadow-xs active:scale-95"
+                    className="px-4 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg text-xs font-mono font-bold transition-all cursor-pointer shadow-xs active:scale-95"
                   >
                     Close & Browse Providers
                   </button>
@@ -1730,7 +1730,7 @@ export const IntegrationsView: React.FC<IntegrationsViewProps> = ({
                     <button
                       onClick={handleSaveCredential}
                       disabled={submitting || !tokenInput.trim()}
-                      className="px-4 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker text-xs font-mono font-bold flex items-center space-x-1.5 transition-all disabled:opacity-40 cursor-pointer shadow-xs active:scale-95"
+                      className="px-4 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg text-xs font-mono font-bold flex items-center space-x-1.5 transition-all disabled:opacity-40 cursor-pointer shadow-xs active:scale-95"
                     >
                       {submitting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                       <span>Save & Validate</span>

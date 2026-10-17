@@ -84,6 +84,31 @@ export const hexToRgb = (hex: string): string | null => {
   return `${r}, ${g}, ${b}`;
 };
 
+export const getContrastForeground = (hex: string): { hex: string; rgb: string } => {
+  let clean = hex.replace(/^#/, '').trim();
+  if (clean.length === 3) {
+    clean = clean.split('').map((c) => c + c).join('');
+  }
+  if (clean.length !== 6) {
+    return { hex: '#090A0C', rgb: '9, 10, 12' };
+  }
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  if (isNaN(r) || isNaN(g) || isNaN(b)) {
+    return { hex: '#090A0C', rgb: '9, 10, 12' };
+  }
+  const toLinear = (c: number) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  const luminance = 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b);
+  // Crossover point where contrast against #FFFFFF exceeds contrast against #090A0C (lum ~ 0.003)
+  return luminance > 0.186
+    ? { hex: '#090A0C', rgb: '9, 10, 12' }
+    : { hex: '#FFFFFF', rgb: '255, 255, 255' };
+};
+
 let themeStorageTimeout: any = null;
 let themeRafId: number | null = null;
 
@@ -95,6 +120,10 @@ export const applyThemeColors = (accentHex: string, folderHex: string = '#E5C07B
     document.documentElement.style.setProperty('--color-accent', accentHex);
     document.documentElement.style.setProperty('--color-folder', folderHex);
     document.documentElement.style.setProperty('--color-accent-subtle', `${accentHex}26`);
+
+    const accentFg = getContrastForeground(accentHex);
+    document.documentElement.style.setProperty('--color-accent-fg', accentFg.hex);
+    document.documentElement.style.setProperty('--color-accent-fg-rgb', accentFg.rgb);
     
     const accentRgb = hexToRgb(accentHex);
     if (accentRgb) {
@@ -408,7 +437,12 @@ export const ThemeColorPicker: React.FC<ThemeColorPickerProps> = ({
                       className="w-5 h-5 rounded-full flex items-center justify-center border border-black/20 shadow-xs"
                       style={{ backgroundColor: preset.hex }}
                     >
-                      {isSelected && <Check className="w-3 h-3 text-black drop-shadow-xs stroke-[3]" />}
+                      {isSelected && (
+                        <Check
+                          className="w-3 h-3 drop-shadow-xs stroke-[3]"
+                          style={{ color: getContrastForeground(preset.hex).hex }}
+                        />
+                      )}
                     </span>
                     <span className="text-[9px] text-onedark-muted truncate w-full text-center mt-0.5">
                       {preset.name.split(' ')[0]}

@@ -1022,7 +1022,7 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
                         <button
                           type="button"
                           onClick={() => handleSaveEditTurn(turn.userMessage!.id)}
-                          className="px-3 py-1 rounded-md text-xs bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker font-semibold transition-colors cursor-pointer"
+                          className="px-3 py-1 rounded-md text-xs bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg font-semibold transition-colors cursor-pointer"
                         >
                           Save & Retry
                         </button>
@@ -1233,11 +1233,11 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
         <div className="absolute bottom-20 right-5 z-20 animate-in fade-in slide-in-from-bottom-2 duration-150">
           <button
             onClick={() => scrollToBottom(true)}
-            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker shadow-lg shadow-black/35 text-[11px] font-bold transition-all backdrop-blur-xs cursor-pointer active:scale-95 border border-black/15 select-none group"
+            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg shadow-lg shadow-black/35 text-[11px] font-bold transition-all backdrop-blur-xs cursor-pointer active:scale-95 border border-black/15 select-none group"
             title="Resume auto-scroll & jump to latest responses"
           >
             {isLoading ? (
-              <span className="w-2 h-2 rounded-full bg-onedark-darker animate-pulse shrink-0" />
+              <span className="w-2 h-2 rounded-full bg-onedark-accentFg animate-pulse shrink-0" />
             ) : (
               <ChevronDown className="w-3.5 h-3.5 group-hover:translate-y-0.5 transition-transform shrink-0" />
             )}
@@ -1300,7 +1300,7 @@ export const PRReviewAgentPopover: React.FC<PRReviewAgentPopoverProps> = ({
               disabled={(!inputPrompt.trim() && !attachedContext) || isInitializing}
               className={`p-2.5 rounded-lg transition-all flex-shrink-0 cursor-pointer ${
                 (inputPrompt.trim() || attachedContext) && !isInitializing
-                  ? 'bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker shadow-xs'
+                  ? 'bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg shadow-xs'
                   : 'bg-onedark-surface text-onedark-muted/40 cursor-not-allowed'
               }`}
               title="Send to Reviewer Agent (Enter)"

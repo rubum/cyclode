@@ -1010,7 +1010,7 @@ export const NotebookViewer: React.FC<NotebookViewerProps> = ({
                                 });
                                 setEditingMarkdownIndex(null);
                               }}
-                              className="px-2.5 py-1 rounded bg-onedark-accent text-gray-950 font-bold hover:brightness-105 active:scale-95 cursor-pointer shadow-xs"
+                              className="px-2.5 py-1 rounded bg-onedark-accent text-onedark-accentFg font-bold hover:brightness-105 active:scale-95 cursor-pointer shadow-xs"
                             >
                               Render Markdown
                             </button>

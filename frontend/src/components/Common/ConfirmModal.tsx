@@ -81,7 +81,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
           icon: ShieldAlert,
           iconColor: 'text-onedark-yellow',
           iconBg: 'bg-onedark-yellow/15',
-          confirmBtn: 'bg-onedark-yellow hover:brightness-105 active:scale-95 text-gray-950 font-bold shadow-md',
+          confirmBtn: 'bg-onedark-yellow hover:brightness-105 active:scale-95 text-onedark-yellowFg font-bold shadow-md',
           badgeText: 'Warning Notice',
           badgeBorder: 'text-onedark-yellow bg-onedark-yellow/15 border border-onedark-yellow/30',
         };
@@ -90,7 +90,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
           icon: Info,
           iconColor: 'text-onedark-accent',
           iconBg: 'bg-onedark-accent/15',
-          confirmBtn: 'bg-onedark-accent hover:brightness-105 active:scale-95 text-gray-950 font-bold shadow-md',
+          confirmBtn: 'bg-onedark-accent hover:brightness-105 active:scale-95 text-onedark-accentFg font-bold shadow-md',
           badgeText: 'Action Confirmation',
           badgeBorder: 'text-onedark-accent bg-onedark-accent/15 border border-onedark-accent/30',
         };

@@ -1448,7 +1448,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
             {/* Quick Actions */}
             <button
               onClick={() => setIsSpawnModalOpen(true)}
-              className="flex items-center space-x-1.5 px-3 py-1 rounded-lg bg-onedark-accent text-onedark-darker font-mono text-[10px] font-bold hover:bg-onedark-accent/90 transition-colors shadow-xs"
+              className="flex items-center space-x-1.5 px-3 py-1 rounded-lg bg-onedark-accent text-onedark-accentFg font-mono text-[10px] font-bold hover:bg-onedark-accent/90 transition-colors shadow-xs"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Spawn Pod</span>
@@ -1769,8 +1769,8 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
                                 disabled={isApplyingDiff === sub.id}
                                 className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg font-mono text-[11px] font-semibold transition-all shadow-xs ${
                                   applySuccessId === sub.id
-                                    ? 'bg-onedark-green text-onedark-darker'
-                                    : 'bg-onedark-accent text-onedark-darker hover:bg-onedark-accent/90'
+                                    ? 'bg-onedark-green text-onedark-greenFg'
+                                    : 'bg-onedark-accent text-onedark-accentFg hover:bg-onedark-accent/90'
                                 }`}
                               >
                                 {applySuccessId === sub.id ? (
@@ -1842,7 +1842,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
                           <button
                             type="submit"
                             disabled={isRunning || !(followUpInputs[sub.id] || '').trim() || isSendingPodMsg[sub.id]}
-                            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-onedark-accent text-onedark-darker font-mono text-[11px] font-semibold hover:bg-onedark-accent/90 disabled:opacity-40 transition-colors shrink-0 shadow-xs"
+                            className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-onedark-accent text-onedark-accentFg font-mono text-[11px] font-semibold hover:bg-onedark-accent/90 disabled:opacity-40 transition-colors shrink-0 shadow-xs"
                           >
                             {isSendingPodMsg[sub.id] ? (
                               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -1995,7 +1995,7 @@ export const AgentsTab: React.FC<AgentsTabProps> = ({ task, onOpenSubsession }) 
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 rounded-lg bg-onedark-accent text-onedark-darker font-mono text-xs font-bold hover:bg-onedark-accent/90 transition-colors shadow-xs"
+                  className="px-4 py-1.5 rounded-lg bg-onedark-accent text-onedark-accentFg font-mono text-xs font-bold hover:bg-onedark-accent/90 transition-colors shadow-xs"
                 >
                   Launch Pod
                 </button>

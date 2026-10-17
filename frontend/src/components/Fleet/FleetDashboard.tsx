@@ -220,7 +220,7 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
 
               <button
                 onClick={onNewChat}
-                className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
+                className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
               >
                 <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
                 <span>New Session</span>
@@ -460,7 +460,7 @@ export const FleetDashboard: React.FC<FleetDashboardProps> = ({
               </button>
               <button
                 onClick={onNewChat}
-                className="px-3.5 py-1.5 bg-onedark-accent text-onedark-darker rounded-lg text-xs font-bold shadow-xs"
+                className="px-3.5 py-1.5 bg-onedark-accent text-onedark-accentFg rounded-lg text-xs font-bold shadow-xs"
               >
                 Launch New Session
               </button>

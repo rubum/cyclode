@@ -30,11 +30,16 @@ export default {
           fgBright: withOpacity('--color-fg-bright'),
           muted: withOpacity('--color-muted'),
           accent: withOpacity('--color-accent'),
+          accentFg: withOpacity('--color-accent-fg'),
           folder: withOpacity('--color-folder'),
           green: withOpacity('--color-green'),
+          greenFg: withOpacity('--color-green-fg'),
           red: withOpacity('--color-red'),
+          redFg: withOpacity('--color-red-fg'),
           yellow: withOpacity('--color-yellow'),
+          yellowFg: withOpacity('--color-yellow-fg'),
           purple: withOpacity('--color-purple'),
+          purpleFg: withOpacity('--color-purple-fg'),
           bronze: withOpacity('--color-bronze')
         },
         dark: {

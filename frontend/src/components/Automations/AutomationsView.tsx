@@ -211,7 +211,7 @@ export const AutomationsView: React.FC<AutomationsViewProps> = ({
 
               <button
                 onClick={() => setShowCreateModal(true)}
-                className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95"
+                className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95"
               >
                 <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
                 <span>New Rule</span>
@@ -629,7 +629,7 @@ export const AutomationsView: React.FC<AutomationsViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker text-xs font-bold transition-all shadow-xs"
+                  className="px-4 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg text-xs font-bold transition-all shadow-xs"
                 >
                   Create Rule
                 </button>

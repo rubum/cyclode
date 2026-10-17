@@ -491,11 +491,11 @@ export const AppPreviewTab: React.FC<AppPreviewTabProps> = ({
             <Terminal className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">DevTools</span>
             {errorCount > 0 ? (
-              <span className="ml-0.5 px-1 rounded-full bg-onedark-red text-[9px] font-bold text-white">
+              <span className="ml-0.5 px-1 rounded-full bg-onedark-red text-[9px] font-bold text-onedark-redFg">
                 {errorCount}
               </span>
             ) : consoleLogs.length > 0 ? (
-              <span className="ml-0.5 px-1 rounded-full bg-onedark-accent text-[9px] font-bold text-onedark-darker">
+              <span className="ml-0.5 px-1 rounded-full bg-onedark-accent text-[9px] font-bold text-onedark-accentFg">
                 {consoleLogs.length}
               </span>
             ) : null}

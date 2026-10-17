@@ -473,7 +473,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
 
             <button
               onClick={handleOpenAdd}
-              className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
+              className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
               <span>Connect Repository</span>
@@ -706,7 +706,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
                 </button>
                 <button
                   onClick={handleOpenAdd}
-                  className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 bg-onedark-accent text-onedark-darker rounded-lg text-xs font-bold shadow-xs"
+                  className="inline-flex items-center space-x-1.5 px-3.5 py-1.5 bg-onedark-accent text-onedark-accentFg rounded-lg text-xs font-bold shadow-xs"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>Connect First Repo</span>
@@ -838,7 +838,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
                           {onSelectRepoForChat && (
                             <button
                               onClick={() => onSelectRepoForChat(repo.full_name)}
-                              className="ml-1 inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker text-xs font-bold transition-all shadow-xs"
+                              className="ml-1 inline-flex items-center space-x-1 px-2.5 py-1 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg text-xs font-bold transition-all shadow-xs"
                             >
                               <Play className="w-3 h-3 fill-current" />
                               <span>Work</span>
@@ -1018,7 +1018,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
                     {onSelectRepoForChat && (
                       <button
                         onClick={() => onSelectRepoForChat(repo.full_name)}
-                        className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker text-xs font-bold transition-all shadow-xs active:scale-95"
+                        className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg text-xs font-bold transition-all shadow-xs active:scale-95"
                       >
                         <Play className="w-3.5 h-3.5 fill-current" />
                         <span>Work on Repo</span>
@@ -1132,7 +1132,7 @@ export const RepositoriesView: React.FC<RepositoriesViewProps> = ({
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="px-4 py-1.5 bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker rounded-lg text-xs font-bold transition-all disabled:opacity-50 flex items-center space-x-1.5 shadow-xs"
+                  className="px-4 py-1.5 bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg rounded-lg text-xs font-bold transition-all disabled:opacity-50 flex items-center space-x-1.5 shadow-xs"
                 >
                   {submitting && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                   <span>{editingRepo ? 'Save Changes' : 'Save & Verify'}</span>

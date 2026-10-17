@@ -253,7 +253,7 @@ export const RepoListenerConfigModal: React.FC<RepoListenerConfigModalProps> = (
               onClick={() => setIsListening(!isListening)}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                 isListening
-                  ? 'bg-onedark-green text-black hover:bg-onedark-green/90 shadow-sm'
+                  ? 'bg-onedark-green text-onedark-greenFg hover:bg-onedark-green/90 shadow-sm'
                   : 'bg-onedark-surface hover:bg-onedark-border text-onedark-fg border border-onedark-borderSubtle'
               }`}
             >
@@ -290,7 +290,7 @@ export const RepoListenerConfigModal: React.FC<RepoListenerConfigModalProps> = (
                       >
                         <div className={`mt-0.5 w-4 h-4 rounded flex items-center justify-center border transition-colors ${
                           isSelected
-                            ? 'bg-onedark-accent border-onedark-accent text-white'
+                            ? 'bg-onedark-accent border-onedark-accent text-onedark-accentFg'
                             : 'border-onedark-border bg-onedark-darker'
                         }`}>
                           {isSelected && <Check className="w-3 h-3" />}
@@ -380,7 +380,7 @@ export const RepoListenerConfigModal: React.FC<RepoListenerConfigModalProps> = (
             <button
               onClick={handleSave}
               disabled={loading}
-              className="px-4 py-1.5 rounded-lg bg-onedark-accent text-gray-950 hover:brightness-105 active:scale-95 text-xs font-bold shadow-sm transition-all flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+              className="px-4 py-1.5 rounded-lg bg-onedark-accent text-onedark-accentFg hover:brightness-105 active:scale-95 text-xs font-bold shadow-sm transition-all flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
             >
               <Check className="w-3.5 h-3.5 stroke-[2.5]" />
               <span>{loading ? 'Saving...' : 'Save & Activate'}</span>

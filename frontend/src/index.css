@@ -22,17 +22,27 @@
   --color-muted-rgb: 92, 99, 112;
   --color-accent: #E5C07B;
   --color-accent-rgb: 229, 192, 123;
+  --color-accent-fg: #090A0C;
+  --color-accent-fg-rgb: 9, 10, 12;
   --color-accent-subtle: rgba(229, 192, 123, 0.15);
   --color-folder: #E5C07B;
   --color-folder-rgb: 229, 192, 123;
   --color-green: #98C379;
   --color-green-rgb: 152, 195, 121;
+  --color-green-fg: #090A0C;
+  --color-green-fg-rgb: 9, 10, 12;
   --color-red: #E06C75;
   --color-red-rgb: 224, 108, 117;
+  --color-red-fg: #FFFFFF;
+  --color-red-fg-rgb: 255, 255, 255;
   --color-yellow: #E5C07B;
   --color-yellow-rgb: 229, 192, 123;
+  --color-yellow-fg: #090A0C;
+  --color-yellow-fg-rgb: 9, 10, 12;
   --color-purple: #C678DD;
   --color-purple-rgb: 198, 120, 221;
+  --color-purple-fg: #090A0C;
+  --color-purple-fg-rgb: 9, 10, 12;
   --color-bronze: #D19A66;
   --color-bronze-rgb: 209, 154, 102;
 
@@ -61,29 +71,39 @@ html.light-theme {
   --color-darker-rgb: 240, 240, 240;
   --color-surface: #FFFFFF;
   --color-surface-rgb: 255, 255, 255;
-  --color-border: #D1D5DB; /* Clean neutral grey border (slate/gray-300) */
-  --color-border-rgb: 209, 213, 219;
-  --color-border-subtle: #E5E7EB; /* Subtle divider & card boundary (gray-200) */
-  --color-border-subtle-rgb: 229, 231, 235;
+  --color-border: #C4CDD5; /* Crisp neutral grey border for active/interactive controls */
+  --color-border-rgb: 196, 205, 213;
+  --color-border-subtle: #D8DEE4; /* Distinct divider & card boundary against #FAFAFA */
+  --color-border-subtle-rgb: 216, 222, 228;
   --color-fg: #24292E;
   --color-fg-rgb: 36, 41, 46;
   --color-fg-bright: #090A0C;
   --color-fg-bright-rgb: 9, 10, 12;
-  --color-muted: #6A737D;
-  --color-muted-rgb: 106, 115, 125;
+  --color-muted: #57606A; /* WCAG AA compliant muted text across light surfaces */
+  --color-muted-rgb: 87, 96, 106;
   --color-accent: #D97706;
   --color-accent-rgb: 217, 119, 6;
+  --color-accent-fg: #FFFFFF;
+  --color-accent-fg-rgb: 255, 255, 255;
   --color-accent-subtle: rgba(217, 119, 6, 0.14);
   --color-folder: #D97706;
   --color-folder-rgb: 217, 119, 6;
   --color-green: #22863A;
   --color-green-rgb: 34, 134, 58;
+  --color-green-fg: #FFFFFF;
+  --color-green-fg-rgb: 255, 255, 255;
   --color-red: #CB2431;
   --color-red-rgb: 203, 36, 49;
+  --color-red-fg: #FFFFFF;
+  --color-red-fg-rgb: 255, 255, 255;
   --color-yellow: #B08800;
   --color-yellow-rgb: 176, 136, 0;
+  --color-yellow-fg: #FFFFFF;
+  --color-yellow-fg-rgb: 255, 255, 255;
   --color-purple: #6F42C1;
   --color-purple-rgb: 111, 66, 193;
+  --color-purple-fg: #FFFFFF;
+  --color-purple-fg-rgb: 255, 255, 255;
   --color-bronze: #A05A00;
   --color-bronze-rgb: 160, 90, 0;
 

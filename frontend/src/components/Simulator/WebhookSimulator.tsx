@@ -365,7 +365,7 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({
                   onClick={() => setSourceFilter(src)}
                   className={`px-2.5 py-1 rounded-lg text-xs font-mono font-medium transition-all cursor-pointer ${
                     sourceFilter === src
-                      ? 'bg-onedark-accent text-onedark-darker font-bold shadow-sm'
+                      ? 'bg-onedark-accent text-onedark-accentFg font-bold shadow-sm'
                       : 'bg-onedark-darker text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface border border-onedark-borderSubtle'
                   }`}
                 >
@@ -533,9 +533,9 @@ export const WebhookSimulator: React.FC<WebhookSimulatorProps> = ({
             <button
               onClick={handleTrigger}
               disabled={loading}
-              className="px-5 py-2.5 rounded-xl bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker text-xs font-bold flex items-center justify-center space-x-2 transition-all shadow-md active:scale-95 disabled:opacity-50 cursor-pointer"
+              className="px-5 py-2.5 rounded-xl bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg text-xs font-bold flex items-center justify-center space-x-2 transition-all shadow-md active:scale-95 disabled:opacity-50 cursor-pointer"
             >
-              <Play className="w-3.5 h-3.5 fill-onedark-darker" />
+              <Play className="w-3.5 h-3.5 fill-current" />
               <span>{loading ? 'Dispatching & Provisioning...' : 'Dispatch Webhook Event'}</span>
             </button>
           </div>

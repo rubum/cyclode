@@ -406,7 +406,7 @@ export const PastedDocModal: React.FC<PastedDocModalProps> = ({
                 if (isEditing) handleSaveDocChanges();
                 onClose();
               }}
-              className="px-4 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-darker font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
+              className="px-4 py-1.5 rounded-lg bg-onedark-accent hover:bg-onedark-accent/90 text-onedark-accentFg font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
             >
               Done
             </button>

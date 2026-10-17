@@ -792,7 +792,7 @@ export const ChangesDiffTab: React.FC<ChangesDiffTabProps> = ({
                   onClick={() => setIsRegex((prev) => !prev)}
                   className={`px-1 py-0.2 rounded font-mono text-[9.5px] font-bold transition-all cursor-pointer ${
                     isRegex
-                      ? 'bg-onedark-purple text-white shadow-xs'
+                      ? 'bg-onedark-purple text-onedark-purpleFg shadow-xs'
                       : 'text-onedark-muted hover:text-onedark-fg hover:bg-onedark-surface'
                   }`}
                   title={
