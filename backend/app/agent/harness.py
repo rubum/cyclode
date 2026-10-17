@@ -1723,9 +1723,11 @@ class AntigravityHarness:
                 model_succeeded = False
                 final_agent_text = ""
                 last_snapshot_mut_count = -1
+                inspection_signature_counts: Dict[str, int] = {}
+                force_loop_exit = False
 
                 try:
-                    while turn < max_turns:
+                    while turn < max_turns and not force_loop_exit:
                         turn += 1
                         collector.start_turn(turn_index=turn, user_prompt=prompt if turn == 1 else None)
                         # Lazy turn snapshots: skip git subprocess overhead on qa_research/planning or turns without file mutations
@@ -1762,10 +1764,12 @@ class AntigravityHarness:
                                 )
 
                         # Tier 3: In-Context Tool Output & Historical Content Compaction
+                        # Preserve the last 5 full turns (10 entries: 5 model + 5 user) uncompacted so multi-step
+                        # file/PDF/skill inspections across consecutive turns never cause 2-turn compaction amnesia.
                         optimized_contents = []
                         total_entries = len(contents)
                         for idx, entry in enumerate(contents):
-                            if idx >= total_entries - 2:
+                            if idx >= total_entries - 10:
                                 optimized_contents.append(entry)
                                 continue
                             parts = entry.get("parts", [])
@@ -1832,15 +1836,15 @@ class AntigravityHarness:
                                     resp_data = fr.get("response", {})
                                     if isinstance(resp_data, dict):
                                         resp_copy = dict(resp_data)
-                                        # Compact large text values
+                                        # Compact large text values in older turns (>5 turns ago)
                                         for key in ["output", "stdout", "content", "result", "diff", "text"]:
                                             val = resp_copy.get(key)
-                                            if isinstance(val, str) and len(val) > 1200:
+                                            if isinstance(val, str) and len(val) > 4500:
                                                 lines = val.split("\n")
-                                                if len(lines) > 25:
-                                                    compacted_val = "\n".join(lines[:12]) + f"\n\n... [Historical output compacted: {len(lines)-22} lines omitted for token efficiency] ...\n\n" + "\n".join(lines[-10:])
+                                                if len(lines) > 90:
+                                                    compacted_val = "\n".join(lines[:35]) + f"\n\n... [Historical output compacted: {len(lines)-60} lines omitted for token efficiency] ...\n\n" + "\n".join(lines[-25:])
                                                 else:
-                                                    compacted_val = val[:500] + f"\n\n... [Historical output compacted ({len(val)} chars)] ...\n\n" + val[-500:]
+                                                    compacted_val = val[:2000] + f"\n\n... [Historical output compacted ({len(val)} chars)] ...\n\n" + val[-1500:]
                                                 resp_copy[key] = compacted_val
                                         # Compact large list results (symbols, search matches, dir items, issues, PRs)
                                         for list_key in ["matches", "symbols", "items", "entries", "issues", "pull_requests"]:
@@ -2637,7 +2641,7 @@ class AntigravityHarness:
                                         system_instruction +
                                         "\n\nCRITICAL DIRECTIVE: Execution limit reached with in-flight transitional scratchpad thoughts. Provide your final concise executive summary, deliverables, and current workspace status to the user now. Do NOT promise further actions, future checks, or tool calls."
                                     )
-                                    synth_contents = list(contents)
+                                    synth_contents = list(optimized_contents if optimized_contents else contents)
                                     synth_contents.append({
                                         "role": "user",
                                         "parts": [{"text": "Execution limit reached. Provide your final concise executive delivery summary to the user now. Do not promise further actions."}]
@@ -2654,16 +2658,26 @@ class AntigravityHarness:
                                             candidate_term = synth_resp.content.strip()
                                             if not Harness.is_dangling_action_intent(candidate_term):
                                                 final_agent_text = candidate_term
-                                            else:
+                                            elif mutating_tool_count > 0:
                                                 final_agent_text = (
                                                     f"Applied modifications across {mutating_tool_count} workspace action{'s' if mutating_tool_count != 1 else ''}. "
                                                     f"Execution concluded with in-flight actions."
                                                 )
+                                            else:
+                                                final_agent_text = (
+                                                    f"Completed {tool_call_count} workspace inspection action{'s' if tool_call_count != 1 else ''}. "
+                                                    f"Execution concluded before final synthesis completed."
+                                                )
                                     except Exception as term_err:
                                         logger.warning(f"Forced terminal synthesis notice: {term_err}")
-                                        final_agent_text = (
-                                            f"Applied modifications across {mutating_tool_count} workspace action{'s' if mutating_tool_count != 1 else ''}."
-                                        )
+                                        if mutating_tool_count > 0:
+                                            final_agent_text = (
+                                                f"Applied modifications across {mutating_tool_count} workspace action{'s' if mutating_tool_count != 1 else ''}."
+                                            )
+                                        else:
+                                            final_agent_text = (
+                                                f"Completed {tool_call_count} workspace inspection action{'s' if tool_call_count != 1 else ''}."
+                                            )
 
                                 current_plan["markdown"] = generate_plan_markdown(current_plan, title, prompt)
 
@@ -3572,6 +3586,31 @@ class AntigravityHarness:
                                 if isinstance(tool_result, dict):
                                     tool_result["_warning"] = "Model generation reached token ceiling (finish_reason=length)."
 
+                            if fn_name in ("run_command", "read_file", "list_dir", "search_code", "grep_search", "get_file_outline"):
+                                try:
+                                    insp_sig = f"{fn_name}:{json.dumps(args, sort_keys=True, default=str)}"
+                                except Exception:
+                                    insp_sig = f"{fn_name}:{str(args)}"
+                                inspection_signature_counts[insp_sig] = inspection_signature_counts.get(insp_sig, 0) + 1
+                                repeat_count = inspection_signature_counts[insp_sig]
+                                if repeat_count >= 3:
+                                    loop_notice = (
+                                        f"[LOOP CIRCUIT-BREAKER NOTICE: You have executed this exact `{fn_name}` call {repeat_count} times "
+                                        f"in this session. Previous recent tool outputs remain preserved in context. Do NOT re-run the same "
+                                        f"inspection or command again — either proceed with workspace implementation or synthesize your final answer now.]"
+                                    )
+                                    out_str = f"{out_str}\n\n{loop_notice}" if out_str else loop_notice
+                                    if isinstance(tool_result, dict):
+                                        tool_result["_loop_circuit_breaker"] = loop_notice
+                                        if "stdout" in tool_result and isinstance(tool_result["stdout"], str):
+                                            tool_result["stdout"] = f"{tool_result['stdout']}\n\n{loop_notice}"
+                                        elif "content" in tool_result and isinstance(tool_result["content"], str):
+                                            tool_result["content"] = f"{tool_result['content']}\n\n{loop_notice}"
+                                    intent_cat_now = current_plan.get("intent_category", "app_building" if persona_name == "AppBuilder" else "code_modification")
+                                    if repeat_count >= 5 and (intent_cat_now == "qa_research" or mutating_tool_count == 0):
+                                        logger.warning(f"Loop circuit-breaker triggered forced synthesis exit after {repeat_count} identical '{fn_name}' calls.")
+                                        force_loop_exit = True
+
                             elapsed_ms = precomputed_elapsed_ms if precomputed_elapsed_ms is not None else int((asyncio.get_event_loop().time() - start_time) * 1000)
                             collector.record_tool_invocation(
                                 tool_name=fn_name,
@@ -3630,6 +3669,8 @@ class AntigravityHarness:
                             "role": "user",
                             "parts": response_parts
                         })
+                        if force_loop_exit:
+                            break
 
                     # Post-loop autonomous application build verification & compilation
                     intent_category = current_plan.get("intent_category", "app_building" if persona_name == "AppBuilder" else "code_modification")
@@ -4035,8 +4076,18 @@ class AntigravityHarness:
                             "\n\nCRITICAL DIRECTIVE: You have completed all workspace tool executions. Synthesize your comprehensive, fluid analytical final response answering the user directly in rich markdown format with clickable citations and file links. Do NOT state forward-looking transitional promises (e.g. 'Now let me add...', 'Next I will...'), scratchpad thoughts, or tool intentions. NEVER surrender execution or instruct the user to run commands, servers, or troubleshooting steps locally on their machine. You are an autonomous builder responsible for fulfilling the task within the Cyclode workspace. Summarize what has been completed and current status."
                         )
                         try:
+                            synth_messages = list(optimized_contents if optimized_contents else contents)
+                            synth_closing_prompt = (
+                                "CRITICAL INSTRUCTION: All tool executions are complete. Provide your comprehensive, direct final answer to the user's question based on the findings gathered above. Do NOT state forward-looking intentions (e.g. 'Let me check...', 'Next I will...') or attempt further tool calls."
+                                if (intent_category == "qa_research" or mutating_tool_count == 0)
+                                else "CRITICAL INSTRUCTION: All workspace tool executions are complete. Provide your comprehensive analytical final response summarizing what was built, changes made, and verification status in rich markdown with clickable file links. Do NOT state forward-looking intentions (e.g. 'Now let me add...', 'Next I will...') or attempt further tool calls."
+                            )
+                            synth_messages.append({
+                                "role": "user",
+                                "parts": [{"text": synth_closing_prompt}]
+                            })
                             synth_resp = await active_provider.generate_response(
-                                messages=contents,
+                                messages=synth_messages,
                                 tools=None,
                                 system_instruction=synth_instruction,
                                 model_name=active_model,
@@ -4047,20 +4098,11 @@ class AntigravityHarness:
                                 if candidate_synth:
                                     is_surrender, surrender_reason = Harness.is_surrender_or_bailing_intent(candidate_synth)
                                     if is_surrender:
-                                        logger.warning(f"Terminal synthesis candidate emitted surrender/bailing intent ({surrender_reason}). Sanitizing terminal delivery...")
-                                        candidate_synth = (
-                                            f"Applied modifications across {mutating_tool_count} workspace action{'s' if mutating_tool_count != 1 else ''}. "
-                                            f"Execution halted before completion: {surrender_reason}."
-                                        )
-                                        model_succeeded = False
+                                        logger.warning(f"Terminal synthesis #1 candidate emitted surrender/bailing intent ({surrender_reason}). Falling back to flattened transcript synthesis #2...")
                                     elif Harness.is_dangling_action_intent(candidate_synth):
-                                        logger.info(f"Terminal synthesis candidate emitted dangling intent. Sanitizing terminal delivery...")
-                                        candidate_synth = (
-                                            f"Applied modifications across {mutating_tool_count} workspace action{'s' if mutating_tool_count != 1 else ''}. "
-                                            f"Execution concluded with in-flight actions."
-                                        )
-                                        model_succeeded = False
-                                    final_synth_text = candidate_synth
+                                        logger.info("Terminal synthesis #1 candidate emitted dangling intent. Falling back to flattened transcript synthesis #2...")
+                                    else:
+                                        final_synth_text = candidate_synth
                         except Exception as synth_err:
                             logger.error(f"Synthesis turn error: {synth_err}")
 
@@ -4068,7 +4110,7 @@ class AntigravityHarness:
                         if not final_synth_text:
                             try:
                                 text_contents = []
-                                for c in contents:
+                                for c in (optimized_contents if optimized_contents else contents):
                                     role = c.get("role", "user")
                                     parts = c.get("parts", [])
                                     text_chunks = []
@@ -4103,18 +4145,23 @@ class AntigravityHarness:
                                             fr = p["functionResponse"]
                                             resp_val = fr.get("response", {})
                                             resp_str = json.dumps(resp_val) if isinstance(resp_val, (dict, list)) else str(resp_val)
-                                            if len(resp_str) > 2000:
-                                                resp_str = resp_str[:2000] + "... (truncated)"
+                                            if len(resp_str) > 3500:
+                                                resp_str = resp_str[:3500] + "... (truncated)"
                                             text_chunks.append(f"Observation for {fr.get('name')}:\n{resp_str}\n")
                                     if text_chunks:
                                         text_contents.append({
                                             "role": role,
                                             "parts": [{"text": "\n\n".join(text_chunks)}]
                                         })
+                                flat_closing_prompt = (
+                                    "CRITICAL INSTRUCTION: All workspace inspections and research actions have been completed. Provide your complete, comprehensive analytical final answer directly addressing the user's question based on the observations above in rich markdown. Do NOT output internal action traces, tool call syntax, forward-looking promises (e.g. 'Let me check...'), or 'Action:' prefixes."
+                                    if (intent_category == "qa_research" or mutating_tool_count == 0)
+                                    else "CRITICAL INSTRUCTION: All workspace actions have been performed. Provide your complete, comprehensive analytical final answer summarizing what was built, any changes made, and preview verification results in rich markdown with clickable file links. Do NOT output internal action traces, tool call syntax, forward-looking promises, or 'Action:' prefixes."
+                                )
                                 text_contents.append({
                                     "role": "user",
                                     "parts": [{
-                                        "text": "CRITICAL INSTRUCTION: All workspace actions have been performed. Provide your complete, comprehensive analytical final answer summarizing what was built, any changes made, and preview verification results in rich markdown with clickable file links. Do NOT output internal action traces, tool call syntax, or 'Action:' prefixes."
+                                        "text": flat_closing_prompt
                                     }]
                                 })
                                 flat_resp = await active_provider.generate_response(
@@ -4128,20 +4175,34 @@ class AntigravityHarness:
                                     flat_synth_text = flat_resp.content.strip()
                                     if re.match(r"^(?:Action:\s+|•\s+(?:Modified|Ran|Inspected|Executed|Listed|Searched))", flat_synth_text.strip(), re.IGNORECASE):
                                         flat_synth_text = (
-                                            "All requested components and workspace modifications have been applied and verified."
+                                            "Completed workspace analysis and gathered the requested findings."
+                                            if (intent_category == "qa_research" or mutating_tool_count == 0)
+                                            else "All requested components and workspace modifications have been applied and verified."
                                         )
                                     is_flat_surrender, flat_surrender_reason = Harness.is_surrender_or_bailing_intent(flat_synth_text)
                                     if is_flat_surrender:
-                                        flat_synth_text = (
-                                            f"Applied modifications across {mutating_tool_count} workspace action{'s' if mutating_tool_count != 1 else ''}. "
-                                            f"Execution halted before completion: {flat_surrender_reason}."
-                                        )
+                                        if mutating_tool_count > 0:
+                                            flat_synth_text = (
+                                                f"Applied modifications across {mutating_tool_count} workspace action{'s' if mutating_tool_count != 1 else ''}. "
+                                                f"Execution halted before completion: {flat_surrender_reason}."
+                                            )
+                                        else:
+                                            flat_synth_text = (
+                                                f"Completed {tool_call_count} workspace inspection step{'s' if tool_call_count != 1 else ''}. "
+                                                f"Execution halted before final synthesis: {flat_surrender_reason}."
+                                            )
                                         model_succeeded = False
                                     elif Harness.is_dangling_action_intent(flat_synth_text):
-                                        flat_synth_text = (
-                                            f"Applied modifications across {mutating_tool_count} workspace action{'s' if mutating_tool_count != 1 else ''}. "
-                                            f"Execution concluded with in-flight actions."
-                                        )
+                                        if mutating_tool_count > 0:
+                                            flat_synth_text = (
+                                                f"Applied modifications across {mutating_tool_count} workspace action{'s' if mutating_tool_count != 1 else ''}. "
+                                                f"Execution concluded with in-flight actions."
+                                            )
+                                        else:
+                                            flat_synth_text = (
+                                                f"Completed {tool_call_count} workspace inspection step{'s' if tool_call_count != 1 else ''}, "
+                                                f"reaching the turn budget before final answer synthesis."
+                                            )
                                         model_succeeded = False
                                     final_synth_text = flat_synth_text
                             except Exception as flat_err:
@@ -4151,16 +4212,28 @@ class AntigravityHarness:
                     is_dangling_post = Harness.is_dangling_action_intent(final_agent_text)
                     is_surrender_post, surrender_reason_post = Harness.is_surrender_or_bailing_intent(final_agent_text)
                     if is_surrender_post:
-                        final_agent_text = (
-                            f"Applied modifications across {mutating_tool_count} workspace action{'s' if mutating_tool_count != 1 else ''}. "
-                            f"Execution halted before completion: {surrender_reason_post}."
-                        )
+                        if mutating_tool_count > 0:
+                            final_agent_text = (
+                                f"Applied modifications across {mutating_tool_count} workspace action{'s' if mutating_tool_count != 1 else ''}. "
+                                f"Execution halted before completion: {surrender_reason_post}."
+                            )
+                        else:
+                            final_agent_text = (
+                                f"Completed {tool_call_count} workspace inspection step{'s' if tool_call_count != 1 else ''}. "
+                                f"Execution halted before final synthesis: {surrender_reason_post}."
+                            )
                         model_succeeded = False
                     elif is_dangling_post:
-                        final_agent_text = (
-                            f"Applied modifications across {mutating_tool_count} workspace action{'s' if mutating_tool_count != 1 else ''}. "
-                            f"Execution concluded with in-flight actions."
-                        )
+                        if mutating_tool_count > 0:
+                            final_agent_text = (
+                                f"Applied modifications across {mutating_tool_count} workspace action{'s' if mutating_tool_count != 1 else ''}. "
+                                f"Execution concluded with in-flight actions."
+                            )
+                        else:
+                            final_agent_text = (
+                                f"Completed {tool_call_count} workspace inspection step{'s' if tool_call_count != 1 else ''}, "
+                                f"reaching the turn budget before final answer synthesis."
+                            )
                         model_succeeded = False
 
                     # 3. Autonomous Plan Self-Evaluation Audit via EvaluationRunner (Auditing actual delivered text!)

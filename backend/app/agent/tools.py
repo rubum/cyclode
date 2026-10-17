@@ -32,12 +32,16 @@ def compact_command_output(text: str, max_lines: int = 50, max_chars: int = 3500
     clean = ANSI_ESCAPE_RE.sub("", text)
     lines = clean.splitlines()
     if len(lines) > max_lines:
-        head = lines[:20]
-        tail = lines[-30:]
-        omitted = len(lines) - 50
+        head_count = max(1, int(max_lines * 0.4))
+        tail_count = max(1, max_lines - head_count)
+        head = lines[:head_count]
+        tail = lines[-tail_count:]
+        omitted = len(lines) - (head_count + tail_count)
         return "\n".join(head) + f"\n\n... [Omitted {omitted} lines of intermediate command logs] ...\n\n" + "\n".join(tail)
     if len(clean) > max_chars:
-        return clean[:1200] + f"\n\n... [Omitted intermediate log content ({len(clean)} chars total)] ...\n\n" + clean[-1800:]
+        head_chars = max(200, int(max_chars * 0.4))
+        tail_chars = max(200, max_chars - head_chars - 500)
+        return clean[:head_chars] + f"\n\n... [Omitted intermediate log content ({len(clean)} chars total)] ...\n\n" + clean[-tail_chars:]
     return clean
 
 
@@ -45,6 +49,82 @@ class WorkspaceTools:
     """
     Real tool executions inside the task workspace directory and live web intelligence.
     """
+
+    @staticmethod
+    def _extract_pdf_text_cached(workspace_path: Path, target: Path) -> Tuple[str, int]:
+        """
+        Extracts text page-by-page from a PDF file with `=== Page N of M ===` headers
+        and caches the extracted text in `.cyclode/.pdf_cache/` for sub-5ms subsequent reads/searches.
+        Returns (extracted_text, page_count).
+        """
+        ws_root = workspace_path.resolve()
+        cache_dir = ws_root / ".cyclode" / ".pdf_cache"
+        stat = target.stat()
+        safe_name = re.sub(r"[^a-zA-Z0-9_.-]", "_", target.name)
+        cache_file = cache_dir / f"{safe_name}.{stat.st_size}.{stat.st_mtime_ns}.txt"
+        meta_file = cache_dir / f"{safe_name}.{stat.st_size}.{stat.st_mtime_ns}.meta.json"
+
+        try:
+            if cache_file.exists() and meta_file.exists():
+                cached_text = cache_file.read_text(encoding="utf-8", errors="ignore")
+                meta = json.loads(meta_file.read_text(encoding="utf-8"))
+                return cached_text, int(meta.get("page_count", 1))
+        except Exception:
+            pass
+
+        page_count = 0
+        full_text = ""
+
+        # Primary: pypdf
+        try:
+            from pypdf import PdfReader
+            reader = PdfReader(str(target))
+            page_count = len(reader.pages)
+            page_blocks: List[str] = []
+            for idx, page in enumerate(reader.pages):
+                try:
+                    p_text = page.extract_text() or ""
+                except Exception:
+                    p_text = ""
+                if p_text.strip():
+                    page_blocks.append(f"=== Page {idx + 1} of {page_count} ===\n{p_text.strip()}")
+                else:
+                    page_blocks.append(f"=== Page {idx + 1} of {page_count} ===\n[No extractable text on page {idx + 1}]")
+            full_text = "\n\n".join(page_blocks)
+        except Exception as e:
+            logger.debug(f"pypdf extraction notice for {target.name}: {e}")
+            # Fallback: pdftotext CLI if installed
+            try:
+                proc = subprocess.run(
+                    ["pdftotext", str(target), "-"],
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                if proc.returncode == 0 and proc.stdout:
+                    raw_pages = proc.stdout.split("\x0c")
+                    if raw_pages and not raw_pages[-1].strip():
+                        raw_pages = raw_pages[:-1]
+                    page_count = max(1, len(raw_pages))
+                    full_text = "\n\n".join(
+                        f"=== Page {idx + 1} of {page_count} ===\n{p.strip()}"
+                        for idx, p in enumerate(raw_pages)
+                    )
+            except Exception:
+                pass
+
+        if not full_text.strip():
+            full_text = "[PDF contains no extractable text layer]"
+            page_count = max(1, page_count)
+
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            cache_file.write_text(full_text, encoding="utf-8")
+            meta_file.write_text(json.dumps({"page_count": page_count}), encoding="utf-8")
+        except Exception:
+            pass
+
+        return full_text, page_count
 
     @staticmethod
     def list_dir(workspace_path: Path, subpath: str = ".") -> Dict[str, Any]:
@@ -74,26 +154,54 @@ class WorkspaceTools:
         end_line: Optional[int] = None
     ) -> Dict[str, Any]:
         """
-        Reads file content from workspace.
+        Reads file content from workspace (or platform skill catalog).
         Prefers inspecting full file in a single turn without line slices unless the file is massive (>500KB).
         """
         if not file_path or not str(file_path).strip():
             return {"error": "file_path cannot be empty"}
-        clean_path = str(file_path).strip().lstrip("/")
+        raw_path_str = str(file_path).strip()
+        clean_path = raw_path_str.lstrip("/")
         if clean_path.startswith("./"):
             clean_path = clean_path[2:]
         if not clean_path:
             return {"error": "Invalid file_path (points to workspace root)"}
         ws_root = workspace_path.resolve()
         target = (ws_root / clean_path).resolve()
-        if not target.is_relative_to(ws_root):
-            return {"error": "Access denied outside workspace"}
-        if not target.exists() or not target.is_file():
-            alt_target = (ws_root / ".cyclode" / "attachments" / Path(clean_path).name).resolve()
-            if alt_target.exists() and alt_target.is_file() and alt_target.is_relative_to(ws_root):
-                target = alt_target
+
+        allowed_skill_roots = [
+            (Path(__file__).resolve().parents[2] / ".agents" / "skills").resolve(),
+            (Path(__file__).resolve().parents[3] / ".agents" / "skills").resolve(),
+            Path("/app/.agents/skills").resolve(),
+        ]
+        if not target.is_relative_to(ws_root) or not target.exists() or not target.is_file():
+            resolved_skill_target = None
+            if raw_path_str.startswith("/"):
+                try:
+                    cand_abs = Path(raw_path_str).resolve()
+                    if cand_abs.exists() and cand_abs.is_file() and any(
+                        cand_abs.is_relative_to(sr) for sr in allowed_skill_roots if sr.exists()
+                    ):
+                        resolved_skill_target = cand_abs
+                except Exception:
+                    pass
+            if resolved_skill_target is None and ".agents/skills/" in clean_path:
+                rel_after_skills = clean_path.split(".agents/skills/", 1)[1]
+                for sr in allowed_skill_roots:
+                    if sr.exists():
+                        cand_sr = (sr / rel_after_skills).resolve()
+                        if cand_sr.is_relative_to(sr) and cand_sr.exists() and cand_sr.is_file():
+                            resolved_skill_target = cand_sr
+                            break
+            if resolved_skill_target is not None:
+                target = resolved_skill_target
             else:
-                return {"error": f"File '{clean_path}' not found"}
+                if not target.is_relative_to(ws_root):
+                    return {"error": "Access denied outside workspace"}
+                alt_target = (ws_root / ".cyclode" / "attachments" / Path(clean_path).name).resolve()
+                if alt_target.exists() and alt_target.is_file() and alt_target.is_relative_to(ws_root):
+                    target = alt_target
+                else:
+                    return {"error": f"File '{clean_path}' not found"}
 
         lockfiles = {"package-lock.json", "pnpm-lock.yaml", "yarn.lock", "Cargo.lock", "poetry.lock", "composer.lock", "Pipfile.lock"}
         minified_exts = {".min.js", ".min.css", ".map", ".bundle.js"}
@@ -122,6 +230,68 @@ class WorkspaceTools:
                 return {
                     "file_path": file_path,
                     "content": f"[Error reading DOCX file: {str(e)}]",
+                    "total_lines": 0,
+                    "is_binary": True
+                }
+
+        if filename.endswith(".pdf"):
+            try:
+                raw_pdf_text, page_count = WorkspaceTools._extract_pdf_text_cached(ws_root, target)
+                lines = raw_pdf_text.splitlines()
+                if not lines:
+                    lines = ["[PDF Document is empty]"]
+                sanitized_lines = [
+                    line if len(line) <= 1000 else (line[:1000] + " ... [Line truncated: length exceeded 1000 characters]")
+                    for line in lines
+                ]
+                total_lines = len(sanitized_lines)
+                MAX_READ_BYTES = 64 * 1024
+                pdf_header = f"[PDF Document: {target.name} ({page_count} pages, {total_lines} lines)]"
+
+                if start_line is not None or end_line is not None:
+                    s = max(1, start_line or 1)
+                    e = min(total_lines, end_line or total_lines)
+                    if s > total_lines:
+                        return {
+                            "file_path": file_path,
+                            "content": f"{pdf_header}\n(PDF has {total_lines} lines; start_line {s} is beyond EOF)",
+                            "total_lines": total_lines,
+                            "is_binary": False
+                        }
+                    sliced = sanitized_lines[s - 1 : e]
+                    body = "\n".join(f"{s + i}: {line}" for i, line in enumerate(sliced))
+                    content = f"{pdf_header}\n\n{body}"
+                    if len(content) > MAX_READ_BYTES:
+                        content = content[:MAX_READ_BYTES] + f"\n\n... [Content truncated at {MAX_READ_BYTES} bytes. Specify a smaller start_line/end_line range] ..."
+                    return {
+                        "file_path": file_path,
+                        "content": content,
+                        "start_line": s,
+                        "end_line": e,
+                        "total_lines": total_lines,
+                        "is_binary": False
+                    }
+
+                if total_lines > 250:
+                    head = "\n".join(f"{i + 1}: {line}" for i, line in enumerate(sanitized_lines[:250]))
+                    msg = (
+                        f"{pdf_header}\n\n{head}\n\n"
+                        f"... [PDF truncated at line 250 of {total_lines} ({page_count} pages). "
+                        f"Use `search_code` to find specific terms/pages or `read_file` with start_line=251, end_line={min(total_lines, 500)} to view next chunk] ..."
+                    )
+                    if len(msg) > MAX_READ_BYTES:
+                        msg = msg[:MAX_READ_BYTES] + f"\n\n... [Content truncated at {MAX_READ_BYTES} bytes] ..."
+                    return {"file_path": file_path, "content": msg, "total_lines": total_lines, "truncated": True, "is_binary": False}
+
+                body = "\n".join(f"{i + 1}: {line}" for i, line in enumerate(sanitized_lines))
+                content = f"{pdf_header}\n\n{body}"
+                if len(content) > MAX_READ_BYTES:
+                    content = content[:MAX_READ_BYTES] + f"\n\n... [Content truncated at {MAX_READ_BYTES} bytes] ..."
+                return {"file_path": file_path, "content": content, "total_lines": total_lines, "is_binary": False}
+            except Exception as e:
+                return {
+                    "file_path": file_path,
+                    "content": f"[Error reading PDF file: {str(e)}]",
                     "total_lines": 0,
                     "is_binary": True
                 }
@@ -1272,8 +1442,8 @@ class WorkspaceTools:
                 "command": command,
                 "cwd": str(target_dir.relative_to(workspace_path.resolve())) if target_dir != workspace_path else None,
                 "exit_code": proc.returncode,
-                "stdout": compact_command_output(proc.stdout),
-                "stderr": compact_command_output(proc.stderr),
+                "stdout": compact_command_output(proc.stdout, max_lines=160, max_chars=10000),
+                "stderr": compact_command_output(proc.stderr, max_lines=160, max_chars=10000),
                 "isolation": jailer.isolation_type
             }
         except subprocess.TimeoutExpired:
@@ -1437,6 +1607,77 @@ class WorkspaceTools:
         }
 
     @staticmethod
+    def _search_pdf_files(
+        workspace_path: Path,
+        query: str,
+        is_regex: bool = False,
+        case_sensitive: bool = False,
+        file_pattern: Optional[str] = None,
+        max_results: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """
+        Scans workspace PDF files (including `.cyclode/attachments/*.pdf`) using cached text extraction
+        so `search_code` returns line numbers matching `read_file(start_line=..., end_line=...)`.
+        """
+        if not query or not query.strip() or not workspace_path or not workspace_path.exists():
+            return []
+        flags = 0 if case_sensitive else re.IGNORECASE
+        try:
+            pattern = re.compile(query if is_regex else re.escape(query), flags)
+        except re.error:
+            return []
+
+        ws_root = workspace_path.resolve()
+        pdf_candidates: List[Tuple[str, Path]] = []
+        seen_names = set()
+
+        for p in sorted(ws_root.rglob("*.pdf")):
+            if any(part in {".git", "node_modules", "venv", ".venv", ".pdf_cache"} for part in p.parts):
+                continue
+            if ".cyclode" in p.parts:
+                continue
+            try:
+                rel_p = p.relative_to(ws_root).as_posix()
+                pdf_candidates.append((rel_p, p))
+                seen_names.add(p.name)
+            except Exception:
+                continue
+
+        att_dir = ws_root / ".cyclode" / "attachments"
+        if att_dir.exists() and att_dir.is_dir():
+            for p in sorted(att_dir.glob("*.pdf")):
+                if p.name not in seen_names:
+                    pdf_candidates.append((p.name, p))
+                    seen_names.add(p.name)
+
+        matches: List[Dict[str, Any]] = []
+        for rel_path, pdf_path in pdf_candidates:
+            if file_pattern and not (fnmatch.fnmatch(rel_path, file_pattern) or fnmatch.fnmatch(pdf_path.name, file_pattern)):
+                continue
+            try:
+                raw_text, _ = WorkspaceTools._extract_pdf_text_cached(ws_root, pdf_path)
+                file_hits = 0
+                current_page_label = ""
+                for line_idx, line in enumerate(raw_text.splitlines(), start=1):
+                    if line.startswith("=== Page ") and line.endswith(" ==="):
+                        current_page_label = line.strip("= ").split(" of ")[0]
+                    if pattern.search(line):
+                        prefix = f"[{current_page_label}] " if current_page_label and not line.startswith("=== Page ") else ""
+                        matches.append({
+                            "file_path": rel_path,
+                            "line_number": line_idx,
+                            "line_content": f"{prefix}{line.rstrip()}"[:500]
+                        })
+                        file_hits += 1
+                        if file_hits >= 50 or len(matches) >= max_results:
+                            break
+            except Exception:
+                continue
+            if len(matches) >= max_results:
+                break
+        return matches
+
+    @staticmethod
     def search_code(
         workspace_path: Path,
         query: str,
@@ -1448,7 +1689,8 @@ class WorkspaceTools:
     ) -> Dict[str, Any]:
         """
         Fast workspace code search ignoring build/vendor folders, prioritizing current_file matches.
-        Dispatches via SearchBridge 3-Tier Cascade (Rust cyclode-searchd -> Ripgrep -> Python fallback).
+        Dispatches via SearchBridge 3-Tier Cascade (Rust cyclode-searchd -> Ripgrep -> Python fallback),
+        augmented with cached PDF text search when PDF documents are present.
         """
         from app.core.search import SearchBridge
         res = SearchBridge.search_text(
@@ -1460,12 +1702,25 @@ class WorkspaceTools:
             current_file=current_file
         )
         if "matches" in res:
+            pdf_matches = WorkspaceTools._search_pdf_files(
+                workspace_path,
+                query,
+                is_regex=is_regex,
+                case_sensitive=case_sensitive,
+                file_pattern=file_pattern,
+                max_results=max_results,
+            )
+            if pdf_matches:
+                existing_keys = {(m.get("file_path"), m.get("line_number")) for m in res["matches"]}
+                for pm in pdf_matches:
+                    if (pm["file_path"], pm["line_number"]) not in existing_keys:
+                        res["matches"].append(pm)
             if file_pattern:
                 res["matches"] = [
                     m for m in res["matches"]
                     if fnmatch.fnmatch(m.get("file_path", ""), file_pattern) or fnmatch.fnmatch(Path(m.get("file_path", "")).name, file_pattern)
                 ]
-                res["total_matches"] = len(res["matches"])
+            res["total_matches"] = len(res["matches"])
             res["files_matched"] = list(dict.fromkeys([m.get("file_path", "") for m in res["matches"] if m.get("file_path")]))
             res["total_files_matched"] = len(res["files_matched"])
         return res

@@ -904,6 +904,76 @@ async def test_task_turn_preserves_awaiting_approval_when_staged(tmp_path):
         assert final_status == "AWAITING_APPROVAL"
 
 
+def test_read_file_platform_skills_fallback(tmp_path):
+    """
+    Verifies that WorkspaceTools.read_file can read platform skill files
+    referenced as '/app/.agents/skills/<name>/SKILL.md' or '.agents/skills/<name>/SKILL.md'
+    even when the task workspace itself does not have a local copy.
+    """
+    res = WorkspaceTools.read_file(tmp_path, "/app/.agents/skills/ui-ux-design/SKILL.md", start_line=1, end_line=60)
+    assert "error" not in res, f"Expected platform skill read_file to succeed, got: {res}"
+    assert res["total_lines"] > 50
+    assert "content" in res and len(res["content"]) > 100
+
+
+def test_pdf_read_file_and_search_code(tmp_path):
+    """
+    Verifies that WorkspaceTools.read_file and WorkspaceTools.search_code
+    natively extract and search text from PDF files (with caching in .cyclode/.pdf_cache).
+    """
+    stream_text = b"BT /F1 12 Tf 72 720 Td (Reciprocal Rank Fusion (RRF) combines ranked lists with k=60.) Tj ET"
+    pdf_bytes = (
+        b"%PDF-1.4\n"
+        b"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+        b"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
+        b"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        b"/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n"
+        b"4 0 obj\n<< /Length " + str(len(stream_text)).encode("ascii") + b" >>\nstream\n"
+        + stream_text + b"\nendstream\nendobj\n"
+        b"5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n"
+        b"xref\n0 6\n"
+        b"0000000000 65535 f \n"
+        b"0000000009 00000 n \n"
+        b"0000000058 00000 n \n"
+        b"0000000115 00000 n \n"
+        b"0000000241 00000 n \n"
+        b"0000000383 00000 n \n"
+        b"trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n451\n%%EOF\n"
+    )
+    pdf_path = tmp_path / "AI-Powered Search.pdf"
+    pdf_path.write_bytes(pdf_bytes)
+
+    read_res = WorkspaceTools.read_file(tmp_path, "AI-Powered Search.pdf", start_line=1, end_line=50)
+    assert "error" not in read_res, f"Unexpected PDF read error: {read_res}"
+    assert "Reciprocal Rank Fusion" in read_res["content"]
+    assert "=== Page 1" in read_res["content"]
+    assert (tmp_path / ".cyclode" / ".pdf_cache").exists()
+
+    search_res = WorkspaceTools.search_code(tmp_path, "Reciprocal Rank Fusion")
+    assert isinstance(search_res, dict)
+    assert search_res["total_matches"] >= 1
+    assert "AI-Powered Search.pdf" in search_res["files_matched"]
+    first_match = search_res["matches"][0]
+    assert first_match["file_path"] == "AI-Powered Search.pdf"
+    assert "Reciprocal Rank Fusion" in first_match["line_content"]
+    assert "[Page 1]" in first_match["line_content"]
+
+
+def test_run_command_generous_compaction_budget(tmp_path):
+    """
+    Verifies that WorkspaceTools.run_command retains up to 160 lines of command output
+    without truncating 140-line outputs down to 50 lines.
+    """
+    sample_file = tmp_path / "doc.txt"
+    sample_file.write_text("\n".join(f"Line {i}: Detailed specification content" for i in range(1, 145)), encoding="utf-8")
+
+    cmd_res = WorkspaceTools.run_command(tmp_path, "sed -n '1,140p' doc.txt")
+    assert cmd_res["exit_code"] == 0
+    assert "Omitted" not in cmd_res["stdout"]
+    assert "Line 70: Detailed specification content" in cmd_res["stdout"]
+
+
+
 
 
 
