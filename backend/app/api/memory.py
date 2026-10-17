@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, desc, or_
 
 from app.db.session import get_db
-from app.db.models import KnowledgeEntryModel, get_utc_now
+from app.db.models import KnowledgeEntryModel, TaskModel, TaskLogModel, RepositoryConfigModel, get_utc_now
 from app.schemas.memory import (
     KnowledgeEntrySchema,
     CreateKnowledgeEntryRequest,
@@ -16,6 +16,8 @@ from app.schemas.memory import (
     KnowledgeGraphResponse,
 )
 from app.agent.engine.memory import (
+    extract_turn_heuristics,
+    promote_task_memories,
     vote_memory_heuristic,
     upsert_knowledge_entry,
     recall_context_pack,
@@ -107,6 +109,7 @@ async def recall_memories(req: MemoryRecallRequest):
 async def get_task_memories(task_id: str, db: AsyncSession = Depends(get_db)):
     """
     Retrieves all memories associated with a specific task (both provisional and promoted).
+    If none exist yet for a task with persisted audit logs, extracts heuristics on demand.
     """
     stmt = (
         select(KnowledgeEntryModel)
@@ -115,6 +118,50 @@ async def get_task_memories(task_id: str, db: AsyncSession = Depends(get_db)):
     )
     res = await db.execute(stmt)
     entries = res.scalars().all()
+
+    if not entries:
+        log_stmt = (
+            select(TaskLogModel)
+            .where(TaskLogModel.task_id == task_id)
+            .order_by(TaskLogModel.created_at.asc())
+        )
+        log_res = await db.execute(log_stmt)
+        task_logs = log_res.scalars().all()
+        if len(task_logs) >= 2:
+            task_res = await db.execute(select(TaskModel).where(TaskModel.id == task_id))
+            task_obj = task_res.scalars().first()
+            resolved_repo_id = None
+            if task_obj and task_obj.repo_name:
+                rc_res = await db.execute(
+                    select(RepositoryConfigModel.id).where(
+                        or_(
+                            RepositoryConfigModel.full_name == task_obj.repo_name,
+                            RepositoryConfigModel.name == task_obj.repo_name,
+                        )
+                    )
+                )
+                resolved_repo_id = rc_res.scalars().first()
+            tool_logs_payload = [
+                {
+                    "tool_name": l.tool_name,
+                    "tool_input": l.tool_input or {},
+                    "tool_output": l.tool_output or "",
+                    "exit_code": l.exit_code or 0,
+                }
+                for l in task_logs
+            ]
+            extracted = await extract_turn_heuristics(
+                task_id=task_id,
+                turn_index=1,
+                tool_logs=tool_logs_payload,
+                repo_id=resolved_repo_id,
+            )
+            if extracted and task_obj and task_obj.status == "COMPLETED":
+                await promote_task_memories(task_id)
+            if extracted:
+                res = await db.execute(stmt)
+                entries = res.scalars().all()
+
     return [KnowledgeEntrySchema.model_validate(e) for e in entries]
 
 

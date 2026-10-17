@@ -237,27 +237,69 @@ def plan_memory_query(
     }
 
 
-def _extract_causal_insight(error_snippet: str, resolution_snippet: str, files: List[str]) -> Optional[Dict[str, Any]]:
+def _extract_files_from_command(cmd: str) -> List[str]:
+    """Extracts plausible file/path references from a shell command string."""
+    if not cmd:
+        return []
+    found: List[str] = []
+    for m in re.finditer(r"\b([a-zA-Z0-9_./-]+\.(?:py|ts|tsx|js|jsx|go|rs|sql|json|yaml|yml|toml|md|proto|sh))\b", cmd):
+        raw_path = m.group(1).lstrip("./")
+        base = os.path.basename(raw_path)
+        if base and base not in found:
+            found.append(base)
+    return found[:6]
+
+
+def _extract_causal_insight(
+    error_snippet: str,
+    resolution_snippet: str,
+    files: List[str],
+    failed_cmd: str = "",
+    exit_code: int = 0,
+) -> Optional[Dict[str, Any]]:
     """
     Extracts an actionable, condensed heuristic from an error-recovery pair.
     """
-    if not error_snippet or not resolution_snippet:
+    if not (error_snippet or failed_cmd) or not resolution_snippet:
         return None
 
     # Clean and extract error signature
-    lines = [line.strip() for line in error_snippet.split("\n") if line.strip()]
+    lines = [line.strip() for line in (error_snippet or "").split("\n") if line.strip() and line.strip() != "stderr:"]
     key_error = ""
     for line in reversed(lines):
-        if any(err in line for err in ["Error", "Exception", "failed", "Fatal", "cannot import"]):
-            key_error = line[:120]
+        if any(
+            err in line
+            for err in [
+                "Error",
+                "Exception",
+                "failed",
+                "Fatal",
+                "cannot import",
+                "REJECTED",
+                "No such file",
+                "not found",
+                "invalid",
+            ]
+        ):
+            key_error = line[:140]
             break
-    if not key_error and lines:
-        key_error = lines[-1][:120]
+
+    if not key_error:
+        if failed_cmd and exit_code != 0:
+            compact_cmd = " ".join(failed_cmd.strip().split())[:100]
+            key_error = f"Command exited with code {exit_code}: `{compact_cmd}`"
+        elif lines:
+            key_error = lines[-1][:140]
 
     # Format actionable takeaway
-    res_clean = resolution_snippet.strip().replace("\n", " ")[:200]
+    res_clean = resolution_snippet.strip().replace("\n", " ")[:220]
     insight = f"When encountering '{key_error}': Resolved by {res_clean}"
-    ctx_files = [os.path.basename(f) for f in files if f]
+    ctx_files = []
+    for f in files:
+        if f:
+            b = os.path.basename(f)
+            if b and b not in ctx_files:
+                ctx_files.append(b)
     slug = compute_memory_slug("failure_recovery", key_error or "runtime_error", ctx_files)
     entities, relations = extract_entities_and_relations(
         key_error or "runtime_error",
@@ -385,15 +427,23 @@ async def extract_turn_heuristics(
 
     created_entries: List[Dict[str, Any]] = []
     seen_slugs: set = set()
+    read_only_tools = {"read_file", "view_file", "list_dir", "list_files", "search_files", "grep_search", "extract_outline"}
 
     for i in range(len(tool_logs) - 1):
         prev_log = tool_logs[i]
-        prev_exit = prev_log.get("exit_code", 0)
+        prev_exit = prev_log.get("exit_code", 0) or 0
         prev_out = prev_log.get("tool_output", "") or ""
+        prev_name = (prev_log.get("tool_name") or "").lower()
+        prev_inp = prev_log.get("tool_input") or {}
+        prev_cmd = (prev_inp.get("command") or prev_inp.get("CommandLine") or "") if isinstance(prev_inp, dict) else ""
 
-        has_error = prev_exit != 0 or any(
-            err in prev_out
-            for err in ["Traceback", "OperationalError", "SyntaxError", "ImportError", "failed", "Error:"]
+        # Avoid false-positive substring matches on read-only file inspections that succeeded (exit_code == 0)
+        has_error = prev_exit != 0 or (
+            prev_name not in read_only_tools
+            and any(
+                err in prev_out
+                for err in ["Traceback", "OperationalError", "SyntaxError", "ImportError", "failed", "Error:"]
+            )
         )
         if not has_error:
             continue
@@ -402,10 +452,13 @@ async def extract_turn_heuristics(
         recovery_log = None
         for j in range(i + 1, min(i + 4, len(tool_logs))):
             cand = tool_logs[j]
-            cand_exit = cand.get("exit_code", 0)
+            cand_exit = cand.get("exit_code", 0) or 0
             cand_out = cand.get("tool_output", "") or ""
             cand_name = (cand.get("tool_name") or "").lower()
-            is_clean = cand_exit == 0 and not any(err in cand_out for err in ["Traceback", "Error:"])
+            is_clean = cand_exit == 0 and (
+                cand_name in read_only_tools
+                or not any(err in cand_out for err in ["Traceback", "Error:", "REJECTED COMMAND"])
+            )
             if not is_clean:
                 continue
             # Prefer mutating or command execution tool as the resolution step
@@ -415,17 +468,38 @@ async def extract_turn_heuristics(
 
         if recovery_log is not None:
             target_files = list(diff_files or [])
+            for f_cand in _extract_files_from_command(prev_cmd):
+                if f_cand not in target_files:
+                    target_files.append(f_cand)
+
             inp = recovery_log.get("tool_input") or {}
-            target_f = inp.get("TargetFile") or inp.get("file_path") or inp.get("path")
-            if target_f and target_f not in target_files:
-                target_files.append(target_f)
+            if isinstance(inp, dict):
+                target_f = inp.get("TargetFile") or inp.get("file_path") or inp.get("path")
+                if target_f and target_f not in target_files:
+                    target_files.append(target_f)
+                rec_cmd = inp.get("command") or inp.get("CommandLine") or ""
+                for f_cand in _extract_files_from_command(rec_cmd):
+                    if f_cand not in target_files:
+                        target_files.append(f_cand)
+            else:
+                target_f = None
+                rec_cmd = ""
 
             t_name = recovery_log.get("tool_name", "tool")
             res_desc = f"executing {t_name} successfully"
             if "edit" in t_name.lower() or "replace" in t_name.lower() or "write" in t_name.lower():
                 res_desc = f"modifying {os.path.basename(target_f) if target_f else 'relevant file'}"
+            elif rec_cmd:
+                compact_rec = " ".join(rec_cmd.strip().split())[:120]
+                res_desc = f"running `{compact_rec}`"
 
-            extracted = _extract_causal_insight(prev_out, res_desc, target_files)
+            extracted = _extract_causal_insight(
+                prev_out,
+                res_desc,
+                target_files,
+                failed_cmd=prev_cmd,
+                exit_code=prev_exit,
+            )
             if extracted and extracted["slug"] not in seen_slugs:
                 seen_slugs.add(extracted["slug"])
                 async with async_session_factory() as session:

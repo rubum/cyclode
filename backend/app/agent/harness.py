@@ -2619,6 +2619,30 @@ class AntigravityHarness:
                                     "agent", chat_agent_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
                                 )
                                 await _flush_staged_approvals()
+                                collector.end_turn(agent_response=chat_agent_text)
+                                task_trajectories[task_id] = collector.build_trajectory(status="COMPLETED")
+                                if not has_staged_approvals:
+                                    try:
+                                        from app.agent.engine.memory import extract_turn_heuristics, promote_task_memories
+                                        all_turn_logs = [
+                                            {
+                                                "tool_name": tc.tool_name,
+                                                "tool_input": tc.input_args,
+                                                "tool_output": tc.output_data or tc.error or "",
+                                                "exit_code": tc.exit_code,
+                                            }
+                                            for t_obj in collector.turns
+                                            for tc in t_obj.tool_calls
+                                        ]
+                                        if len(all_turn_logs) >= 2:
+                                            await extract_turn_heuristics(
+                                                task_id=task_id,
+                                                turn_index=len(collector.turns),
+                                                tool_logs=all_turn_logs,
+                                            )
+                                        await promote_task_memories(task_id)
+                                    except Exception as e:
+                                        logger.debug(f"Error promoting task memories on plan completion: {e}")
 
                                 return {"status": "AWAITING_APPROVAL" if has_staged_approvals else "COMPLETED", "summary": chat_agent_text}
                             else:
@@ -2711,6 +2735,31 @@ class AntigravityHarness:
                                     "agent", final_agent_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
                                 )
                                 await _flush_staged_approvals()
+
+                            collector.end_turn(agent_response=final_agent_text)
+                            task_trajectories[task_id] = collector.build_trajectory(status="COMPLETED")
+                            if not has_staged_approvals:
+                                try:
+                                    from app.agent.engine.memory import extract_turn_heuristics, promote_task_memories
+                                    all_turn_logs = [
+                                        {
+                                            "tool_name": tc.tool_name,
+                                            "tool_input": tc.input_args,
+                                            "tool_output": tc.output_data or tc.error or "",
+                                            "exit_code": tc.exit_code,
+                                        }
+                                        for t_obj in collector.turns
+                                        for tc in t_obj.tool_calls
+                                    ]
+                                    if len(all_turn_logs) >= 2:
+                                        await extract_turn_heuristics(
+                                            task_id=task_id,
+                                            turn_index=len(collector.turns),
+                                            tool_logs=all_turn_logs,
+                                        )
+                                    await promote_task_memories(task_id)
+                                except Exception as e:
+                                    logger.debug(f"Error promoting task memories on completion: {e}")
 
                             if intent_category == "qa_research" and final_agent_text and len(final_agent_text.strip()) > 30 and not (history and len(history) > 1):
                                 try:
