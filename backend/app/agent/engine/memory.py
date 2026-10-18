@@ -252,24 +252,83 @@ def _extract_files_from_command(cmd: str) -> List[str]:
     return found[:6]
 
 
+def _truncate_clean(text: str, max_len: int = 120) -> str:
+    """Truncates text on a word/token boundary and closes any open backtick."""
+    s = " ".join((text or "").strip().split())
+    if len(s) <= max_len:
+        return s
+    cut = s[:max_len]
+    last_space = cut.rfind(" ")
+    if last_space > max_len // 2:
+        cut = cut[:last_space]
+    cut = cut.rstrip(" ,;|&-:")
+    if cut.count("`") % 2 == 1:
+        cut += "`"
+    return cut + "…"
+
+
+def _is_inline_adhoc_script(cmd: str) -> bool:
+    """Detects multiline heredoc or inline -c/-e scratchpad scripts."""
+    if not cmd:
+        return False
+    return bool(
+        re.search(
+            r"(?:<<\s*['\"]?[A-Za-z_]+['\"]?|\bpython3?\s+-\s*<<|\bpython3?\s+-c\b|\bnode\s+-e\b|\bruby\s+-e\b)",
+            cmd,
+        )
+    )
+
+
+def _synthesize_known_pitfall(error_snippet: str, failed_cmd: str = "") -> Optional[Dict[str, str]]:
+    """
+    Maps recurring runtime/sandbox/tooling pitfalls to clean, human-grade reusable rules
+    instead of dumping raw command bodies.
+    """
+    err = error_snippet or ""
+    if "f-string expression part cannot include a backslash" in err:
+        return {
+            "category": "tool_recipe",
+            "trigger_pattern": "SyntaxError: f-string expression part cannot include a backslash",
+            "insight": (
+                "Target Python runtime (<3.12) forbids backslashes inside `{...}` f-string expressions; "
+                "pre-compute escaped strings in a variable before formatting or use a heredoc block."
+            ),
+        }
+    if "DAEMON CIRCUIT-BREAKER REJECTED COMMAND" in err:
+        pat_match = re.search(r"detected in '([^']+)'", err)
+        blocked_pat = pat_match.group(1).rstrip("\\") if pat_match else "foreground server pattern"
+        return {
+            "category": "tool_recipe",
+            "trigger_pattern": f"DAEMON CIRCUIT-BREAKER REJECTED COMMAND (`{blocked_pat}`)",
+            "insight": (
+                f"Avoid regex patterns matching foreground server daemons (such as `{blocked_pat}`) in `run_command`; "
+                f"Cyclode's daemon circuit-breaker rejects them. Use `read_file` or a narrower pattern instead."
+            ),
+        }
+    return None
+
+
 def _split_clean_subcommands(cmd: str) -> List[str]:
     """
     Splits a compound shell command (`&&`, `;`) into individual subcommands,
     filtering out pure glue (`cd ...`, `echo ...`, `true`, `pwd`) and stripping
     trailing pipe/redirection scaffolding (`2>/dev/null`, `| head ...`).
     """
-    if not cmd:
+    if not cmd or _is_inline_adhoc_script(cmd):
         return []
-    parts = re.split(r"\s*(?:&&|;)\s*", cmd.strip())
+    parts = re.split(r"\s*(?:&&|;|\r?\n)\s*", cmd.strip())
     cleaned: List[str] = []
     for p in parts:
         sub = p.strip()
         if not sub:
             continue
-        low = sub.lower()
-        if low.startswith(("cd ", "echo ", "echo\t")) or low in {"echo", "pwd", "true"}:
+        low = sub.strip("() ").lower()
+        if (
+            low.startswith(("cd ", "echo ", "echo\t", "export path="))
+            or low in {"echo", "pwd", "true"}
+        ):
             continue
-        sub = re.sub(r"\s+2>/dev/null\b", "", sub)
+        sub = re.sub(r"\s+2>(?:/dev/null|&1)\b", "", sub)
         sub = re.sub(r"\s*\|\s*(?:head|tail)(?:\s+-[a-zA-Z0-9]+\s*\d*|\s+\d+)?\s*$", "", sub)
         sub = " ".join(sub.split())
         if sub:
@@ -372,41 +431,47 @@ def _extract_causal_insight(
 ) -> Optional[Dict[str, Any]]:
     """
     Extracts an actionable, condensed heuristic from an error-recovery pair.
+    Separates `trigger_pattern` (when the heuristic applies) from `insight` (the resolution rule).
     """
     if not (error_snippet or failed_cmd) or not resolution_snippet:
         return None
 
-    # Clean and extract error signature
-    lines = [line.strip() for line in (error_snippet or "").split("\n") if line.strip() and line.strip() != "stderr:"]
-    key_error = ""
-    for line in reversed(lines):
-        if any(
-            err in line
-            for err in [
-                "Error",
-                "Exception",
-                "failed",
-                "Fatal",
-                "cannot import",
-                "REJECTED",
-                "No such file",
-                "not found",
-                "invalid",
-            ]
-        ):
-            key_error = line[:140]
-            break
+    known = _synthesize_known_pitfall(error_snippet, failed_cmd)
+    if known:
+        category = known["category"]
+        key_error = known["trigger_pattern"]
+        insight = known["insight"]
+    else:
+        lines = [line.strip() for line in (error_snippet or "").split("\n") if line.strip() and line.strip() != "stderr:"]
+        key_error = ""
+        for line in reversed(lines):
+            if any(
+                err in line
+                for err in [
+                    "Error",
+                    "Exception",
+                    "failed",
+                    "Fatal",
+                    "cannot import",
+                    "REJECTED",
+                    "No such file",
+                    "not found",
+                    "invalid",
+                ]
+            ):
+                key_error = _truncate_clean(line, 120)
+                break
 
-    if not key_error:
-        if failed_cmd and exit_code != 0:
-            compact_cmd = " ".join(failed_cmd.strip().split())[:100]
-            key_error = f"Command exited with code {exit_code}: `{compact_cmd}`"
-        elif lines:
-            key_error = lines[-1][:140]
+        if not key_error:
+            if failed_cmd and exit_code != 0:
+                compact_cmd = _truncate_clean(failed_cmd, 90)
+                key_error = f"Command exited with code {exit_code}: `{compact_cmd}`"
+            elif lines:
+                key_error = _truncate_clean(lines[-1], 120)
 
-    # Format actionable takeaway
-    res_clean = resolution_snippet.strip().replace("\n", " ")[:220]
-    insight = f"When encountering '{key_error}': Resolved by {res_clean}"
+        res_clean = _truncate_clean(resolution_snippet.replace("\n", " "), 180)
+        insight = f"Resolve by {res_clean}." if not res_clean.endswith((".", "`")) else f"Resolve by {res_clean}"
+
     ctx_files = []
     for f in files:
         if f:
@@ -566,7 +631,11 @@ async def extract_turn_heuristics(
 
     created_entries: List[Dict[str, Any]] = []
     seen_slugs: set = set()
-    read_only_tools = {"read_file", "view_file", "list_dir", "list_files", "search_files", "grep_search", "extract_outline"}
+    read_only_tools = {
+        "read_file", "view_file", "list_dir", "list_files", "search_files",
+        "grep_search", "extract_outline", "delegate_subagent", "invoke_subagent",
+        "web_search", "search_web", "fetch_url", "read_url_content", "think"
+    }
     mutating_keywords = ("edit", "replace", "write", "patch", "create_file")
 
     for i in range(len(tool_logs) - 1):
@@ -577,17 +646,18 @@ async def extract_turn_heuristics(
         prev_inp = prev_log.get("tool_input") or {}
         prev_cmd = (prev_inp.get("command") or prev_inp.get("CommandLine") or "") if isinstance(prev_inp, dict) else ""
 
-        # Avoid false-positive substring matches on read-only file inspections that succeeded (exit_code == 0)
+        # Avoid false-positive substring matches on read-only file inspections or subagent summaries that succeeded (exit_code == 0)
         has_error = prev_exit != 0 or (
             prev_name not in read_only_tools
             and any(
                 err in prev_out
-                for err in ["Traceback", "OperationalError", "SyntaxError", "ImportError", "failed", "Error:"]
+                for err in ["Traceback", "OperationalError", "SyntaxError", "ImportError", "DAEMON CIRCUIT-BREAKER REJECTED COMMAND", "Error:"]
             )
         )
         if not has_error:
             continue
 
+        known_pitfall = _synthesize_known_pitfall(prev_out, prev_cmd)
         is_circuit_breaker = "DAEMON CIRCUIT-BREAKER REJECTED COMMAND" in prev_out
 
         # Look ahead up to 3 steps in the same turn so error -> read_file -> edit_file recovery is captured
@@ -614,13 +684,16 @@ async def extract_turn_heuristics(
             if "run_command" in cand_name or "command" in cand_name:
                 cand_inp = cand.get("tool_input") or {}
                 cand_cmd = (cand_inp.get("command") or cand_inp.get("CommandLine") or "") if isinstance(cand_inp, dict) else ""
+                if known_pitfall is not None and j == i + 1:
+                    recovery_log = cand
+                    break
+                # Skip throwaway inline heredoc/-c scratchpad scripts unless they matched a known pitfall
+                if _is_inline_adhoc_script(prev_cmd) or _is_inline_adhoc_script(cand_cmd):
+                    break
                 if prev_cmd and cand_cmd:
                     pair = _find_causal_subcommand_pair(prev_cmd, prev_out, cand_cmd)
                     if pair is not None:
                         causal_sub_pair = pair
-                        recovery_log = cand
-                        break
-                    if is_circuit_breaker and j == i + 1:
                         recovery_log = cand
                         break
                     # Unrelated command ran next -> agent moved on; do not look ahead past it
@@ -637,32 +710,30 @@ async def extract_turn_heuristics(
             rec_cmd = (inp.get("command") or inp.get("CommandLine") or "") if isinstance(inp, dict) else ""
             entry_category = "failure_recovery"
 
-            if causal_sub_pair is not None:
+            if known_pitfall is not None:
+                entry_category = known_pitfall["category"]
+                target_files = []
+                res_desc = known_pitfall["insight"]
+                effective_failed_cmd = prev_cmd
+            elif causal_sub_pair is not None:
                 failed_sub, resolved_sub, sub_files = causal_sub_pair
                 target_files = list(diff_files or [])
                 for sf in sub_files:
                     if sf not in target_files:
                         target_files.append(sf)
-                res_desc = f"running `{resolved_sub[:140]}`"
+                res_desc = f"running `{_truncate_clean(resolved_sub, 130)}`"
                 effective_failed_cmd = failed_sub
-            elif is_circuit_breaker:
-                entry_category = "tool_recipe"
-                target_files = []
-                pat_match = re.search(r"detected in '([^']+)'", prev_out)
-                blocked_pat = pat_match.group(1) if pat_match else "foreground server pattern"
-                res_desc = f"omitting `{blocked_pat}` from `run_command` so the daemon circuit-breaker is not triggered"
-                effective_failed_cmd = prev_cmd
             else:
                 target_files = list(diff_files or [])
                 if target_f and target_f not in target_files:
                     target_files.append(target_f)
-                res_desc = f"executing {t_name} successfully"
+                res_desc = f"executing `{t_name}` successfully"
                 if is_mut:
-                    res_desc = f"modifying {os.path.basename(target_f) if target_f else 'relevant file'}"
+                    res_desc = f"modifying `{os.path.basename(target_f)}`" if target_f else "modifying the target file"
                 elif rec_cmd:
                     subs = _split_clean_subcommands(rec_cmd)
                     clean_rec = subs[0] if subs else " ".join(rec_cmd.strip().split())
-                    res_desc = f"running `{clean_rec[:140]}`"
+                    res_desc = f"running `{_truncate_clean(clean_rec, 130)}`"
                 effective_failed_cmd = prev_cmd
 
             extracted = _extract_causal_insight(
@@ -718,6 +789,7 @@ async def extract_turn_heuristics(
     # record a self-consistent `architecture_rule` heuristic.
     modified_files: List[str] = [os.path.basename(f) for f in (diff_files or []) if f]
     verification_cmd: Optional[str] = None
+    verify_runners = ("pytest", "npm test", "npm run build", "cargo test", "go test", "tsc", "vitest", "jest")
     for log in tool_logs:
         t_name = (log.get("tool_name") or "").lower()
         t_inp = log.get("tool_input") or {}
@@ -732,9 +804,15 @@ async def extract_turn_heuristics(
                     modified_files.append(b)
         elif "command" in t_name:
             cmd_str = t_inp.get("command") or t_inp.get("CommandLine") or ""
-            if any(v in cmd_str.lower() for v in ["pytest", "npm test", "npm run build", "cargo test", "go test", "tsc", "vitest", "jest"]):
+            if any(v in cmd_str.lower() for v in verify_runners):
                 subs = _split_clean_subcommands(cmd_str)
-                verification_cmd = subs[-1] if subs else " ".join(cmd_str.strip().split())[:120]
+                matching_subs = [s for s in subs if any(v in s.lower() for v in verify_runners)]
+                if matching_subs:
+                    verification_cmd = matching_subs[-1]
+                elif subs:
+                    verification_cmd = subs[-1]
+                else:
+                    verification_cmd = _truncate_clean(cmd_str, 120)
 
     if len(modified_files) >= 2 and verification_cmd:
         primary_f = modified_files[0]
@@ -1103,7 +1181,12 @@ def format_working_memory_block(heuristics: List[Dict[str, Any]]) -> str:
     for h in heuristics:
         grade = h.get("epistemic_grade", "asserted")
         badge = "[VERIFIED] " if grade == "verified" else ""
-        entry_text = f"- {badge}{h['insight']}"
+        trig = (h.get("trigger_pattern") or "").strip()
+        ins = (h.get("insight") or "").strip()
+        if trig and trig.lower() not in ins.lower():
+            entry_text = f"- {badge}[{trig}] → {ins}"
+        else:
+            entry_text = f"- {badge}{ins}"
         if total_len + len(entry_text) > 1350:
             break
         lines.append(entry_text)

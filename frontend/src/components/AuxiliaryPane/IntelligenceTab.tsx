@@ -18,7 +18,9 @@ import {
   ChevronsUpDown,
   Code2,
   CheckCircle2,
-  Activity
+  Activity,
+  Trash2,
+  AlertTriangle
 } from 'lucide-react';
 import { Task, KnowledgeEntry, SessionReport } from '../../types';
 import { MarkdownRenderer } from '../Common/MarkdownRenderer';
@@ -31,12 +33,52 @@ interface IntelligenceTabProps {
 const API_BASE = import.meta.env.VITE_API_URL || '';
 const taskMemoriesCache = new Map<string, KnowledgeEntry[]>();
 
+const renderInlineCodeText = (text: string): React.ReactNode => {
+  if (!text) return null;
+  const parts = text.split(/(`[^`]+`)/g);
+  return parts.map((part, idx) => {
+    if (part.startsWith('`') && part.endsWith('`') && part.length >= 2) {
+      return (
+        <code
+          key={idx}
+          className="font-mono text-[11px] px-1.5 py-0.5 mx-0.5 rounded bg-onedark-darker/90 text-onedark-cyan border border-onedark-borderSubtle/80 break-all"
+        >
+          {part.slice(1, -1)}
+        </code>
+      );
+    }
+    return <React.Fragment key={idx}>{part}</React.Fragment>;
+  });
+};
+
+const parseMemoryContent = (m: KnowledgeEntry): { trigger: string | null; resolution: string } => {
+  let insight = (m.insight || '').trim();
+  let trigger = (m.trigger_pattern || '').trim();
+
+  // Backwards-compatibility: strip legacy "When encountering '<trigger>': " prefix from insight
+  const legacyMatch = insight.match(/^When encountering ['"](.+?)['"]:\s*(.+)$/s);
+  if (legacyMatch) {
+    if (!trigger) trigger = legacyMatch[1].trim();
+    insight = legacyMatch[2].trim();
+  }
+  return {
+    trigger: trigger || null,
+    resolution: insight,
+  };
+};
+
+const formatDisplaySlug = (slug?: string | null): string | null => {
+  if (!slug) return null;
+  return slug.replace(/^auto:[a-z0-9_]+:/i, '');
+};
+
 export const IntelligenceTab: React.FC<IntelligenceTabProps> = ({ task }) => {
   const [activeSection, setActiveSection] = useState<'briefing' | 'citations' | 'memory' | 'audit'>('briefing');
   const [memories, setMemories] = useState<KnowledgeEntry[]>(() =>
     task?.id ? taskMemoriesCache.get(task.id) || [] : []
   );
   const [isLoadingMemories, setIsLoadingMemories] = useState(false);
+  const [isReextractingMemories, setIsReextractingMemories] = useState(false);
   const [isCompilingReport, setIsCompilingReport] = useState(false);
   const [report, setReport] = useState<SessionReport | null>(task?.report || null);
   const [copied, setCopied] = useState(false);
@@ -125,10 +167,50 @@ export const IntelligenceTab: React.FC<IntelligenceTabProps> = ({ task }) => {
       });
       if (res.ok) {
         const updated: KnowledgeEntry = await res.json();
-        setMemories((prev) => prev.map((m) => (m.id === memoryId ? updated : m)));
+        setMemories((prev) => {
+          const next = prev.map((m) => (m.id === memoryId ? updated : m));
+          if (task?.id) taskMemoriesCache.set(task.id, next);
+          return next;
+        });
       }
     } catch (err) {
       console.error('Failed to vote memory:', err);
+    }
+  };
+
+  const handleDeleteMemory = async (memoryId: string) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/memories/${memoryId}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        setMemories((prev) => {
+          const next = prev.filter((m) => m.id !== memoryId);
+          if (task?.id) taskMemoriesCache.set(task.id, next);
+          return next;
+        });
+      }
+    } catch (err) {
+      console.error('Failed to delete memory:', err);
+    }
+  };
+
+  const handleReextractMemories = async () => {
+    if (!task?.id || task.id.startsWith('temp-')) return;
+    setIsReextractingMemories(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/memories/task/${task.id}/extract`, {
+        method: 'POST',
+      });
+      if (res.ok) {
+        const refreshed: KnowledgeEntry[] = await res.json();
+        taskMemoriesCache.set(task.id, refreshed);
+        setMemories(refreshed);
+      }
+    } catch (err) {
+      console.error('Failed to re-extract task memories:', err);
+    } finally {
+      setIsReextractingMemories(false);
     }
   };
 
@@ -321,6 +403,23 @@ export const IntelligenceTab: React.FC<IntelligenceTabProps> = ({ task }) => {
         {/* Sub-view 3: Experiential Memory (CortexDB Knowledge Contract & Graph Facts) */}
         {activeSection === 'memory' && (
           <div className="space-y-2.5">
+            {task?.id && !task.id.startsWith('temp-') && (
+              <div className="flex items-center justify-between px-1 pb-0.5">
+                <span className="text-[11px] font-mono text-onedark-muted">
+                  {memories.length} {memories.length === 1 ? 'heuristic' : 'heuristics'} captured
+                </span>
+                <button
+                  onClick={handleReextractMemories}
+                  disabled={isReextractingMemories}
+                  className="inline-flex items-center space-x-1 px-2 py-1 rounded text-[11px] font-mono bg-onedark-surface hover:bg-onedark-surface/80 text-onedark-fg border border-onedark-borderSubtle transition-colors disabled:opacity-50"
+                  title="Re-compile heuristics from session tool logs"
+                >
+                  <RefreshCw className={`w-3 h-3 text-onedark-accent ${isReextractingMemories ? 'animate-spin' : ''}`} />
+                  <span>{isReextractingMemories ? 'Re-compiling…' : 'Re-compile'}</span>
+                </button>
+              </div>
+            )}
+
             {isLoadingMemories ? (
               <div className="p-8 text-center text-xs text-onedark-muted">
                 <RefreshCw className="w-5 h-5 text-onedark-accent animate-spin mx-auto mb-2" />
@@ -337,17 +436,19 @@ export const IntelligenceTab: React.FC<IntelligenceTabProps> = ({ task }) => {
             ) : (
               memories.map((m) => {
                 const grade = (m.epistemic_grade || 'asserted').toLowerCase();
+                const { trigger, resolution } = parseMemoryContent(m);
+                const displaySlug = formatDisplaySlug(m.slug);
                 return (
                   <div
                     key={m.id}
-                    className={`p-3.5 rounded-lg bg-onedark-surface/70 border border-onedark-borderSubtle space-y-2 text-xs shadow-xs ${
+                    className={`p-3.5 rounded-lg bg-onedark-surface/70 border border-onedark-borderSubtle space-y-2.5 text-xs shadow-xs ${
                       m.status === 'SUPERSEDED' ? 'opacity-60' : ''
                     }`}
                   >
                     <div className="flex items-center justify-between gap-1.5 flex-wrap">
                       <div className="flex items-center space-x-1.5">
                         <span className="text-[10px] font-mono uppercase px-2 py-0.5 rounded bg-onedark-purple/15 text-onedark-purple border border-onedark-purple/30 font-semibold">
-                          {m.category.replace('_', ' ')}
+                          {m.category.replace(/_/g, ' ')}
                         </span>
                         <span
                           className={`text-[10px] font-mono uppercase px-1.5 py-0.5 rounded font-semibold ${
@@ -359,7 +460,7 @@ export const IntelligenceTab: React.FC<IntelligenceTabProps> = ({ task }) => {
                           }`}
                           title="CortexDB Epistemic Contract Grade"
                         >
-                          {grade.replace('_', '-')}
+                          {grade.replace(/_/g, '-')}
                         </span>
                       </div>
                       <span
@@ -375,7 +476,24 @@ export const IntelligenceTab: React.FC<IntelligenceTabProps> = ({ task }) => {
                       </span>
                     </div>
 
-                    <p className="text-xs text-onedark-fgBright leading-relaxed font-sans font-medium">{m.insight}</p>
+                    {/* Structured Two-Row Layout: Trigger Condition -> Actionable Resolution */}
+                    <div className="space-y-1.5">
+                      {trigger && (
+                        <div className="flex items-start gap-1.5 px-2.5 py-1.5 rounded bg-onedark-darker/80 border border-onedark-borderSubtle/80 text-[11px] font-mono text-onedark-muted leading-snug">
+                          <AlertTriangle className="w-3.5 h-3.5 text-onedark-yellow flex-shrink-0 mt-0.5" />
+                          <div className="min-w-0 flex-1 break-words">
+                            <span className=" uppercase text-[10px] tracking-wider text-onedark-yellow/90 font-semibold mr-1.5">
+                              When:
+                            </span>
+                            <span className="text-onedark-fg">{renderInlineCodeText(trigger)}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="text-xs text-onedark-fgBright leading-relaxed font-sans font-medium pl-0.5">
+                        {renderInlineCodeText(resolution)}
+                      </div>
+                    </div>
 
                     {/* Relational Graph Facts (Subject —predicate→ Object) */}
                     {m.relations && m.relations.length > 0 && (
@@ -401,17 +519,29 @@ export const IntelligenceTab: React.FC<IntelligenceTabProps> = ({ task }) => {
                       </div>
                     )}
 
-                    {/* Voting and reinforcement bar */}
-                    <div className="pt-2 border-t border-onedark-borderSubtle/60 flex items-center justify-between text-[11px] font-mono text-onedark-muted">
-                      <div className="flex items-center space-x-2">
-                        <span className="font-medium">Utility: <strong className="text-onedark-fgBright">{m.utility_score}</strong></span>
-                        {m.slug && (
-                          <span className="text-[10px] text-onedark-muted/70 truncate max-w-[160px]" title={m.slug}>
-                            {m.slug}
-                          </span>
+                    {/* Voting, utility, and deletion bar */}
+                    <div className="pt-2 border-t border-onedark-borderSubtle/60 flex items-center justify-between text-[11px] font-mono text-onedark-muted gap-2">
+                      <div className="flex items-center space-x-2 min-w-0">
+                        <span className="font-medium flex-shrink-0">
+                          Utility: <strong className="text-onedark-fgBright">{Number(m.utility_score).toFixed(1)}</strong>
+                        </span>
+                        <span className="text-onedark-borderSubtle">·</span>
+                        <span className="text-[10px] flex-shrink-0" title="Times recalled into agent working memory">
+                          Used {m.usage_count || 0}×
+                        </span>
+                        {displaySlug && (
+                          <>
+                            <span className="text-onedark-borderSubtle">·</span>
+                            <span
+                              className="text-[10px] px-1.5 py-0.5 rounded bg-onedark-darker/70 text-onedark-muted/80 truncate max-w-[170px]"
+                              title={m.slug || ''}
+                            >
+                              {displaySlug}
+                            </span>
+                          </>
                         )}
                       </div>
-                      <div className="flex items-center space-x-1">
+                      <div className="flex items-center space-x-1 flex-shrink-0">
                         <button
                           onClick={() => handleVoteMemory(m.id, 0.5)}
                           className="p-1 rounded hover:bg-onedark-green/20 text-onedark-muted hover:text-onedark-green transition-colors"
@@ -425,6 +555,13 @@ export const IntelligenceTab: React.FC<IntelligenceTabProps> = ({ task }) => {
                           title="Penalize heuristic (-0.5 utility)"
                         >
                           <ThumbsDown className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteMemory(m.id)}
+                          className="p-1 rounded hover:bg-onedark-red/20 text-onedark-muted hover:text-onedark-red transition-colors"
+                          title="Delete heuristic permanently"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </div>

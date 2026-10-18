@@ -358,3 +358,52 @@ async def test_causal_subcommand_matching_and_clean_turn_architecture_extraction
         for r in arch_entry["relations"]
     )
 
+
+@pytest.mark.asyncio
+async def test_known_pitfall_synthesis_and_inline_script_filtering():
+    task_id = "test-task-pitfall"
+    async with async_session_factory() as session:
+        session.add(TaskModel(id=task_id, title="Pitfall Synthesis Test"))
+        await session.commit()
+
+    tool_logs = [
+        # 1. Python <3.12 f-string backslash error followed by a multiline heredoc script ->
+        #    should synthesize a clean tool_recipe rule and NOT dump the heredoc body
+        {
+            "tool_name": "run_command",
+            "tool_input": {"command": 'python3 -c "print(f\'{x.split(\\"\\\\n\\")}\')"'},
+            "tool_output": "SyntaxError: f-string expression part cannot include a backslash",
+            "exit_code": 1,
+        },
+        {
+            "tool_name": "run_command",
+            "tool_input": {
+                "command": "python3 - <<'PY'\nimport re\ns = open('index.html').read()\nprint(len(s))\nPY"
+            },
+            "tool_output": "4096",
+            "exit_code": 0,
+        },
+        # 2. Throwaway inline python -c typo not matching a known pitfall -> should be skipped
+        {
+            "tool_name": "run_command",
+            "tool_input": {"command": "python3 -c 'import math; print(math. non_existent)'"},
+            "tool_output": "AttributeError: module 'math' has no attribute 'non_existent'",
+            "exit_code": 1,
+        },
+        {
+            "tool_name": "run_command",
+            "tool_input": {"command": "python3 -c 'import math; print(math.pi)'"},
+            "tool_output": "3.14159",
+            "exit_code": 0,
+        },
+    ]
+
+    created = await extract_turn_heuristics(task_id=task_id, turn_index=1, tool_logs=tool_logs)
+    assert len(created) == 1
+    entry = created[0]
+    assert entry["category"] == "tool_recipe"
+    assert entry["trigger_pattern"] == "SyntaxError: f-string expression part cannot include a backslash"
+    assert "f-string expressions" in entry["insight"]
+    assert "python3 - <<'PY'" not in entry["insight"]
+    assert not entry["insight"].startswith("When encountering")
+

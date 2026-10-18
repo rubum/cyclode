@@ -83,3 +83,8 @@ async def test_memory_api_crud_recall_graph_and_voting():
         del_res = await ac.delete(f"/api/memories/{memory_id}")
         assert del_res.status_code == 200
         assert del_res.json()["ok"] is True
+
+        # 8. POST /api/memories/task/{task_id}/extract
+        extract_res = await ac.post(f"/api/memories/task/{task_id}/extract")
+        assert extract_res.status_code == 200
+        assert isinstance(extract_res.json(), list)

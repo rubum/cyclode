@@ -158,6 +158,62 @@ async def get_task_memories(task_id: str, db: AsyncSession = Depends(get_db)):
     return [KnowledgeEntrySchema.model_validate(e) for e in entries]
 
 
+@router.post("/task/{task_id}/extract", response_model=List[KnowledgeEntrySchema])
+async def extract_task_memories(task_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Re-compiles experiential memory heuristics for a task from its recorded TaskLogModel entries,
+    replacing any prior auto-extracted heuristics for that task while preserving manual entries.
+    """
+    task_res = await db.execute(select(TaskModel).where(TaskModel.id == task_id))
+    task_obj = task_res.scalars().first()
+    if not task_obj:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    await db.execute(
+        delete(KnowledgeEntryModel).where(
+            KnowledgeEntryModel.source_task_id == task_id,
+            KnowledgeEntryModel.slug.like("auto:%"),
+        )
+    )
+    await db.commit()
+    _backfilled_task_ids.add(task_id)
+
+    log_stmt = (
+        select(TaskLogModel)
+        .where(TaskLogModel.task_id == task_id)
+        .order_by(TaskLogModel.created_at.asc())
+    )
+    log_res = await db.execute(log_stmt)
+    task_logs = log_res.scalars().all()
+    if len(task_logs) >= 2:
+        tool_logs_payload = [
+            {
+                "tool_name": l.tool_name,
+                "tool_input": l.tool_input or {},
+                "tool_output": l.tool_output or "",
+                "exit_code": l.exit_code or 0,
+            }
+            for l in task_logs
+        ]
+        extracted = await extract_turn_heuristics(
+            task_id=task_id,
+            turn_index=1,
+            tool_logs=tool_logs_payload,
+            repo_id=task_obj.repo_name,
+        )
+        if extracted and task_obj.status == "COMPLETED":
+            await promote_task_memories(task_id)
+
+    stmt = (
+        select(KnowledgeEntryModel)
+        .where(KnowledgeEntryModel.source_task_id == task_id)
+        .order_by(KnowledgeEntryModel.source_turn_index.asc(), desc(KnowledgeEntryModel.utility_score))
+    )
+    res = await db.execute(stmt)
+    entries = res.scalars().all()
+    return [KnowledgeEntrySchema.model_validate(e) for e in entries]
+
+
 @router.post("", response_model=KnowledgeEntrySchema)
 async def create_memory(req: CreateKnowledgeEntryRequest, db: AsyncSession = Depends(get_db)):
     """
