@@ -105,11 +105,14 @@ async def recall_memories(req: MemoryRecallRequest):
     return MemoryRecallResponse(**pack)
 
 
+_backfilled_task_ids: set[str] = set()
+
+
 @router.get("/task/{task_id}", response_model=List[KnowledgeEntrySchema])
 async def get_task_memories(task_id: str, db: AsyncSession = Depends(get_db)):
     """
     Retrieves all memories associated with a specific task (both provisional and promoted).
-    If none exist yet for a task with persisted audit logs, extracts heuristics on demand.
+    Performs a one-time idempotent backfill for legacy completed tasks if not yet processed.
     """
     stmt = (
         select(KnowledgeEntryModel)
@@ -119,48 +122,38 @@ async def get_task_memories(task_id: str, db: AsyncSession = Depends(get_db)):
     res = await db.execute(stmt)
     entries = res.scalars().all()
 
-    if not entries:
-        log_stmt = (
-            select(TaskLogModel)
-            .where(TaskLogModel.task_id == task_id)
-            .order_by(TaskLogModel.created_at.asc())
-        )
-        log_res = await db.execute(log_stmt)
-        task_logs = log_res.scalars().all()
-        if len(task_logs) >= 2:
-            task_res = await db.execute(select(TaskModel).where(TaskModel.id == task_id))
-            task_obj = task_res.scalars().first()
-            resolved_repo_id = None
-            if task_obj and task_obj.repo_name:
-                rc_res = await db.execute(
-                    select(RepositoryConfigModel.id).where(
-                        or_(
-                            RepositoryConfigModel.full_name == task_obj.repo_name,
-                            RepositoryConfigModel.name == task_obj.repo_name,
-                        )
-                    )
-                )
-                resolved_repo_id = rc_res.scalars().first()
-            tool_logs_payload = [
-                {
-                    "tool_name": l.tool_name,
-                    "tool_input": l.tool_input or {},
-                    "tool_output": l.tool_output or "",
-                    "exit_code": l.exit_code or 0,
-                }
-                for l in task_logs
-            ]
-            extracted = await extract_turn_heuristics(
-                task_id=task_id,
-                turn_index=1,
-                tool_logs=tool_logs_payload,
-                repo_id=resolved_repo_id,
+    if not entries and task_id not in _backfilled_task_ids:
+        task_res = await db.execute(select(TaskModel).where(TaskModel.id == task_id))
+        task_obj = task_res.scalars().first()
+        if task_obj and task_obj.status == "COMPLETED":
+            _backfilled_task_ids.add(task_id)
+            log_stmt = (
+                select(TaskLogModel)
+                .where(TaskLogModel.task_id == task_id)
+                .order_by(TaskLogModel.created_at.asc())
             )
-            if extracted and task_obj and task_obj.status == "COMPLETED":
-                await promote_task_memories(task_id)
-            if extracted:
-                res = await db.execute(stmt)
-                entries = res.scalars().all()
+            log_res = await db.execute(log_stmt)
+            task_logs = log_res.scalars().all()
+            if len(task_logs) >= 2:
+                tool_logs_payload = [
+                    {
+                        "tool_name": l.tool_name,
+                        "tool_input": l.tool_input or {},
+                        "tool_output": l.tool_output or "",
+                        "exit_code": l.exit_code or 0,
+                    }
+                    for l in task_logs
+                ]
+                extracted = await extract_turn_heuristics(
+                    task_id=task_id,
+                    turn_index=1,
+                    tool_logs=tool_logs_payload,
+                    repo_id=task_obj.repo_name,
+                )
+                if extracted:
+                    await promote_task_memories(task_id)
+                    res = await db.execute(stmt)
+                    entries = res.scalars().all()
 
     return [KnowledgeEntrySchema.model_validate(e) for e in entries]
 
@@ -208,8 +201,13 @@ async def vote_memory(memory_id: str, req: VoteMemoryRequest, db: AsyncSession =
 @router.delete("/{memory_id}")
 async def delete_memory(memory_id: str, db: AsyncSession = Depends(get_db)):
     """
-    Permanently deletes a memory heuristic.
+    Permanently deletes a memory heuristic and marks its source task as already backfilled
+    so subsequent GET requests do not resurrect deleted task memories.
     """
+    existing = (await db.execute(select(KnowledgeEntryModel).where(KnowledgeEntryModel.id == memory_id))).scalars().first()
+    if existing and existing.source_task_id:
+        _backfilled_task_ids.add(existing.source_task_id)
+
     stmt = delete(KnowledgeEntryModel).where(KnowledgeEntryModel.id == memory_id)
     res = await db.execute(stmt)
     await db.commit()

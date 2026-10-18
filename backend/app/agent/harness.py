@@ -1496,6 +1496,46 @@ class AntigravityHarness:
                 except Exception as cb_err:
                     logger.warning(f"Failed to notify on_approval_required for staged action {act_type}: {cb_err}")
 
+        async def _finalize_task_memories(final_text: str, status_str: str = "COMPLETED") -> None:
+            collector.end_turn(agent_response=final_text)
+            task_trajectories[task_id] = collector.build_trajectory(status=status_str)
+            if status_str != "COMPLETED" or has_staged_approvals:
+                return
+            try:
+                from sqlalchemy import select
+                from app.db.session import async_session_factory
+                from app.db.models import TaskModel
+                from app.agent.engine.memory import extract_turn_heuristics, promote_task_memories
+
+                all_turn_logs = [
+                    {
+                        "tool_name": tc.tool_name,
+                        "tool_input": tc.input_args,
+                        "tool_output": tc.output_data or tc.error or "",
+                        "exit_code": tc.exit_code,
+                    }
+                    for t_obj in collector.turns
+                    for tc in t_obj.tool_calls
+                ]
+                if len(all_turn_logs) >= 2:
+                    task_repo_scope: Optional[str] = None
+                    try:
+                        async with async_session_factory() as sess:
+                            t_row = (await sess.execute(select(TaskModel.repo_name).where(TaskModel.id == task_id))).scalars().first()
+                            task_repo_scope = t_row or None
+                    except Exception:
+                        task_repo_scope = None
+
+                    await extract_turn_heuristics(
+                        task_id=task_id,
+                        turn_index=len(collector.turns),
+                        tool_logs=all_turn_logs,
+                        repo_id=task_repo_scope,
+                    )
+                await promote_task_memories(task_id)
+            except Exception as e:
+                logger.debug(f"Error promoting task memories on completion: {e}")
+
         fast_direct = self.is_fast_direct_query(title, prompt, persona_name, history, is_subsession=is_subsession)
         needs_workspace_scan = bool(history) or not (fast_direct and (initial_intent == "qa_research" or (is_subsession and initial_intent != "planning")))
 
@@ -1680,6 +1720,7 @@ class AntigravityHarness:
                     }
                 }
                 current_plan["markdown"] = generate_plan_markdown(current_plan, title, prompt)
+                await self._emit_plan(current_plan, on_plan)
             else:
                 # Formulate dynamic execution plan using fast structured planner call (deepseek-v4.1-flash / provider flash)
                 primary_model = unique_models[0] if unique_models else self.model_name
@@ -2619,30 +2660,7 @@ class AntigravityHarness:
                                     "agent", chat_agent_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
                                 )
                                 await _flush_staged_approvals()
-                                collector.end_turn(agent_response=chat_agent_text)
-                                task_trajectories[task_id] = collector.build_trajectory(status="COMPLETED")
-                                if not has_staged_approvals:
-                                    try:
-                                        from app.agent.engine.memory import extract_turn_heuristics, promote_task_memories
-                                        all_turn_logs = [
-                                            {
-                                                "tool_name": tc.tool_name,
-                                                "tool_input": tc.input_args,
-                                                "tool_output": tc.output_data or tc.error or "",
-                                                "exit_code": tc.exit_code,
-                                            }
-                                            for t_obj in collector.turns
-                                            for tc in t_obj.tool_calls
-                                        ]
-                                        if len(all_turn_logs) >= 2:
-                                            await extract_turn_heuristics(
-                                                task_id=task_id,
-                                                turn_index=len(collector.turns),
-                                                tool_logs=all_turn_logs,
-                                            )
-                                        await promote_task_memories(task_id)
-                                    except Exception as e:
-                                        logger.debug(f"Error promoting task memories on plan completion: {e}")
+                                await _finalize_task_memories(chat_agent_text, "COMPLETED")
 
                                 return {"status": "AWAITING_APPROVAL" if has_staged_approvals else "COMPLETED", "summary": chat_agent_text}
                             else:
@@ -2736,30 +2754,7 @@ class AntigravityHarness:
                                 )
                                 await _flush_staged_approvals()
 
-                            collector.end_turn(agent_response=final_agent_text)
-                            task_trajectories[task_id] = collector.build_trajectory(status="COMPLETED")
-                            if not has_staged_approvals:
-                                try:
-                                    from app.agent.engine.memory import extract_turn_heuristics, promote_task_memories
-                                    all_turn_logs = [
-                                        {
-                                            "tool_name": tc.tool_name,
-                                            "tool_input": tc.input_args,
-                                            "tool_output": tc.output_data or tc.error or "",
-                                            "exit_code": tc.exit_code,
-                                        }
-                                        for t_obj in collector.turns
-                                        for tc in t_obj.tool_calls
-                                    ]
-                                    if len(all_turn_logs) >= 2:
-                                        await extract_turn_heuristics(
-                                            task_id=task_id,
-                                            turn_index=len(collector.turns),
-                                            tool_logs=all_turn_logs,
-                                        )
-                                    await promote_task_memories(task_id)
-                                except Exception as e:
-                                    logger.debug(f"Error promoting task memories on completion: {e}")
+                            await _finalize_task_memories(final_agent_text, "COMPLETED")
 
                             if intent_category == "qa_research" and final_agent_text and len(final_agent_text.strip()) > 30 and not (history and len(history) > 1):
                                 try:
@@ -4338,34 +4333,11 @@ class AntigravityHarness:
                     current_plan["evaluation"] = scorecard.model_dump(mode="json")
                     await self._emit_plan(current_plan, on_plan)
 
-                    collector.end_turn(agent_response=final_agent_text)
-                    task_trajectories[task_id] = collector.build_trajectory(status="COMPLETED")
                     await self._emit_streamed_message(
                         "agent", final_agent_text, on_message, on_stream_start, on_stream_chunk, on_stream_end
                     )
                     await _flush_staged_approvals()
-                    if not has_staged_approvals:
-                        try:
-                            from app.agent.engine.memory import extract_turn_heuristics, promote_task_memories
-                            all_turn_logs = [
-                                {
-                                    "tool_name": tc.tool_name,
-                                    "tool_input": tc.input_args,
-                                    "tool_output": tc.output_data or tc.error or "",
-                                    "exit_code": tc.exit_code,
-                                }
-                                for t_obj in collector.turns
-                                for tc in t_obj.tool_calls
-                            ]
-                            if len(all_turn_logs) >= 2:
-                                await extract_turn_heuristics(
-                                    task_id=task_id,
-                                    turn_index=len(collector.turns),
-                                    tool_logs=all_turn_logs,
-                                )
-                            await promote_task_memories(task_id)
-                        except Exception as e:
-                            logger.debug(f"Error promoting task memories on completion: {e}")
+                    await _finalize_task_memories(final_agent_text, "COMPLETED")
                     return {"status": "AWAITING_APPROVAL" if has_staged_approvals else "COMPLETED", "summary": final_agent_text}
 
                 except Exception as e:
@@ -4427,34 +4399,11 @@ class AntigravityHarness:
                     f"Execution could not be completed. The AI provider did not return actionable tool calls or responses for this turn."
                 )
             return_status = "FAILED"
-        collector.end_turn(agent_response=fallback_msg)
-        task_trajectories[task_id] = collector.build_trajectory(status=return_status)
         await self._emit_streamed_message(
             "agent", fallback_msg, on_message, on_stream_start, on_stream_chunk, on_stream_end
         )
         await _flush_staged_approvals()
-        if return_status == "COMPLETED" and not has_staged_approvals:
-            try:
-                from app.agent.engine.memory import extract_turn_heuristics, promote_task_memories
-                all_turn_logs = [
-                    {
-                        "tool_name": tc.tool_name,
-                        "tool_input": tc.input_args,
-                        "tool_output": tc.output_data or tc.error or "",
-                        "exit_code": tc.exit_code,
-                    }
-                    for t_obj in collector.turns
-                    for tc in t_obj.tool_calls
-                ]
-                if len(all_turn_logs) >= 2:
-                    await extract_turn_heuristics(
-                        task_id=task_id,
-                        turn_index=len(collector.turns),
-                        tool_logs=all_turn_logs,
-                    )
-                await promote_task_memories(task_id)
-            except Exception as e:
-                logger.debug(f"Error promoting task memories on fallback completion: {e}")
+        await _finalize_task_memories(fallback_msg, return_status)
         return {"status": "AWAITING_APPROVAL" if has_staged_approvals else return_status, "summary": fallback_msg}
 
 

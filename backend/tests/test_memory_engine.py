@@ -270,3 +270,91 @@ async def test_cascade_delete_task_memories():
         survived = res_prom.scalars().first()
         assert survived is not None
         assert survived.source_task_id is None
+
+
+@pytest.mark.asyncio
+async def test_causal_subcommand_matching_and_clean_turn_architecture_extraction():
+    task_id = "test-task-causal-arch"
+    async with async_session_factory() as session:
+        session.add(TaskModel(id=task_id, title="Causal & Arch Test", repo_name="liliang-cn/cortexdb"))
+        await session.commit()
+
+    tool_logs = [
+        # 1. Compound command where grep proto/*.proto fails, resolved by grep -rh "^service " proto/
+        {
+            "tool_name": "run_command",
+            "tool_input": {
+                "command": 'cd cortexdb && echo "=== plugin tree ===" && cat plugins/cortexdb/hooks/hooks.json && grep -h "^service " proto/*.proto'
+            },
+            "tool_output": "plugins/cortexdb/hooks:\nhooks.json\ngrep: proto/*.proto: No such file or directory",
+            "exit_code": 2,
+        },
+        {
+            "tool_name": "run_command",
+            "tool_input": {
+                "command": 'cd cortexdb && echo "--- services ---" && grep -rh "^service " proto/ | head -20 && cat plugins/cortexdb/hooks/hooks.json'
+            },
+            "tool_output": "service MemoryService {",
+            "exit_code": 0,
+        },
+        # 2. Unrelated failed command followed by a command on a totally different directory -> should NOT pair as failure_recovery
+        {
+            "tool_name": "run_command",
+            "tool_input": {"command": "cat pkg/liveview/nonexistent.go"},
+            "tool_output": "cat: pkg/liveview/nonexistent.go: No such file or directory",
+            "exit_code": 1,
+        },
+        {
+            "tool_name": "run_command",
+            "tool_input": {"command": "ls deploy docs pkg/eval"},
+            "tool_output": "deploy docs pkg/eval",
+            "exit_code": 0,
+        },
+        # 3. Clean multi-file modifications + passing pytest verification -> emits architecture_rule with co_modified_with
+        {
+            "tool_name": "replace_file_content",
+            "tool_input": {"TargetFile": "backend/app/db/models.py"},
+            "tool_output": "Updated models.py",
+            "exit_code": 0,
+        },
+        {
+            "tool_name": "replace_file_content",
+            "tool_input": {"TargetFile": "backend/app/db/session.py"},
+            "tool_output": "Updated session.py",
+            "exit_code": 0,
+        },
+        {
+            "tool_name": "run_command",
+            "tool_input": {"command": "pytest tests/test_db_migration.py -v"},
+            "tool_output": "2 passed in 0.42s",
+            "exit_code": 0,
+        },
+    ]
+
+    created = await extract_turn_heuristics(
+        task_id=task_id,
+        turn_index=1,
+        tool_logs=tool_logs,
+        repo_id="liliang-cn/cortexdb",  # Non-UUID repo slug should not violate FK
+    )
+    # Should have 1 causal failure_recovery (for proto/) and 1 architecture_rule (models.py + session.py)
+    assert len(created) == 2
+    by_cat = {c["category"]: c for c in created}
+    assert "failure_recovery" in by_cat
+    assert "architecture_rule" in by_cat
+
+    # Verify the proto command recovery isolated `grep -rh "^service " proto/` and did NOT attach hooks.json
+    rec_entry = by_cat["failure_recovery"]
+    assert 'grep -rh "^service " proto/' in rec_entry["insight"]
+    assert "hooks.json" not in rec_entry["context_files"]
+    assert all(r["predicate"] != "co_modified_with" for r in rec_entry["relations"])
+
+    # Verify the clean-turn architecture rule has co_modified_with between models.py and session.py
+    arch_entry = by_cat["architecture_rule"]
+    assert "models.py" in arch_entry["context_files"]
+    assert "session.py" in arch_entry["context_files"]
+    assert any(
+        r["subject"] == "models.py" and r["predicate"] == "co_modified_with" and r["object"] == "session.py"
+        for r in arch_entry["relations"]
+    )
+

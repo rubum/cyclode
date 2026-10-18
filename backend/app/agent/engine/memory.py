@@ -9,7 +9,7 @@ from sqlalchemy import select, delete, update, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import async_session_factory
-from app.db.models import KnowledgeEntryModel, TaskModel, get_utc_now
+from app.db.models import KnowledgeEntryModel, TaskModel, RepositoryConfigModel, get_utc_now
 from app.agent.semantic_cache import compute_fallback_embedding, cosine_similarity
 from app.agent.engine.cortex_bridge import CortexDBBridge
 
@@ -84,7 +84,8 @@ def extract_entities_and_relations(
     trigger_pattern: str,
     insight: str,
     context_files: Optional[List[str]] = None,
-    category: str = "failure_recovery"
+    category: str = "failure_recovery",
+    is_mutation: bool = True,
 ) -> Tuple[List[str], List[Dict[str, str]]]:
     """
     Deterministically extracts canonical entity names and property-graph relation
@@ -119,7 +120,7 @@ def extract_entities_and_relations(
 
     # 2. Extract file references mentioned in text
     text_files = re.findall(
-        r"\b([a-zA-Z0-9_-]+\.(?:py|ts|tsx|js|jsx|go|rs|sql|json|yaml|yml|toml|md|sh))\b",
+        r"\b([a-zA-Z0-9_-]+\.(?:py|ts|tsx|js|jsx|go|rs|sql|json|yaml|yml|toml|md|proto|sh))\b",
         combined_text
     )
     for tf in text_files[:4]:
@@ -139,7 +140,7 @@ def extract_entities_and_relations(
     # Build relational edges
     primary_subject = file_entities[0] if file_entities else (entities[0] if entities else category)
     predicate = "resolves" if category == "failure_recovery" else (
-        "governs" if category == "architecture_rule" else "uses_pattern"
+        "governs" if category in {"architecture", "architecture_rule"} else "uses_pattern"
     )
 
     for err_cls in error_classes[:3]:
@@ -159,11 +160,12 @@ def extract_entities_and_relations(
             })
 
     if len(file_entities) >= 2:
+        file_edge_predicate = "co_modified_with" if is_mutation else "related_to"
         for other_file in file_entities[1:3]:
             if other_file != primary_subject:
                 relations.append({
                     "subject": primary_subject,
-                    "predicate": "co_modified_with",
+                    "predicate": file_edge_predicate,
                     "object": other_file
                 })
 
@@ -245,9 +247,118 @@ def _extract_files_from_command(cmd: str) -> List[str]:
     for m in re.finditer(r"\b([a-zA-Z0-9_./-]+\.(?:py|ts|tsx|js|jsx|go|rs|sql|json|yaml|yml|toml|md|proto|sh))\b", cmd):
         raw_path = m.group(1).lstrip("./")
         base = os.path.basename(raw_path)
-        if base and base not in found:
+        if base and base not in found and "*" not in base:
             found.append(base)
     return found[:6]
+
+
+def _split_clean_subcommands(cmd: str) -> List[str]:
+    """
+    Splits a compound shell command (`&&`, `;`) into individual subcommands,
+    filtering out pure glue (`cd ...`, `echo ...`, `true`, `pwd`) and stripping
+    trailing pipe/redirection scaffolding (`2>/dev/null`, `| head ...`).
+    """
+    if not cmd:
+        return []
+    parts = re.split(r"\s*(?:&&|;)\s*", cmd.strip())
+    cleaned: List[str] = []
+    for p in parts:
+        sub = p.strip()
+        if not sub:
+            continue
+        low = sub.lower()
+        if low.startswith(("cd ", "echo ", "echo\t")) or low in {"echo", "pwd", "true"}:
+            continue
+        sub = re.sub(r"\s+2>/dev/null\b", "", sub)
+        sub = re.sub(r"\s*\|\s*(?:head|tail)(?:\s+-[a-zA-Z0-9]+\s*\d*|\s+\d+)?\s*$", "", sub)
+        sub = " ".join(sub.split())
+        if sub:
+            cleaned.append(sub)
+    return cleaned
+
+
+def _extract_command_target_tokens(subcmd: str) -> set:
+    """Extracts meaningful path/identifier tokens from a single subcommand."""
+    noise = {
+        "grep", "find", "cat", "ls", "head", "tail", "sed", "awk", "wc",
+        "python", "python3", "pytest", "npm", "npx", "node", "cargo", "go",
+        "git", "docker", "exec", "run", "test", "build", "maxdepth", "type",
+        "null", "dev", "true", "false"
+    }
+    tokens = set()
+    for tok in re.findall(r"[a-zA-Z0-9_./-]{3,}", subcmd.lower()):
+        stem = tok.strip("./-_")
+        if not stem or stem in noise or stem in STOPWORDS or stem.isdigit():
+            continue
+        tokens.add(stem)
+        base = os.path.basename(stem)
+        if base and len(base) >= 3 and base not in noise:
+            tokens.add(base)
+            root_name = os.path.splitext(base)[0]
+            if len(root_name) >= 3 and root_name not in noise:
+                tokens.add(root_name)
+    return tokens
+
+
+def _find_causal_subcommand_pair(
+    prev_cmd: str,
+    prev_out: str,
+    rec_cmd: str
+) -> Optional[Tuple[str, str, List[str]]]:
+    """
+    Determines whether `rec_cmd` causally resolves the failing subcommand in `prev_cmd`
+    rather than merely running an unrelated subsequent command.
+    Returns `(failed_subcommand, resolved_subcommand, relevant_files)` if causally linked,
+    or `None` if `rec_cmd` abandoned the failing target.
+    """
+    prev_subs = _split_clean_subcommands(prev_cmd)
+    rec_subs = _split_clean_subcommands(rec_cmd)
+    if not prev_subs or not rec_subs:
+        return None
+
+    # Focus on actual error lines in prev_out rather than stdout from earlier succeeding subcommands
+    raw_lines = [ln.strip() for ln in (prev_out or "").splitlines() if ln.strip() and ln.strip() != "stderr:"]
+    err_lines = [
+        ln for ln in raw_lines
+        if any(
+            k in ln
+            for k in ("Error", "Exception", "failed", "Fatal", "No such file", "not found", "REJECTED", "invalid", "cannot")
+        )
+    ]
+    err_focus = "\n".join(err_lines if err_lines else raw_lines[-2:]).lower()
+
+    failing_sub = prev_subs[-1]
+    best_err_overlap = -1
+    for sub in prev_subs:
+        toks = _extract_command_target_tokens(sub)
+        overlap = sum(1 for t in toks if t in err_focus)
+        if overlap >= best_err_overlap and overlap > 0:
+            best_err_overlap = overlap
+            failing_sub = sub
+
+    fail_tokens = _extract_command_target_tokens(failing_sub)
+    if not fail_tokens:
+        return None
+
+    # Find the subcommand in rec_cmd that shares the strongest target overlap with failing_sub
+    best_rec_sub = None
+    best_shared: set = set()
+    for rsub in rec_subs:
+        rtoks = _extract_command_target_tokens(rsub)
+        shared = fail_tokens.intersection(rtoks)
+        if len(shared) > len(best_shared) and rsub != failing_sub:
+            best_shared = shared
+            best_rec_sub = rsub
+
+    if not best_rec_sub or not best_shared:
+        return None
+
+    rel_files: List[str] = []
+    for f in _extract_files_from_command(failing_sub) + _extract_files_from_command(best_rec_sub):
+        if f not in rel_files:
+            rel_files.append(f)
+
+    return failing_sub, best_rec_sub, rel_files
 
 
 def _extract_causal_insight(
@@ -256,6 +367,8 @@ def _extract_causal_insight(
     files: List[str],
     failed_cmd: str = "",
     exit_code: int = 0,
+    is_mutation: bool = True,
+    category: str = "failure_recovery",
 ) -> Optional[Dict[str, Any]]:
     """
     Extracts an actionable, condensed heuristic from an error-recovery pair.
@@ -298,26 +411,46 @@ def _extract_causal_insight(
     for f in files:
         if f:
             b = os.path.basename(f)
-            if b and b not in ctx_files:
+            if b and b not in ctx_files and "*" not in b:
                 ctx_files.append(b)
-    slug = compute_memory_slug("failure_recovery", key_error or "runtime_error", ctx_files)
+    slug = compute_memory_slug(category, key_error or "runtime_error", ctx_files)
     entities, relations = extract_entities_and_relations(
         key_error or "runtime_error",
         insight,
         ctx_files,
-        category="failure_recovery"
+        category=category,
+        is_mutation=is_mutation,
     )
 
     return {
         "trigger_pattern": key_error or "runtime_error",
         "insight": insight,
         "context_files": ctx_files,
-        "category": "failure_recovery",
+        "category": category,
         "slug": slug,
         "epistemic_grade": "self_consistent",
         "entities": entities,
         "relations": relations,
     }
+
+
+async def _resolve_valid_repo_id(session: AsyncSession, repo_id_or_name: Optional[str]) -> Optional[str]:
+    """
+    Ensures `repo_id` satisfies the `repository_configs.id` foreign key before insert.
+    Accepts either a UUID (`RepositoryConfigModel.id`) or repo name (`full_name` / `name`).
+    Returns `None` if no matching row exists in `repository_configs`.
+    """
+    if not repo_id_or_name:
+        return None
+    stmt = select(RepositoryConfigModel.id).where(
+        or_(
+            RepositoryConfigModel.id == repo_id_or_name,
+            RepositoryConfigModel.full_name == repo_id_or_name,
+            RepositoryConfigModel.name == repo_id_or_name,
+        )
+    )
+    res = await session.execute(stmt)
+    return res.scalars().first()
 
 
 async def upsert_knowledge_entry(
@@ -337,19 +470,24 @@ async def upsert_knowledge_entry(
     epistemic_grade: Optional[str] = None,
     entities: Optional[List[str]] = None,
     relations: Optional[List[Dict[str, Any]]] = None,
+    is_mutation: bool = True,
 ) -> Tuple[KnowledgeEntryModel, List[str]]:
     """
     Creates a knowledge entry and applies CortexDB slug-based supersession:
+    - Validates `repo_id` against `RepositoryConfigModel` to prevent FK errors.
     - Computes canonical `slug`, `entities`, `relations`, `epistemic_grade`, and `embedding_json`.
     - Marks any older active entries under the same `(slug, repo_id)` as `SUPERSEDED`
       with `superseded_by = new_entry.id`.
     """
-    ctx_files = [os.path.basename(f) if "/" in f else f for f in (context_files or []) if f]
+    valid_repo_id = await _resolve_valid_repo_id(session, repo_id)
+    ctx_files = [os.path.basename(f) if "/" in f else f for f in (context_files or []) if f and "*" not in f]
     resolved_slug = slug or compute_memory_slug(category, trigger_pattern, ctx_files)
     auto_entities, auto_relations = extract_entities_and_relations(
-        trigger_pattern, insight, ctx_files, category=category
+        trigger_pattern, insight, ctx_files, category=category, is_mutation=is_mutation
     )
-    resolved_entities = entities if entities is not None else auto_entities
+    resolved_entities = list(entities) if entities is not None else list(auto_entities)
+    if repo_id and not valid_repo_id and repo_id not in resolved_entities:
+        resolved_entities.append(repo_id)
     resolved_relations = relations if relations is not None else auto_relations
     resolved_grade = epistemic_grade or (
         "self_consistent" if category == "failure_recovery" else "asserted"
@@ -361,13 +499,13 @@ async def upsert_knowledge_entry(
     prior_stmt = select(KnowledgeEntryModel).where(
         KnowledgeEntryModel.slug == resolved_slug,
         KnowledgeEntryModel.status.in_(["PROVISIONAL", "PROMOTED"]),
-        KnowledgeEntryModel.repo_id == repo_id if repo_id else KnowledgeEntryModel.repo_id.is_(None),
+        KnowledgeEntryModel.repo_id == valid_repo_id if valid_repo_id else KnowledgeEntryModel.repo_id.is_(None),
     )
     prior_res = await session.execute(prior_stmt)
     prior_entries = prior_res.scalars().all()
 
     entry = KnowledgeEntryModel(
-        repo_id=repo_id,
+        repo_id=valid_repo_id,
         source_task_id=source_task_id,
         source_turn_index=source_turn_index,
         git_commit_sha=git_commit_sha,
@@ -401,7 +539,7 @@ async def upsert_knowledge_entry(
     CortexDBBridge.remember_BestEffort(
         memory_id=entry.id,
         content=entry.insight,
-        scope=repo_id or "global",
+        scope=valid_repo_id or repo_id or "global",
         entities=resolved_entities,
         relations=resolved_relations,
     )
@@ -418,9 +556,10 @@ async def extract_turn_heuristics(
     git_commit_sha: Optional[str] = None
 ) -> List[Dict[str, Any]]:
     """
-    Analyzes turn tool execution logs for error-recovery patterns (both adjacent and
-    multi-step across intermediate inspections) and records provisional heuristics
-    with CortexDB slug supersession and inline entity/relation triples.
+    Analyzes turn tool execution logs for:
+    1. Causal error-recovery patterns (requiring target/file overlap for command-to-command pairs,
+       summarizing subcommands cleanly, and distinguishing mutating fixes from read-only inspections).
+    2. Verified multi-file architectural co-change patterns when >=2 files are modified and verified cleanly.
     """
     if not tool_logs or len(tool_logs) < 2:
         return []
@@ -428,6 +567,7 @@ async def extract_turn_heuristics(
     created_entries: List[Dict[str, Any]] = []
     seen_slugs: set = set()
     read_only_tools = {"read_file", "view_file", "list_dir", "list_files", "search_files", "grep_search", "extract_outline"}
+    mutating_keywords = ("edit", "replace", "write", "patch", "create_file")
 
     for i in range(len(tool_logs) - 1):
         prev_log = tool_logs[i]
@@ -448,8 +588,12 @@ async def extract_turn_heuristics(
         if not has_error:
             continue
 
+        is_circuit_breaker = "DAEMON CIRCUIT-BREAKER REJECTED COMMAND" in prev_out
+
         # Look ahead up to 3 steps in the same turn so error -> read_file -> edit_file recovery is captured
         recovery_log = None
+        causal_sub_pair: Optional[Tuple[str, str, List[str]]] = None
+
         for j in range(i + 1, min(i + 4, len(tool_logs))):
             cand = tool_logs[j]
             cand_exit = cand.get("exit_code", 0) or 0
@@ -461,44 +605,74 @@ async def extract_turn_heuristics(
             )
             if not is_clean:
                 continue
-            # Prefer mutating or command execution tool as the resolution step
-            if j == i + 1 or any(k in cand_name for k in ["edit", "replace", "write", "run_command", "patch"]):
+
+            is_cand_mutating = any(k in cand_name for k in mutating_keywords)
+            if is_cand_mutating:
                 recovery_log = cand
                 break
 
-        if recovery_log is not None:
-            target_files = list(diff_files or [])
-            for f_cand in _extract_files_from_command(prev_cmd):
-                if f_cand not in target_files:
-                    target_files.append(f_cand)
+            if "run_command" in cand_name or "command" in cand_name:
+                cand_inp = cand.get("tool_input") or {}
+                cand_cmd = (cand_inp.get("command") or cand_inp.get("CommandLine") or "") if isinstance(cand_inp, dict) else ""
+                if prev_cmd and cand_cmd:
+                    pair = _find_causal_subcommand_pair(prev_cmd, prev_out, cand_cmd)
+                    if pair is not None:
+                        causal_sub_pair = pair
+                        recovery_log = cand
+                        break
+                    if is_circuit_breaker and j == i + 1:
+                        recovery_log = cand
+                        break
+                    # Unrelated command ran next -> agent moved on; do not look ahead past it
+                    break
+                elif not prev_cmd and j == i + 1:
+                    recovery_log = cand
+                    break
 
+        if recovery_log is not None:
+            t_name = recovery_log.get("tool_name", "tool")
+            is_mut = any(k in t_name.lower() for k in mutating_keywords) or bool(diff_files)
             inp = recovery_log.get("tool_input") or {}
-            if isinstance(inp, dict):
-                target_f = inp.get("TargetFile") or inp.get("file_path") or inp.get("path")
+            target_f = (inp.get("TargetFile") or inp.get("file_path") or inp.get("path")) if isinstance(inp, dict) else None
+            rec_cmd = (inp.get("command") or inp.get("CommandLine") or "") if isinstance(inp, dict) else ""
+            entry_category = "failure_recovery"
+
+            if causal_sub_pair is not None:
+                failed_sub, resolved_sub, sub_files = causal_sub_pair
+                target_files = list(diff_files or [])
+                for sf in sub_files:
+                    if sf not in target_files:
+                        target_files.append(sf)
+                res_desc = f"running `{resolved_sub[:140]}`"
+                effective_failed_cmd = failed_sub
+            elif is_circuit_breaker:
+                entry_category = "tool_recipe"
+                target_files = []
+                pat_match = re.search(r"detected in '([^']+)'", prev_out)
+                blocked_pat = pat_match.group(1) if pat_match else "foreground server pattern"
+                res_desc = f"omitting `{blocked_pat}` from `run_command` so the daemon circuit-breaker is not triggered"
+                effective_failed_cmd = prev_cmd
+            else:
+                target_files = list(diff_files or [])
                 if target_f and target_f not in target_files:
                     target_files.append(target_f)
-                rec_cmd = inp.get("command") or inp.get("CommandLine") or ""
-                for f_cand in _extract_files_from_command(rec_cmd):
-                    if f_cand not in target_files:
-                        target_files.append(f_cand)
-            else:
-                target_f = None
-                rec_cmd = ""
-
-            t_name = recovery_log.get("tool_name", "tool")
-            res_desc = f"executing {t_name} successfully"
-            if "edit" in t_name.lower() or "replace" in t_name.lower() or "write" in t_name.lower():
-                res_desc = f"modifying {os.path.basename(target_f) if target_f else 'relevant file'}"
-            elif rec_cmd:
-                compact_rec = " ".join(rec_cmd.strip().split())[:120]
-                res_desc = f"running `{compact_rec}`"
+                res_desc = f"executing {t_name} successfully"
+                if is_mut:
+                    res_desc = f"modifying {os.path.basename(target_f) if target_f else 'relevant file'}"
+                elif rec_cmd:
+                    subs = _split_clean_subcommands(rec_cmd)
+                    clean_rec = subs[0] if subs else " ".join(rec_cmd.strip().split())
+                    res_desc = f"running `{clean_rec[:140]}`"
+                effective_failed_cmd = prev_cmd
 
             extracted = _extract_causal_insight(
                 prev_out,
                 res_desc,
                 target_files,
-                failed_cmd=prev_cmd,
+                failed_cmd=effective_failed_cmd,
                 exit_code=prev_exit,
+                is_mutation=is_mut,
+                category=entry_category,
             )
             if extracted and extracted["slug"] not in seen_slugs:
                 seen_slugs.add(extracted["slug"])
@@ -519,12 +693,14 @@ async def extract_turn_heuristics(
                         relations=extracted["relations"],
                         status="PROVISIONAL",
                         utility_score=1.0,
+                        is_mutation=is_mut,
                     )
                     created_entries.append({
                         "id": entry.id,
                         "category": entry.category,
                         "trigger_pattern": entry.trigger_pattern,
                         "insight": entry.insight,
+                        "context_files": entry.context_files,
                         "status": entry.status,
                         "slug": entry.slug,
                         "epistemic_grade": entry.epistemic_grade,
@@ -536,6 +712,71 @@ async def extract_turn_heuristics(
                         f"Recorded provisional heuristic [{entry.slug}] from Turn {turn_index} "
                         f"in Task {task_id}: {entry.insight[:80]}..."
                     )
+
+    # 2. Clean-turn architectural co-change & verification extraction:
+    # If >=2 files were modified and verified by a passing test/build command in the turn,
+    # record a self-consistent `architecture_rule` heuristic.
+    modified_files: List[str] = [os.path.basename(f) for f in (diff_files or []) if f]
+    verification_cmd: Optional[str] = None
+    for log in tool_logs:
+        t_name = (log.get("tool_name") or "").lower()
+        t_inp = log.get("tool_input") or {}
+        t_exit = log.get("exit_code", 0) or 0
+        if t_exit != 0 or not isinstance(t_inp, dict):
+            continue
+        if any(k in t_name for k in mutating_keywords):
+            tf = t_inp.get("TargetFile") or t_inp.get("file_path") or t_inp.get("path")
+            if tf:
+                b = os.path.basename(str(tf))
+                if b and b not in modified_files:
+                    modified_files.append(b)
+        elif "command" in t_name:
+            cmd_str = t_inp.get("command") or t_inp.get("CommandLine") or ""
+            if any(v in cmd_str.lower() for v in ["pytest", "npm test", "npm run build", "cargo test", "go test", "tsc", "vitest", "jest"]):
+                subs = _split_clean_subcommands(cmd_str)
+                verification_cmd = subs[-1] if subs else " ".join(cmd_str.strip().split())[:120]
+
+    if len(modified_files) >= 2 and verification_cmd:
+        primary_f = modified_files[0]
+        co_files = ", ".join(modified_files[1:4])
+        trigger = f"Co-modifying {primary_f} with {co_files}"
+        insight = (
+            f"Changes spanning {', '.join(modified_files[:4])} should be kept in sync "
+            f"and verified via `{verification_cmd}`."
+        )
+        arch_slug = compute_memory_slug("architecture_rule", trigger, modified_files[:4])
+        if arch_slug not in seen_slugs:
+            seen_slugs.add(arch_slug)
+            async with async_session_factory() as session:
+                entry, superseded_ids = await upsert_knowledge_entry(
+                    session,
+                    repo_id=repo_id,
+                    source_task_id=task_id,
+                    source_turn_index=turn_index,
+                    git_commit_sha=git_commit_sha,
+                    category="architecture_rule",
+                    trigger_pattern=trigger,
+                    insight=insight,
+                    context_files=modified_files[:4],
+                    slug=arch_slug,
+                    epistemic_grade="self_consistent",
+                    status="PROVISIONAL",
+                    utility_score=1.0,
+                    is_mutation=True,
+                )
+                created_entries.append({
+                    "id": entry.id,
+                    "category": entry.category,
+                    "trigger_pattern": entry.trigger_pattern,
+                    "insight": entry.insight,
+                    "context_files": entry.context_files,
+                    "status": entry.status,
+                    "slug": entry.slug,
+                    "epistemic_grade": entry.epistemic_grade,
+                    "entities": entry.entities,
+                    "relations": entry.relations,
+                    "superseded_ids": superseded_ids,
+                })
 
     return created_entries
 
