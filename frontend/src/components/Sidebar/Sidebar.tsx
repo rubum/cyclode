@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { 
   Plus, 
   Layers, 
@@ -74,6 +74,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [editingTitle, setEditingTitle] = useState<string>('');
   const [sessionSearchQuery, setSessionSearchQuery] = useState<string>('');
   const [hoveredSession, setHoveredSession] = useState<{ taskId: string; top: number; left: number } | null>(null);
+  const hoverCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const editingTaskIdRef = useRef<string | null>(null);
+  editingTaskIdRef.current = editingTaskId;
+
+  const clearHoverCloseTimer = () => {
+    if (hoverCloseTimerRef.current) {
+      clearTimeout(hoverCloseTimerRef.current);
+      hoverCloseTimerRef.current = null;
+    }
+  };
+
+  const scheduleHoverClose = (taskId: string) => {
+    clearHoverCloseTimer();
+    hoverCloseTimerRef.current = setTimeout(() => {
+      setHoveredSession((prev) => {
+        if (prev?.taskId !== taskId) return prev;
+        if (editingTaskIdRef.current === taskId) return prev;
+        return null;
+      });
+    }, 140);
+  };
 
   const filteredTasks = useMemo(() => {
     const primaryTasks = tasks.filter((t) => !t.is_subsession);
@@ -226,6 +247,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <div key={task.id} className="relative group flex items-center justify-center flex-shrink-0">
                   <button
                     onMouseEnter={(e) => {
+                      clearHoverCloseTimer();
                       const rect = e.currentTarget.getBoundingClientRect();
                       const clampedTop = Math.min(Math.max(rect.top + rect.height / 2, 72), window.innerHeight - 72);
                       setHoveredSession({
@@ -235,10 +257,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       });
                     }}
                     onMouseLeave={() => {
-                      setHoveredSession((prev) => (prev?.taskId === task.id ? null : prev));
+                      scheduleHoverClose(task.id);
                     }}
                     onClick={() => {
                       if (isBeingDeleted || isClearingAll) return;
+                      clearHoverCloseTimer();
                       setHoveredSession(null);
                       onSelectTask(task.id);
                       setActiveView('chat');
@@ -356,20 +379,78 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {hoveredSession && (() => {
           const hoveredTask = filteredTasks.find((t) => t.id === hoveredSession.taskId);
           if (!hoveredTask) return null;
+          const isBeingDeleted = deletingTaskId === hoveredTask.id;
           return (
             <div
+              onMouseEnter={clearHoverCloseTimer}
+              onMouseLeave={() => scheduleHoverClose(hoveredTask.id)}
               style={{
                 position: 'fixed',
                 top: `${hoveredSession.top}px`,
                 left: `${hoveredSession.left}px`,
                 transform: 'translateY(-50%)',
               }}
-              className="w-64 p-3 bg-onedark-darker/95 backdrop-blur-md rounded-xl border border-onedark-borderSubtle shadow-2xl pointer-events-none z-[100] flex flex-col space-y-2 animate-popover-enter"
+              className="w-64 p-3 bg-onedark-darker/95 backdrop-blur-md rounded-xl border border-onedark-borderSubtle shadow-2xl pointer-events-auto z-[100] flex flex-col space-y-2 animate-popover-enter before:content-[''] before:absolute before:-left-3 before:inset-y-0 before:w-3"
             >
               <div className="flex items-start justify-between space-x-2">
-                <span className="text-xs font-semibold text-onedark-fgBright line-clamp-2 leading-snug">
-                  {hoveredTask.title || 'Untitled Session'}
-                </span>
+                {editingTaskId === hoveredTask.id ? (
+                  <div
+                    className="flex items-center space-x-1 flex-1 min-w-0"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <input
+                      type="text"
+                      value={editingTitle}
+                      onChange={(e) => setEditingTitle(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleCommitEdit(hoveredTask.id);
+                        } else if (e.key === 'Escape') {
+                          e.preventDefault();
+                          setEditingTaskId(null);
+                        }
+                      }}
+                      autoFocus
+                      className="flex-1 bg-onedark-bg border border-onedark-accent text-xs text-onedark-fgBright px-1.5 py-0.5 rounded outline-none w-full min-w-0 font-medium"
+                    />
+                    <button
+                      onClick={() => handleCommitEdit(hoveredTask.id)}
+                      className="p-0.5 rounded hover:bg-onedark-green/20 text-onedark-green transition-all flex-shrink-0 cursor-pointer"
+                      title="Save title"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => setEditingTaskId(null)}
+                      className="p-0.5 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-all flex-shrink-0 cursor-pointer"
+                      title="Cancel"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <span
+                    onClick={() => {
+                      if (isBeingDeleted || isClearingAll) return;
+                      clearHoverCloseTimer();
+                      setHoveredSession(null);
+                      onSelectTask(hoveredTask.id);
+                      setActiveView('chat');
+                    }}
+                    onDoubleClick={(e) => {
+                      e.stopPropagation();
+                      if (onUpdateTaskTitle) {
+                        setEditingTaskId(hoveredTask.id);
+                        setEditingTitle(hoveredTask.title || '');
+                      }
+                    }}
+                    className="text-xs font-semibold text-onedark-fgBright hover:text-onedark-accent line-clamp-2 leading-snug cursor-pointer transition-colors"
+                    title="Click to open session · Double-click to rename"
+                  >
+                    {hoveredTask.title || 'Untitled Session'}
+                  </span>
+                )}
                 <span className={`inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[9px] font-mono flex-shrink-0 ${getStatusColor(hoveredTask.status)}`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${getStatusDot(hoveredTask.status)}`} />
                   <span>{formatStatus(hoveredTask.status)}</span>
@@ -385,21 +466,89 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </div>
               )}
 
-              <div className="flex items-center flex-wrap gap-1 text-[10px]">
-                {hoveredTask.persona && (
-                  <span className="px-1.5 py-0.5 rounded bg-onedark-surface text-onedark-muted font-mono">
-                    {hoveredTask.persona}
-                  </span>
-                )}
-                {hoveredTask.repo_name && (
-                  <span className="px-1.5 py-0.5 rounded bg-onedark-accent/10 text-onedark-accent font-mono truncate max-w-[140px]">
-                    {hoveredTask.repo_name}
-                  </span>
-                )}
+              <div className="flex items-center justify-between gap-1.5 pt-0.5">
+                <div className="flex items-center flex-wrap gap-1 text-[10px] min-w-0">
+                  {hoveredTask.persona && (
+                    <span className="px-1.5 py-0.5 rounded bg-onedark-surface text-onedark-muted font-mono">
+                      {hoveredTask.persona}
+                    </span>
+                  )}
+                  {hoveredTask.repo_name && (
+                    <span className="px-1.5 py-0.5 rounded bg-onedark-accent/10 text-onedark-accent font-mono truncate max-w-[120px]">
+                      {hoveredTask.repo_name}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex items-center space-x-0.5 flex-shrink-0">
+                  {onUpdateTaskTitle && editingTaskId !== hoveredTask.id && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingTaskId(hoveredTask.id);
+                        setEditingTitle(hoveredTask.title || '');
+                      }}
+                      className="p-1 rounded-md hover:bg-onedark-accent/20 text-onedark-muted hover:text-onedark-accent transition-colors cursor-pointer"
+                      title="Rename session"
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                  )}
+                  {isBeingDeleted ? (
+                    <div className="p-1 text-onedark-red flex items-center justify-center" title="Deleting session...">
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                    </div>
+                  ) : (
+                    onDeleteTask && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setHoveredSession(null);
+                          setTaskToDelete(hoveredTask);
+                        }}
+                        className="p-1 rounded-md hover:bg-onedark-red/20 text-onedark-muted hover:text-onedark-red transition-colors cursor-pointer"
+                        title="Delete session"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )
+                  )}
+                </div>
               </div>
             </div>
           );
         })()}
+
+        {/* Delete Single Task Confirm Modal (Collapsed Sidebar) */}
+        <ConfirmModal
+          isOpen={!!taskToDelete}
+          isLoading={!!deletingTaskId}
+          title="Delete Agent Session"
+          description={`Are you sure you want to delete session "${taskToDelete?.title || 'Untitled'}"?`}
+          confirmText="Delete Session"
+          cancelText="Cancel"
+          variant="danger"
+          impactItems={[
+            'Removes chat conversation history and agent thought logs',
+            'Ephemeral workspace scratch directory will be cleaned up',
+          ]}
+          safeItems={[
+            'Remote repositories and code branches are completely untouched',
+          ]}
+          onConfirm={async () => {
+            if (taskToDelete && onDeleteTask) {
+              const targetId = taskToDelete.id;
+              try {
+                await onDeleteTask(targetId);
+              } finally {
+                setTaskToDelete(null);
+              }
+            }
+          }}
+          onCancel={() => {
+            if (!deletingTaskId) setTaskToDelete(null);
+          }}
+        />
       </div>
     );
   }
