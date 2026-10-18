@@ -380,6 +380,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           const hoveredTask = filteredTasks.find((t) => t.id === hoveredSession.taskId);
           if (!hoveredTask) return null;
           const isBeingDeleted = deletingTaskId === hoveredTask.id;
+          const isEditingThis = editingTaskId === hoveredTask.id;
           return (
             <div
               onMouseEnter={clearHoverCloseTimer}
@@ -390,46 +391,47 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 left: `${hoveredSession.left}px`,
                 transform: 'translateY(-50%)',
               }}
-              className="w-64 p-3 bg-onedark-darker/95 backdrop-blur-md rounded-xl border border-onedark-borderSubtle shadow-2xl pointer-events-auto z-[100] flex flex-col space-y-2 animate-popover-enter before:content-[''] before:absolute before:-left-3 before:inset-y-0 before:w-3"
+              className="w-72 p-3 bg-onedark-darker/95 backdrop-blur-md rounded-xl border border-onedark-borderSubtle shadow-2xl pointer-events-auto z-[100] flex flex-col space-y-2 animate-popover-enter before:content-[''] before:absolute before:-left-3 before:inset-y-0 before:w-3"
             >
-              <div className="flex items-start justify-between space-x-2">
-                {editingTaskId === hoveredTask.id ? (
-                  <div
-                    className="flex items-center space-x-1 flex-1 min-w-0"
-                    onClick={(e) => e.stopPropagation()}
+              {/* Row 1: Full-width inline editor when renaming, or Title + Status pill */}
+              {isEditingThis ? (
+                <div
+                  className="flex items-center space-x-1.5 w-full"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <input
+                    type="text"
+                    value={editingTitle}
+                    onChange={(e) => setEditingTitle(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleCommitEdit(hoveredTask.id);
+                      } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        setEditingTaskId(null);
+                      }
+                    }}
+                    autoFocus
+                    className="flex-1 bg-onedark-bg border border-onedark-accent text-xs text-onedark-fgBright px-2 py-1 rounded-md outline-none w-full min-w-0 font-medium shadow-2xs"
+                  />
+                  <button
+                    onClick={() => handleCommitEdit(hoveredTask.id)}
+                    className="p-1 rounded-md bg-onedark-green/15 hover:bg-onedark-green/25 text-onedark-green border border-onedark-green/30 transition-colors flex-shrink-0 cursor-pointer"
+                    title="Save title (Enter)"
                   >
-                    <input
-                      type="text"
-                      value={editingTitle}
-                      onChange={(e) => setEditingTitle(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          handleCommitEdit(hoveredTask.id);
-                        } else if (e.key === 'Escape') {
-                          e.preventDefault();
-                          setEditingTaskId(null);
-                        }
-                      }}
-                      autoFocus
-                      className="flex-1 bg-onedark-bg border border-onedark-accent text-xs text-onedark-fgBright px-1.5 py-0.5 rounded outline-none w-full min-w-0 font-medium"
-                    />
-                    <button
-                      onClick={() => handleCommitEdit(hoveredTask.id)}
-                      className="p-0.5 rounded hover:bg-onedark-green/20 text-onedark-green transition-all flex-shrink-0 cursor-pointer"
-                      title="Save title"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      onClick={() => setEditingTaskId(null)}
-                      className="p-0.5 rounded hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg transition-all flex-shrink-0 cursor-pointer"
-                      title="Cancel"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ) : (
+                    <Check className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setEditingTaskId(null)}
+                    className="p-1 rounded-md bg-onedark-surface/70 hover:bg-onedark-surface text-onedark-muted hover:text-onedark-fg border border-onedark-borderSubtle transition-colors flex-shrink-0 cursor-pointer"
+                    title="Cancel (Esc)"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-start justify-between gap-2">
                   <span
                     onClick={() => {
                       if (isBeingDeleted || isClearingAll) return;
@@ -445,28 +447,38 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         setEditingTitle(hoveredTask.title || '');
                       }
                     }}
-                    className="text-xs font-semibold text-onedark-fgBright hover:text-onedark-accent line-clamp-2 leading-snug cursor-pointer transition-colors"
+                    className="text-xs font-semibold text-onedark-fgBright hover:text-onedark-accent line-clamp-2 leading-snug cursor-pointer transition-colors flex-1 min-w-0"
                     title="Click to open session · Double-click to rename"
                   >
                     {hoveredTask.title || 'Untitled Session'}
                   </span>
-                )}
-                <span className={`inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[9px] font-mono flex-shrink-0 ${getStatusColor(hoveredTask.status)}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${getStatusDot(hoveredTask.status)}`} />
-                  <span>{formatStatus(hoveredTask.status)}</span>
-                </span>
-              </div>
-
-              {hoveredTask.created_at && (
-                <div className="flex items-center space-x-1.5 text-[10.5px] text-onedark-muted font-sans">
-                  <Clock className="w-3 h-3 text-onedark-muted/70 flex-shrink-0" />
-                  <span title={formatFullDateTime(hoveredTask.created_at)}>
-                    Created {formatRelativeTime(hoveredTask.created_at)}
+                  <span className={`inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[9px] font-mono flex-shrink-0 ${getStatusColor(hoveredTask.status)}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${getStatusDot(hoveredTask.status)}`} />
+                    <span>{formatStatus(hoveredTask.status)}</span>
                   </span>
                 </div>
               )}
 
-              <div className="flex items-center justify-between gap-1.5 pt-0.5">
+              {/* Row 2: Timestamp (+ Status pill when renaming so context isn't lost) */}
+              <div className="flex items-center justify-between gap-2 text-[10.5px] text-onedark-muted font-sans">
+                {hoveredTask.created_at ? (
+                  <div className="flex items-center space-x-1.5 min-w-0">
+                    <Clock className="w-3 h-3 text-onedark-muted/70 flex-shrink-0" />
+                    <span title={formatFullDateTime(hoveredTask.created_at)} className="truncate">
+                      Created {formatRelativeTime(hoveredTask.created_at)}
+                    </span>
+                  </div>
+                ) : <span />}
+                {isEditingThis && (
+                  <span className={`inline-flex items-center space-x-1 px-1.5 py-0.5 rounded text-[9px] font-mono flex-shrink-0 ${getStatusColor(hoveredTask.status)}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${getStatusDot(hoveredTask.status)}`} />
+                    <span>{formatStatus(hoveredTask.status)}</span>
+                  </span>
+                )}
+              </div>
+
+              {/* Row 3: Footer with tags on left and Rename / Delete actions on right */}
+              <div className="flex items-center justify-between gap-2 pt-2 border-t border-onedark-borderSubtle/60">
                 <div className="flex items-center flex-wrap gap-1 text-[10px] min-w-0">
                   {hoveredTask.persona && (
                     <span className="px-1.5 py-0.5 rounded bg-onedark-surface text-onedark-muted font-mono">
@@ -474,29 +486,37 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     </span>
                   )}
                   {hoveredTask.repo_name && (
-                    <span className="px-1.5 py-0.5 rounded bg-onedark-accent/10 text-onedark-accent font-mono truncate max-w-[120px]">
+                    <span className="px-1.5 py-0.5 rounded bg-onedark-accent/10 text-onedark-accent font-mono truncate max-w-[140px]">
                       {hoveredTask.repo_name}
                     </span>
                   )}
                 </div>
 
-                <div className="flex items-center space-x-0.5 flex-shrink-0">
-                  {onUpdateTaskTitle && editingTaskId !== hoveredTask.id && (
+                <div className="flex items-center space-x-1 flex-shrink-0">
+                  {onUpdateTaskTitle && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        setEditingTaskId(hoveredTask.id);
-                        setEditingTitle(hoveredTask.title || '');
+                        if (isEditingThis) {
+                          setEditingTaskId(null);
+                        } else {
+                          setEditingTaskId(hoveredTask.id);
+                          setEditingTitle(hoveredTask.title || '');
+                        }
                       }}
-                      className="p-1 rounded-md hover:bg-onedark-accent/20 text-onedark-muted hover:text-onedark-accent transition-colors cursor-pointer"
-                      title="Rename session"
+                      className={`p-1 rounded-md transition-colors cursor-pointer ${
+                        isEditingThis
+                          ? 'bg-onedark-accent/20 text-onedark-accent'
+                          : 'hover:bg-onedark-accent/20 text-onedark-muted hover:text-onedark-accent'
+                      }`}
+                      title={isEditingThis ? 'Cancel rename' : 'Rename session'}
                     >
-                      <Pencil className="w-3 h-3" />
+                      <Pencil className="w-3.5 h-3.5" />
                     </button>
                   )}
                   {isBeingDeleted ? (
                     <div className="p-1 text-onedark-red flex items-center justify-center" title="Deleting session...">
-                      <RefreshCw className="w-3 h-3 animate-spin" />
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                     </div>
                   ) : (
                     onDeleteTask && (
@@ -509,7 +529,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         className="p-1 rounded-md hover:bg-onedark-red/20 text-onedark-muted hover:text-onedark-red transition-colors cursor-pointer"
                         title="Delete session"
                       >
-                        <Trash2 className="w-3 h-3" />
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     )
                   )}
