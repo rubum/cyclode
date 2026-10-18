@@ -4222,20 +4222,30 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                     totalSteps === 1 &&
                     /Synthesizing dynamic execution plan/i.test(steps[0]?.title || '');
 
-                  // Phase 1: Planning Placeholder
-                  if (isSynthesizingPlaceholder && isTurnRunning && turn.isLatest) {
-                    return (
-                      <div className="rounded-xl overflow-hidden shadow-xs bg-onedark-darker/60 border border-white/[0.08]">
-                        <div className="w-full px-3.5 py-2 flex items-center justify-between text-xs font-sans text-onedark-muted select-none">
-                          <div className="flex items-center space-x-2.5 min-w-0 pr-2">
-                            <Loader2 className="w-3.5 h-3.5 text-onedark-accent animate-spin shrink-0" />
-                            <span className="text-xs font-medium text-onedark-fg">
-                              Planning approach…
-                            </span>
+                  // Phase 1: Planning Placeholder — only show before reasoning or tool execution begins
+                  if (isSynthesizingPlaceholder) {
+                    if (isTurnRunning && turn.isLatest && !hasThoughts && !hasLogs) {
+                      const isProvisioning = task?.sandbox_status === 'PROVISIONING';
+                      return (
+                        <div className="rounded-xl overflow-hidden shadow-xs bg-onedark-darker/60 border border-white/[0.08]">
+                          <div className="w-full px-3.5 py-2 flex items-center justify-between text-xs font-sans text-onedark-muted select-none">
+                            <div className="flex items-center space-x-2.5 min-w-0 pr-2">
+                              <Loader2
+                                className={`w-3.5 h-3.5 animate-spin shrink-0 ${
+                                  isProvisioning ? 'text-onedark-yellow' : 'text-onedark-accent'
+                                }`}
+                              />
+                              <span className="text-xs font-medium text-onedark-fg">
+                                {isProvisioning
+                                  ? 'Preparing sandbox workspace and repository…'
+                                  : 'Planning approach…'}
+                              </span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    );
+                      );
+                    }
+                    return null;
                   }
 
                   const isSingleSimpleStep =
@@ -4252,6 +4262,13 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   if (isSingleSimpleStep) {
                     const singleStep = steps[0];
                     const isStepActive = (isTurnRunning && turn.isLatest) || singleStep.status === 'in_progress';
+                    const isBypassPlan = (turn.plan as any)?.requires_plan === false;
+
+                    // When the agent bypassed planning (1-step fast-path) and is already showing live Reasoning or Actions below,
+                    // don't render a redundant 1-step header while streaming.
+                    if (isStepActive && isBypassPlan && (hasThoughts || hasLogs)) {
+                      return null;
+                    }
                     const { text: cleanSingleText, fileChips: singleChips } = formatStepLabel(singleStep.title);
 
                     return (
@@ -4529,13 +4546,19 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                       )}
                     </div>
                   );
-                })() : (isTurnRunning && turn.isLatest) ? (
+                })() : (isTurnRunning && turn.isLatest && !hasThoughts && !hasLogs) ? (
                   <div className="rounded-xl overflow-hidden shadow-xs bg-onedark-darker/60 border border-white/[0.08]">
                     <div className="w-full px-3.5 py-2 flex items-center justify-between text-xs font-sans text-onedark-muted select-none">
                       <div className="flex items-center space-x-2.5 min-w-0 pr-2">
-                        <Loader2 className="w-3.5 h-3.5 text-onedark-accent animate-spin shrink-0" />
+                        <Loader2
+                          className={`w-3.5 h-3.5 animate-spin shrink-0 ${
+                            task?.sandbox_status === 'PROVISIONING' ? 'text-onedark-yellow' : 'text-onedark-accent'
+                          }`}
+                        />
                         <span className="text-xs font-medium text-onedark-fg">
-                          Planning approach…
+                          {task?.sandbox_status === 'PROVISIONING'
+                            ? 'Preparing sandbox workspace and repository…'
+                            : 'Planning approach…'}
                         </span>
                       </div>
                     </div>
@@ -5156,21 +5179,14 @@ export const ChatCanvas: React.FC<ChatCanvasProps> = ({
                   );
                 })()}
 
-                {/* 4. Live Terminal Pulsing Cursor (Shown when turn is active before first agent message arrives) */}
-                {isTurnRunning && (hasPlan || task?.sandbox_status === 'PROVISIONING') && turn.agentMessages.length === 0 && !task?.active_tool && !turn.logs.some((l) => l.isRunning) && !turn.thoughts.some((t) => t.isStreaming) && (
+                {/* 4. Live Terminal Pulsing Cursor (Shown when turn is active after plan is ready, before first agent message arrives) */}
+                {isTurnRunning && hasPlan && task?.sandbox_status !== 'PROVISIONING' && turn.agentMessages.length === 0 && !task?.active_tool && !turn.logs.some((l) => l.isRunning) && !turn.thoughts.some((t) => t.isStreaming) && (
                   <div className="w-full flex flex-col items-start space-y-1.5">
                     <div className="flex items-center justify-between w-full px-0.5 text-[11px] font-mono text-onedark-muted">
                       <span className="font-sans font-medium text-onedark-fg">{task.persona}</span>
                     </div>
                     <div className="text-onedark-fg text-[13px] sm:text-[13.5px] leading-relaxed w-full flex items-center min-h-[22px]">
-                      {task?.sandbox_status === 'PROVISIONING' ? (
-                        <div className="flex items-center space-x-2 text-xs font-mono text-onedark-muted py-1">
-                          <Loader2 className="w-3.5 h-3.5 text-onedark-yellow animate-spin" />
-                          <span>Preparing sandbox workspace and repository...</span>
-                        </div>
-                      ) : (
-                        <span className="terminal-cursor" title="Generating..." />
-                      )}
+                      <span className="terminal-cursor" title="Generating..." />
                     </div>
                   </div>
                 )}
